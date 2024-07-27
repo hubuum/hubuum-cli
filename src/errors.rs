@@ -37,4 +37,19 @@ pub enum AppError {
 
     #[error("HTTP Error: {0}")]
     HttpError(String),
+
+    #[error("Regular expression error: {0}")]
+    RegexError(#[from] regex::Error),
+
+    #[error("File locking error")]
+    LockError,
+
+    #[error("Output format error")]
+    FormatError,
+
+    #[error("Error reading configuration file: {0}")]
+    ConfigError(String),
+
+    #[error("Readline error")]
+    ReadlineError(#[from] rustyline::error::ReadlineError),
 }

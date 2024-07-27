@@ -5,6 +5,8 @@ mod class;
 mod help;
 mod namespace;
 
+use crate::output::append_line;
+
 pub use class::ClassNew;
 #[allow(unused_imports)]
 pub use help::Help;
@@ -144,13 +146,6 @@ pub trait CliCommand: CliCommandInfo {
     fn get_option_completions(&self, prefix: &str, options_seen: &[String]) -> Vec<Pair> {
         let mut completions = Vec::new();
 
-        if prefix.is_empty() || "help".starts_with(prefix) {
-            completions.push(Pair {
-                display: "help".to_string(),
-                replacement: "help".to_string(),
-            });
-        }
-
         for opt in self.options() {
             let mut display = String::new();
             if prefix.is_empty() {
@@ -184,7 +179,7 @@ pub trait CliCommand: CliCommandInfo {
         completions
     }
 
-    fn help(&self, command_name: &String, context: &[String]) -> String {
+    fn help(&self, command_name: &String, context: &[String]) -> Result<(), AppError> {
         let mut help = String::new();
         let fq_name = format!("{} {}", context.join(" "), command_name);
         if let Some(about) = self.about() {
@@ -248,6 +243,9 @@ pub trait CliCommand: CliCommandInfo {
                 help.push_str(&format!("  {} {}\n", fq_name, line));
             }
         }
-        help
+        for line in help.lines() {
+            append_line(line)?;
+        }
+        Ok(())
     }
 }

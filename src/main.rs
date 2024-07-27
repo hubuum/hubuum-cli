@@ -1,29 +1,65 @@
+use anyhow::Context;
+use output::flush_output;
 use rustyline::Editor;
 
+mod cli;
 mod commandlist;
 mod commands;
+mod config;
+mod defaults;
 mod errors;
+mod files;
+mod models;
+mod output;
 mod tokenizer;
 
 use crate::commandlist::CommandList;
+use crate::files::get_history_file;
+use crate::output::{add_error, add_warning, clear_filter, set_filter};
 
 use log::{debug, trace};
 
-pub fn build_cli() -> CommandList {
+pub fn build_repl_commands() -> CommandList {
     let mut cli = CommandList::new();
     let class_commands = cli.add_scope("class");
     class_commands.add_command("create", commands::ClassNew::default());
     let namespace_commands = cli.add_scope("namespace");
     namespace_commands.add_command("create", commands::NamespaceNew::default());
     cli.add_command("help", commands::Help::default());
-    debug!("CLI: {}", cli);
     cli
 }
 
-fn main() -> rustyline::Result<()> {
+fn process_filter(line: &str) -> Result<String, anyhow::Error> {
+    let parts: Vec<&str> = line.split('|').collect();
+    if parts.len() > 1 {
+        let filter = parts[1].trim();
+        let invert = filter.starts_with('!');
+        let pattern = if invert { &filter[1..] } else { filter }.trim();
+        set_filter(pattern.to_string(), invert).context("Failed to set output filter")?;
+        Ok(parts[0].trim().to_string())
+    } else {
+        clear_filter().context("Failed to clear output filter")?;
+        Ok(line.to_string())
+    }
+}
+
+fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
 
-    let cli = build_cli();
+    let matches = cli::build_cli().get_matches();
+    let cli_config_path = cli::get_cli_config_path(&matches);
+    let mut config = config::load_config(cli_config_path)?;
+
+    cli::update_config_from_cli(&mut config, &matches);
+
+    let prompt = format!(
+        "{}@{}:{} > ",
+        config.server.username.clone(),
+        config.server.hostname.clone(),
+        config.server.port.clone()
+    );
+
+    let cli = build_repl_commands();
     let repl_config = rustyline::Config::builder()
         .history_ignore_space(true)
         .completion_type(rustyline::CompletionType::List)
@@ -31,16 +67,20 @@ fn main() -> rustyline::Result<()> {
 
     let mut rl = Editor::with_config(repl_config)?;
     rl.set_helper(Some(&cli));
+    rl.load_history(&get_history_file()?)?;
 
     loop {
-        let readline = rl.readline(">> ");
+        let readline = rl.readline(&prompt);
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
+                rl.save_history(&get_history_file()?)?;
+                let line = process_filter(line.as_str())?;
                 let parts = match shlex::split(&line) {
                     Some(parts) => parts,
                     None => {
-                        println!("Error parsing input");
+                        add_error("Parsing input failed")?;
+                        flush_output()?;
                         continue;
                     }
                 };
@@ -63,7 +103,8 @@ fn main() -> rustyline::Result<()> {
                         cmd_name = Some(part);
                         break;
                     } else {
-                        println!("Invalid command: {}", part);
+                        add_error(format!("Invalid command: {}", part))?;
+                        flush_output()?;
                         break;
                     }
                 }
@@ -71,30 +112,30 @@ fn main() -> rustyline::Result<()> {
                 if let Some(cmd) = command {
                     let cmd = cmd.as_ref();
                     debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
-                    let tokens =
-                        match tokenizer::CommandTokenizer::new(line.as_str(), cmd_name.unwrap()) {
-                            Ok(tokens) => tokens,
-                            Err(err) => {
-                                println!("Error parsing input: {:?}", err);
-                                continue;
+                    match tokenizer::CommandTokenizer::new(line.as_str(), cmd_name.unwrap()) {
+                        Ok(tokens) => {
+                            debug!("Tokens: {:?}", tokens);
+
+                            let options = tokens.get_options();
+                            if options.contains_key("help") || options.contains_key("h") {
+                                cmd.help(cmd_name.unwrap(), &context)?;
+                            } else {
+                                let result = cmd.execute(&tokens);
+                                match result {
+                                    Ok(_) => debug!("Command executed successfully"),
+                                    Err(err) => {
+                                        add_error(format!("Error executing command: {:?}", err))?
+                                    }
+                                }
                             }
-                        };
-
-                    debug!("Tokens: {:?}", tokens);
-
-                    let options = tokens.get_options();
-                    if options.contains_key("help") {
-                        println!("{}", cmd.help(cmd_name.unwrap(), &context));
-                        continue;
-                    }
-
-                    let result = cmd.execute(&tokens);
-                    match result {
-                        Ok(_) => debug!("Command executed successfully"),
-                        Err(err) => println!("Error executing command: {:?}", err),
+                        }
+                        Err(err) => {
+                            log::error!("Error parsing input: {:?}", err);
+                            add_error(format!("Error parsing input: {:?}", err))?;
+                        }
                     }
                 } else {
-                    println!("Command not found: {}", parts.join(" "));
+                    add_warning(format!("Command not found: {}", parts.join(" ")))?;
                 }
             }
             Err(rustyline::error::ReadlineError::Interrupted) => {
@@ -108,6 +149,7 @@ fn main() -> rustyline::Result<()> {
                 break;
             }
         }
+        flush_output()?;
     }
     Ok(())
 }
