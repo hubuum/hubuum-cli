@@ -10,6 +10,7 @@ struct FieldOpts {
     long: Option<String>,
     help: Option<String>,
     required: Option<bool>,
+    flag: Option<bool>,
 }
 
 #[proc_macro_derive(CliCommand, attributes(option))]
@@ -53,6 +54,8 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
             opts.required.map(|r| quote! { #r }).unwrap_or(quote! { true })
         };
 
+        let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
+
         quote! {
             CliOption {
                 name: stringify!(#field_name).to_string(),
@@ -62,6 +65,7 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                 field_type_help: stringify!(#field_type).to_string().to_lowercase().replace(" ", ""),
                 field_type: std::any::TypeId::of::<#field_type>(),
                 required: #required,
+                flag: #flag,
             }
         }
     }).collect();

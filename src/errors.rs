@@ -14,6 +14,9 @@ pub enum AppError {
     #[error("Invalid option: {0}")]
     InvalidOption(String),
 
+    #[error("Boolean flag options with value: {0:?}")]
+    PopulatedFlagOptions(Vec<String>),
+
     #[error("Integer parse error: {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
 

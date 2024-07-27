@@ -6,14 +6,17 @@ mod errors;
 mod tokenizer;
 
 use crate::commandlist::CommandList;
-use log::trace;
 
-fn build_cli() -> CommandList {
+use log::{debug, trace};
+
+pub fn build_cli() -> CommandList {
     let mut cli = CommandList::new();
     let class_commands = cli.add_scope("class");
     class_commands.add_command("create", commands::ClassNew::default());
     let namespace_commands = cli.add_scope("namespace");
     namespace_commands.add_command("create", commands::NamespaceNew::default());
+    let _help = cli.add_command("help", commands::Help::default());
+    debug!("CLI: {}", cli);
     cli
 }
 
@@ -34,7 +37,13 @@ fn main() -> rustyline::Result<()> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
-                let parts: Vec<&str> = line.split_whitespace().collect();
+                let parts = match shlex::split(&line) {
+                    Some(parts) => parts,
+                    None => {
+                        println!("Error parsing input");
+                        continue;
+                    }
+                };
                 trace!("Parts: {:?}", parts);
                 if parts.is_empty() {
                     continue;

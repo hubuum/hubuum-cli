@@ -84,6 +84,42 @@ impl CommandList {
         commands_completions.extend(scopes_completions);
         commands_completions
     }
+
+    fn generate_tree(&self, prefix: &str, is_last: bool) -> String {
+        let mut result = String::new();
+        let indent = if prefix.is_empty() { "" } else { "  " };
+        let branch = if is_last { "└─ " } else { "├─ " };
+
+        // Add commands
+        let command_count = self.commands.len();
+        for (i, command_name) in self.commands.keys().enumerate() {
+            let line = format!("{}{}{}{}\n", prefix, indent, branch, command_name);
+            result.push_str(&line);
+            if i < command_count - 1 || !self.scopes.is_empty() {
+                result.push_str(&format!("{}{}│\n", prefix, indent));
+            }
+        }
+
+        // Add scopes
+        let scope_count = self.scopes.len();
+        for (i, (scope_name, scope)) in self.scopes.iter().enumerate() {
+            let line = format!("{}{}{}{}\n", prefix, indent, branch, scope_name);
+            result.push_str(&line);
+            let new_prefix = format!(
+                "{}{}{}",
+                prefix,
+                indent,
+                if i == scope_count - 1 { " " } else { "│" }
+            );
+            result.push_str(&scope.generate_tree(&new_prefix, i == scope_count - 1));
+        }
+
+        result
+    }
+
+    pub fn show_tree(&self) -> String {
+        format!("{}", self.generate_tree("", true))
+    }
 }
 
 impl Validator for CommandList {}

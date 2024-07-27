@@ -2,9 +2,12 @@ use rustyline::completion::Pair;
 use std::any::TypeId;
 
 mod class;
+mod help;
 mod namespace;
 
 pub use class::ClassNew;
+#[allow(unused_imports)]
+pub use help::Help;
 pub use namespace::NamespaceNew;
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
@@ -16,6 +19,7 @@ pub struct CliOption {
     pub name: String,
     pub short: Option<String>,
     pub long: Option<String>,
+    pub flag: bool,
     pub help: String,
     pub field_type: TypeId,
     pub field_type_help: String,
@@ -43,6 +47,7 @@ pub trait CliCommand: CliCommandInfo {
     fn validate(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
         self.validate_not_both_short_and_long_set(tokens)?;
         self.validate_missing_options(tokens)?;
+        self.validate_flag_options(tokens)?;
         Ok(())
     }
 
@@ -98,6 +103,39 @@ pub trait CliCommand: CliCommandInfo {
 
         if !duplicate_options.is_empty() {
             return Err(AppError::DuplicateOptions(duplicate_options));
+        }
+
+        Ok(())
+    }
+
+    /// Flag options are not allowed to have values, but are boolean flags. In the tokenizer
+    /// they are represented as a key with an empty ("") value. We alert if we find any flag
+    /// options with a value.
+    fn validate_flag_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let tokenpairs = tokens.get_options();
+        let mut populated_flag_options = Vec::new();
+
+        for opt in self.options() {
+            if opt.flag {
+                if let Some(short) = &opt.short_without_dash() {
+                    if tokenpairs.contains_key(short) {
+                        if !tokenpairs.get(short).unwrap().is_empty() {
+                            populated_flag_options.push(short.clone());
+                        }
+                    }
+                }
+                if let Some(long) = &opt.long_without_dashes() {
+                    if tokenpairs.contains_key(long) {
+                        if !tokenpairs.get(long).unwrap().is_empty() {
+                            populated_flag_options.push(long.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        if !populated_flag_options.is_empty() {
+            return Err(AppError::PopulatedFlagOptions(populated_flag_options));
         }
 
         Ok(())
