@@ -70,14 +70,17 @@ fn main() -> rustyline::Result<()> {
 
                 if let Some(cmd) = command {
                     let cmd = cmd.as_ref();
-                    trace!("Executing command: {:?} {}", context, cmd_name.unwrap());
-                    let tokens = match tokenizer::CommandTokenizer::new(line.as_str()) {
-                        Ok(tokens) => tokens,
-                        Err(err) => {
-                            println!("Error parsing input: {:?}", err);
-                            continue;
-                        }
-                    };
+                    debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
+                    let tokens =
+                        match tokenizer::CommandTokenizer::new(line.as_str(), &cmd_name.unwrap()) {
+                            Ok(tokens) => tokens,
+                            Err(err) => {
+                                println!("Error parsing input: {:?}", err);
+                                continue;
+                            }
+                        };
+
+                    debug!("Tokens: {:?}", tokens);
 
                     let options = tokens.get_options();
                     if options.contains_key("help") {

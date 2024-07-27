@@ -6,32 +6,35 @@ pub struct CommandTokenizer {
     scopes: Vec<String>,
     command: String,
     options: HashMap<String, String>,
+    positionals: Vec<String>,
 }
 
 impl CommandTokenizer {
-    pub fn new(input: &str) -> Result<Self, AppError> {
+    pub fn new(input: &str, cmd_name: &String) -> Result<Self, AppError> {
         let tokens = shlex::split(input).ok_or(AppError::InvalidInput)?;
         let mut tokenizer = CommandTokenizer {
             scopes: Vec::new(),
             command: String::new(),
             options: HashMap::new(),
+            positionals: Vec::new(),
         };
 
         let mut iter = tokens.into_iter();
 
         // Parse scopes and command
         while let Some(token) = iter.next() {
-            if token.starts_with('-') {
-                // We've reached the options, so the previous token was the command
+            if token == cmd_name.as_str() {
+                tokenizer.command = token.clone()
+            } else if token.starts_with('-') {
                 if tokenizer.command.is_empty() {
                     return Err(AppError::InvalidInput);
                 }
                 tokenizer.parse_options(token, &mut iter)?;
                 break;
             } else if tokenizer.command.is_empty() {
-                tokenizer.command = token;
-            } else {
                 tokenizer.scopes.push(token);
+            } else {
+                tokenizer.positionals.push(token);
             }
         }
 
