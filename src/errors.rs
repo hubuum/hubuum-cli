@@ -29,9 +29,6 @@ pub enum AppError {
     #[error("Duplicate options: {0:?}")]
     DuplicateOptions(Vec<String>),
 
-    #[error("Network error: {0}")]
-    NetworkError(String),
-
     #[error("IO error: {0}")]
     IoError(String),
 

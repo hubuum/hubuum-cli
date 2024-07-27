@@ -48,20 +48,20 @@ impl CommandTokenizer {
         key: String,
         iter: &mut std::vec::IntoIter<String>,
     ) -> Result<(), AppError> {
-        if key.starts_with("--") {
+        if let Some(stripped) = key.strip_prefix("--") {
             let value = iter
                 .next()
                 .ok_or(AppError::InvalidOption("Option without value".to_string()))?;
             self.options.insert(
-                key[2..].to_string(),
+                stripped.to_string(),
                 self.convert_file_and_http_values(&value)?,
             );
-        } else if key.starts_with('-') {
+        } else if let Some(stripped) = key.strip_prefix("-") {
             let value = iter
                 .next()
                 .ok_or(AppError::InvalidOption("Option without value".to_string()))?;
             self.options.insert(
-                key[1..].to_string(),
+                stripped.to_string(),
                 self.convert_file_and_http_values(&value)?,
             );
         } else {
@@ -78,8 +78,8 @@ impl CommandTokenizer {
                 .map_err(|e| AppError::HttpError(e.to_string()))?
                 .trim_end()
                 .to_string()
-        } else if value.starts_with("file://") {
-            std::fs::read_to_string(&value[7..])
+        } else if let Some(stripped) = value.strip_prefix("file://") {
+            std::fs::read_to_string(stripped)
                 .map_err(|e| AppError::IoError(e.to_string()))?
                 .trim_end()
                 .to_string()
@@ -89,12 +89,18 @@ impl CommandTokenizer {
         Ok(val)
     }
 
+    #[allow(dead_code)]
     pub fn get_scopes(&self) -> &[String] {
         &self.scopes
     }
 
-    pub fn get_command(&self) -> &str {
-        &self.command
+    #[allow(dead_code)]
+    pub fn get_command(&self) -> Result<&str, AppError> {
+        if self.command.is_empty() {
+            Err(AppError::CommandNotFound)
+        } else {
+            Ok(&self.command)
+        }
     }
 
     pub fn get_options(&self) -> &HashMap<String, String> {

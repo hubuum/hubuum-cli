@@ -10,6 +10,7 @@ pub use namespace::NamespaceNew;
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
 use log::trace;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct CliOption {
     pub name: String,
@@ -102,7 +103,7 @@ pub trait CliCommand: CliCommandInfo {
         Ok(())
     }
 
-    fn get_option_completions(&self, prefix: &str, options_seen: &Vec<String>) -> Vec<Pair> {
+    fn get_option_completions(&self, prefix: &str, options_seen: &[String]) -> Vec<Pair> {
         let mut completions = Vec::new();
 
         for opt in self.options() {

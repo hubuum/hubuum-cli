@@ -53,6 +53,7 @@ impl CommandList {
             .or_insert_with(CommandList::new)
     }
 
+    #[allow(clippy::borrowed_box)]
     pub fn get_command(&self, name: &str) -> Option<&Box<dyn CliCommand>> {
         debug!("Getting command: {}", name);
         self.commands.get(name)
@@ -139,13 +140,6 @@ impl Completer for CommandList {
 
         let mut current_scope = self;
         let mut command = None;
-
-        // First, try to complete the root commands
-        /*        if parts.len() == 1 {
-            trace!("Completing root commands from {}", word);
-            completions.extend(self.get_root_completion(word));
-            return Ok((start, completions));
-        } */
 
         let mut options_start_at = 0;
         for (i, part) in parts.iter().enumerate() {

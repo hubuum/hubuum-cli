@@ -7,7 +7,7 @@ use super::{CliCommandInfo, CliOption};
 use crate::errors::AppError;
 use crate::tokenizer::CommandTokenizer;
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand)]
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassNew {
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: String,
@@ -23,18 +23,6 @@ pub struct ClassNew {
         help = "Validate against schema, requires schema to be set"
     )]
     pub validate_schema: Option<bool>,
-}
-
-impl Default for ClassNew {
-    fn default() -> Self {
-        ClassNew {
-            name: String::new(),
-            namespace_id: 0,
-            description: String::new(),
-            json_schema: None,
-            validate_schema: None,
-        }
-    }
 }
 
 /*
@@ -82,7 +70,7 @@ impl CliCommand for ClassNew {
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassInfo {}
 impl CliCommand for ClassInfo {
-    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(&self, _tokens: &CommandTokenizer) -> Result<(), AppError> {
         println!("Info about class: {:?}", self);
         Ok(())
     }
