@@ -10,7 +10,7 @@ pub struct CommandTokenizer {
 }
 
 impl CommandTokenizer {
-    pub fn new(input: &str, cmd_name: &String) -> Result<Self, AppError> {
+    pub fn new(input: &str, cmd_name: &str) -> Result<Self, AppError> {
         let tokens = shlex::split(input).ok_or(AppError::InvalidInput)?;
         let mut tokenizer = CommandTokenizer {
             scopes: Vec::new(),
@@ -23,7 +23,7 @@ impl CommandTokenizer {
 
         // Parse scopes and command
         while let Some(token) = iter.next() {
-            if token == cmd_name.as_str() {
+            if token == cmd_name {
                 tokenizer.command = token.clone()
             } else if token.starts_with('-') {
                 if tokenizer.command.is_empty() {

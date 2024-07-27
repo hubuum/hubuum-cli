@@ -72,7 +72,7 @@ fn main() -> rustyline::Result<()> {
                     let cmd = cmd.as_ref();
                     debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
                     let tokens =
-                        match tokenizer::CommandTokenizer::new(line.as_str(), &cmd_name.unwrap()) {
+                        match tokenizer::CommandTokenizer::new(line.as_str(), cmd_name.unwrap()) {
                             Ok(tokens) => tokens,
                             Err(err) => {
                                 println!("Error parsing input: {:?}", err);
