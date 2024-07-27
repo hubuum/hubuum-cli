@@ -39,6 +39,9 @@ impl CliOption {
 pub trait CliCommandInfo {
     fn options(&self) -> Vec<CliOption>;
     fn name(&self) -> String;
+    fn about(&self) -> Option<String>;
+    fn long_about(&self) -> Option<String>;
+    fn examples(&self) -> Option<String>;
 }
 
 pub trait CliCommand: CliCommandInfo {
@@ -144,6 +147,18 @@ pub trait CliCommand: CliCommandInfo {
     fn get_option_completions(&self, prefix: &str, options_seen: &[String]) -> Vec<Pair> {
         let mut completions = Vec::new();
 
+        if prefix.is_empty() {
+            completions.push(Pair {
+                display: "help".to_string(),
+                replacement: "help".to_string(),
+            });
+        } else if "help".starts_with(prefix) {
+            completions.push(Pair {
+                display: "help".to_string(),
+                replacement: "help".to_string(),
+            });
+        }
+
         for opt in self.options() {
             let mut display = String::new();
             if prefix.is_empty() {
@@ -175,5 +190,72 @@ pub trait CliCommand: CliCommandInfo {
         }
 
         completions
+    }
+
+    fn help(&self, command_name: &String, context: &[String]) -> String {
+        let mut help = String::new();
+        let fq_name = format!("{} {}", context.join(" "), command_name);
+        if let Some(about) = self.about() {
+            help.push_str(&format!("{} - {} \n\n", fq_name, about));
+        } else {
+            help.push_str(&fq_name);
+        }
+        if let Some(long_about) = self.long_about() {
+            help.push_str(&format!("{}\n\n", long_about));
+        }
+        let options = self.options();
+        if !options.is_empty() {
+            help.push_str("Options:\n");
+
+            // Find the maximum width for each column
+            let max_short_width = options
+                .iter()
+                .map(|opt| opt.short.as_ref().map_or(0, |s| s.len()))
+                .max()
+                .unwrap_or(0);
+            let max_long_width = options
+                .iter()
+                .map(|opt| opt.long.as_ref().map_or(0, |l| l.len()))
+                .max()
+                .unwrap_or(0);
+            let max_type_width = options
+                .iter()
+                .map(|opt| opt.field_type_help.len())
+                .max()
+                .unwrap_or(0);
+
+            for opt in self.options() {
+                let short = opt
+                    .short
+                    .as_ref()
+                    .map_or(String::new(), |s| format!("{},", s));
+                let long = opt
+                    .long
+                    .as_ref()
+                    .map_or(String::new(), |l| format!("{},", l));
+                let flag = if opt.flag { " (flag)" } else { "" };
+
+                help.push_str(&format!(
+                    "  {:<width_short$} {:<width_long$} {:<width_type$} {}{}\n",
+                    short,
+                    long,
+                    format!("<{}>", opt.field_type_help),
+                    opt.help,
+                    flag,
+                    width_short = max_short_width + 3, // +3 for "-x,"
+                    width_long = max_long_width + 4,   // +4 for "--xx,"
+                    width_type = max_type_width + 2    // +2 for "<>"
+                ));
+            }
+            help.push_str("\n");
+        }
+        if let Some(examples) = self.examples() {
+            help.push_str("Examples:\n");
+
+            for line in examples.lines() {
+                help.push_str(&format!("  {} {}\n", fq_name, line));
+            }
+        }
+        help
     }
 }

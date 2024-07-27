@@ -51,12 +51,16 @@ fn main() -> rustyline::Result<()> {
 
                 let mut current_scope = &cli;
                 let mut command = None;
+                let mut context = Vec::new();
+                let mut cmd_name = None;
 
                 for part in parts.iter() {
                     if let Some(scope) = current_scope.get_scope(part) {
+                        context.push(part.to_string());
                         current_scope = scope;
                     } else if let Some(cmd) = current_scope.get_command(part) {
                         command = Some(cmd);
+                        cmd_name = Some(part);
                         break;
                     } else {
                         println!("Invalid command: {}", part);
@@ -66,7 +70,7 @@ fn main() -> rustyline::Result<()> {
 
                 if let Some(cmd) = command {
                     let cmd = cmd.as_ref();
-                    trace!("Executing command: {}", cmd.name());
+                    trace!("Executing command: {:?} {}", context, cmd_name.unwrap());
                     let tokens = match tokenizer::CommandTokenizer::new(line.as_str()) {
                         Ok(tokens) => tokens,
                         Err(err) => {
@@ -74,9 +78,16 @@ fn main() -> rustyline::Result<()> {
                             continue;
                         }
                     };
+
+                    let options = tokens.get_options();
+                    if options.contains_key("help") {
+                        println!("{}", cmd.help(&cmd_name.unwrap(), &context));
+                        continue;
+                    }
+
                     let result = cmd.execute(&tokens);
                     match result {
-                        Ok(_) => println!("Command executed successfully"),
+                        Ok(_) => debug!("Command executed successfully"),
                         Err(err) => println!("Error executing command: {:?}", err),
                     }
                 } else {
