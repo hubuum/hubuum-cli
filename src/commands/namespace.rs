@@ -2,11 +2,12 @@ use cli_command_derive::CliCommand;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AppError;
+use crate::tokenizer::CommandTokenizer;
 
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand)]
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct NamespaceNew {
     #[option(short = "n", long = "name", help = "Name of the namespace")]
     pub name: String,
@@ -18,26 +19,10 @@ pub struct NamespaceNew {
     pub description: String,
 }
 
-impl Default for NamespaceNew {
-    fn default() -> Self {
-        NamespaceNew {
-            name: String::new(),
-            description: String::new(),
-        }
-    }
-}
-
 impl CliCommand for NamespaceNew {
-    fn execute(&self) -> Result<(), AppError> {
+    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
         println!("Creating new namespace: {:?}", self);
-        Ok(())
-    }
-
-    fn populate(&mut self) -> Result<(), AppError> {
-        println!("Populating namespace: {:?}", self);
-        for option in self.options() {
-            println!("Option: {:?}", option);
-        }
+        println!("Tokens: {:?}", tokens);
         Ok(())
     }
 }

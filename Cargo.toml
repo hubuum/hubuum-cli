@@ -11,6 +11,8 @@ cli_command_derive = { path = "./cli_command_derive" }
 thiserror = "1"
 env_logger = "0"
 log = "0"
+shlex = "1"
+reqwest = { version = "0", features = ["blocking"] }
 
 [profile.release]
 codegen-units = 1

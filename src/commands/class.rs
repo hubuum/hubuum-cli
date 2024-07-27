@@ -5,6 +5,7 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
+use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand)]
 pub struct ClassNew {
@@ -30,34 +31,59 @@ impl Default for ClassNew {
             name: String::new(),
             namespace_id: 0,
             description: String::new(),
-            json_schema: Some(serde_json::json!({})),
-            validate_schema: Some(false),
+            json_schema: None,
+            validate_schema: None,
         }
     }
 }
 
-impl CliCommand for ClassNew {
-    fn execute(&self) -> Result<(), AppError> {
-        println!("Creating new class: {:?}", self);
-        Ok(())
-    }
+/*
+impl ClassNew {
+    pub fn new_from_tokens(tokens: &CommandTokenizer) -> Result<Self, AppError> {
+        let mut class = ClassNew::default();
 
-    fn populate(&mut self) -> Result<(), AppError> {
-        println!("Populating class: {:?}", self);
+        println!("Options: {:?}", class.options());
+
+        class.validate(tokens)?;
+
+        for (key, value) in tokens.get_options() {
+            // key will be the option name without the dashes. We are post-validation here
+            // so we know there is only either a short or long option.
+            for option in class.options() {
+                let short_opt = option.short_without_dash(); // name
+                let long_opt = option.long_without_dashes(); // n
+                let name = option.name.clone(); // field name in the struct.
+            }
+
+            match key.as_str() {
+                "name" => class.name = value.clone(),
+                "namespace-id" => class.namespace_id = value.parse()?,
+                "description" => class.description = value.clone(),
+                "schema" => class.json_schema = Some(serde_json::from_str(&value)?),
+                "validate" => class.validate_schema = Some(value.parse()?),
+                _ => Err(AppError::InvalidOption(key.clone()))?,
+            }
+        }
+        Ok(class)
+    }
+}
+    */
+
+impl CliCommand for ClassNew {
+    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        println!("Creating new class: {:?}", self);
+        println!("Tokens: {:?}", tokens);
+        let new = &self.new_from_tokens(tokens)?;
+        println!("New class: {:?}", new);
         Ok(())
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand)]
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassInfo {}
 impl CliCommand for ClassInfo {
-    fn execute(&self) -> Result<(), AppError> {
+    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
         println!("Info about class: {:?}", self);
-        Ok(())
-    }
-
-    fn populate(&mut self) -> Result<(), AppError> {
-        println!("Populating class: {:?}", self);
         Ok(())
     }
 }

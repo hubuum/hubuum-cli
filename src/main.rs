@@ -9,6 +9,7 @@ use rustyline::Context;
 
 mod commands;
 mod errors;
+mod tokenizer;
 
 use commands::CliCommand;
 use log::{debug, trace};
@@ -218,7 +219,14 @@ fn main() -> rustyline::Result<()> {
                 if let Some(cmd) = command {
                     let cmd = cmd.as_ref();
                     trace!("Executing command: {}", cmd.name());
-                    let result = cmd.execute();
+                    let tokens = match tokenizer::CommandTokenizer::new(line.as_str()) {
+                        Ok(tokens) => tokens,
+                        Err(err) => {
+                            println!("Error parsing input: {:?}", err);
+                            continue;
+                        }
+                    };
+                    let result = cmd.execute(&tokens);
                     match result {
                         Ok(_) => println!("Command executed successfully"),
                         Err(err) => println!("Error executing command: {:?}", err),
