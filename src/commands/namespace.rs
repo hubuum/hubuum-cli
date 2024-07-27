@@ -21,8 +21,7 @@ pub struct NamespaceNew {
 
 impl CliCommand for NamespaceNew {
     fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        println!("Creating new namespace: {:?}", self);
-        println!("Tokens: {:?}", tokens);
+        let new = &self.new_from_tokens(tokens)?;
         Ok(())
     }
 }

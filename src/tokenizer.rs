@@ -49,13 +49,13 @@ impl CommandTokenizer {
         iter: &mut std::vec::IntoIter<String>,
     ) -> Result<(), AppError> {
         if let Some(stripped) = key.strip_prefix("--") {
-            let value = iter.next().or(Some("".to_string())).unwrap();
+            let value = iter.next().unwrap_or("".to_string());
             self.options.insert(
                 stripped.to_string(),
                 self.convert_file_and_http_values(&value)?,
             );
         } else if let Some(stripped) = key.strip_prefix("-") {
-            let value = iter.next().or(Some("".to_string())).unwrap();
+            let value = iter.next().unwrap_or("".to_string());
             self.options.insert(
                 stripped.to_string(),
                 self.convert_file_and_http_values(&value)?,

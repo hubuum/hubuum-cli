@@ -121,17 +121,14 @@ pub trait CliCommand: CliCommandInfo {
         for opt in self.options() {
             if opt.flag {
                 if let Some(short) = &opt.short_without_dash() {
-                    if tokenpairs.contains_key(short) {
-                        if !tokenpairs.get(short).unwrap().is_empty() {
-                            populated_flag_options.push(short.clone());
-                        }
+                    if tokenpairs.contains_key(short) && !tokenpairs.get(short).unwrap().is_empty()
+                    {
+                        populated_flag_options.push(short.clone());
                     }
                 }
                 if let Some(long) = &opt.long_without_dashes() {
-                    if tokenpairs.contains_key(long) {
-                        if !tokenpairs.get(long).unwrap().is_empty() {
-                            populated_flag_options.push(long.clone());
-                        }
+                    if tokenpairs.contains_key(long) && !tokenpairs.get(long).unwrap().is_empty() {
+                        populated_flag_options.push(long.clone());
                     }
                 }
             }
@@ -147,12 +144,7 @@ pub trait CliCommand: CliCommandInfo {
     fn get_option_completions(&self, prefix: &str, options_seen: &[String]) -> Vec<Pair> {
         let mut completions = Vec::new();
 
-        if prefix.is_empty() {
-            completions.push(Pair {
-                display: "help".to_string(),
-                replacement: "help".to_string(),
-            });
-        } else if "help".starts_with(prefix) {
+        if prefix.is_empty() || "help".starts_with(prefix) {
             completions.push(Pair {
                 display: "help".to_string(),
                 replacement: "help".to_string(),
@@ -247,7 +239,7 @@ pub trait CliCommand: CliCommandInfo {
                     width_type = max_type_width + 2    // +2 for "<>"
                 ));
             }
-            help.push_str("\n");
+            help.push('\n');
         }
         if let Some(examples) = self.examples() {
             help.push_str("Examples:\n");

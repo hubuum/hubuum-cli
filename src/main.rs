@@ -15,7 +15,7 @@ pub fn build_cli() -> CommandList {
     class_commands.add_command("create", commands::ClassNew::default());
     let namespace_commands = cli.add_scope("namespace");
     namespace_commands.add_command("create", commands::NamespaceNew::default());
-    let _help = cli.add_command("help", commands::Help::default());
+    cli.add_command("help", commands::Help::default());
     debug!("CLI: {}", cli);
     cli
 }
@@ -81,7 +81,7 @@ fn main() -> rustyline::Result<()> {
 
                     let options = tokens.get_options();
                     if options.contains_key("help") {
-                        println!("{}", cmd.help(&cmd_name.unwrap(), &context));
+                        println!("{}", cmd.help(cmd_name.unwrap(), &context));
                         continue;
                     }
 

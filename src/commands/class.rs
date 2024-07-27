@@ -33,10 +33,7 @@ pub struct ClassNew {
 
 impl CliCommand for ClassNew {
     fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        println!("Creating new class: {:?}", self);
-        println!("Tokens: {:?}", tokens);
         let new = &self.new_from_tokens(tokens)?;
-        println!("New class: {:?}", new);
         Ok(())
     }
 }

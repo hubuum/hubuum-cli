@@ -29,6 +29,12 @@ impl Display for CommandList {
     }
 }
 
+impl Default for CommandList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandList {
     pub fn new() -> Self {
         CommandList {
@@ -44,9 +50,7 @@ impl CommandList {
 
     pub fn add_scope(&mut self, name: &str) -> &mut CommandList {
         debug!("Adding scope: {}", name);
-        self.scopes
-            .entry(name.to_string())
-            .or_insert_with(CommandList::new)
+        self.scopes.entry(name.to_string()).or_default()
     }
 
     #[allow(clippy::borrowed_box)]
@@ -118,7 +122,7 @@ impl CommandList {
     }
 
     pub fn show_tree(&self) -> String {
-        format!("{}", self.generate_tree("", true))
+        self.generate_tree("", true).to_string()
     }
 }
 
