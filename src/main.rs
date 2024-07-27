@@ -128,7 +128,13 @@ impl Completer for CommandList {
             start,
             word,
         );
-        let parts: Vec<&str> = line[..pos].split_whitespace().collect();
+        let parts = shlex::split(&line[..pos]);
+        // If we can't split the line, return no completions. This typically happens if
+        // we're in the middle of a quoted string.
+        if parts.is_none() {
+            return Ok((start, completions));
+        }
+        let parts = parts.unwrap();
         trace!("Parts: {:?}", parts);
 
         let mut current_scope = self;
