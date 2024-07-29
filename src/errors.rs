@@ -32,8 +32,8 @@ pub enum AppError {
     #[error("Duplicate options: {0:?}")]
     DuplicateOptions(Vec<String>),
 
-    #[error("IO error: {0}")]
-    IoError(String),
+    #[error("IO error: {0:?}")]
+    IoError(#[from] std::io::Error),
 
     #[error("HTTP Error: {0}")]
     HttpError(String),
@@ -50,6 +50,12 @@ pub enum AppError {
     #[error("Error reading configuration file: {0}")]
     ConfigError(String),
 
+    #[error("Failed to initialize configuration: {0}")]
+    ConfigurationError(#[from] config::ConfigError),
+
     #[error("Readline error")]
     ReadlineError(#[from] rustyline::error::ReadlineError),
+
+    #[error("Unable to determine data directory: {0}")]
+    DataDirError(String),
 }

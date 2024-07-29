@@ -1,11 +1,10 @@
-use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 
-use crate::models::TokenEntry;
+use crate::{errors::AppError, models::TokenEntry};
 
-fn ensure_root_dir() -> Result<PathBuf> {
+fn ensure_root_dir() -> Result<PathBuf, AppError> {
     let root_dir = dirs::data_dir()
-        .ok_or_else(|| anyhow!("Could not determine data directory"))?
+        .ok_or_else(|| AppError::DataDirError("Could not determine data directory".to_string()))?
         .join(".hubuum_cli");
 
     if !root_dir.exists() {
@@ -25,7 +24,7 @@ pub fn get_system_config_path() -> PathBuf {
     }
 }
 
-fn ensure_file_exists(file: &str) -> Result<PathBuf> {
+fn ensure_file_exists(file: &str) -> Result<PathBuf, AppError> {
     let fqfile = ensure_root_dir()?.join(file);
     log::trace!("Checking file: {:?}", fqfile);
     if !fqfile.exists() {
@@ -39,15 +38,18 @@ fn ensure_file_exists(file: &str) -> Result<PathBuf> {
     Ok(fqfile)
 }
 
-pub fn get_history_file() -> Result<PathBuf> {
+pub fn get_history_file() -> Result<PathBuf, AppError> {
     ensure_file_exists("history.txt")
 }
 
-pub fn get_token_file() -> Result<PathBuf> {
+pub fn get_token_file() -> Result<PathBuf, AppError> {
     ensure_file_exists("token.txt")
 }
 
-pub fn get_token_from_tokenfile(hostname: &str, username: &str) -> Result<Option<String>> {
+pub fn get_token_from_tokenfile(
+    hostname: &str,
+    username: &str,
+) -> Result<Option<String>, AppError> {
     let token_file_path = get_token_file()?;
     let token_file_content = std::fs::read_to_string(token_file_path)?;
     let token_entries: Vec<TokenEntry> = serde_json::from_str(&token_file_content)?;
@@ -60,7 +62,7 @@ pub fn get_token_from_tokenfile(hostname: &str, username: &str) -> Result<Option
     Ok(None)
 }
 
-pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<()> {
+pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError> {
     let token_file_path = get_token_file()?;
     let mut token_entries: Vec<TokenEntry> = match std::fs::read_to_string(&token_file_path) {
         Ok(content) => serde_json::from_str(&content)?,

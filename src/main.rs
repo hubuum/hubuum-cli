@@ -1,4 +1,4 @@
-use anyhow::Context;
+use errors::AppError;
 use output::flush_output;
 use rustyline::Editor;
 
@@ -29,21 +29,21 @@ pub fn build_repl_commands() -> CommandList {
     cli
 }
 
-fn process_filter(line: &str) -> Result<String, anyhow::Error> {
+fn process_filter(line: &str) -> Result<String, AppError> {
     let parts: Vec<&str> = line.split('|').collect();
     if parts.len() > 1 {
         let filter = parts[1].trim();
         let invert = filter.starts_with('!');
         let pattern = if invert { &filter[1..] } else { filter }.trim();
-        set_filter(pattern.to_string(), invert).context("Failed to set output filter")?;
+        set_filter(pattern.to_string(), invert)?;
         Ok(parts[0].trim().to_string())
     } else {
-        clear_filter().context("Failed to clear output filter")?;
+        clear_filter()?;
         Ok(line.to_string())
     }
 }
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<(), AppError> {
     env_logger::init();
 
     let matches = cli::build_cli().get_matches();

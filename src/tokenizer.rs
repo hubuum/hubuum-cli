@@ -79,7 +79,7 @@ impl CommandTokenizer {
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
             std::fs::read_to_string(stripped)
-                .map_err(|e| AppError::IoError(e.to_string()))?
+                .map_err(|e| AppError::IoError(e))?
                 .trim_end()
                 .to_string()
         } else {
