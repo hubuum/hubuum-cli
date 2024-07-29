@@ -2,8 +2,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Command not found")]
-    CommandNotFound,
+    #[error("Command not found: {0}")]
+    CommandNotFound(String),
+
+    #[error("Failed to excecute command: {0}")]
+    CommandExecutionError(String),
 
     #[error("Error parsing arguments: {0}")]
     ParseError(String),

@@ -96,7 +96,7 @@ impl CommandTokenizer {
     #[allow(dead_code)]
     pub fn get_command(&self) -> Result<&str, AppError> {
         if self.command.is_empty() {
-            Err(AppError::CommandNotFound)
+            Err(AppError::CommandNotFound(self.command.clone()))
         } else {
             Ok(&self.command)
         }
