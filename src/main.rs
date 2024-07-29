@@ -1,3 +1,4 @@
+use config::AppConfig;
 use errors::AppError;
 use output::flush_output;
 use rustyline::Editor;
@@ -43,6 +44,13 @@ fn process_filter(line: &str) -> Result<String, AppError> {
     }
 }
 
+fn prompt(config: &AppConfig) -> String {
+    format!(
+        "{}@{}:{} > ",
+        config.server.username, config.server.hostname, config.server.port
+    )
+}
+
 fn main() -> Result<(), AppError> {
     env_logger::init();
 
@@ -51,13 +59,6 @@ fn main() -> Result<(), AppError> {
     let mut config = config::load_config(cli_config_path)?;
 
     cli::update_config_from_cli(&mut config, &matches);
-
-    let prompt = format!(
-        "{}@{}:{} > ",
-        config.server.username.clone(),
-        config.server.hostname.clone(),
-        config.server.port.clone()
-    );
 
     let cli = build_repl_commands();
     let repl_config = rustyline::Config::builder()
@@ -70,7 +71,7 @@ fn main() -> Result<(), AppError> {
     rl.load_history(&get_history_file()?)?;
 
     loop {
-        let readline = rl.readline(&prompt);
+        let readline = rl.readline(&prompt(&config));
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
