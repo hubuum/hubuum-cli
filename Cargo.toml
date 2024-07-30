@@ -1,5 +1,5 @@
 [package]
-name = "rustyline-with-structs"
+name = "hubuum-cli"
 version = "0.1.0"
 edition = "2021"
 
@@ -22,6 +22,8 @@ anyhow = "1"
 dirs = "5"
 config = "0"
 clap = { version = "4", features = ["derive"] }
+hubuum_client = { path = "../hubuum-client-rust" }
+rpassword = "7"
 
 [profile.release]
 codegen-units = 1

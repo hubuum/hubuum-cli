@@ -17,7 +17,7 @@ impl CliCommand for Help {
     fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let options = tokens.get_options();
         if options.get("tree").is_some() {
-            println!("{}\n", crate::build_repl_commands().show_tree());
+            println!("{}\n", crate::commands::build_repl_commands().show_tree());
             return Ok(());
         }
 

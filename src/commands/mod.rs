@@ -1,12 +1,14 @@
 use rustyline::completion::Pair;
 use std::any::TypeId;
 
+mod builder;
 mod class;
 mod help;
 mod namespace;
 
 use crate::output::append_line;
 
+pub use builder::build_repl_commands;
 pub use class::ClassNew;
 #[allow(unused_imports)]
 pub use help::Help;
@@ -153,7 +155,7 @@ pub trait CliCommand: CliCommandInfo {
                     if options_seen.contains(short) {
                         continue;
                     }
-                    display = short.clone();
+                    display.clone_from(short)
                 }
             }
             if let Some(long) = &opt.long {

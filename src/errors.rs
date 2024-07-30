@@ -1,3 +1,4 @@
+use hubuum_client::ApiError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -61,4 +62,7 @@ pub enum AppError {
 
     #[error("Unable to determine data directory: {0}")]
     DataDirError(String),
+
+    #[error("API error: {0}")]
+    ApiError(#[from] ApiError),
 }

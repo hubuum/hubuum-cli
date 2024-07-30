@@ -186,7 +186,7 @@ impl Completer for CommandList {
         let mut options_seen: Vec<String> = Vec::new();
         if command.is_some() {
             for part in parts.iter().skip(options_start_at) {
-                if part.starts_with("-") {
+                if part.starts_with('-') {
                     options_seen.push(part.to_string());
                 }
             }

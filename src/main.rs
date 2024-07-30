@@ -1,5 +1,8 @@
+use std::str::FromStr;
+
 use config::AppConfig;
 use errors::AppError;
+use hubuum_client::{Authenticated, Credentials, SyncClient, Token, Unauthenticated};
 use log::{debug, trace};
 use output::{add_error, add_warning, clear_filter, flush_output, set_filter};
 use rustyline::history::FileHistory;
@@ -18,23 +21,14 @@ mod tokenizer;
 
 use crate::commandlist::CommandList;
 use crate::files::get_history_file;
-
-fn build_repl_commands() -> CommandList {
-    let mut cli = CommandList::new();
-    cli.add_scope("class")
-        .add_command("create", commands::ClassNew::default());
-    cli.add_scope("namespace")
-        .add_command("create", commands::NamespaceNew::default());
-    cli.add_command("help", commands::Help::default());
-    cli
-}
+use crate::models::internal::TokenEntry;
 
 fn process_filter(line: &str) -> Result<String, AppError> {
     let parts: Vec<&str> = line.split('|').collect();
     if parts.len() > 1 {
         let filter = parts[1].trim();
-        let (invert, pattern) = if filter.starts_with('!') {
-            (true, filter[1..].trim())
+        let (invert, pattern) = if let Some(stripped) = filter.strip_prefix('!') {
+            (true, stripped.trim())
         } else {
             (false, filter.trim())
         };
@@ -73,6 +67,7 @@ fn handle_command(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn find_command<'a>(
     cli: &'a CommandList,
     parts: &'a [String],
@@ -101,6 +96,7 @@ fn find_command<'a>(
     Ok((command, cmd_name))
 }
 
+#[allow(clippy::borrowed_box)]
 fn execute_command(
     cmd: &Box<dyn commands::CliCommand>,
     cmd_name: Option<&str>,
@@ -133,6 +129,37 @@ fn create_editor(cli: &CommandList) -> Result<Editor<&CommandList, FileHistory>,
     Ok(rl)
 }
 
+fn login(
+    client: hubuum_client::SyncClient<Unauthenticated>,
+    username: &str,
+    hostname: &str,
+) -> Result<SyncClient<Authenticated>, AppError> {
+    let token = files::get_token_from_tokenfile(hostname, username)?;
+    if let Some(token) = token {
+        debug!("Found existing token, testing validity...");
+        match client.clone().login_with_token(Token { token }) {
+            Ok(client) => return Ok(client.clone()),
+            Err(err) => {
+                add_warning(format!("Error logging in with existing token: {}", err))?;
+                flush_output()?;
+            }
+        }
+    }
+
+    let password =
+        rpassword::prompt_password(format!("Password for {} @ {}: ", username, hostname))?;
+    let client = client
+        .clone()
+        .login(Credentials::new(username.to_string(), password))?;
+    debug!("Logged in successfully, saving token...");
+    files::write_token_to_tokenfile(TokenEntry {
+        hostname: hostname.to_string(),
+        username: username.to_string(),
+        token: client.get_token().to_string(),
+    })?;
+    Ok(client)
+}
+
 fn main() -> Result<(), AppError> {
     env_logger::init();
 
@@ -141,8 +168,20 @@ fn main() -> Result<(), AppError> {
     let mut config = config::load_config(cli_config_path)?;
     cli::update_config_from_cli(&mut config, &matches);
 
-    let cli = build_repl_commands();
+    let cli = crate::commands::build_repl_commands();
     let mut rl = create_editor(&cli)?;
+
+    let baseurl = hubuum_client::BaseUrl::from_str(&format!(
+        "{}://{}:{}",
+        config.server.protocol, config.server.hostname, config.server.port
+    ))?;
+    let client = hubuum_client::SyncClient::new(baseurl);
+
+    let client = login(
+        client,
+        config.server.username.as_str(),
+        config.server.hostname.as_str(),
+    )?;
 
     loop {
         match rl.readline(&prompt(&config)) {

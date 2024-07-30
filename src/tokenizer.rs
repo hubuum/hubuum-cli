@@ -24,7 +24,7 @@ impl CommandTokenizer {
         // Parse scopes and command
         while let Some(token) = iter.next() {
             if token == cmd_name {
-                tokenizer.command = token.clone()
+                tokenizer.command.clone_from(&token)
             } else if token.starts_with('-') {
                 if tokenizer.command.is_empty() {
                     return Err(AppError::InvalidInput);
@@ -57,7 +57,7 @@ impl CommandTokenizer {
                 stripped.to_string(),
                 self.convert_file_and_http_values(&value)?,
             );
-        } else if let Some(stripped) = key.strip_prefix("-") {
+        } else if let Some(stripped) = key.strip_prefix('-') {
             let value = iter.next().unwrap_or("".to_string());
             self.options.insert(
                 stripped.to_string(),
@@ -79,7 +79,7 @@ impl CommandTokenizer {
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
             std::fs::read_to_string(stripped)
-                .map_err(|e| AppError::IoError(e))?
+                .map_err(AppError::IoError)?
                 .trim_end()
                 .to_string()
         } else {

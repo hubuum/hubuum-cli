@@ -2,14 +2,12 @@ use config::Value;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub enum Protocol {
     Http,
     #[default]
     Https,
 }
-
 
 impl FromStr for Protocol {
     type Err = String;
