@@ -1,3 +1,5 @@
+use hubuum_client::{Authenticated, SyncClient};
+use log::trace;
 use rustyline::completion::Pair;
 use std::any::TypeId;
 
@@ -5,6 +7,7 @@ mod builder;
 mod class;
 mod help;
 mod namespace;
+mod user;
 
 use crate::output::append_line;
 
@@ -13,9 +16,9 @@ pub use class::ClassNew;
 #[allow(unused_imports)]
 pub use help::Help;
 pub use namespace::NamespaceNew;
+pub use user::{UserInfo, UserNew};
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
-use log::trace;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -49,7 +52,11 @@ pub trait CliCommandInfo {
 }
 
 pub trait CliCommand: CliCommandInfo {
-    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError>;
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError>;
 
     fn validate(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
         self.validate_not_both_short_and_long_set(tokens)?;

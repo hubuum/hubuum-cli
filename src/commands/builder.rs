@@ -8,5 +8,8 @@ pub fn build_repl_commands() -> CommandList {
     cli.add_scope("namespace")
         .add_command("create", commands::NamespaceNew::default());
     cli.add_command("help", commands::Help::default());
+    cli.add_scope("user")
+        .add_command("new", commands::UserNew::default())
+        .add_command("info", commands::UserInfo::default());
     cli
 }

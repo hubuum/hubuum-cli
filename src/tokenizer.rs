@@ -105,4 +105,8 @@ impl CommandTokenizer {
     pub fn get_options(&self) -> &HashMap<String, String> {
         &self.options
     }
+
+    pub fn get_positionals(&self) -> &[String] {
+        &self.positionals
+    }
 }

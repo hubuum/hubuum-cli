@@ -1,4 +1,5 @@
 use cli_command_derive::CliCommand;
+use hubuum_client::{Authenticated, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -32,7 +33,11 @@ pub struct ClassNew {
 }
 
 impl CliCommand for ClassNew {
-    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
         Ok(())
     }
@@ -41,7 +46,11 @@ impl CliCommand for ClassNew {
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassInfo {}
 impl CliCommand for ClassInfo {
-    fn execute(&self, _tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        _tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
         println!("Info about class: {:?}", self);
         Ok(())
     }

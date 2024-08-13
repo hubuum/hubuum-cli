@@ -15,6 +15,7 @@ mod config;
 mod defaults;
 mod errors;
 mod files;
+mod formatting;
 mod models;
 mod output;
 mod tokenizer;
@@ -51,6 +52,7 @@ fn handle_command(
     cli: &CommandList,
     line: &str,
     context: &mut Vec<String>,
+    client: &SyncClient<Authenticated>,
 ) -> Result<(), AppError> {
     let parts = shlex::split(line)
         .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
@@ -61,7 +63,7 @@ fn handle_command(
     let (command, cmd_name) = find_command(cli, &parts, context)?;
 
     if let Some(cmd) = command {
-        execute_command(cmd, cmd_name, line, context)
+        execute_command(cmd, cmd_name, line, context, client)
     } else {
         add_warning(format!("Command not found: {}", parts.join(" ")))
     }
@@ -102,6 +104,7 @@ fn execute_command(
     cmd_name: Option<&str>,
     line: &str,
     context: &[String],
+    client: &SyncClient<Authenticated>,
 ) -> Result<(), AppError> {
     debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
     let tokens = tokenizer::CommandTokenizer::new(line, cmd_name.unwrap())?;
@@ -111,7 +114,7 @@ fn execute_command(
     if options.contains_key("help") || options.contains_key("h") {
         cmd.help(&cmd_name.unwrap().to_string(), context)
     } else {
-        cmd.execute(&tokens).map_err(|err| {
+        cmd.execute(client, &tokens).map_err(|err| {
             AppError::CommandExecutionError(format!("Error executing command: {:?}", err))
         })
     }
@@ -190,7 +193,7 @@ fn main() -> Result<(), AppError> {
                 rl.save_history(&get_history_file()?)?;
                 let line = process_filter(line.as_str())?;
                 let mut context = Vec::new();
-                if let Err(err) = handle_command(&cli, &line, &mut context) {
+                if let Err(err) = handle_command(&cli, &line, &mut context, &client) {
                     add_error(err.to_string())?;
                 }
             }

@@ -43,9 +43,10 @@ impl CommandList {
         }
     }
 
-    pub fn add_command<T: CliCommand + 'static>(&mut self, name: &str, command: T) {
+    pub fn add_command<T: CliCommand + 'static>(&mut self, name: &str, command: T) -> &mut Self {
         debug!("Adding command: {}", name);
         self.commands.insert(name.to_string(), Box::new(command));
+        self
     }
 
     pub fn add_scope(&mut self, name: &str) -> &mut CommandList {

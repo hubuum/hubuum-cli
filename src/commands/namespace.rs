@@ -1,4 +1,5 @@
 use cli_command_derive::CliCommand;
+use hubuum_client::{Authenticated, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AppError;
@@ -20,7 +21,11 @@ pub struct NamespaceNew {
 }
 
 impl CliCommand for NamespaceNew {
-    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
         Ok(())
     }

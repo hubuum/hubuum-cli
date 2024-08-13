@@ -1,4 +1,5 @@
 use cli_command_derive::CliCommand;
+use hubuum_client::{Authenticated, SyncClient};
 
 use crate::errors::AppError;
 use crate::tokenizer::CommandTokenizer;
@@ -14,7 +15,11 @@ pub struct Help {
 }
 
 impl CliCommand for Help {
-    fn execute(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(
+        &self,
+        _client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
         let options = tokens.get_options();
         if options.get("tree").is_some() {
             println!("{}\n", crate::commands::build_repl_commands().show_tree());
