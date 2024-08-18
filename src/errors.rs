@@ -6,7 +6,7 @@ pub enum AppError {
     #[error("Command not found: {0}")]
     CommandNotFound(String),
 
-    #[error("Failed to excecute command: {0}")]
+    #[error("Failed to execute command: {0}")]
     CommandExecutionError(String),
 
     #[error("Error parsing arguments: {0}")]
@@ -65,4 +65,13 @@ pub enum AppError {
 
     #[error("API error: {0}")]
     ApiError(#[from] ApiError),
+
+    #[error("Multiple entities found: {0}")]
+    MultipleEntitiesFound(String),
+
+    #[error("Entity not found: {0}")]
+    EntityNotFound(String),
+
+    #[error("Quiet error")]
+    Quiet,
 }

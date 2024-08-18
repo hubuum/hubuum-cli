@@ -4,12 +4,13 @@ use std::fmt::Display;
 use rustyline::highlight::Highlighter;
 use rustyline::{hint::Hinter, validate::Validator, Helper};
 
+use log::{debug, trace};
 use rustyline::completion::{Completer, Pair};
 use rustyline::Context;
 
 use crate::commands::CliCommand;
-use log::{debug, trace};
 
+#[derive(Default)]
 pub struct CommandList {
     commands: HashMap<String, Box<dyn CliCommand>>,
     scopes: HashMap<String, CommandList>,
@@ -26,12 +27,6 @@ impl Display for CommandList {
             command_names.join(", "),
             scope_names.join(", ")
         )
-    }
-}
-
-impl Default for CommandList {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

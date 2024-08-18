@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use config::AppConfig;
 use errors::AppError;
-use hubuum_client::{Authenticated, Credentials, SyncClient, Token, Unauthenticated};
+use hubuum_client::{ApiError, Authenticated, Credentials, SyncClient, Token, Unauthenticated};
 use log::{debug, trace};
 use output::{add_error, add_warning, clear_filter, flush_output, set_filter};
 use rustyline::history::FileHistory;
@@ -16,9 +16,11 @@ mod defaults;
 mod errors;
 mod files;
 mod formatting;
+mod logger;
 mod models;
 mod output;
 mod tokenizer;
+mod traits;
 
 use crate::commandlist::CommandList;
 use crate::files::get_history_file;
@@ -114,9 +116,7 @@ fn execute_command(
     if options.contains_key("help") || options.contains_key("h") {
         cmd.help(&cmd_name.unwrap().to_string(), context)
     } else {
-        cmd.execute(client, &tokens).map_err(|err| {
-            AppError::CommandExecutionError(format!("Error executing command: {:?}", err))
-        })
+        cmd.execute(client, &tokens)
     }
 }
 
@@ -193,9 +193,20 @@ fn main() -> Result<(), AppError> {
                 rl.save_history(&get_history_file()?)?;
                 let line = process_filter(line.as_str())?;
                 let mut context = Vec::new();
-                if let Err(err) = handle_command(&cli, &line, &mut context, &client) {
-                    add_error(err.to_string())?;
-                }
+                match handle_command(&cli, &line, &mut context, &client) {
+                    Ok(_) => {}
+                    Err(AppError::Quiet) => {}
+                    Err(AppError::EntityNotFound(entity)) => {
+                        add_warning(format!("{}", entity))?;
+                    }
+                    Err(AppError::ApiError(ApiError::HttpWithBody { status, message })) => {
+                        add_error(format!("API Error: Status {} - {}", status, message))?;
+                    }
+                    Err(err @ AppError::ApiError(_)) => {
+                        add_error(format!("API Error: {}", err))?;
+                    }
+                    Err(err) => add_error(err)?,
+                };
             }
             Err(rustyline::error::ReadlineError::Interrupted) => continue,
             Err(rustyline::error::ReadlineError::Eof) => break,

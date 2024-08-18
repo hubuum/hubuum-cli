@@ -221,6 +221,15 @@ pub fn append_json<T: Serialize>(value: T) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn append_key_value<K: Display, V: Display>(
+    key: K,
+    value: V,
+    padding: usize,
+) -> Result<(), AppError> {
+    let line = format!("{:<pad$}: {}", key, value, pad = padding);
+    append_line(line)
+}
+
 /// Flush the output buffer to stdout.
 ///
 /// This function flushes the output buffer to stdout, printing each line in the

@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::errors::AppError;
 use crate::output::append_line;
 
+mod class;
 mod user;
 
 pub trait OutputFormatter {
@@ -14,7 +15,7 @@ where
     K: Display,
     V: Display,
 {
-    format!("{:padding$}{}: {}", padding, key, value)
+    format!("{:<padding$}: {}", key, value, padding = padding)
 }
 
 fn append_key_value<K, V>(key: K, value: V, padding: usize) -> Result<(), AppError>

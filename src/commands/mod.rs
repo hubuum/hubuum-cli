@@ -12,11 +12,11 @@ mod user;
 use crate::output::append_line;
 
 pub use builder::build_repl_commands;
-pub use class::ClassNew;
+pub use class::{ClassDelete, ClassInfo, ClassNew};
 #[allow(unused_imports)]
 pub use help::Help;
 pub use namespace::NamespaceNew;
-pub use user::{UserInfo, UserNew};
+pub use user::{UserDelete, UserInfo, UserNew};
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
 
