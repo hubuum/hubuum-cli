@@ -6,7 +6,7 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
 use crate::errors::AppError;
-use crate::formatting::OutputFormatter;
+use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::logger::with_timing;
 use crate::output::{add_warning, append_key_value, append_line};
 use crate::traits::SingleItemOrWarning;
@@ -148,6 +148,31 @@ impl CliCommand for UserInfo {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+pub struct UserList {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "e", long = "email", help = "Email address for the user")]
+    pub email: Option<String>,
+    #[option(short = "C", long = "created-at", help = "Created at timestammp")]
+    pub created_at: Option<chrono::NaiveDateTime>,
+    #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
+    pub updated_at: Option<chrono::NaiveDateTime>,
+}
+
+impl CliCommand for UserList {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
+        let users = with_timing("User list", || client.users().find().execute())?;
+        users.format()?;
+
+        Ok(())
+    }
+}
+
 pub fn generate_random_password(length: usize) -> String {
     let mut rng = thread_rng();
     std::iter::repeat(())
@@ -173,15 +198,4 @@ where
         return Ok(pos0.cloned());
     };
     Ok(query.username().clone())
-}
-
-fn single_user_or_warning(users: Vec<User>) -> Result<User, AppError> {
-    if users.is_empty() {
-        add_warning("User not found")?;
-        return Err(AppError::Quiet);
-    } else if users.len() > 1 {
-        add_warning("Multiple users found.")?;
-        return Err(AppError::Quiet);
-    }
-    Ok(users[0].clone())
 }

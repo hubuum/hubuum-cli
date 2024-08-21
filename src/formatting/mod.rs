@@ -1,13 +1,35 @@
 use std::fmt::Display;
+use tabled::{settings::Style, Table, Tabled};
 
 use crate::errors::AppError;
 use crate::output::append_line;
 
 mod class;
+mod group;
+mod namespace;
 mod user;
 
-pub trait OutputFormatter {
+pub trait OutputFormatterWithPadding {
     fn format(&self, padding: usize) -> Result<(), AppError>;
+}
+
+pub trait OutputFormatter {
+    fn format(&self) -> Result<(), AppError>;
+}
+
+impl<T> OutputFormatter for Vec<T>
+where
+    T: Tabled,
+{
+    fn format(&self) -> Result<(), AppError> {
+        let mut table = Table::new(self);
+        table.with(Style::modern_rounded());
+        let table = table.to_string();
+        for line in table.lines() {
+            append_line(line)?;
+        }
+        Ok(())
+    }
 }
 
 fn pad_key_value<K, V>(key: K, value: V, padding: usize) -> String

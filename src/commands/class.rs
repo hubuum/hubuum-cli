@@ -6,7 +6,7 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
-use crate::formatting::OutputFormatter;
+use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::tokenizer::CommandTokenizer;
 use crate::traits::SingleItemOrWarning;
 
@@ -169,4 +169,24 @@ where
         return Ok(pos0.cloned());
     };
     Ok(query.classname().clone())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+pub struct ClassList {
+    #[option(short = "n", long = "name", help = "Name of the class")]
+    pub name: String,
+    #[option(short = "d", long = "description", help = "Description of the class")]
+    pub description: String,
+}
+
+impl CliCommand for ClassList {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        _tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
+        let classes = client.classes().find().execute()?;
+        classes.format()?;
+        Ok(())
+    }
 }

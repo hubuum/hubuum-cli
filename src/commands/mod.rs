@@ -5,6 +5,7 @@ use std::any::TypeId;
 
 mod builder;
 mod class;
+mod group;
 mod help;
 mod namespace;
 mod user;
@@ -12,11 +13,12 @@ mod user;
 use crate::output::append_line;
 
 pub use builder::build_repl_commands;
-pub use class::{ClassDelete, ClassInfo, ClassNew};
+pub use class::*;
+pub use group::*;
 #[allow(unused_imports)]
 pub use help::Help;
-pub use namespace::NamespaceNew;
-pub use user::{UserDelete, UserInfo, UserNew};
+pub use namespace::*;
+pub use user::*;
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
 

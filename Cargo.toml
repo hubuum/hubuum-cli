@@ -25,6 +25,7 @@ clap = { version = "4", features = ["derive"] }
 hubuum_client = { path = "../hubuum-client-rust" }
 rpassword = "7"
 rand = "0"
+tabled = "0"
 
 [profile.release]
 codegen-units = 1

@@ -1,28 +1,29 @@
 use hubuum_client::Class;
 
-use super::{append_key_value, OutputFormatter};
+use super::{append_key_value, append_some_key_value, OutputFormatterWithPadding};
 use crate::errors::AppError;
 
-impl OutputFormatter for Class {
+impl OutputFormatterWithPadding for Class {
     fn format(&self, padding: usize) -> Result<(), AppError> {
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
         append_key_value("Namespace", &self.namespace_id, padding)?;
 
-        let schema = Some(&self.json_schema);
+        let schema = &self.json_schema;
+        let schema_id = schema
+            .as_ref()
+            .and_then(|s| s.as_object())
+            .and_then(|o| o.get("$id").and_then(|v| v.as_str().map(|s| s.to_string())));
 
-        // The schema might be a large JSON object, so we'll just print the $id field
-        if schema.is_none() {
-            append_key_value("Schema", "<no schema>", padding)?;
+        if let Some(id) = schema_id {
+            append_key_value("Schema", &id, padding)?;
+        } else if schema.is_some() {
+            append_key_value("Schema", "<schema without $id>", padding)?;
         } else {
-            let schema = schema.and_then(|s| s.as_object()?.get("$id"));
-            if schema.is_none() {
-                append_key_value("Schema", "<no $id>", padding)?;
-            } else {
-                append_key_value("Schema", &schema.unwrap(), padding)?;
-            }
+            append_key_value("Schema", "<no schema>", padding)?;
         }
-        append_key_value("Validate", &self.validate_schema, padding)?;
+
+        append_some_key_value("Validate", &self.validate_schema, padding)?;
         append_key_value("Created At", &self.created_at, padding)?;
         append_key_value("Updated At", &self.updated_at, padding)?;
         Ok(())

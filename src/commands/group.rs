@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, FilterOperator, NamespacePost, SyncClient};
+use hubuum_client::{Authenticated, FilterOperator, Group, GroupPost, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -11,34 +11,23 @@ use crate::tokenizer::CommandTokenizer;
 use crate::traits::SingleItemOrWarning;
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-pub struct NamespaceNew {
-    #[option(short = "n", long = "name", help = "Name of the namespace")]
-    pub name: String,
-    #[option(
-        short = "d",
-        long = "description",
-        help = "Description of the namespace"
-    )]
+pub struct GroupNew {
+    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    pub groupname: String,
+    #[option(short = "d", long = "description", help = "Description of the group")]
     pub description: String,
-    #[option(
-        short = "o",
-        long = "owner",
-        help = "Name of the group owning namespace"
-    )]
-    pub owner: String,
 }
 
-impl NamespaceNew {
-    fn into_post(&self, group_id: i32) -> NamespacePost {
-        NamespacePost {
-            name: self.name.clone(),
+impl GroupNew {
+    fn into_post(&self) -> GroupPost {
+        GroupPost {
+            groupname: self.groupname.clone(),
             description: self.description.clone(),
-            group_id,
         }
     }
 }
 
-impl CliCommand for NamespaceNew {
+impl CliCommand for GroupNew {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,
@@ -46,38 +35,29 @@ impl CliCommand for NamespaceNew {
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
 
-        let group = client
-            .groups()
-            .find()
-            .add_filter("name", FilterOperator::Eq, new.owner.clone())
-            .execute()?
-            .single_item_or_warning()?;
-
-        let post = new.into_post(group.id);
-
-        let namespace = client.namespaces().create(post)?;
-        namespace.format(15)?;
+        let group = client.groups().create(new.into_post())?;
+        group.format(15)?;
 
         Ok(())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-pub struct NamespaceList {
+pub struct GroupList {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub name: String,
     #[option(short = "d", long = "description", help = "Description of the group")]
     pub description: String,
 }
 
-impl CliCommand for NamespaceList {
+impl CliCommand for GroupList {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let namespaces = client.namespaces().find().execute()?;
-        namespaces.format()?;
+        let groups = client.groups().find().execute()?;
+        groups.format()?;
 
         Ok(())
     }
