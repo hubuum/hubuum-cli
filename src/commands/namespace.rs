@@ -64,19 +64,45 @@ impl CliCommand for NamespaceNew {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct NamespaceList {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
-    pub name: String,
-    #[option(short = "d", long = "description", help = "Description of the group")]
-    pub description: String,
+    #[option(short = "n", long = "name", help = "Name of the namespace")]
+    pub name: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Description of the namespace"
+    )]
+    pub description: Option<String>,
 }
 
 impl CliCommand for NamespaceList {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,
-        _tokens: &CommandTokenizer,
+        tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let namespaces = client.namespaces().find().execute()?;
+        let new = self.new_from_tokens(tokens)?;
+
+        let search = client.namespaces().find();
+
+        let search = match &new.name {
+            Some(name) => search.add_filter(
+                "name",
+                hubuum_client::FilterOperator::Contains { is_negated: false },
+                name.clone(),
+            ),
+            None => search,
+        };
+
+        let search = match &new.description {
+            Some(description) => search.add_filter(
+                "description",
+                hubuum_client::FilterOperator::Contains { is_negated: false },
+                description.clone(),
+            ),
+            None => search,
+        };
+
+        let namespaces = search.execute()?;
         namespaces.format()?;
 
         Ok(())
