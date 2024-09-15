@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, Class, ClassGet, ClassPost, IntoResourceFilter, SyncClient};
+use hubuum_client::{Authenticated, Class, ClassPost, IntoResourceFilter, QueryFilter, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -24,8 +24,8 @@ trait GetClassname {
 pub struct ClassNew {
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: String,
-    #[option(short = "i", long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: i32,
+    #[option(short = "N", long = "namespace", help = "Namespace name")]
+    pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
     #[option(short = "s", long = "schema", help = "JSON schema for the class")]
@@ -47,9 +47,16 @@ impl CliCommand for ClassNew {
         let new = &self.new_from_tokens(tokens)?;
         println!("Creating new class: {:?}", new);
 
+        let namespace = client
+            .namespaces()
+            .find()
+            .add_filter_name_exact(&new.namespace)
+            .execute()?
+            .single_item_or_warning()?;
+
         let result = client.classes().create(ClassPost {
             name: new.name.clone(),
-            namespace_id: new.namespace_id,
+            namespace_id: namespace.id,
             description: new.description.clone(),
             json_schema: new.json_schema.clone(),
             validate_schema: new.validate_schema,
@@ -62,17 +69,22 @@ impl CliCommand for ClassNew {
 }
 
 impl IntoResourceFilter<Class> for &ClassInfo {
-    fn into_resource_filter(self) -> ClassGet {
-        ClassGet {
-            id: self.id,
-            name: self.name.clone(),
-            description: self.description.clone(),
-            namespace_id: None,
-            json_schema: None,
-            validate_schema: None,
-            created_at: None,
-            updated_at: None,
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+        if let Some(name) = &self.name {
+            filters.push(QueryFilter {
+                key: "name".to_string(),
+                value: name.clone(),
+            });
         }
+        if let Some(id) = &self.id {
+            filters.push(QueryFilter {
+                key: "id".to_string(),
+                value: id.to_string(),
+            });
+        }
+
+        filters
     }
 }
 
@@ -88,9 +100,8 @@ pub struct ClassInfo {
     pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: Option<String>,
-    #[option(short = "d", long = "description", help = "Description of the class")]
-    pub description: Option<String>,
 }
+
 impl CliCommand for ClassInfo {
     fn execute(
         &self,
@@ -101,7 +112,13 @@ impl CliCommand for ClassInfo {
         query.name = classname_or_pos(&query, tokens, 0)?;
         client
             .classes()
-            .filter(&query)?
+            .find()
+            .add_filter(
+                "name",
+                hubuum_client::FilterOperator::Equals { is_negated: false },
+                query.name.clone().unwrap(),
+            )
+            .execute()?
             .single_item_or_warning()?
             .format(15)?;
         Ok(())
@@ -133,17 +150,22 @@ impl CliCommand for ClassDelete {
 }
 
 impl IntoResourceFilter<Class> for &ClassDelete {
-    fn into_resource_filter(self) -> ClassGet {
-        ClassGet {
-            id: self.id,
-            name: self.name.clone(),
-            description: None,
-            namespace_id: None,
-            json_schema: None,
-            validate_schema: None,
-            created_at: None,
-            updated_at: None,
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+        if let Some(name) = &self.name {
+            filters.push(QueryFilter {
+                key: "name".to_string(),
+                value: name.clone(),
+            });
         }
+        if let Some(id) = &self.id {
+            filters.push(QueryFilter {
+                key: "id".to_string(),
+                value: id.to_string(),
+            });
+        }
+
+        filters
     }
 }
 
@@ -174,18 +196,38 @@ where
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassList {
     #[option(short = "n", long = "name", help = "Name of the class")]
-    pub name: String,
+    pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
-    pub description: String,
+    pub description: Option<String>,
+}
+
+impl IntoResourceFilter<Class> for &ClassList {
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+        if let Some(name) = &self.name {
+            filters.push(QueryFilter {
+                key: "name".to_string(),
+                value: name.clone(),
+            });
+        }
+        if let Some(description) = &self.description {
+            filters.push(QueryFilter {
+                key: "description".to_string(),
+                value: description.clone(),
+            });
+        }
+        filters
+    }
 }
 
 impl CliCommand for ClassList {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,
-        _tokens: &CommandTokenizer,
+        tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let classes = client.classes().find().execute()?;
+        let new = self.new_from_tokens(tokens)?;
+        let classes = client.classes().filter(&new)?;
         classes.format()?;
         Ok(())
     }

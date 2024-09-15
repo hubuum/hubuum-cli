@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, FilterOperator, Group, GroupPost, SyncClient};
+use hubuum_client::{Authenticated, Group, GroupPost, IntoResourceFilter, QueryFilter, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -8,7 +8,6 @@ use super::{CliCommandInfo, CliOption};
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::tokenizer::CommandTokenizer;
-use crate::traits::SingleItemOrWarning;
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct GroupNew {
@@ -46,8 +45,56 @@ impl CliCommand for GroupNew {
 pub struct GroupList {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub name: String,
+    #[option(
+        short = "gs",
+        long = "groupname__startswith",
+        help = "Name of the group starts with"
+    )]
+    pub name_startswith: String,
+    #[option(
+        short = "ge",
+        long = "groupname__endswith",
+        help = "Name of the group ends with"
+    )]
+    pub name_endswith: String,
     #[option(short = "d", long = "description", help = "Description of the group")]
     pub description: String,
+}
+
+impl IntoResourceFilter<Group> for &GroupList {
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+
+        if !self.name.is_empty() {
+            filters.push(QueryFilter {
+                key: "groupname".to_string(),
+                value: self.name.clone(),
+            });
+        }
+
+        if !self.name_startswith.is_empty() {
+            filters.push(QueryFilter {
+                key: "groupname__startswith".to_string(),
+                value: self.name_startswith.clone(),
+            });
+        }
+
+        if !self.name_endswith.is_empty() {
+            filters.push(QueryFilter {
+                key: "groupname__endswith".to_string(),
+                value: self.name_endswith.clone(),
+            });
+        }
+
+        if !self.description.is_empty() {
+            filters.push(QueryFilter {
+                key: "description".to_string(),
+                value: self.description.clone(),
+            });
+        }
+
+        filters
+    }
 }
 
 impl CliCommand for GroupList {
@@ -56,7 +103,8 @@ impl CliCommand for GroupList {
         client: &SyncClient<Authenticated>,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let groups = client.groups().find().execute()?;
+        let new = self.new_from_tokens(tokens)?;
+        let groups = client.groups().filter(&new)?;
         groups.format()?;
 
         Ok(())

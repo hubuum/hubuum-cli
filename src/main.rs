@@ -2,11 +2,14 @@ use std::str::FromStr;
 
 use config::AppConfig;
 use errors::AppError;
+use files::get_log_file;
 use hubuum_client::{ApiError, Authenticated, Credentials, SyncClient, Token, Unauthenticated};
 use log::{debug, trace};
+use logger::with_timing;
 use output::{add_error, add_warning, clear_filter, flush_output, set_filter};
 use rustyline::history::FileHistory;
 use rustyline::Editor;
+use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod commandlist;
@@ -65,7 +68,10 @@ fn handle_command(
     let (command, cmd_name) = find_command(cli, &parts, context)?;
 
     if let Some(cmd) = command {
-        execute_command(cmd, cmd_name, line, context, client)
+        let command_string = format!("Command {:?}", parts.join(" "));
+        with_timing(&command_string, || {
+            execute_command(cmd, cmd_name, line, context, client)
+        })
     } else {
         add_warning(format!("Command not found: {}", parts.join(" ")))
     }
@@ -164,7 +170,14 @@ fn login(
 }
 
 fn main() -> Result<(), AppError> {
-    env_logger::init();
+    let file = get_log_file()?;
+    let file = std::fs::File::create(file).expect("Failed to create log file");
+
+    // Set up the tracing subscriber
+    tracing_subscriber::fmt()
+        .with_writer(file)
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
     let matches = cli::build_cli().get_matches();
     let cli_config_path = cli::get_cli_config_path(&matches);

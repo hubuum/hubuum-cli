@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, IntoResourceFilter, SyncClient, User, UserGet, UserPost};
+use hubuum_client::{Authenticated, IntoResourceFilter, QueryFilter, SyncClient, User, UserPost};
 use serde::{Deserialize, Serialize};
 
 use rand::distributions::Alphanumeric;
@@ -8,7 +8,7 @@ use rand::{thread_rng, Rng};
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::logger::with_timing;
-use crate::output::{add_warning, append_key_value, append_line};
+use crate::output::{append_key_value, append_line};
 use crate::traits::SingleItemOrWarning;
 
 use crate::tokenizer::CommandTokenizer;
@@ -63,14 +63,17 @@ pub struct UserDelete {
 }
 
 impl IntoResourceFilter<User> for &UserDelete {
-    fn into_resource_filter(self) -> UserGet {
-        UserGet {
-            id: None,
-            username: self.username.clone(),
-            email: None,
-            created_at: None,
-            updated_at: None,
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+
+        if let Some(username) = &self.username {
+            filters.push(QueryFilter {
+                key: "username".to_string(),
+                value: username.clone(),
+            });
         }
+
+        filters
     }
 }
 
@@ -113,14 +116,38 @@ pub struct UserInfo {
 }
 
 impl IntoResourceFilter<User> for &UserInfo {
-    fn into_resource_filter(self) -> UserGet {
-        UserGet {
-            id: None,
-            username: self.username.clone(),
-            email: self.email.clone(),
-            created_at: self.created_at.clone(),
-            updated_at: self.updated_at.clone(),
+    fn into_resource_filter(self) -> Vec<QueryFilter> {
+        let mut filters = vec![];
+
+        if let Some(username) = &self.username {
+            filters.push(QueryFilter {
+                key: "username".to_string(),
+                value: username.clone(),
+            });
         }
+
+        if let Some(email) = &self.email {
+            filters.push(QueryFilter {
+                key: "email".to_string(),
+                value: email.clone(),
+            });
+        }
+
+        if let Some(created_at) = &self.created_at {
+            filters.push(QueryFilter {
+                key: "created_at".to_string(),
+                value: created_at.to_string(),
+            });
+        }
+
+        if let Some(updated_at) = &self.updated_at {
+            filters.push(QueryFilter {
+                key: "updated_at".to_string(),
+                value: updated_at.to_string(),
+            });
+        }
+
+        filters
     }
 }
 
@@ -166,6 +193,7 @@ impl CliCommand for UserList {
         client: &SyncClient<Authenticated>,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
+        let _ = self.new_from_tokens(tokens)?;
         let users = with_timing("User list", || client.users().find().execute())?;
         users.format()?;
 

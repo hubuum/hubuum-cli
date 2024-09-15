@@ -7,7 +7,7 @@ impl OutputFormatterWithPadding for Class {
     fn format(&self, padding: usize) -> Result<(), AppError> {
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
-        append_key_value("Namespace", &self.namespace_id, padding)?;
+        append_key_value("Namespace", &self.namespace.name, padding)?;
 
         let schema = &self.json_schema;
         let schema_id = schema

@@ -29,7 +29,7 @@ fn ensure_file_exists(file: &str) -> Result<PathBuf, AppError> {
     log::trace!("Checking file: {:?}", fqfile);
     if !fqfile.exists() {
         log::debug!("Creating file: {:?}", fqfile);
-        if file == "token.txt" {
+        if file == "token.json" {
             std::fs::write(fqfile.clone(), "[]")?;
         } else {
             std::fs::write(fqfile.clone(), "")?;
@@ -43,7 +43,11 @@ pub fn get_history_file() -> Result<PathBuf, AppError> {
 }
 
 pub fn get_token_file() -> Result<PathBuf, AppError> {
-    ensure_file_exists("token.txt")
+    ensure_file_exists("token.json")
+}
+
+pub fn get_log_file() -> Result<PathBuf, AppError> {
+    ensure_file_exists("log.txt")
 }
 
 pub fn get_token_from_tokenfile(

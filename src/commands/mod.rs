@@ -45,6 +45,7 @@ impl CliOption {
     }
 }
 
+#[allow(dead_code)]
 pub trait CliCommandInfo {
     fn options(&self) -> Vec<CliOption>;
     fn name(&self) -> String;

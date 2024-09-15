@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, FilterOperator, NamespacePost, SyncClient};
+use hubuum_client::{Authenticated, NamespacePost, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -49,7 +49,7 @@ impl CliCommand for NamespaceNew {
         let group = client
             .groups()
             .find()
-            .add_filter("name", FilterOperator::Eq, new.owner.clone())
+            .add_filter_name_exact(new.owner.clone())
             .execute()?
             .single_item_or_warning()?;
 
@@ -74,7 +74,7 @@ impl CliCommand for NamespaceList {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
+        _tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let namespaces = client.namespaces().find().execute()?;
         namespaces.format()?;

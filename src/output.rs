@@ -170,6 +170,7 @@ pub fn append_line<T: Display>(line: T) -> Result<(), AppError> {
 /// ## Errors
 ///
 ///  - OutputError::LockError if the output buffer cannot be locked.
+#[allow(dead_code)]
 pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
     let mut buffer = OUTPUT_BUFFER.lock().map_err(|_| AppError::LockError)?;
     for line in lines {
@@ -196,6 +197,7 @@ pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
 ///
 ///  - OutputError::FormatError if the value cannot be formatted.
 ///  - OutputError::LockError if the output buffer cannot be locked.
+#[allow(dead_code)]
 pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
     let mut debug_output = String::new();
     write!(&mut debug_output, "{:#?}", value).map_err(|_| AppError::FormatError)?;
@@ -209,6 +211,7 @@ pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn append_json<T: Serialize>(value: T) -> Result<(), AppError> {
     let json_output = serde_json::to_string_pretty(&value).map_err(|_| AppError::FormatError)?;
 
