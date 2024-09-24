@@ -8,7 +8,6 @@ use super::{CliCommandInfo, CliOption};
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::tokenizer::CommandTokenizer;
-use crate::traits::SingleItemOrWarning;
 
 trait GetClassname {
     fn classname(&self) -> Option<String>;
@@ -49,8 +48,7 @@ impl CliCommand for ClassNew {
             .namespaces()
             .find()
             .add_filter_name_exact(&new.namespace)
-            .execute()?
-            .single_item_or_warning()?;
+            .execute_expecting_single_result()?;
 
         let result = client.classes().create(ClassPost {
             name: new.name.clone(),
@@ -116,8 +114,7 @@ impl CliCommand for ClassInfo {
                 hubuum_client::FilterOperator::Equals { is_negated: false },
                 query.name.clone().unwrap(),
             )
-            .execute()?
-            .single_item_or_warning()?
+            .execute_expecting_single_result()?
             .format(15)?;
         Ok(())
     }
@@ -140,7 +137,7 @@ impl CliCommand for ClassDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
 
-        let class = client.classes().filter(&query)?.single_item_or_warning()?;
+        let class = client.classes().filter_expecting_single_result(&query)?;
         client.classes().delete(class.id)?;
 
         Ok(())

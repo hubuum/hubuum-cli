@@ -9,7 +9,6 @@ use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
-use crate::traits::SingleItemOrWarning;
 
 trait GetNamespace {
     fn namespace(&self) -> Option<String>;
@@ -55,8 +54,7 @@ impl CliCommand for NamespaceNew {
             .groups()
             .find()
             .add_filter_name_exact(new.owner.clone())
-            .execute()?
-            .single_item_or_warning()?;
+            .execute_expecting_single_result()?;
 
         let post = new.into_post(group.id);
 
@@ -144,8 +142,7 @@ impl CliCommand for NamespaceInfo {
             .namespaces()
             .find()
             .add_filter_name_exact(new.name.clone().unwrap())
-            .execute()?
-            .single_item_or_warning()?;
+            .execute_expecting_single_result()?;
 
         namespace.format(15)?;
 
@@ -183,8 +180,7 @@ impl CliCommand for NamespaceDelete {
             .namespaces()
             .find()
             .add_filter_name_exact(new.name.clone().unwrap())
-            .execute()?
-            .single_item_or_warning()?;
+            .execute_expecting_single_result()?;
 
         client.namespaces().delete(namespace.id)?;
         append_line(format!("Namespace '{}' deleted", namespace.name))?;

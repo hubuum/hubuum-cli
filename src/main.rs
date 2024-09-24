@@ -23,7 +23,6 @@ mod logger;
 mod models;
 mod output;
 mod tokenizer;
-mod traits;
 
 use crate::commandlist::CommandList;
 use crate::files::get_history_file;

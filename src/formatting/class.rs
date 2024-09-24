@@ -24,8 +24,8 @@ impl OutputFormatterWithPadding for Class {
         }
 
         append_some_key_value("Validate", &self.validate_schema, padding)?;
-        append_key_value("Created At", &self.created_at, padding)?;
-        append_key_value("Updated At", &self.updated_at, padding)?;
+        append_key_value("Created", &self.created_at, padding)?;
+        append_key_value("Updated", &self.updated_at, padding)?;
         Ok(())
     }
 }

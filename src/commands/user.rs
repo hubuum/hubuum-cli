@@ -9,7 +9,6 @@ use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::logger::with_timing;
 use crate::output::{append_key_value, append_line};
-use crate::traits::SingleItemOrWarning;
 
 use crate::tokenizer::CommandTokenizer;
 
@@ -93,8 +92,9 @@ impl CliCommand for UserDelete {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user =
-            with_timing("User get", || client.users().filter(&query))?.single_item_or_warning()?;
+        let user = with_timing("User get", || {
+            client.users().filter_expecting_single_result(&query)
+        })?;
 
         with_timing("User delete", || client.users().delete(user.id))?;
         append_line(format!("User '{}' deleted", user.username.clone()))?;
@@ -167,9 +167,10 @@ impl CliCommand for UserInfo {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        with_timing("User get", || client.users().filter(&query))?
-            .single_item_or_warning()?
-            .format(15)?;
+        with_timing("User get", || {
+            client.users().filter_expecting_single_result(&query)
+        })?
+        .format(15)?;
 
         Ok(())
     }
