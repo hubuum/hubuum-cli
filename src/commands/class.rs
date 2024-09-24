@@ -45,8 +45,6 @@ impl CliCommand for ClassNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        println!("Creating new class: {:?}", new);
-
         let namespace = client
             .namespaces()
             .find()
