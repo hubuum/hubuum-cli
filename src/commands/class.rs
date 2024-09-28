@@ -7,6 +7,7 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
+use crate::output::append_key_value;
 use crate::tokenizer::CommandTokenizer;
 
 trait GetClassname {
@@ -106,7 +107,7 @@ impl CliCommand for ClassInfo {
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        client
+        let class = client
             .classes()
             .find()
             .add_filter(
@@ -114,8 +115,13 @@ impl CliCommand for ClassInfo {
                 hubuum_client::FilterOperator::Equals { is_negated: false },
                 query.name.clone().unwrap(),
             )
-            .execute_expecting_single_result()?
-            .format(15)?;
+            .execute_expecting_single_result()?;
+
+        class.format(15)?;
+
+        let objects = client.objects(class.id).find().execute()?;
+        append_key_value("Objects:", objects.len(), 15)?;
+
         Ok(())
     }
 }
