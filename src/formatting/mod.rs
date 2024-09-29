@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use tabled::{settings::Style, Table, Tabled};
+use tabled::{settings::object::Columns, settings::Disable, settings::Style, Table, Tabled};
 
 use crate::errors::AppError;
 use crate::output::append_line;
@@ -7,6 +7,7 @@ use crate::output::append_line;
 mod class;
 mod group;
 mod namespace;
+mod object;
 mod user;
 
 pub trait OutputFormatterWithPadding {
@@ -23,7 +24,10 @@ where
 {
     fn format(&self) -> Result<(), AppError> {
         let mut table = Table::new(self);
-        table.with(Style::modern_rounded());
+        // This should be customizable by the user, including the ability to disable columns
+        table
+            .with(Style::modern_rounded())
+            .with(Disable::column(Columns::single(0))); // Disable the first column (ID)
         let table = table.to_string();
         for line in table.lines() {
             append_line(line)?;

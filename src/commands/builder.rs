@@ -8,6 +8,7 @@ pub fn build_repl_commands() -> CommandList {
     add_namespace_commands(&mut cli);
     add_user_commands(&mut cli);
     add_group_commands(&mut cli);
+    add_object_commands(&mut cli);
 
     cli.add_command("help", commands::Help::default());
 
@@ -42,4 +43,12 @@ fn add_group_commands(cli: &mut CommandList) {
     cli.add_scope("group")
         .add_command("create", commands::GroupNew::default())
         .add_command("list", commands::GroupList::default());
+}
+
+fn add_object_commands(cli: &mut CommandList) {
+    cli.add_scope("object")
+        .add_command("create", commands::ObjectNew::default())
+        .add_command("list", commands::ObjectList::default())
+        .add_command("delete", commands::ObjectDelete::default())
+        .add_command("info", commands::ObjectInfo::default());
 }

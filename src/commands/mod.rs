@@ -8,6 +8,7 @@ mod class;
 mod group;
 mod help;
 mod namespace;
+mod object;
 mod user;
 
 use crate::output::append_line;
@@ -18,6 +19,7 @@ pub use group::*;
 #[allow(unused_imports)]
 pub use help::Help;
 pub use namespace::*;
+pub use object::*;
 pub use user::*;
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
