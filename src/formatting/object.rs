@@ -6,7 +6,7 @@ use crate::errors::AppError;
 impl OutputFormatterWithPadding for Object {
     fn format(&self, padding: usize) -> Result<(), AppError> {
         append_key_value("Name", &self.name, padding)?;
-        append_some_key_value("Description", &self.description, padding)?;
+        append_key_value("Description", &self.description, padding)?;
         append_key_value("Namespace", &self.namespace_id, padding)?;
         append_key_value("Class", &self.hubuum_class_id, padding)?;
 

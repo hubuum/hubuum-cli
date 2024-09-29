@@ -36,7 +36,7 @@ pub struct ObjectNew {
     #[option(short = "N", long = "namespace", help = "Namespace name")]
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
-    pub description: Option<String>,
+    pub description: String,
     #[option(
         short = "D",
         long = "data",
