@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use cli_command_derive::CliCommand;
 
 use hubuum_client::{
@@ -5,12 +7,11 @@ use hubuum_client::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::{find_entities_by_ids, CliCommand, CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
-use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
-use crate::output::{append_key_value, append_line};
+use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
+use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
 
 trait GetObjectname {
@@ -72,7 +73,15 @@ impl CliCommand for ObjectNew {
             data: new.data.clone(),
         })?;
 
-        result.format(15)?;
+        let mut classmap = HashMap::new();
+        classmap.insert(class.id, class.clone());
+
+        let mut nsmap = HashMap::new();
+        nsmap.insert(namespace.id, namespace.clone());
+
+        let object = FormattedObject::new(&result, &classmap, &nsmap);
+
+        object.format(15)?;
 
         Ok(())
     }
@@ -110,6 +119,8 @@ pub struct ObjectInfo {
     pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
+    #[option(short = "c", long = "class", help = "Class of the object")]
+    pub class: String,
 }
 
 impl CliCommand for ObjectInfo {
@@ -120,20 +131,33 @@ impl CliCommand for ObjectInfo {
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
+
         let class = client
             .classes()
             .find()
-            .add_filter(
-                "name",
-                hubuum_client::FilterOperator::Equals { is_negated: false },
-                query.name.clone().unwrap(),
-            )
+            .add_filter_name_exact(&query.class)
             .execute_expecting_single_result()?;
 
-        class.format(15)?;
+        let object = client
+            .objects(class.id)
+            .find()
+            .add_filter_name_exact(query.name.clone().unwrap())
+            .execute_expecting_single_result()?;
 
-        let objects = client.objects(class.id).find().execute()?;
-        append_key_value("Objects:", objects.len(), 15)?;
+        let namespace = client
+            .namespaces()
+            .find()
+            .add_filter_id(&object.namespace_id)
+            .execute_expecting_single_result()?;
+
+        let mut nsmap = HashMap::new();
+        nsmap.insert(namespace.id, namespace.clone());
+
+        let mut classmap = HashMap::new();
+        classmap.insert(class.id, class.clone());
+
+        let object = FormattedObject::new(&object, &classmap, &nsmap);
+        object.format(15)?;
 
         Ok(())
     }
@@ -273,37 +297,13 @@ impl CliCommand for ObjectList {
             return Ok(());
         }
 
-        let class_ids = objects
+        let classmap = find_entities_by_ids(&client.classes(), &objects, |o| o.hubuum_class_id)?;
+        let nsmap = find_entities_by_ids(&client.namespaces(), &objects, |o| o.namespace_id)?;
+
+        let objects = objects
             .iter()
-            .map(|o| o.hubuum_class_id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let namespace_ids = objects
-            .iter()
-            .map(|o| o.namespace_id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let _classes = client
-            .classes()
-            .find()
-            .add_filter(
-                "id",
-                hubuum_client::FilterOperator::Equals { is_negated: false },
-                class_ids,
-            )
-            .execute()?;
-
-        let _namespaces = client
-            .namespaces()
-            .find()
-            .add_filter(
-                "id",
-                hubuum_client::FilterOperator::Equals { is_negated: false },
-                namespace_ids,
-            )
-            .execute()?;
+            .map(|o| FormattedObject::new(o, &classmap, &nsmap))
+            .collect::<Vec<_>>();
 
         objects.format()?;
         Ok(())

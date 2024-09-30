@@ -10,6 +10,8 @@ mod namespace;
 mod object;
 mod user;
 
+pub use object::FormattedObject;
+
 pub trait OutputFormatterWithPadding {
     fn format(&self, padding: usize) -> Result<(), AppError>;
 }
