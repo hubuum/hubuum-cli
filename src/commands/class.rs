@@ -119,6 +119,7 @@ impl CliCommand for ClassInfo {
 
         class.format(15)?;
 
+        // This will hopefully be a head request in the future
         let objects = client.objects(class.id).find().execute()?;
         append_key_value("Objects:", objects.len(), 15)?;
 

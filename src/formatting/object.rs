@@ -1,6 +1,6 @@
 use hubuum_client::Object;
 
-use super::{append_key_value, append_some_key_value, OutputFormatterWithPadding};
+use super::{append_key_value, OutputFormatterWithPadding};
 use crate::errors::AppError;
 
 impl OutputFormatterWithPadding for Object {
