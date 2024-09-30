@@ -10,7 +10,7 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
-use crate::output::append_key_value;
+use crate::output::{append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetObjectname {
@@ -238,13 +238,13 @@ impl IntoResourceFilter<Object> for &ObjectList {
         let mut filters = vec![];
         if let Some(name) = &self.name {
             filters.push(QueryFilter {
-                key: "name".to_string(),
+                key: "name__contains".to_string(),
                 value: name.clone(),
             });
         }
         if let Some(description) = &self.description {
             filters.push(QueryFilter {
-                key: "description".to_string(),
+                key: "description__contains".to_string(),
                 value: description.clone(),
             });
         }
@@ -267,6 +267,11 @@ impl CliCommand for ObjectList {
             .execute_expecting_single_result()?;
 
         let objects = client.objects(class.id).filter(&new)?;
+
+        if objects.is_empty() {
+            append_line("No objects found")?;
+            return Ok(());
+        }
 
         let class_ids = objects
             .iter()
