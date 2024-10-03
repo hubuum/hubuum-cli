@@ -203,7 +203,7 @@ pub trait CliCommand: CliCommandInfo {
         if let Some(about) = self.about() {
             help.push_str(&format!("{} - {} \n\n", fq_name, about));
         } else {
-            help.push_str(&fq_name);
+            help.push_str(&format!("{}\n\n", fq_name));
         }
         if let Some(long_about) = self.long_about() {
             help.push_str(&format!("{}\n\n", long_about));
