@@ -8,9 +8,11 @@ mod class;
 mod group;
 mod namespace;
 mod object;
+mod relations;
 mod user;
 
 pub use object::FormattedObject;
+pub use relations::{FormattedClassRelation, FormattedObjectRelation};
 
 pub trait OutputFormatterWithPadding {
     fn format(&self, padding: usize) -> Result<(), AppError>;
