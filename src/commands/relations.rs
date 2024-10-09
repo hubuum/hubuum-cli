@@ -206,20 +206,40 @@ impl CliCommand for RelationList {
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
 
-        let query = client.class_relation().find();
-        let query = if let Some(class_from) = &new.class_from {
-            let class = find_class_by_name(client, class_from)?;
-            query.add_filter_equals("from_classes", class.id)
-        } else {
-            query
-        };
+        let mut query = client.class_relation().find();
 
-        let query = if let Some(class_to) = &new.class_to {
-            let class = find_class_by_name(client, class_to)?;
-            query.add_filter_equals("to_classes", class.id)
-        } else {
-            query
-        };
+        let mut swapped = false;
+        let mut from_class = None;
+        let mut to_class = None;
+
+        if new.class_from.is_some() && new.class_to.is_some() {
+            from_class = Some(find_class_by_name(
+                client,
+                &new.class_from.as_ref().unwrap(),
+            )?);
+            to_class = Some(find_class_by_name(client, &new.class_to.as_ref().unwrap())?);
+
+            let from = from_class.clone().unwrap();
+            let to = to_class.clone().unwrap();
+
+            if from.id > to.id {
+                swapped = true;
+                (from_class, to_class) = (to_class.clone(), from_class.clone())
+            }
+
+            query = query
+                .add_filter_equals("from_classes", from_class.clone().unwrap().id)
+                .add_filter_equals("to_classes", to_class.clone().unwrap().id);
+        } else if new.class_from.is_some() {
+            from_class = Some(find_class_by_name(
+                client,
+                &new.class_from.as_ref().unwrap(),
+            )?);
+            query = query.add_filter_equals("from_classes", from_class.clone().unwrap().id);
+        } else if new.class_to.is_some() {
+            to_class = Some(find_class_by_name(client, &new.class_to.as_ref().unwrap())?);
+            query = query.add_filter_equals("to_classes", to_class.clone().unwrap().id);
+        }
 
         let class_relations = query.execute()?;
 
@@ -255,25 +275,150 @@ impl CliCommand for RelationList {
             class_map.insert(class.id, class.clone());
         }
 
-        let class_relations_formatted = class_relations
-            .iter()
-            .map(|r| FormattedClassRelation::new(&r, &class_map))
-            .collect::<Vec<_>>();
-        class_relations_formatted.format()?;
+        if class_relations.len() > 1 || (new.class_from.is_none() || new.class_to.is_none()) {
+            let class_relations_formatted = class_relations
+                .iter()
+                .map(|r| FormattedClassRelation::new(&r, &class_map))
+                .collect::<Vec<_>>();
+            class_relations_formatted.format()?;
 
-        if new.class_from.is_some() && new.class_to.is_some() && class_relations.len() == 1 {
-            let object_relations = client
-                .object_relation()
-                .find()
-                .add_filter_equals("from_classes", class_relations[0].from_hubuum_class_id)
-                .add_filter_equals("to_classes", class_relations[0].to_hubuum_class_id)
-                .execute()?;
-
-            for object in &object_relations {
-                println!("{:?}", object);
-            }
             return Ok(());
         }
+
+        if to_class.is_none() {
+            if swapped {
+                to_class = Some(
+                    client
+                        .classes()
+                        .find()
+                        .add_filter_id(class_relations[0].from_hubuum_class_id)
+                        .execute_expecting_single_result()?,
+                )
+            } else {
+                to_class = Some(
+                    client
+                        .classes()
+                        .find()
+                        .add_filter_id(class_relations[0].to_hubuum_class_id)
+                        .execute_expecting_single_result()?,
+                )
+            }
+        }
+
+        if from_class.is_none() {
+            if swapped {
+                from_class = Some(
+                    client
+                        .classes()
+                        .find()
+                        .add_filter_id(class_relations[0].to_hubuum_class_id)
+                        .execute_expecting_single_result()?,
+                )
+            } else {
+                from_class = Some(
+                    client
+                        .classes()
+                        .find()
+                        .add_filter_id(class_relations[0].from_hubuum_class_id)
+                        .execute_expecting_single_result()?,
+                )
+            }
+        }
+
+        let mut query = client
+            .object_relation()
+            .find()
+            .add_filter_equals("class_relation", class_relations[0].id);
+
+        if new.object_from.is_some() {
+            let object_from = find_object_by_name(
+                client,
+                from_class.clone().unwrap().id,
+                new.object_from.as_ref().unwrap(),
+            )?;
+            let target = if swapped {
+                "from_objects"
+            } else {
+                "to_objects"
+            };
+
+            query = query.add_filter_equals(target, object_from.id);
+        }
+
+        if new.object_to.is_some() {
+            let object_to = find_object_by_name(
+                client,
+                to_class.clone().unwrap().id,
+                new.object_to.as_ref().unwrap(),
+            )?;
+
+            let target = if swapped {
+                "to_objects"
+            } else {
+                "from_objects"
+            };
+
+            query = query.add_filter_equals(target, object_to.id);
+        }
+
+        let object_relations = query.execute()?;
+
+        if object_relations.is_empty() {
+            println!("No relations found");
+            return Ok(());
+        }
+
+        // We don't know what classes each object is in, so we ask both classes for their objects
+        // constrained to the IDs we have...
+        let object_ids_joined = object_relations
+            .iter()
+            .map(|r| {
+                [
+                    r.from_hubuum_object_id.to_string(),
+                    r.to_hubuum_object_id.to_string(),
+                ]
+            })
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let mut object_map = HashMap::new();
+
+        let class_from_objects = client
+            .objects(from_class.clone().unwrap().id)
+            .find()
+            .add_filter_equals("id", &object_ids_joined)
+            .execute()?;
+        for object in class_from_objects {
+            object_map.insert(object.id, object.clone());
+        }
+
+        let class_to_objects = client
+            .objects(to_class.clone().unwrap().id)
+            .find()
+            .add_filter_equals("id", &object_ids_joined)
+            .execute()?;
+
+        for object in class_to_objects {
+            object_map.insert(object.id, object.clone());
+        }
+
+        let mut class_relation_corrected = class_relations[0].clone();
+        if swapped {
+            std::mem::swap(
+                &mut class_relation_corrected.from_hubuum_class_id,
+                &mut class_relation_corrected.to_hubuum_class_id,
+            );
+        }
+
+        let formatted_object_relations = object_relations
+            .iter()
+            .map(|r| {
+                FormattedObjectRelation::new(&r, &class_relation_corrected, &object_map, &class_map)
+            })
+            .collect::<Vec<_>>();
+
+        formatted_object_relations.format()?;
 
         Ok(())
     }
@@ -296,6 +441,7 @@ impl CliCommand for RelationInfo {
             let rel = FormattedClassRelation::new(&rel, &classmap);
             rel.format(15)?;
         } else {
+            println!("Object relations!");
             let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
             let object_from =
                 find_object_by_name(client, class_from.id, new.object_from.as_ref().unwrap())?;
