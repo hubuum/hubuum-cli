@@ -209,7 +209,7 @@ fn main() -> Result<(), AppError> {
                     Ok(_) => {}
                     Err(AppError::Quiet) => {}
                     Err(AppError::EntityNotFound(entity)) => {
-                        add_warning(format!("{}", entity))?;
+                        add_warning(entity.to_string())?;
                     }
                     Err(AppError::ApiError(ApiError::HttpWithBody { status, message })) => {
                         add_error(format!("API Error: Status {} - {}", status, message))?;

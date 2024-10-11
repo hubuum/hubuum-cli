@@ -55,8 +55,8 @@ impl CliCommand for ObjectNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = find_namespace_by_name(&client, &new.namespace)?;
-        let class = find_class_by_name(&client, &new.class)?;
+        let namespace = find_namespace_by_name(client, &new.namespace)?;
+        let class = find_class_by_name(client, &new.class)?;
 
         let result = client.objects(class.id).create(ObjectPost {
             name: new.name.clone(),
@@ -125,13 +125,13 @@ impl CliCommand for ObjectInfo {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
-        let class = find_class_by_name(&client, &query.class)?;
-        let object = find_object_by_name(&client, class.id, &query.name.unwrap())?;
+        let class = find_class_by_name(client, &query.class)?;
+        let object = find_object_by_name(client, class.id, &query.name.unwrap())?;
 
         let namespace = client
             .namespaces()
             .find()
-            .add_filter_id(&object.namespace_id)
+            .add_filter_id(object.namespace_id)
             .execute_expecting_single_result()?;
 
         let mut nsmap = HashMap::new();
@@ -165,12 +165,12 @@ impl CliCommand for ObjectDelete {
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
         let class = if query.class.is_some() {
-            find_class_by_name(&client, &query.class.unwrap())?
+            find_class_by_name(client, &query.class.unwrap())?
         } else {
             return Err(AppError::MissingOptions(vec!["class".to_string()]));
         };
 
-        let object = find_object_by_name(&client, class.id, &query.name.unwrap())?;
+        let object = find_object_by_name(client, class.id, &query.name.unwrap())?;
 
         client.objects(class.id).delete(object.id)?;
         Ok(())
@@ -238,7 +238,7 @@ impl CliCommand for ObjectList {
     ) -> Result<(), AppError> {
         let new: ObjectList = self.new_from_tokens(tokens)?;
 
-        let class = find_class_by_name(&client, &new.class)?;
+        let class = find_class_by_name(client, &new.class)?;
 
         let objects = client.objects(class.id).filter(&new)?;
 

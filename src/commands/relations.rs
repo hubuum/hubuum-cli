@@ -216,9 +216,9 @@ impl CliCommand for RelationList {
         if new.class_from.is_some() && new.class_to.is_some() {
             from_class = Some(find_class_by_name(
                 client,
-                &new.class_from.as_ref().unwrap(),
+                new.class_from.as_ref().unwrap(),
             )?);
-            to_class = Some(find_class_by_name(client, &new.class_to.as_ref().unwrap())?);
+            to_class = Some(find_class_by_name(client, new.class_to.as_ref().unwrap())?);
 
             let from = from_class.clone().unwrap();
             let to = to_class.clone().unwrap();
@@ -234,11 +234,11 @@ impl CliCommand for RelationList {
         } else if new.class_from.is_some() {
             from_class = Some(find_class_by_name(
                 client,
-                &new.class_from.as_ref().unwrap(),
+                new.class_from.as_ref().unwrap(),
             )?);
             query = query.add_filter_equals("from_classes", from_class.clone().unwrap().id);
         } else if new.class_to.is_some() {
-            to_class = Some(find_class_by_name(client, &new.class_to.as_ref().unwrap())?);
+            to_class = Some(find_class_by_name(client, new.class_to.as_ref().unwrap())?);
             query = query.add_filter_equals("to_classes", to_class.clone().unwrap().id);
         }
 
@@ -272,7 +272,7 @@ impl CliCommand for RelationList {
         if class_relations.len() > 1 || (new.class_from.is_none() || new.class_to.is_none()) {
             let class_relations_formatted = class_relations
                 .iter()
-                .map(|r| FormattedClassRelation::new(&r, &class_map))
+                .map(|r| FormattedClassRelation::new(r, &class_map))
                 .collect::<Vec<_>>();
             class_relations_formatted.format()?;
 
@@ -366,13 +366,12 @@ impl CliCommand for RelationList {
         // constrained to the IDs we have...
         let object_ids_joined = object_relations
             .iter()
-            .map(|r| {
+            .flat_map(|r| {
                 [
                     r.from_hubuum_object_id.to_string(),
                     r.to_hubuum_object_id.to_string(),
                 ]
             })
-            .flatten()
             .collect::<Vec<_>>()
             .join(",");
 
@@ -414,7 +413,7 @@ impl CliCommand for RelationList {
         let formatted_object_relations = object_relations
             .iter()
             .map(|r| {
-                FormattedObjectRelation::new(&r, &class_relation_corrected, &object_map, &class_map)
+                FormattedObjectRelation::new(r, &class_relation_corrected, &object_map, &class_map)
             })
             .collect::<Vec<_>>();
 

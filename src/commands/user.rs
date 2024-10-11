@@ -28,7 +28,7 @@ pub struct UserNew {
 }
 
 impl UserNew {
-    fn into_post(&self) -> UserPost {
+    fn into_post(self) -> UserPost {
         UserPost {
             username: self.username.clone(),
             email: self.email.clone(),

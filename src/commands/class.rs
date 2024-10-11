@@ -47,7 +47,7 @@ impl CliCommand for ClassNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = find_namespace_by_name(&client, &new.namespace)?;
+        let namespace = find_namespace_by_name(client, &new.namespace)?;
 
         let result = client.classes().create(ClassPost {
             name: new.name.clone(),
@@ -105,7 +105,7 @@ impl CliCommand for ClassInfo {
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let class = find_class_by_name(&client, &query.name.unwrap())?;
+        let class = find_class_by_name(client, &query.name.unwrap())?;
 
         class.format(15)?;
 
@@ -132,7 +132,7 @@ impl CliCommand for ClassDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
 
-        let class = find_class_by_name(&client, &query.name.unwrap())?;
+        let class = find_class_by_name(client, &query.name.unwrap())?;
         client.classes().delete(class.id)?;
 
         Ok(())
