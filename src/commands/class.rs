@@ -2,9 +2,11 @@ use cli_command_derive::CliCommand;
 use hubuum_client::{Authenticated, Class, ClassPost, IntoResourceFilter, QueryFilter, SyncClient};
 use serde::{Deserialize, Serialize};
 
+use super::shared::find_class_by_name;
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
+use crate::commands::shared::find_namespace_by_name;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::output::append_key_value;
@@ -45,11 +47,7 @@ impl CliCommand for ClassNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = client
-            .namespaces()
-            .find()
-            .add_filter_name_exact(&new.namespace)
-            .execute_expecting_single_result()?;
+        let namespace = find_namespace_by_name(&client, &new.namespace)?;
 
         let result = client.classes().create(ClassPost {
             name: new.name.clone(),
@@ -107,15 +105,7 @@ impl CliCommand for ClassInfo {
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let class = client
-            .classes()
-            .find()
-            .add_filter(
-                "name",
-                hubuum_client::FilterOperator::Equals { is_negated: false },
-                query.name.clone().unwrap(),
-            )
-            .execute_expecting_single_result()?;
+        let class = find_class_by_name(&client, &query.name.unwrap())?;
 
         class.format(15)?;
 
@@ -129,8 +119,6 @@ impl CliCommand for ClassInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassDelete {
-    #[option(short = "i", long = "id", help = "ID of the class")]
-    pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: Option<String>,
 }
@@ -144,30 +132,10 @@ impl CliCommand for ClassDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
 
-        let class = client.classes().filter_expecting_single_result(&query)?;
+        let class = find_class_by_name(&client, &query.name.unwrap())?;
         client.classes().delete(class.id)?;
 
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Class> for &ClassDelete {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-            });
-        }
-        if let Some(id) = &self.id {
-            filters.push(QueryFilter {
-                key: "id".to_string(),
-                value: id.to_string(),
-            });
-        }
-
-        filters
     }
 }
 

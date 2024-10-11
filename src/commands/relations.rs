@@ -1,14 +1,15 @@
 use cli_command_derive::CliCommand;
 
-use hubuum_client::{
-    ApiError, Authenticated, Class, ClassRelation, ClassRelationPost, Object, ObjectRelation,
-    ObjectRelationPost, SyncClient,
-};
+use hubuum_client::{Authenticated, Class, ClassRelationPost, ObjectRelationPost, SyncClient};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::vec;
 
 use super::{CliCommand, CliCommandInfo, CliOption};
+use crate::commands::shared::{
+    find_class_by_name, find_class_relation, find_classes, find_object_by_name,
+    find_object_relation, ids_to_comma_separated_string,
+};
 use crate::errors::AppError;
 use crate::formatting::{
     FormattedClassRelation, FormattedObjectRelation, OutputFormatter, OutputFormatterWithPadding,
@@ -254,20 +255,13 @@ impl CliCommand for RelationList {
             class_ids.push(relation.to_hubuum_class_id);
         }
 
-        let class_ids_joined = class_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+        // Here we should filter out already known IDs...
+        let class_ids_joined = ids_to_comma_separated_string(&class_ids, |id| *id);
 
         let classes = client
             .classes()
             .find()
-            .add_filter(
-                "id",
-                hubuum_client::FilterOperator::Equals { is_negated: false },
-                class_ids_joined,
-            )
+            .add_filter_id(class_ids_joined)
             .execute()?;
 
         let mut class_map = HashMap::new();
@@ -411,6 +405,12 @@ impl CliCommand for RelationList {
             );
         }
 
+        /*
+        let formatted_class_relation =
+            FormattedClassRelation::new(&class_relation_corrected, &class_map);
+        formatted_class_relation.format(15)?;
+        */
+
         let formatted_object_relations = object_relations
             .iter()
             .map(|r| {
@@ -441,7 +441,6 @@ impl CliCommand for RelationInfo {
             let rel = FormattedClassRelation::new(&rel, &classmap);
             rel.format(15)?;
         } else {
-            println!("Object relations!");
             let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
             let object_from =
                 find_object_by_name(client, class_from.id, new.object_from.as_ref().unwrap())?;
@@ -469,24 +468,6 @@ impl CliCommand for RelationInfo {
         }
         Ok(())
     }
-}
-
-fn find_classes(
-    client: &SyncClient<Authenticated>,
-    class_from_name: &str,
-    class_to_name: &str,
-) -> Result<(Class, Class), AppError> {
-    let class_from = find_class_by_name(client, class_from_name)?;
-    let class_to = find_class_by_name(client, class_to_name)?;
-    Ok((class_from, class_to))
-}
-
-fn find_class_by_name(client: &SyncClient<Authenticated>, name: &str) -> Result<Class, ApiError> {
-    client
-        .classes()
-        .find()
-        .add_filter_name_exact(name)
-        .execute_expecting_single_result()
 }
 
 fn create_class_relation(
@@ -590,46 +571,6 @@ fn validate_object_names<T: HasObjectNames>(new: &T) -> Result<(String, String),
         (None, _) => Err(AppError::MissingOptions(vec!["object_from".to_string()])),
         (_, None) => Err(AppError::MissingOptions(vec!["object_to".to_string()])),
     }
-}
-
-fn find_class_relation(
-    client: &SyncClient<Authenticated>,
-    class_from_id: i32,
-    class_to_id: i32,
-) -> Result<ClassRelation, ApiError> {
-    client
-        .class_relation()
-        .find()
-        .add_filter_equals("from_classes", class_to_id)
-        .add_filter_equals("to_classes", class_from_id)
-        .execute_expecting_single_result()
-}
-
-fn find_object_by_name(
-    client: &SyncClient<Authenticated>,
-    class_id: i32,
-    name: &str,
-) -> Result<Object, ApiError> {
-    client
-        .objects(class_id)
-        .find()
-        .add_filter_name_exact(name)
-        .execute_expecting_single_result()
-}
-
-fn find_object_relation(
-    client: &SyncClient<Authenticated>,
-    class_relation: &ClassRelation,
-    object_from: &Object,
-    object_to: &Object,
-) -> Result<ObjectRelation, ApiError> {
-    client
-        .object_relation()
-        .find()
-        .add_filter_equals("id", class_relation.id)
-        .add_filter_equals("to_objects", object_to.id)
-        .add_filter_equals("from_objects", object_from.id)
-        .execute_expecting_single_result()
 }
 
 trait HasObjectNames {

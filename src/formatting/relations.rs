@@ -25,10 +25,10 @@ pub struct FormattedClassRelation {
 #[derive(Debug, Tabled)]
 pub struct FormattedObjectRelation {
     pub id: i32,
-    #[tabled(rename = "FromClass")]
+    /*    #[tabled(rename = "FromClass")]
     pub from_class: String,
     #[tabled(rename = "ToClass")]
-    pub to_class: String,
+    pub to_class: String, */
     #[tabled(rename = "FromObject")]
     pub from_object: String,
     #[tabled(rename = "ToObject")]
@@ -84,10 +84,11 @@ impl OutputFormatterWithPadding for FormattedClassRelation {
 impl FormattedObjectRelation {
     pub fn new(
         object_relation: &ObjectRelation,
-        class_relation: &ClassRelation,
+        _class_relation: &ClassRelation,
         objectmap: &HashMap<i32, Object>,
-        classmap: &HashMap<i32, Class>,
+        _classmap: &HashMap<i32, Class>,
     ) -> Self {
+        /*
         let from_class = if classmap.get(&class_relation.from_hubuum_class_id).is_some() {
             classmap
                 .get(&class_relation.from_hubuum_class_id)
@@ -107,6 +108,7 @@ impl FormattedObjectRelation {
         } else {
             "".to_string()
         };
+        */
 
         let from_object = if objectmap
             .get(&object_relation.from_hubuum_object_id)
@@ -136,8 +138,8 @@ impl FormattedObjectRelation {
 
         Self {
             id: object_relation.id,
-            from_class,
-            to_class,
+            //            from_class,
+            //            to_class,
             from_object,
             to_object,
             created_at: object_relation.created_at,
@@ -148,8 +150,8 @@ impl FormattedObjectRelation {
 
 impl OutputFormatterWithPadding for FormattedObjectRelation {
     fn format(&self, padding: usize) -> Result<(), AppError> {
-        append_key_value("ClassFrom", &self.from_class, padding)?;
-        append_key_value("ClassTo", &self.to_class, padding)?;
+        //        append_key_value("ClassFrom", &self.from_class, padding)?;
+        //        append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("ObjectFrom", &self.from_object, padding)?;
         append_key_value("ObjectTo", &self.to_object, padding)?;
         append_key_value("Created", &self.created_at, padding)?;

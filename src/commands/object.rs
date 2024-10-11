@@ -7,8 +7,10 @@ use hubuum_client::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{find_entities_by_ids, CliCommand, CliCommandInfo, CliOption};
+use super::shared::find_object_by_name;
+use super::{CliCommand, CliCommandInfo, CliOption};
 
+use crate::commands::shared::{find_class_by_name, find_entities_by_ids, find_namespace_by_name};
 use crate::errors::AppError;
 use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
 use crate::output::append_line;
@@ -23,7 +25,7 @@ trait GetObjectname {
     about = "Create a object class",
     long_about = "Create a new object in a specific class with the specified properties.",
     examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{\"key\": \"val\"}'"#
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#
 )]
 pub struct ObjectNew {
     #[option(short = "n", long = "name", help = "Name of the object")]
@@ -53,17 +55,8 @@ impl CliCommand for ObjectNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = client
-            .namespaces()
-            .find()
-            .add_filter_name_exact(&new.namespace)
-            .execute_expecting_single_result()?;
-
-        let class = client
-            .classes()
-            .find()
-            .add_filter_name_exact(&new.class)
-            .execute_expecting_single_result()?;
+        let namespace = find_namespace_by_name(&client, &new.namespace)?;
+        let class = find_class_by_name(&client, &new.class)?;
 
         let result = client.objects(class.id).create(ObjectPost {
             name: new.name.clone(),
@@ -132,17 +125,8 @@ impl CliCommand for ObjectInfo {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
-        let class = client
-            .classes()
-            .find()
-            .add_filter_name_exact(&query.class)
-            .execute_expecting_single_result()?;
-
-        let object = client
-            .objects(class.id)
-            .find()
-            .add_filter_name_exact(query.name.clone().unwrap())
-            .execute_expecting_single_result()?;
+        let class = find_class_by_name(&client, &query.class)?;
+        let object = find_object_by_name(&client, class.id, &query.name.unwrap())?;
 
         let namespace = client
             .namespaces()
@@ -165,8 +149,6 @@ impl CliCommand for ObjectInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectDelete {
-    #[option(short = "i", long = "id", help = "ID of the objet")]
-    pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
     #[option(short = "c", long = "class", help = "Class of the object")]
@@ -182,44 +164,16 @@ impl CliCommand for ObjectDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
-        let query_clone = query.clone();
-
         let class = if query.class.is_some() {
-            client
-                .classes()
-                .find()
-                .add_filter_name_exact(&query.class.unwrap())
-                .execute_expecting_single_result()?
+            find_class_by_name(&client, &query.class.unwrap())?
         } else {
             return Err(AppError::MissingOptions(vec!["class".to_string()]));
         };
 
-        let object = client
-            .objects(class.id)
-            .filter_expecting_single_result(&query_clone)?;
+        let object = find_object_by_name(&client, class.id, &query.name.unwrap())?;
+
         client.objects(class.id).delete(object.id)?;
-
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Object> for &ObjectDelete {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-            });
-        }
-        if let Some(id) = &self.id {
-            filters.push(QueryFilter {
-                key: "id".to_string(),
-                value: id.to_string(),
-            });
-        }
-
-        filters
     }
 }
 
@@ -284,11 +238,7 @@ impl CliCommand for ObjectList {
     ) -> Result<(), AppError> {
         let new: ObjectList = self.new_from_tokens(tokens)?;
 
-        let class = client
-            .classes()
-            .find()
-            .add_filter_name_exact(&new.class)
-            .execute_expecting_single_result()?;
+        let class = find_class_by_name(&client, &new.class)?;
 
         let objects = client.objects(class.id).filter(&new)?;
 
