@@ -214,7 +214,6 @@ impl CliCommand for ObjectInfo {
             }
         } else {
             let flattener = smooth_json::Flattener {
-                preserve_arrays: true,
                 ..Default::default()
             };
 
