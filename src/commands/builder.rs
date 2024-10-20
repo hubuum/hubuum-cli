@@ -51,6 +51,7 @@ fn add_object_commands(cli: &mut CommandList) {
         .add_command("create", commands::ObjectNew::default())
         .add_command("list", commands::ObjectList::default())
         .add_command("delete", commands::ObjectDelete::default())
+        .add_command("modify", commands::ObjectModify::default())
         .add_command("info", commands::ObjectInfo::default());
 }
 

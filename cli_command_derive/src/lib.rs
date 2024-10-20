@@ -131,7 +131,7 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
         let opts = FieldOpts::from_field(f).unwrap_or_default();
         let short_opt = opts.short.as_ref().map(|s| s.to_string());
         let long_opt = opts.long.as_ref().map(|l| l.to_string());
-        
+    
         let is_optional = match &f.ty {
             syn::Type::Path(type_path) => {
                 type_path.path.segments.last()
@@ -139,23 +139,41 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                     .unwrap_or(false)
             },
             _ => false,
-        };                    
-
-        if is_optional {
-            quote! {
-                if key == #short_opt || key == #long_opt {
-                    obj.#field_name = Some(value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value {} (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", "")).to_string()))?);
+        };
+    
+        let is_flag = opts.flag.unwrap_or(false);
+    
+        if is_flag {
+            if is_optional {
+                quote! {
+                    if key == #short_opt || key == #long_opt {
+                        obj.#field_name = Some(true);
+                    }
+                }
+            } else {
+                quote! {
+                    if key == #short_opt || key == #long_opt {
+                        obj.#field_name = true;
+                    }
                 }
             }
         } else {
-            quote! {
-                if key == #short_opt || key == #long_opt {
-                    obj.#field_name = value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value {} (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", "")).to_string()))?;
+            if is_optional {
+                quote! {
+                    if key == #short_opt || key == #long_opt {
+                        obj.#field_name = Some(value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value '{}' (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", ""))))?);
+                    }
+                }
+            } else {
+                quote! {
+                    if key == #short_opt || key == #long_opt {
+                        obj.#field_name = value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value '{}' (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", ""))))?;
+                    }
                 }
             }
         }
     }).collect();
-
+    
     let cmd_about = prepare_option_string(&command_info.about);
     let cmd_long_about = prepare_option_string(&command_info.long_about);
     let cmd_examples = prepare_option_string(&command_info.examples);

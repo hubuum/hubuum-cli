@@ -74,4 +74,10 @@ pub enum AppError {
 
     #[error("Quiet error")]
     Quiet,
+
+    #[error("Jqesque error: {0}")]
+    JqesqueError(#[from] jqesque::ParseError),
+
+    #[error("Error parsing JSONPath: {0}")]
+    JsonPathError(String),
 }

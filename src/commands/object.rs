@@ -3,8 +3,11 @@ use std::collections::HashMap;
 use cli_command_derive::CliCommand;
 
 use hubuum_client::{
-    Authenticated, IntoResourceFilter, Object, ObjectPost, QueryFilter, SyncClient,
+    Authenticated, IntoResourceFilter, Object, ObjectPatch, ObjectPost, QueryFilter, SyncClient,
 };
+use jqesque::Jqesque;
+use jsonpath_rust::{JsonPath, JsonPathValue};
+
 use serde::{Deserialize, Serialize};
 
 use super::shared::find_object_by_name;
@@ -13,7 +16,7 @@ use super::{CliCommand, CliCommandInfo, CliOption};
 use crate::commands::shared::{find_class_by_name, find_entities_by_ids, find_namespace_by_name};
 use crate::errors::AppError;
 use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
-use crate::output::append_line;
+use crate::output::{add_warning, append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetObjectname {
@@ -114,6 +117,19 @@ pub struct ObjectInfo {
     pub name: Option<String>,
     #[option(short = "c", long = "class", help = "Class of the object")]
     pub class: String,
+    #[option(
+        short = "d",
+        long = "data",
+        help = "Show full JSON data",
+        flag = "true"
+    )]
+    pub data: Option<bool>,
+    #[option(
+        short = "j",
+        long = "jsonpath",
+        help = "JSONPath to extract data, implies -d"
+    )]
+    pub jsonpath: Option<String>,
 }
 
 impl CliCommand for ObjectInfo {
@@ -142,6 +158,83 @@ impl CliCommand for ObjectInfo {
 
         let object = FormattedObject::new(&object, &classmap, &nsmap);
         object.format(15)?;
+
+        if query.jsonpath.is_none() && query.data.is_none() {
+            return Ok(());
+        }
+
+        if object.data.is_none() {
+            add_warning("JSON data requested, but object has no data")?;
+            return Ok(());
+        }
+
+        let json_data = object.data.unwrap().clone();
+
+        if query.jsonpath.is_some() {
+            let jsonpath = query.jsonpath.clone().unwrap();
+            let path = jsonpath
+                .parse::<JsonPath>()
+                .map_err(|e| AppError::JsonPathError(e.to_string()))?;
+
+            let slice_of_data = path.find_slice(&json_data);
+            if slice_of_data.is_empty() {
+                add_warning("JSONPath did not match any data")?;
+                return Ok(());
+            }
+
+            let padding = slice_of_data
+                .iter()
+                .filter_map(|slice| {
+                    if let JsonPathValue::Slice(_, path) = slice {
+                        Some(path.len())
+                    } else {
+                        None
+                    }
+                })
+                .max()
+                .map_or(15, |len| len.max(15));
+
+            // Iterate over the slices and handle each JsonPathValue
+            for slice in slice_of_data {
+                match slice {
+                    JsonPathValue::Slice(value, path) => {
+                        append_key_value(path, serde_json::to_string_pretty(value)?, padding)?;
+                    }
+                    JsonPathValue::NewValue(value) => {
+                        append_key_value(
+                            "Generated",
+                            serde_json::to_string_pretty(&value)?,
+                            padding,
+                        )?;
+                    }
+                    JsonPathValue::NoValue => {
+                        add_warning("No value found for a slice")?;
+                    }
+                }
+            }
+        } else {
+            let flattener = smooth_json::Flattener {
+                preserve_arrays: true,
+                ..Default::default()
+            };
+
+            let v = flattener.flatten(&json_data);
+
+            if let serde_json::Value::Object(map) = v {
+                let sorted_map: std::collections::BTreeMap<_, _> = map.into_iter().collect();
+                let padding = sorted_map
+                    .keys()
+                    .map(|k| k.len())
+                    .max()
+                    .map_or(15, |len| len.max(15));
+
+                for (key, value) in sorted_map {
+                    append_key_value(key, value, padding)?;
+                }
+            } else {
+                add_warning("JSON is not an object")?;
+            }
+        }
 
         Ok(())
     }
@@ -256,6 +349,90 @@ impl CliCommand for ObjectList {
             .collect::<Vec<_>>();
 
         objects.format()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[command_info(
+    about = "Modify an object",
+    long_about = "Modify an object in a specific class with the specified properties.",
+    examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#
+)]
+pub struct ObjectModify {
+    #[option(short = "n", long = "name", help = "Name of the object")]
+    pub name: String,
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Name of the class the object belongs to"
+    )]
+    pub class: String,
+    #[option(short = "r", long = "rename", help = "Rename object")]
+    pub rename: Option<String>,
+    #[option(short = "R", long = "reclass", help = "Reclass object")]
+    pub reclass: Option<String>,
+    #[option(short = "N", long = "namespace", help = "Namespace name")]
+    pub namespace: Option<String>,
+    #[option(short = "d", long = "description", help = "Description of the object")]
+    pub description: Option<String>,
+    #[option(short = "D", long = "data", help = "JSON data for the object")]
+    pub data: Option<String>,
+}
+
+impl CliCommand for ObjectModify {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
+        let new = &self.new_from_tokens(tokens)?;
+        let class = find_class_by_name(client, &new.class)?;
+        let object = find_object_by_name(client, class.id, &new.name)?;
+
+        let mut patch = ObjectPatch::default();
+
+        if let Some(data) = &new.data.clone() {
+            let jqesque = data.parse::<Jqesque>()?;
+            let mut json_data = serde_json::Value::Null;
+            if object.data.is_some() {
+                json_data = object.data.unwrap().clone();
+            }
+            jqesque.merge_into(&mut json_data);
+            patch.data = Some(json_data);
+        }
+
+        if let Some(namespace) = &new.namespace {
+            let namespace = find_namespace_by_name(client, namespace)?;
+            patch.namespace_id = Some(namespace.id);
+        };
+
+        if let Some(rename) = &new.rename {
+            patch.name = Some(rename.clone());
+        }
+
+        if let Some(description) = &new.description {
+            patch.description = Some(description.clone());
+        }
+
+        let result = client.objects(class.id).update(object.id, patch)?;
+
+        let mut classmap = HashMap::new();
+        classmap.insert(class.id, class.clone());
+
+        let namespace = client
+            .namespaces()
+            .find()
+            .add_filter_id(result.namespace_id)
+            .execute_expecting_single_result()?;
+
+        let mut nsmap = HashMap::new();
+        nsmap.insert(namespace.id, namespace.clone());
+
+        let object = FormattedObject::new(&result, &classmap, &nsmap);
+        object.format(15)?;
+
         Ok(())
     }
 }
