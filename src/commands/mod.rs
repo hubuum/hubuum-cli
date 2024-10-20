@@ -1,11 +1,7 @@
-use hubuum_client::{
-    client::sync::Resource, client::GetID, ApiError, ApiResource, Authenticated, FilterOperator,
-    SyncClient,
-};
+use hubuum_client::{Authenticated, SyncClient};
 use log::trace;
 use rustyline::completion::Pair;
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
 
 mod builder;
 mod class;
@@ -13,6 +9,8 @@ mod group;
 mod help;
 mod namespace;
 mod object;
+mod relations;
+mod shared;
 mod user;
 
 use crate::output::append_line;
@@ -24,6 +22,7 @@ pub use group::*;
 pub use help::Help;
 pub use namespace::*;
 pub use object::*;
+pub use relations::*;
 pub use user::*;
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
@@ -266,50 +265,4 @@ pub trait CliCommand: CliCommandInfo {
         }
         Ok(())
     }
-}
-
-pub fn ids_to_comma_separated_string<I, F>(objects: I, f: F) -> String
-where
-    I: IntoIterator,
-    I::Item: Copy,
-    F: Fn(I::Item) -> i32,
-{
-    objects
-        .into_iter()
-        .map(f)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-pub fn find_entities_by_ids<T, I, F>(
-    resource: &Resource<T>,
-    objects: I,
-    extract_id: F,
-) -> Result<HashMap<i32, T::GetOutput>, ApiError>
-where
-    T: ApiResource,
-    I: IntoIterator,
-    I::Item: Copy,
-    F: Fn(I::Item) -> i32,
-    T::GetOutput: GetID,
-{
-    // Extract the comma-separated string of unique IDs
-    let ids = ids_to_comma_separated_string(objects, extract_id);
-
-    // Use the Resource<T> to add filter and execute the find operation
-
-    let results = resource
-        .find()
-        .add_filter("id", FilterOperator::Equals { is_negated: false }, ids)
-        .execute()?;
-
-    let map = results
-        .into_iter()
-        .map(|entity| (entity.id(), entity))
-        .collect::<HashMap<i32, T::GetOutput>>();
-
-    Ok(map)
 }

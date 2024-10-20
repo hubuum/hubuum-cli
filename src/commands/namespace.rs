@@ -33,7 +33,7 @@ pub struct NamespaceNew {
 }
 
 impl NamespaceNew {
-    fn into_post(&self, group_id: i32) -> NamespacePost {
+    fn into_post(self, group_id: i32) -> NamespacePost {
         NamespacePost {
             name: self.name.clone(),
             description: self.description.clone(),

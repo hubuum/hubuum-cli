@@ -76,8 +76,8 @@ impl OutputFormatterWithPadding for FormattedObject {
         };
 
         append_key_value("Data", size, padding)?;
-        append_key_value("Created", &self.created_at, padding)?;
-        append_key_value("Updated", &self.updated_at, padding)?;
+        append_key_value("Created", self.created_at, padding)?;
+        append_key_value("Updated", self.updated_at, padding)?;
         Ok(())
     }
 }

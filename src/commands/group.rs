@@ -18,7 +18,7 @@ pub struct GroupNew {
 }
 
 impl GroupNew {
-    fn into_post(&self) -> GroupPost {
+    fn into_post(self) -> GroupPost {
         GroupPost {
             groupname: self.groupname.clone(),
             description: self.description.clone(),
