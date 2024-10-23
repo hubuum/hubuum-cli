@@ -26,7 +26,12 @@ trait GetClassname {
 pub struct ClassNew {
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: String,
-    #[option(short = "N", long = "namespace", help = "Namespace name")]
+    #[option(
+        short = "N",
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "crate::commandlist::namespaces"
+    )]
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
@@ -93,7 +98,12 @@ impl GetClassname for &ClassInfo {
 pub struct ClassInfo {
     #[option(short = "i", long = "id", help = "ID of the class")]
     pub id: Option<i32>,
-    #[option(short = "n", long = "name", help = "Name of the class")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the class",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub name: Option<String>,
 }
 
@@ -111,7 +121,8 @@ impl CliCommand for ClassInfo {
 
         // This will hopefully be a head request in the future
         let objects = client.objects(class.id).find().execute()?;
-        append_key_value("Objects:", objects.len(), 15)?;
+        // Not sure why we need to reduce the padding, should be checked.
+        append_key_value("Objects", objects.len(), 14)?;
 
         Ok(())
     }
@@ -119,7 +130,12 @@ impl CliCommand for ClassInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassDelete {
-    #[option(short = "n", long = "name", help = "Name of the class")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the class",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub name: Option<String>,
 }
 

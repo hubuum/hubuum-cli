@@ -114,7 +114,12 @@ impl CliCommand for NamespaceList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct NamespaceInfo {
-    #[option(short = "n", long = "name", help = "Name of the namespace")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the namespace",
+        autocomplete = "crate::commandlist::namespaces"
+    )]
     pub name: Option<String>,
 }
 
@@ -152,7 +157,12 @@ impl CliCommand for NamespaceInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct NamespaceDelete {
-    #[option(short = "n", long = "name", help = "Name of the namespace")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the namespace",
+        autocomplete = "crate::commandlist::namespaces"
+    )]
     pub name: Option<String>,
 }
 

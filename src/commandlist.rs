@@ -180,21 +180,8 @@ impl Completer for CommandList {
         }
 
         if let Some(command) = command {
-            let option_defs = command.options();
-
-            // Track options already seen
-            let options_seen: Vec<String> = parts
-                .iter()
-                .filter(|part| part.starts_with('-'))
-                .filter_map(|s| {
-                    option_defs
-                        .iter()
-                        .find(|opt| {
-                            opt.long.as_deref() == Some(s) || opt.short.as_deref() == Some(s)
-                        })
-                        .map(|opt| opt.name.clone())
-                })
-                .collect();
+            let options = command.options();
+            let options_seen = options_seen(&parts, &options);
             trace!("Options seen: {:?}", options_seen);
 
             let last_token = word;
@@ -204,41 +191,23 @@ impl Completer for CommandList {
                 trace!("Current token: {}", current_token);
                 if current_token.starts_with('-') {
                     trace!("Current token is an option");
-                    // Find the option definition
-                    let opt_def = option_defs.iter().find(|opt| {
-                        opt.long.as_deref() == Some(current_token)
-                            || opt.short.as_deref() == Some(current_token)
-                    });
+                    let opt_def = option_definiton(&options, current_token);
 
                     if let Some(opt_def) = opt_def {
                         trace!("Current option is known with definition: {:?}", opt_def);
-                        if !opt_def.flag {
-                            trace!("Option is not a flag");
-                            // Option expects a value
-                            if let Some(autocomplete_fn) = opt_def.autocomplete {
-                                trace!("Option has autocomplete function");
-                                let suggestions = autocomplete_fn(&self, last_token);
-                                completions.extend(suggestions.into_iter().map(|s| Pair {
-                                    display: s.clone(),
-                                    replacement: s,
-                                }));
-                            } else {
-                                trace!("Option lacks autocomplete function");
-                            }
+                        if opt_def.flag {
+                            suggest_options(&options, &options_seen, last_token, &mut completions);
                         } else {
-                            // Option is a flag, does not expect a value
-                            // Suggest options
-                            suggest_options(
-                                &option_defs,
-                                &options_seen,
-                                last_token,
+                            suggest_from_autocomplete(
+                                &self,
+                                &opt_def,
+                                &last_token,
                                 &mut completions,
-                            );
+                            )
                         }
                     } else {
                         // Previous token is not a recognized option
-                        // Suggest options
-                        suggest_options(&option_defs, &options_seen, last_token, &mut completions);
+                        suggest_options(&options, &options_seen, last_token, &mut completions);
                     }
                 } else {
                     trace!("Testing previous token");
@@ -246,17 +215,20 @@ impl Completer for CommandList {
                     if let Some(prev_token) = parts.iter().rev().nth(1) {
                         if prev_token.starts_with('-') {
                             trace!("Previous token is an option, expanding completions for option");
-
-                            let opt_def = option_defs.iter().find(|opt| {
-                                opt.long.as_deref() == Some(prev_token)
-                                    || opt.short.as_deref() == Some(prev_token)
-                            });
+                            let opt_def = option_definiton(&options, &prev_token);
 
                             if let Some(opt_def) = opt_def {
                                 trace!("Previous option is known with definition: {:?}", opt_def);
-                                if !opt_def.flag {
+                                if opt_def.flag {
+                                    // Option is a flag, does not expect a value
+                                    suggest_options(
+                                        &options,
+                                        &options_seen,
+                                        last_token,
+                                        &mut completions,
+                                    );
+                                } else {
                                     trace!("Option is not a flag");
-                                    // Option expects a value
                                     if let Some(autocomplete_fn) = opt_def.autocomplete {
                                         trace!("Option has autocomplete function");
                                         let suggestions = autocomplete_fn(&self, last_token);
@@ -264,7 +236,7 @@ impl Completer for CommandList {
                                         if suggestions.contains(&current_token.to_string()) {
                                             // The previous token matches one of the suggestions, so move on to the rest of the options.
                                             suggest_options(
-                                                &option_defs,
+                                                &options,
                                                 &options_seen,
                                                 last_token,
                                                 &mut completions,
@@ -280,31 +252,17 @@ impl Completer for CommandList {
                                     } else {
                                         trace!("Option lacks autocomplete function");
                                     }
-                                } else {
-                                    // Option is a flag, does not expect a value
-                                    // Suggest options
-                                    suggest_options(
-                                        &option_defs,
-                                        &options_seen,
-                                        last_token,
-                                        &mut completions,
-                                    );
                                 }
                             } else {
                                 // Previous token is not a recognized option
                                 // Do nothing
                             }
                         } else {
-                            suggest_options(
-                                &option_defs,
-                                &options_seen,
-                                last_token,
-                                &mut completions,
-                            );
+                            suggest_options(&options, &options_seen, last_token, &mut completions);
                         }
                     } else {
                         // Previous token is not an option, suggest options
-                        suggest_options(&option_defs, &options_seen, last_token, &mut completions);
+                        suggest_options(&options, &options_seen, last_token, &mut completions);
                     }
                 }
             }
@@ -318,6 +276,47 @@ impl Completer for CommandList {
     }
 }
 
+/// Find the options that have been seen in the input
+fn options_seen(parts: &[String], options: &[CliOption]) -> Vec<String> {
+    parts
+        .iter()
+        .filter(|part| part.starts_with('-'))
+        .filter_map(|s| {
+            options
+                .iter()
+                .find(|opt| opt.long.as_deref() == Some(s) || opt.short.as_deref() == Some(s))
+                .map(|opt| opt.name.clone())
+        })
+        .collect()
+}
+
+/// Find the definition of an option by its long or short name
+fn option_definiton<'a>(option_defs: &'a [CliOption], token: &str) -> Option<&'a CliOption> {
+    option_defs
+        .iter()
+        .find(|opt| opt.long.as_deref() == Some(token) || opt.short.as_deref() == Some(token))
+}
+
+/// Suggest completions for an option based on its autocomplete function
+fn suggest_from_autocomplete(
+    cmdlist: &CommandList,
+    opt_def: &CliOption,
+    last_token: &str,
+    completions: &mut Vec<Pair>,
+) {
+    if let Some(autocomplete_fn) = opt_def.autocomplete {
+        trace!("Option has autocomplete function");
+        let suggestions = autocomplete_fn(&cmdlist, last_token);
+        completions.extend(suggestions.into_iter().map(|s| Pair {
+            display: s.clone(),
+            replacement: s,
+        }));
+    } else {
+        trace!("Option lacks autocomplete function");
+    }
+}
+
+/// Suggest completions for options based on their long and short names, removing those already seen
 fn suggest_options(
     option_defs: &[CliOption],
     options_seen: &[String],

@@ -252,7 +252,12 @@ impl CliCommand for ObjectInfo {
 pub struct ObjectDelete {
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
-    #[option(short = "c", long = "class", help = "Class of the object")]
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Class of the object",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub class: Option<String>,
 }
 
@@ -304,7 +309,12 @@ where
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectList {
-    #[option(short = "c", long = "class", help = "Name of the class")]
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Name of the class",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub class: String,
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
@@ -374,14 +384,25 @@ pub struct ObjectModify {
     #[option(
         short = "c",
         long = "class",
-        help = "Name of the class the object belongs to"
+        help = "Name of the class the object belongs to",
+        autocomplete = "crate::commandlist::classes"
     )]
     pub class: String,
     #[option(short = "r", long = "rename", help = "Rename object")]
     pub rename: Option<String>,
-    #[option(short = "R", long = "reclass", help = "Reclass object")]
+    #[option(
+        short = "R",
+        long = "reclass",
+        help = "Reclass object",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub reclass: Option<String>,
-    #[option(short = "N", long = "namespace", help = "Namespace name")]
+    #[option(
+        short = "N",
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "crate::commandlist::namespaces"
+    )]
     pub namespace: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the object")]
     pub description: Option<String>,
