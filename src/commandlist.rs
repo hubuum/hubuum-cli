@@ -406,9 +406,9 @@ pub fn namespaces(cmdlist: &CommandList, prefix: &str) -> Vec<String> {
         );
     }
     match cmd.execute() {
-        Ok(classes) => classes.into_iter().map(|c| c.name).collect(),
+        Ok(namespaces) => namespaces.into_iter().map(|c| c.name).collect(),
         Err(_) => {
-            warn!("Failed to fetch classes for autocomplete");
+            warn!("Failed to fetch namespaces for autocomplete");
             Vec::new()
         }
     }
