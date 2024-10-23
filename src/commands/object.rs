@@ -10,7 +10,7 @@ use jsonpath_rust::{JsonPath, JsonPathValue};
 
 use serde::{Deserialize, Serialize};
 
-use super::shared::find_object_by_name;
+use super::shared::{find_object_by_name, prettify_slice_path};
 use super::{CliCommand, CliCommandInfo, CliOption};
 
 use crate::commands::shared::{find_class_by_name, find_entities_by_ids, find_namespace_by_name};
@@ -36,10 +36,16 @@ pub struct ObjectNew {
     #[option(
         short = "c",
         long = "class",
-        help = "Name of the class the object belongs to"
+        help = "Name of the class the object belongs to",
+        autocomplete = "crate::commandlist::classes"
     )]
     pub class: String,
-    #[option(short = "N", long = "namespace", help = "Namespace name")]
+    #[option(
+        short = "N",
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "crate::commandlist::namespaces"
+    )]
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
@@ -115,7 +121,12 @@ pub struct ObjectInfo {
     pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
-    #[option(short = "c", long = "class", help = "Class of the object")]
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Class of the object",
+        autocomplete = "crate::commandlist::classes"
+    )]
     pub class: String,
     #[option(
         short = "d",
@@ -125,9 +136,9 @@ pub struct ObjectInfo {
     )]
     pub data: Option<bool>,
     #[option(
-        short = "j",
-        long = "jsonpath",
-        help = "JSONPath to extract data, implies -d"
+        short = "p",
+        long = "path",
+        help = "Path to display within the data, implies -d"
     )]
     pub jsonpath: Option<String>,
 }
@@ -182,35 +193,33 @@ impl CliCommand for ObjectInfo {
                 return Ok(());
             }
 
-            let padding = slice_of_data
-                .iter()
-                .filter_map(|slice| {
-                    if let JsonPathValue::Slice(_, path) = slice {
-                        Some(path.len())
-                    } else {
-                        None
-                    }
-                })
-                .max()
-                .map_or(15, |len| len.max(15));
+            // Hashmap to store the key value pairs, allowing for sorting and padding lookups
+            let mut key_values = HashMap::new();
 
             // Iterate over the slices and handle each JsonPathValue
             for slice in slice_of_data {
                 match slice {
                     JsonPathValue::Slice(value, path) => {
-                        append_key_value(path, serde_json::to_string_pretty(value)?, padding)?;
+                        let pretty_path = prettify_slice_path(&path);
+                        key_values.insert(pretty_path, value.clone());
                     }
                     JsonPathValue::NewValue(value) => {
-                        append_key_value(
-                            "Generated",
-                            serde_json::to_string_pretty(&value)?,
-                            padding,
-                        )?;
+                        key_values.insert("Generated".to_string(), value.clone());
                     }
                     JsonPathValue::NoValue => {
-                        add_warning("No value found for a slice")?;
+                        add_warning(format!("{} produced no results", jsonpath))?;
                     }
                 }
+            }
+
+            let padding = key_values
+                .keys()
+                .map(|k| k.len())
+                .max()
+                .map_or(15, |len| len.max(15));
+
+            for (key, value) in key_values {
+                append_key_value(key, value, padding)?;
             }
         } else {
             let flattener = smooth_json::Flattener {

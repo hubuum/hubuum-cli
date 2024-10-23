@@ -1,6 +1,5 @@
 use hubuum_client::{Authenticated, SyncClient};
 use log::trace;
-use rustyline::completion::Pair;
 use std::any::TypeId;
 
 mod builder;
@@ -13,7 +12,7 @@ mod relations;
 mod shared;
 mod user;
 
-use crate::output::append_line;
+use crate::{output::append_line, CommandList};
 
 pub use builder::build_repl_commands;
 pub use class::*;
@@ -38,6 +37,7 @@ pub struct CliOption {
     pub field_type: TypeId,
     pub field_type_help: String,
     pub required: bool,
+    pub autocomplete: Option<fn(&CommandList, &str) -> Vec<String>>,
 }
 
 impl CliOption {
@@ -158,42 +158,6 @@ pub trait CliCommand: CliCommandInfo {
         }
 
         Ok(())
-    }
-
-    fn get_option_completions(&self, prefix: &str, options_seen: &[String]) -> Vec<Pair> {
-        let mut completions = Vec::new();
-
-        for opt in self.options() {
-            let mut display = String::new();
-            if prefix.is_empty() {
-                if let Some(short) = &opt.short {
-                    if options_seen.contains(short) {
-                        continue;
-                    }
-                    display.clone_from(short)
-                }
-            }
-            if let Some(long) = &opt.long {
-                if options_seen.contains(long) {
-                    continue;
-                }
-                if prefix.is_empty() || long.starts_with(prefix) {
-                    if !display.is_empty() {
-                        display.push_str(", ");
-                    }
-                    display.push_str(long);
-                }
-            }
-
-            if !display.is_empty() {
-                completions.push(Pair {
-                    display: format!("{} <{}> {}", display, opt.field_type_help, opt.help),
-                    replacement: opt.long.unwrap_or_default(),
-                });
-            }
-        }
-
-        completions
     }
 
     fn help(&self, command_name: &String, context: &[String]) -> Result<(), AppError> {

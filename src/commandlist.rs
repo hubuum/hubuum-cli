@@ -1,19 +1,21 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::sync::Arc;
 
+use hubuum_client::{Authenticated, FilterOperator, SyncClient};
 use rustyline::highlight::Highlighter;
 use rustyline::{hint::Hinter, validate::Validator, Helper};
 
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use rustyline::completion::{Completer, Pair};
 use rustyline::Context;
 
-use crate::commands::CliCommand;
+use crate::commands::{CliCommand, CliOption};
 
-#[derive(Default)]
 pub struct CommandList {
     commands: HashMap<String, Box<dyn CliCommand>>,
     scopes: HashMap<String, CommandList>,
+    client: Arc<SyncClient<Authenticated>>,
 }
 
 impl Display for CommandList {
@@ -31,10 +33,11 @@ impl Display for CommandList {
 }
 
 impl CommandList {
-    pub fn new() -> Self {
+    pub fn new(client: Arc<SyncClient<Authenticated>>) -> Self {
         CommandList {
             commands: HashMap::new(),
             scopes: HashMap::new(),
+            client,
         }
     }
 
@@ -46,7 +49,9 @@ impl CommandList {
 
     pub fn add_scope(&mut self, name: &str) -> &mut CommandList {
         debug!("Adding scope: {}", name);
-        self.scopes.entry(name.to_string()).or_default()
+        self.scopes
+            .entry(name.to_string())
+            .or_insert_with(|| CommandList::new(self.client.clone()))
     }
 
     #[allow(clippy::borrowed_box)]
@@ -143,7 +148,7 @@ impl Completer for CommandList {
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
         let (start, word) = line[..pos]
             .rsplit_once(char::is_whitespace)
-            .map_or((0, line), |(_, w)| (pos - w.len(), w));
+            .map_or((0, &line[..pos]), |(l, r)| (l.len() + 1, r));
         let mut completions = Vec::new();
         trace!(
             "Completing. Line: {}, Pos: {}, Start: {}, Word: {}",
@@ -153,8 +158,6 @@ impl Completer for CommandList {
             word,
         );
         let parts = shlex::split(&line[..pos]);
-        // If we can't split the line, return no completions. This typically happens if
-        // we're in the middle of a quoted string.
         if parts.is_none() {
             return Ok((start, completions));
         }
@@ -164,39 +167,249 @@ impl Completer for CommandList {
         let mut current_scope = self;
         let mut command = None;
 
-        let mut options_start_at = 0;
-        for (i, part) in parts.iter().enumerate() {
+        for part in &parts {
             if let Some(scope) = current_scope.get_scope(part) {
                 current_scope = scope;
             } else if let Some(cmd) = current_scope.get_command(part) {
                 command = Some(cmd);
-                options_start_at = i;
                 break;
             } else {
-                trace!("Invalid part: {}", part);
                 // Invalid part, stop completion
                 break;
             }
         }
 
-        let mut options_seen: Vec<String> = Vec::new();
-        if command.is_some() {
-            for part in parts.iter().skip(options_start_at) {
-                if part.starts_with('-') {
-                    options_seen.push(part.to_string());
+        if let Some(command) = command {
+            let option_defs = command.options();
+
+            // Track options already seen
+            let options_seen: Vec<String> = parts
+                .iter()
+                .filter(|part| part.starts_with('-'))
+                .filter_map(|s| {
+                    option_defs
+                        .iter()
+                        .find(|opt| {
+                            opt.long.as_deref() == Some(s) || opt.short.as_deref() == Some(s)
+                        })
+                        .map(|opt| opt.name.clone())
+                })
+                .collect();
+            trace!("Options seen: {:?}", options_seen);
+
+            let last_token = word;
+
+            // Determine if the last token is an option or a value
+            if let Some(current_token) = parts.iter().rev().nth(0) {
+                trace!("Current token: {}", current_token);
+                if current_token.starts_with('-') {
+                    trace!("Current token is an option");
+                    // Find the option definition
+                    let opt_def = option_defs.iter().find(|opt| {
+                        opt.long.as_deref() == Some(current_token)
+                            || opt.short.as_deref() == Some(current_token)
+                    });
+
+                    if let Some(opt_def) = opt_def {
+                        trace!("Current option is known with definition: {:?}", opt_def);
+                        if !opt_def.flag {
+                            trace!("Option is not a flag");
+                            // Option expects a value
+                            if let Some(autocomplete_fn) = opt_def.autocomplete {
+                                trace!("Option has autocomplete function");
+                                let suggestions = autocomplete_fn(&self, last_token);
+                                completions.extend(suggestions.into_iter().map(|s| Pair {
+                                    display: s.clone(),
+                                    replacement: s,
+                                }));
+                            } else {
+                                trace!("Option lacks autocomplete function");
+                            }
+                        } else {
+                            // Option is a flag, does not expect a value
+                            // Suggest options
+                            suggest_options(
+                                &option_defs,
+                                &options_seen,
+                                last_token,
+                                &mut completions,
+                            );
+                        }
+                    } else {
+                        // Previous token is not a recognized option
+                        // Suggest options
+                        suggest_options(&option_defs, &options_seen, last_token, &mut completions);
+                    }
+                } else {
+                    trace!("Testing previous token");
+
+                    if let Some(prev_token) = parts.iter().rev().nth(1) {
+                        if prev_token.starts_with('-') {
+                            trace!("Previous token is an option, expanding completions for option");
+
+                            let opt_def = option_defs.iter().find(|opt| {
+                                opt.long.as_deref() == Some(prev_token)
+                                    || opt.short.as_deref() == Some(prev_token)
+                            });
+
+                            if let Some(opt_def) = opt_def {
+                                trace!("Previous option is known with definition: {:?}", opt_def);
+                                if !opt_def.flag {
+                                    trace!("Option is not a flag");
+                                    // Option expects a value
+                                    if let Some(autocomplete_fn) = opt_def.autocomplete {
+                                        trace!("Option has autocomplete function");
+                                        let suggestions = autocomplete_fn(&self, last_token);
+
+                                        if suggestions.contains(&current_token.to_string()) {
+                                            // The previous token matches one of the suggestions, so move on to the rest of the options.
+                                            suggest_options(
+                                                &option_defs,
+                                                &options_seen,
+                                                last_token,
+                                                &mut completions,
+                                            );
+                                        } else {
+                                            completions.extend(suggestions.into_iter().map(|s| {
+                                                Pair {
+                                                    display: s.clone(),
+                                                    replacement: s,
+                                                }
+                                            }));
+                                        }
+                                    } else {
+                                        trace!("Option lacks autocomplete function");
+                                    }
+                                } else {
+                                    // Option is a flag, does not expect a value
+                                    // Suggest options
+                                    suggest_options(
+                                        &option_defs,
+                                        &options_seen,
+                                        last_token,
+                                        &mut completions,
+                                    );
+                                }
+                            } else {
+                                // Previous token is not a recognized option
+                                // Do nothing
+                            }
+                        } else {
+                            suggest_options(
+                                &option_defs,
+                                &options_seen,
+                                last_token,
+                                &mut completions,
+                            );
+                        }
+                    } else {
+                        // Previous token is not an option, suggest options
+                        suggest_options(&option_defs, &options_seen, last_token, &mut completions);
+                    }
                 }
             }
-        }
-
-        if command.is_some() {
-            // If we have a command but no completions, suggest option completions
-            trace!("Completing options from command: {}", word);
-            completions.extend(command.unwrap().get_option_completions(word, &options_seen));
         } else {
-            // If we have no completions, suggest everything in the current scope
             completions.extend(current_scope.get_completions(word));
         }
 
+        trace!("Completions: {:?}", display_pairs(&completions));
+
         Ok((start, completions))
+    }
+}
+
+fn suggest_options(
+    option_defs: &[CliOption],
+    options_seen: &[String],
+    last_token: &str,
+    completions: &mut Vec<Pair>,
+) {
+    completions.extend(
+        option_defs
+            .iter()
+            .filter(|opt| {
+                !options_seen.contains(&opt.name)
+                    && (opt
+                        .long
+                        .as_deref()
+                        .map_or(false, |long| long.starts_with(last_token))
+                        || opt
+                            .short
+                            .as_deref()
+                            .map_or(false, |short| short.starts_with(last_token)))
+            })
+            .map(|opt| {
+                let extra_info = if opt.flag {
+                    opt.help.clone()
+                } else {
+                    format!("<{}> {}", opt.field_type_help, opt.help)
+                };
+                if let Some(long) = &opt.long {
+                    Pair {
+                        display: format!("{} {}", long, extra_info),
+                        replacement: format!("{}", long),
+                    }
+                } else if let Some(short) = &opt.short {
+                    Pair {
+                        display: format!("{} {}", short, extra_info),
+                        replacement: format!("{}", short),
+                    }
+                } else {
+                    Pair {
+                        display: opt.name.clone(),
+                        replacement: opt.name.clone(),
+                    }
+                }
+            }),
+    );
+}
+
+fn display_pairs<I>(pairs: &I) -> String
+where
+    I: IntoIterator<Item = Pair> + Clone,
+{
+    pairs
+        .clone()
+        .into_iter()
+        .map(|p| format!("{} <{}>", p.display.clone(), p.replacement.clone()))
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+pub fn classes(cmdlist: &CommandList, prefix: &str) -> Vec<String> {
+    let mut cmd = cmdlist.client.classes().find();
+
+    if !prefix.is_empty() {
+        cmd = cmd.add_filter(
+            "name",
+            FilterOperator::StartsWith { is_negated: false },
+            prefix,
+        );
+    }
+    match cmd.execute() {
+        Ok(classes) => classes.into_iter().map(|c| c.name).collect(),
+        Err(_) => {
+            warn!("Failed to fetch classes for autocomplete");
+            Vec::new()
+        }
+    }
+}
+
+pub fn namespaces(cmdlist: &CommandList, prefix: &str) -> Vec<String> {
+    let mut cmd = cmdlist.client.namespaces().find();
+
+    if !prefix.is_empty() {
+        cmd = cmd.add_filter(
+            "name",
+            FilterOperator::StartsWith { is_negated: false },
+            prefix,
+        );
+    }
+    match cmd.execute() {
+        Ok(classes) => classes.into_iter().map(|c| c.name).collect(),
+        Err(_) => {
+            warn!("Failed to fetch classes for autocomplete");
+            Vec::new()
+        }
     }
 }

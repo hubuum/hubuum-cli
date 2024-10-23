@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::sync::Arc;
 
 use config::AppConfig;
 use errors::AppError;
@@ -183,9 +184,6 @@ fn main() -> Result<(), AppError> {
     let mut config = config::load_config(cli_config_path)?;
     cli::update_config_from_cli(&mut config, &matches);
 
-    let cli = crate::commands::build_repl_commands();
-    let mut rl = create_editor(&cli)?;
-
     let baseurl = hubuum_client::BaseUrl::from_str(&format!(
         "{}://{}:{}",
         config.server.protocol, config.server.hostname, config.server.port
@@ -197,6 +195,9 @@ fn main() -> Result<(), AppError> {
         config.server.username.as_str(),
         config.server.hostname.as_str(),
     )?;
+
+    let cli = crate::commands::build_repl_commands(Arc::new(client.clone()));
+    let mut rl = create_editor(&cli)?;
 
     loop {
         match rl.readline(&prompt(&config)) {

@@ -229,7 +229,7 @@ pub fn append_key_value<K: Display, V: Display>(
     value: V,
     padding: usize,
 ) -> Result<(), AppError> {
-    let line = format!("{:<pad$}: {}", key, value, pad = padding);
+    let line = format!("{:<pad$} : {}", key, value, pad = padding);
     append_line(line)
 }
 

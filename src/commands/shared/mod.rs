@@ -124,3 +124,10 @@ pub fn find_object_relation(
         .add_filter_equals("from_objects", object_from.id)
         .execute_expecting_single_result()
 }
+
+// Convert $.['location'].['country'] to location.country (etc)
+pub fn prettify_slice_path(path: &str) -> String {
+    path.trim_start_matches("$.")
+        .replace("['", "")
+        .replace("']", "")
+}

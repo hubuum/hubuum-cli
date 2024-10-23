@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use cli_command_derive::CliCommand;
 use hubuum_client::{Authenticated, SyncClient};
 
@@ -17,12 +19,15 @@ pub struct Help {
 impl CliCommand for Help {
     fn execute(
         &self,
-        _client: &SyncClient<Authenticated>,
+        client: &SyncClient<Authenticated>,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let options = tokens.get_options();
         if options.get("tree").is_some() {
-            println!("{}\n", crate::commands::build_repl_commands().show_tree());
+            println!(
+                "{}\n",
+                crate::commands::build_repl_commands(Arc::new(client.clone())).show_tree()
+            );
             return Ok(());
         }
 

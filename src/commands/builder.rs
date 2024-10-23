@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
+use hubuum_client::{Authenticated, SyncClient};
+
 use crate::commandlist::CommandList;
 use crate::commands;
 
-pub fn build_repl_commands() -> CommandList {
-    let mut cli = CommandList::new();
+pub fn build_repl_commands(client: Arc<SyncClient<Authenticated>>) -> CommandList {
+    let mut cli = CommandList::new(client);
 
     add_class_commands(&mut cli);
     add_namespace_commands(&mut cli);

@@ -12,6 +12,7 @@ struct FieldOpts {
     help: Option<String>,
     required: Option<bool>,
     flag: Option<bool>,
+    autocomplete: Option<syn::Path>,
 }
 
 #[derive(Debug)]
@@ -98,6 +99,10 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
 
         let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
 
+        let autocomplete_fn = opts.autocomplete.as_ref().map(|fn_path| {
+            quote! { Some(#fn_path as fn(&crate::commandlist::CommandList, &str) -> Vec<String>) }
+        }).unwrap_or(quote! { None });
+
         quote! {
             CliOption {
                 name: stringify!(#field_name).to_string(),
@@ -108,6 +113,7 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                 field_type: std::any::TypeId::of::<#field_type>(),
                 required: #required,
                 flag: #flag,
+                autocomplete: #autocomplete_fn,
             }
         }
     }).collect();
@@ -122,6 +128,7 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
             field_type: std::any::TypeId::of::<bool>(),
             required: false,
             flag: true,
+            autocomplete: None,
         }
     });
 

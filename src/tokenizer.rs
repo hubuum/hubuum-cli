@@ -1,3 +1,5 @@
+use log::trace;
+
 use crate::errors::AppError;
 use std::collections::HashMap;
 
@@ -18,6 +20,8 @@ impl CommandTokenizer {
             options: HashMap::new(),
             positionals: Vec::new(),
         };
+
+        trace!("Tokenizer generated: {:?}", tokens);
 
         let mut iter = tokens.into_iter();
 
