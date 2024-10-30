@@ -77,12 +77,6 @@ impl IntoResourceFilter<Class> for &ClassInfo {
                 value: name.clone(),
             });
         }
-        if let Some(id) = &self.id {
-            filters.push(QueryFilter {
-                key: "id".to_string(),
-                value: id.to_string(),
-            });
-        }
 
         filters
     }
@@ -96,8 +90,6 @@ impl GetClassname for &ClassInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassInfo {
-    #[option(short = "i", long = "id", help = "ID of the class")]
-    pub id: Option<i32>,
     #[option(
         short = "n",
         long = "name",

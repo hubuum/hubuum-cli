@@ -26,7 +26,7 @@ hubuum_client = { path = "../hubuum-client-rust" }
 rpassword = "7"
 rand = "0"
 tabled = "0.16"
-jqesque = "0.0.1"
+jqesque = "0.0.2"
 jsonpath-rust = "0"
 smooth-json = "0"
 

@@ -98,13 +98,6 @@ impl IntoResourceFilter<Object> for &ObjectInfo {
                 value: name.clone(),
             });
         }
-        if let Some(id) = &self.id {
-            filters.push(QueryFilter {
-                key: "id".to_string(),
-                value: id.to_string(),
-            });
-        }
-
         filters
     }
 }
@@ -117,8 +110,6 @@ impl GetObjectname for &ObjectInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectInfo {
-    #[option(short = "i", long = "id", help = "ID of the object")]
-    pub id: Option<i32>,
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: Option<String>,
     #[option(
@@ -428,7 +419,7 @@ impl CliCommand for ObjectModify {
             if object.data.is_some() {
                 json_data = object.data.unwrap().clone();
             }
-            jqesque.merge_into(&mut json_data);
+            jqesque.apply_to(&mut json_data)?;
             patch.data = Some(json_data);
         }
 

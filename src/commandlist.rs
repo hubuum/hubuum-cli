@@ -6,6 +6,7 @@ use hubuum_client::{Authenticated, FilterOperator, SyncClient};
 use rustyline::highlight::Highlighter;
 use rustyline::{hint::Hinter, validate::Validator, Helper};
 
+// use colored::Colorize;
 use log::{debug, trace, warn};
 use rustyline::completion::{Completer, Pair};
 use rustyline::Context;
@@ -304,11 +305,12 @@ fn suggest_from_autocomplete(
     last_token: &str,
     completions: &mut Vec<Pair>,
 ) {
+    use colored::Colorize;
     if let Some(autocomplete_fn) = opt_def.autocomplete {
         trace!("Option has autocomplete function");
         let suggestions = autocomplete_fn(&cmdlist, last_token);
         completions.extend(suggestions.into_iter().map(|s| Pair {
-            display: s.clone(),
+            display: s.clone().italic().cyan().to_string(),
             replacement: s,
         }));
     } else {
@@ -323,44 +325,64 @@ fn suggest_options(
     last_token: &str,
     completions: &mut Vec<Pair>,
 ) {
-    completions.extend(
-        option_defs
-            .iter()
-            .filter(|opt| {
-                !options_seen.contains(&opt.name)
-                    && (opt
-                        .long
-                        .as_deref()
-                        .map_or(false, |long| long.starts_with(last_token))
-                        || opt
-                            .short
-                            .as_deref()
-                            .map_or(false, |short| short.starts_with(last_token)))
-            })
-            .map(|opt| {
-                let extra_info = if opt.flag {
-                    opt.help.clone()
-                } else {
-                    format!("<{}> {}", opt.field_type_help, opt.help)
-                };
-                if let Some(long) = &opt.long {
-                    Pair {
-                        display: format!("{} {}", long, extra_info),
-                        replacement: format!("{}", long),
-                    }
-                } else if let Some(short) = &opt.short {
-                    Pair {
-                        display: format!("{} {}", short, extra_info),
-                        replacement: format!("{}", short),
-                    }
-                } else {
-                    Pair {
-                        display: opt.name.clone(),
-                        replacement: opt.name.clone(),
-                    }
-                }
-            }),
-    );
+    let options_left = option_defs.iter().filter(|opt| {
+        !options_seen.contains(&opt.name)
+            && (opt
+                .long
+                .as_deref()
+                .map_or(false, |long| long.starts_with(last_token))
+                || opt
+                    .short
+                    .as_deref()
+                    .map_or(false, |short| short.starts_with(last_token)))
+    });
+
+    let max_short_width = options_left
+        .clone()
+        .map(|opt| opt.short.as_ref().map_or(0, |s| s.len()))
+        .max()
+        .unwrap_or(0);
+    let max_long_width = options_left
+        .clone()
+        .map(|opt| opt.long.as_ref().map_or(0, |l| l.len()))
+        .max()
+        .unwrap_or(0);
+    let max_type_width = options_left
+        .clone()
+        .map(|opt| opt.field_type_help.len())
+        .max()
+        .unwrap_or(0);
+
+    for opt in options_left {
+        let short = opt
+            .short
+            .as_ref()
+            .map_or("".to_string(), |s| format!("{},", s));
+        let long = opt
+            .long
+            .as_ref()
+            .map_or("".to_string(), |l| format!("{}", l));
+        let short_padding = " ".repeat(max_short_width + 2 - short.len());
+        let long_padding = " ".repeat(max_long_width + 2 - long.len());
+        let type_padding = " ".repeat(max_type_width + 2 - opt.field_type_help.len());
+
+        let diplay = format!(
+            "{}{}{}{}{}{}{}{}",
+            short,
+            short_padding,
+            long,
+            long_padding,
+            type_padding,
+            format!("<{}>", opt.field_type_help),
+            " ".repeat(2),
+            opt.help
+        );
+
+        completions.push(Pair {
+            display: diplay,
+            replacement: long.clone(),
+        });
+    }
 }
 
 fn display_pairs<I>(pairs: &I) -> String

@@ -162,7 +162,7 @@ pub trait CliCommand: CliCommandInfo {
 
     fn help(&self, command_name: &String, context: &[String]) -> Result<(), AppError> {
         let mut help = String::new();
-        let fq_name = format!("{} {}", context.join(" "), command_name);
+        let fq_name = format!("\n{} {}", context.join(" "), command_name);
         if let Some(about) = self.about() {
             help.push_str(&format!("{} - {} \n\n", fq_name, about));
         } else {
