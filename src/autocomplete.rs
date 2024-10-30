@@ -1,10 +1,11 @@
-use log::warn;
+use log::{trace, warn};
 
 use hubuum_client::FilterOperator;
 
 use crate::commandlist::CommandList;
 
 pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
+    trace!("Autocompleting classes with prefix: {}", prefix);
     let mut cmd = cmdlist.client().classes().find();
 
     if !prefix.is_empty() {
@@ -24,6 +25,7 @@ pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<St
 }
 
 pub fn namespaces(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
+    trace!("Autocompleting namespaces with prefix: {}", prefix);
     let mut cmd = cmdlist.client().namespaces().find();
 
     if !prefix.is_empty() {
@@ -42,9 +44,18 @@ pub fn namespaces(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec
     }
 }
 
-pub fn objects_from_class(cmdlist: &CommandList, prefix: &str, parts: &[String]) -> Vec<String> {
-    // Find the class name as the value following the --class flag
-    let classname = match parts.windows(2).find(|w| w[0] == "--class") {
+fn objects_from_class_source(
+    cmdlist: &CommandList,
+    prefix: &str,
+    parts: &[String],
+    source: &str,
+) -> Vec<String> {
+    trace!(
+        "Autocompleting objects via source '{}' with prefix: {}",
+        source,
+        prefix
+    );
+    let classname = match parts.windows(2).find(|w| w[0] == source) {
         Some(window) => window[1].clone(),
         None => return Vec::new(),
     };
@@ -58,15 +69,13 @@ pub fn objects_from_class(cmdlist: &CommandList, prefix: &str, parts: &[String])
     {
         Ok(ret) => ret,
         Err(_) => {
-            warn!("Failed to fetch class for autocomplete");
+            warn!("Failed to fetch class from {} autocomplete", source);
             return Vec::new();
         }
     };
 
-    // Build the command to fetch objects associated with the class
     let mut cmd = cmdlist.client().objects(class.id).find();
 
-    // Add a prefix filter if provided
     if !prefix.is_empty() {
         cmd = cmd.add_filter(
             "name",
@@ -75,7 +84,6 @@ pub fn objects_from_class(cmdlist: &CommandList, prefix: &str, parts: &[String])
         );
     }
 
-    // Execute the command and collect the object names
     match cmd.execute() {
         Ok(objects) => objects.into_iter().map(|c| c.name).collect(),
         Err(_) => {
@@ -83,4 +91,20 @@ pub fn objects_from_class(cmdlist: &CommandList, prefix: &str, parts: &[String])
             Vec::new()
         }
     }
+}
+
+pub fn objects_from_class(cmdlist: &CommandList, prefix: &str, parts: &[String]) -> Vec<String> {
+    objects_from_class_source(cmdlist, prefix, parts, "--class")
+}
+
+pub fn objects_from_class_from(
+    cmdlist: &CommandList,
+    prefix: &str,
+    parts: &[String],
+) -> Vec<String> {
+    objects_from_class_source(cmdlist, prefix, parts, "--class_from")
+}
+
+pub fn objects_from_class_to(cmdlist: &CommandList, prefix: &str, parts: &[String]) -> Vec<String> {
+    objects_from_class_source(cmdlist, prefix, parts, "--class_to")
 }

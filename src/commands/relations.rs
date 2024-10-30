@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::vec;
 
 use super::{CliCommand, CliCommandInfo, CliOption};
+use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
 use crate::commands::shared::{
     find_class_by_name, find_class_relation, find_classes, find_object_by_name,
     find_object_relation, ids_to_comma_separated_string,
@@ -29,25 +30,29 @@ pub struct RelationNew {
     #[option(
         short = "f",
         long = "class_from",
-        help = "Name of the class the relationship starts from"
+        help = "Name of the class the relationship starts from",
+        autocomplete = "classes"
     )]
     pub class_from: String,
     #[option(
         short = "t",
         long = "class_to",
-        help = "Name of the class the relationship goes to"
+        help = "Name of the class the relationship goes to",
+        autocomplete = "classes"
     )]
     pub class_to: String,
     #[option(
         short = "F",
         long = "object_from",
-        help = "Name of the object the relationship starts from"
+        help = "Name of the object the relationship starts from",
+        autocomplete = "objects_from_class_from"
     )]
     pub object_from: Option<String>,
     #[option(
         short = "T",
         long = "object_to",
-        help = "Name of the object the relationship goes to"
+        help = "Name of the object the relationship goes to",
+        autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
 }
@@ -64,25 +69,29 @@ pub struct RelationDelete {
     #[option(
         short = "f",
         long = "class_from",
-        help = "Name of the class the relationship starts from"
+        help = "Name of the class the relationship starts from",
+        autocomplete = "classes"
     )]
     pub class_from: String,
     #[option(
         short = "t",
         long = "class_to",
-        help = "Name of the class the relationship goes to"
+        help = "Name of the class the relationship goes to",
+        autocomplete = "classes"
     )]
     pub class_to: String,
     #[option(
         short = "F",
         long = "object_from",
-        help = "Name of the object the relationship starts from"
+        help = "Name of the object the relationship starts from",
+        autocomplete = "objects_from_class_from"
     )]
     pub object_from: Option<String>,
     #[option(
         short = "T",
         long = "object_to",
-        help = "Name of the object the relationship goes to"
+        help = "Name of the object the relationship goes to",
+        autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
 }
@@ -99,25 +108,29 @@ pub struct RelationList {
     #[option(
         short = "f",
         long = "class_from",
-        help = "Name of the class the relationship starts from"
+        help = "Name of the class the relationship starts from",
+        autocomplete = "classes"
     )]
     pub class_from: Option<String>,
     #[option(
         short = "t",
         long = "class_to",
-        help = "Name of the class the relationship goes to"
+        help = "Name of the class the relationship goes to",
+        autocomplete = "classes"
     )]
     pub class_to: Option<String>,
     #[option(
         short = "F",
         long = "object_from",
-        help = "Name of the object the relationship starts from"
+        help = "Name of the object the relationship starts from",
+        autocomplete = "objects_from_class_from"
     )]
     pub object_from: Option<String>,
     #[option(
         short = "T",
         long = "object_to",
-        help = "Name of the object the relationship goes to"
+        help = "Name of the object the relationship goes to",
+        autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
 }
@@ -134,25 +147,29 @@ pub struct RelationInfo {
     #[option(
         short = "f",
         long = "class_from",
-        help = "Name of the class the relationship starts from"
+        help = "Name of the class the relationship starts from",
+        autocomplete = "classes"
     )]
     pub class_from: String,
     #[option(
         short = "t",
         long = "class_to",
-        help = "Name of the class the relationship goes to"
+        help = "Name of the class the relationship goes to",
+        autocomplete = "classes"
     )]
     pub class_to: String,
     #[option(
         short = "F",
         long = "object_from",
-        help = "Name of the object the relationship starts from"
+        help = "Name of the object the relationship starts from",
+        autocomplete = "objects_from_class_from"
     )]
     pub object_from: Option<String>,
     #[option(
         short = "T",
         long = "object_to",
-        help = "Name of the object the relationship goes to"
+        help = "Name of the object the relationship goes to",
+        autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
 }
