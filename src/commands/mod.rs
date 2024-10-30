@@ -37,7 +37,7 @@ pub struct CliOption {
     pub field_type: TypeId,
     pub field_type_help: String,
     pub required: bool,
-    pub autocomplete: Option<fn(&CommandList, &str) -> Vec<String>>,
+    pub autocomplete: Option<fn(&CommandList, &str, &[String]) -> Vec<String>>,
 }
 
 impl CliOption {

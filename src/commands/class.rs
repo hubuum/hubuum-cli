@@ -6,6 +6,7 @@ use super::shared::find_class_by_name;
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
+use crate::autocomplete::{classes, namespaces};
 use crate::commands::shared::find_namespace_by_name;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
@@ -30,7 +31,7 @@ pub struct ClassNew {
         short = "N",
         long = "namespace",
         help = "Namespace name",
-        autocomplete = "crate::commandlist::namespaces"
+        autocomplete = "namespaces"
     )]
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
@@ -94,7 +95,7 @@ pub struct ClassInfo {
         short = "n",
         long = "name",
         help = "Name of the class",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub name: Option<String>,
 }
@@ -126,7 +127,7 @@ pub struct ClassDelete {
         short = "n",
         long = "name",
         help = "Name of the class",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub name: Option<String>,
 }

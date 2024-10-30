@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::shared::{find_object_by_name, prettify_slice_path};
 use super::{CliCommand, CliCommandInfo, CliOption};
 
+use crate::autocomplete::{classes, namespaces, objects_from_class};
 use crate::commands::shared::{find_class_by_name, find_entities_by_ids, find_namespace_by_name};
 use crate::errors::AppError;
 use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
@@ -37,14 +38,14 @@ pub struct ObjectNew {
         short = "c",
         long = "class",
         help = "Name of the class the object belongs to",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub class: String,
     #[option(
         short = "N",
         long = "namespace",
         help = "Namespace name",
-        autocomplete = "crate::commandlist::namespaces"
+        autocomplete = "namespaces"
     )]
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
@@ -110,13 +111,18 @@ impl GetObjectname for &ObjectInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectInfo {
-    #[option(short = "n", long = "name", help = "Name of the object")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the object",
+        autocomplete = "objects_from_class"
+    )]
     pub name: Option<String>,
     #[option(
         short = "c",
         long = "class",
         help = "Class of the object",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub class: String,
     #[option(
@@ -241,13 +247,18 @@ impl CliCommand for ObjectInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectDelete {
-    #[option(short = "n", long = "name", help = "Name of the object")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the object",
+        autocomplete = "objects_from_class"
+    )]
     pub name: Option<String>,
     #[option(
         short = "c",
         long = "class",
         help = "Class of the object",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub class: Option<String>,
 }
@@ -304,10 +315,15 @@ pub struct ObjectList {
         short = "c",
         long = "class",
         help = "Name of the class",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub class: String,
-    #[option(short = "n", long = "name", help = "Name of the object")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the object",
+        autocomplete = "objects_from_class"
+    )]
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
@@ -370,13 +386,18 @@ impl CliCommand for ObjectList {
 --name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#
 )]
 pub struct ObjectModify {
-    #[option(short = "n", long = "name", help = "Name of the object")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the object",
+        autocomplete = "objects_from_class"
+    )]
     pub name: String,
     #[option(
         short = "c",
         long = "class",
         help = "Name of the class the object belongs to",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub class: String,
     #[option(short = "r", long = "rename", help = "Rename object")]
@@ -385,14 +406,14 @@ pub struct ObjectModify {
         short = "R",
         long = "reclass",
         help = "Reclass object",
-        autocomplete = "crate::commandlist::classes"
+        autocomplete = "classes"
     )]
     pub reclass: Option<String>,
     #[option(
         short = "N",
         long = "namespace",
         help = "Namespace name",
-        autocomplete = "crate::commandlist::namespaces"
+        autocomplete = "namespaces"
     )]
     pub namespace: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the object")]

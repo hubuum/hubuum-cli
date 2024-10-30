@@ -100,7 +100,7 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
         let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
 
         let autocomplete_fn = opts.autocomplete.as_ref().map(|fn_path| {
-            quote! { Some(#fn_path as fn(&crate::commandlist::CommandList, &str) -> Vec<String>) }
+            quote! { Some(#fn_path as fn(&crate::commandlist::CommandList, &str, &[String]) -> Vec<String>) }
         }).unwrap_or(quote! { None });
 
         quote! {

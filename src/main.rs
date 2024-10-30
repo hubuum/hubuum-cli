@@ -12,6 +12,7 @@ use rustyline::history::FileHistory;
 use rustyline::Editor;
 use tracing_subscriber::EnvFilter;
 
+mod autocomplete;
 mod cli;
 mod commandlist;
 mod commands;

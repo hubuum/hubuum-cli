@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use hubuum_client::{Authenticated, FilterOperator, SyncClient};
+use hubuum_client::{Authenticated, SyncClient};
 use rustyline::highlight::Highlighter;
 use rustyline::{hint::Hinter, validate::Validator, Helper};
 
 // use colored::Colorize;
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use rustyline::completion::{Completer, Pair};
 use rustyline::Context;
 
@@ -40,6 +40,10 @@ impl CommandList {
             scopes: HashMap::new(),
             client,
         }
+    }
+
+    pub fn client(&self) -> Arc<SyncClient<Authenticated>> {
+        self.client.clone()
     }
 
     pub fn add_command<T: CliCommand + 'static>(&mut self, name: &str, command: T) -> &mut Self {
@@ -203,6 +207,7 @@ impl Completer for CommandList {
                                 &self,
                                 &opt_def,
                                 &last_token,
+                                &parts,
                                 &mut completions,
                             )
                         }
@@ -232,7 +237,8 @@ impl Completer for CommandList {
                                     trace!("Option is not a flag");
                                     if let Some(autocomplete_fn) = opt_def.autocomplete {
                                         trace!("Option has autocomplete function");
-                                        let suggestions = autocomplete_fn(&self, last_token);
+                                        let suggestions =
+                                            autocomplete_fn(&self, last_token, &parts);
 
                                         if suggestions.contains(&current_token.to_string()) {
                                             // The previous token matches one of the suggestions, so move on to the rest of the options.
@@ -303,14 +309,15 @@ fn suggest_from_autocomplete(
     cmdlist: &CommandList,
     opt_def: &CliOption,
     last_token: &str,
+    tokens: &[String],
     completions: &mut Vec<Pair>,
 ) {
     use colored::Colorize;
     if let Some(autocomplete_fn) = opt_def.autocomplete {
         trace!("Option has autocomplete function");
-        let suggestions = autocomplete_fn(&cmdlist, last_token);
+        let suggestions = autocomplete_fn(&cmdlist, last_token, &tokens);
         completions.extend(suggestions.into_iter().map(|s| Pair {
-            display: s.clone().italic().cyan().to_string(),
+            display: s.clone().bold().italic().green().to_string(),
             replacement: s,
         }));
     } else {
@@ -395,42 +402,4 @@ where
         .map(|p| format!("{} <{}>", p.display.clone(), p.replacement.clone()))
         .collect::<Vec<String>>()
         .join("\n")
-}
-
-pub fn classes(cmdlist: &CommandList, prefix: &str) -> Vec<String> {
-    let mut cmd = cmdlist.client.classes().find();
-
-    if !prefix.is_empty() {
-        cmd = cmd.add_filter(
-            "name",
-            FilterOperator::StartsWith { is_negated: false },
-            prefix,
-        );
-    }
-    match cmd.execute() {
-        Ok(classes) => classes.into_iter().map(|c| c.name).collect(),
-        Err(_) => {
-            warn!("Failed to fetch classes for autocomplete");
-            Vec::new()
-        }
-    }
-}
-
-pub fn namespaces(cmdlist: &CommandList, prefix: &str) -> Vec<String> {
-    let mut cmd = cmdlist.client.namespaces().find();
-
-    if !prefix.is_empty() {
-        cmd = cmd.add_filter(
-            "name",
-            FilterOperator::StartsWith { is_negated: false },
-            prefix,
-        );
-    }
-    match cmd.execute() {
-        Ok(namespaces) => namespaces.into_iter().map(|c| c.name).collect(),
-        Err(_) => {
-            warn!("Failed to fetch namespaces for autocomplete");
-            Vec::new()
-        }
-    }
 }

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
+use crate::autocomplete::namespaces;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::output::append_line;
@@ -118,7 +119,7 @@ pub struct NamespaceInfo {
         short = "n",
         long = "name",
         help = "Name of the namespace",
-        autocomplete = "crate::commandlist::namespaces"
+        autocomplete = "namespaces"
     )]
     pub name: Option<String>,
 }
@@ -161,7 +162,7 @@ pub struct NamespaceDelete {
         short = "n",
         long = "name",
         help = "Name of the namespace",
-        autocomplete = "crate::commandlist::namespaces"
+        autocomplete = "namespaces"
     )]
     pub name: Option<String>,
 }
