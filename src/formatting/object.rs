@@ -38,13 +38,13 @@ impl FormattedObject {
         let namespace = if namespacemap.get(&object.namespace_id).is_some() {
             namespacemap.get(&object.namespace_id).unwrap().name.clone()
         } else {
-            "".to_string()
+            "<unknown>".to_string()
         };
 
         let class = if classmap.get(&object.hubuum_class_id).is_some() {
             classmap.get(&object.hubuum_class_id).unwrap().name.clone()
         } else {
-            "".to_string()
+            "<unknown>".to_string()
         };
 
         Self {

@@ -7,7 +7,6 @@ use rand::{thread_rng, Rng};
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
-use crate::logger::with_timing;
 use crate::output::{append_key_value, append_line};
 
 use crate::tokenizer::CommandTokenizer;
@@ -46,7 +45,7 @@ impl CliCommand for UserNew {
         let new = self.new_from_tokens(tokens)?.into_post();
         let password = new.password.clone();
 
-        let user = with_timing("Creating user", || client.users().create(new))?;
+        let user = client.users().create(new)?;
 
         user.format(15)?;
         append_key_value("Password", password, 15)?;
@@ -92,11 +91,9 @@ impl CliCommand for UserDelete {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = with_timing("User get", || {
-            client.users().filter_expecting_single_result(&query)
-        })?;
+        let user = client.users().filter_expecting_single_result(&query)?;
 
-        with_timing("User delete", || client.users().delete(user.id))?;
+        client.users().delete(user.id)?;
         append_line(format!("User '{}' deleted", user.username.clone()))?;
 
         Ok(())
@@ -167,10 +164,10 @@ impl CliCommand for UserInfo {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        with_timing("User get", || {
-            client.users().filter_expecting_single_result(&query)
-        })?
-        .format(15)?;
+        client
+            .users()
+            .filter_expecting_single_result(&query)?
+            .format(15)?;
 
         Ok(())
     }
@@ -195,7 +192,7 @@ impl CliCommand for UserList {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let _ = self.new_from_tokens(tokens)?;
-        let users = with_timing("User list", || client.users().find().execute())?;
+        let users = client.users().find().execute()?;
         users.format()?;
 
         Ok(())
