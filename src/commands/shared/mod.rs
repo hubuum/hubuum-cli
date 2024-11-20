@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::hash::Hash;
 
 use hubuum_client::{
     client::sync::Resource, client::GetID, ApiError, ApiResource, Authenticated, Class,
@@ -7,21 +9,59 @@ use hubuum_client::{
 
 use crate::errors::AppError;
 
-pub fn ids_to_comma_separated_string<I, F>(objects: I, f: F) -> String
-where
-    I: IntoIterator,
-    I::Item: Copy,
-    F: Fn(I::Item) -> i32,
-{
-    objects
-        .into_iter()
-        .map(f)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",")
+/// Extension trait for iterators to remove duplicates.
+pub trait Uniqify: Iterator + Sized {
+    /// Removes duplicate items from the iterator.
+    fn uniqify(self) -> std::collections::hash_set::IntoIter<Self::Item>
+    where
+        Self::Item: Eq + Hash,
+    {
+        let set: HashSet<_> = self.collect();
+        set.into_iter()
+    }
 }
+
+impl<I: Iterator + Sized> Uniqify for I {}
+
+/// Extension trait for iterators to join items into a comma-separated string.
+pub trait Commafy: Iterator {
+    /// Joins the items into a comma-separated string using their `Display` implementation.
+    fn commafy(self) -> String
+    where
+        Self::Item: Display,
+        Self: Sized,
+    {
+        self.map(|item| item.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    /// Joins the items into a comma-separated string using their `Display` implementation, after removing duplicates.
+    fn commafy_unique(self) -> String
+    where
+        Self::Item: Display + Eq + Hash,
+        Self: Sized,
+    {
+        self.uniqify().commafy()
+    }
+}
+
+impl<I: Iterator> Commafy for I {}
+
+/// Extension trait for collections to provide `commafy_via` method.
+pub trait CommafyVia: IntoIterator + Sized {
+    /// Maps each item using the provided closure, removes duplicates, and joins them into a comma-separated string.
+    fn commafy_via<F, T>(self, f: F) -> String
+    where
+        Self::IntoIter: Iterator<Item = Self::Item>,
+        F: Fn(Self::Item) -> T,
+        T: Display + Eq + Hash,
+    {
+        self.into_iter().map(f).commafy_unique()
+    }
+}
+
+impl<T: IntoIterator> CommafyVia for T {}
 
 pub fn find_entities_by_ids<T, I, F>(
     resource: &Resource<T>,
@@ -36,7 +76,7 @@ where
     T::GetOutput: GetID,
 {
     // Extract the comma-separated string of unique IDs
-    let ids = ids_to_comma_separated_string(objects, extract_id);
+    let ids = objects.commafy_via(extract_id);
 
     // Use the Resource<T> to add filter and execute the find operation
 

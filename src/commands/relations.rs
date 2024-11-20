@@ -9,7 +9,7 @@ use super::{CliCommand, CliCommandInfo, CliOption};
 use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
 use crate::commands::shared::{
     find_class_by_name, find_class_relation, find_classes, find_object_by_name,
-    find_object_relation, ids_to_comma_separated_string,
+    find_object_relation, Commafy,
 };
 use crate::errors::AppError;
 use crate::formatting::{
@@ -273,7 +273,7 @@ impl CliCommand for RelationList {
         }
 
         // Here we should filter out already known IDs...
-        let class_ids_joined = ids_to_comma_separated_string(&class_ids, |id| *id);
+        let class_ids_joined = class_ids.into_iter().commafy_unique();
 
         let classes = client
             .classes()
