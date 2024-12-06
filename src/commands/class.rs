@@ -178,7 +178,12 @@ where
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ClassList {
-    #[option(short = "n", long = "name", help = "Name of the class")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the class",
+        autocomplete = "classes"
+    )]
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
