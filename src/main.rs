@@ -191,6 +191,21 @@ fn process_line_as_command(
     flush_output()
 }
 
+fn source_commands_from_file(
+    cli: &CommandList,
+    filename: &str,
+    client: &SyncClient<Authenticated>,
+) -> Result<(), AppError> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(filename)?;
+    let reader = std::io::BufReader::new(file);
+    for line in reader.lines() {
+        let line = line?;
+        process_line_as_command(cli, &line, client)?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), AppError> {
     let file = get_log_file()?;
     let file = std::fs::File::create(file).expect("Failed to create log file");
@@ -223,6 +238,11 @@ fn main() -> Result<(), AppError> {
 
     if let Some(command) = matches.get_one::<String>("command") {
         process_line_as_command(&cli, &command, &client)?;
+        return Ok(());
+    }
+
+    if let Some(filename) = matches.get_one::<String>("source") {
+        source_commands_from_file(&cli, &filename, &client)?;
         return Ok(());
     }
 

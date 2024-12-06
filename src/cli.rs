@@ -73,6 +73,12 @@ pub fn build_cli() -> Command {
                 .value_name("COMMAND")
                 .help("Run a command and exit"),
         )
+        .arg(
+            Arg::new("source")
+                .long("source")
+                .value_name("FILE")
+                .help("Run commands from a file and exit"),
+        )
 }
 
 pub fn get_cli_config_path(matches: &ArgMatches) -> Option<PathBuf> {
