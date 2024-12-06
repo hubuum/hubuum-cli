@@ -77,17 +77,17 @@ impl IntoResourceFilter<Group> for &GroupList {
 
         if !self.name_startswith.is_empty() {
             filters.push(QueryFilter {
-                key: "groupname__startswith".to_string(),
+                key: "groupname".to_string(),
                 value: self.name_startswith.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
+                operator: FilterOperator::StartsWith { is_negated: false },
             });
         }
 
         if !self.name_endswith.is_empty() {
             filters.push(QueryFilter {
-                key: "groupname__endswith".to_string(),
+                key: "groupname".to_string(),
                 value: self.name_endswith.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
+                operator: FilterOperator::EndsWith { is_negated: false },
             });
         }
 

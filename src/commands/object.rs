@@ -336,14 +336,14 @@ impl IntoResourceFilter<Object> for &ObjectList {
         let mut filters = vec![];
         if let Some(name) = &self.name {
             filters.push(QueryFilter {
-                key: "name__contains".to_string(),
+                key: "name".to_string(),
                 value: name.clone(),
                 operator: FilterOperator::IContains { is_negated: false },
             });
         }
         if let Some(description) = &self.description {
             filters.push(QueryFilter {
-                key: "description__contains".to_string(),
+                key: "description".to_string(),
                 value: description.clone(),
                 operator: FilterOperator::IContains { is_negated: false },
             });
