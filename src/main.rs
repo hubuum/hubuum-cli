@@ -170,6 +170,27 @@ fn login(
     Ok(client)
 }
 
+fn process_line_as_command(
+    cli: &CommandList,
+    line: &str,
+    client: &SyncClient<Authenticated>,
+) -> Result<(), AppError> {
+    let line = process_filter(line)?;
+    let mut context = Vec::new();
+    match handle_command(&cli, &line, &mut context, &client) {
+        Ok(_) => {}
+        Err(AppError::Quiet) => {}
+        Err(AppError::EntityNotFound(entity)) => add_warning(entity.to_string())?,
+        Err(AppError::ApiError(ApiError::HttpWithBody { status, message })) => {
+            add_error(format!("API Error: Status {} - {}", status, message))?
+        }
+
+        Err(err @ AppError::ApiError(_)) => add_error(format!("API Error: {}", err))?,
+        Err(err) => add_error(err)?,
+    }
+    flush_output()
+}
+
 fn main() -> Result<(), AppError> {
     let file = get_log_file()?;
     let file = std::fs::File::create(file).expect("Failed to create log file");
@@ -200,33 +221,22 @@ fn main() -> Result<(), AppError> {
     let cli = crate::commands::build_repl_commands(Arc::new(client.clone()));
     let mut rl = create_editor(&cli)?;
 
+    if let Some(command) = matches.get_one::<String>("command") {
+        process_line_as_command(&cli, &command, &client)?;
+        return Ok(());
+    }
+
     loop {
         match rl.readline(&prompt(&config)) {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
                 rl.save_history(&get_history_file()?)?;
-                let line = process_filter(line.as_str())?;
-                let mut context = Vec::new();
-                match handle_command(&cli, &line, &mut context, &client) {
-                    Ok(_) => {}
-                    Err(AppError::Quiet) => {}
-                    Err(AppError::EntityNotFound(entity)) => {
-                        add_warning(entity.to_string())?;
-                    }
-                    Err(AppError::ApiError(ApiError::HttpWithBody { status, message })) => {
-                        add_error(format!("API Error: Status {} - {}", status, message))?;
-                    }
-                    Err(err @ AppError::ApiError(_)) => {
-                        add_error(format!("API Error: {}", err))?;
-                    }
-                    Err(err) => add_error(err)?,
-                };
+                process_line_as_command(&cli, &line, &client)?;
             }
             Err(rustyline::error::ReadlineError::Interrupted) => continue,
             Err(rustyline::error::ReadlineError::Eof) => break,
             Err(err) => return Err(AppError::from(err)),
         }
-        flush_output()?;
     }
     Ok(())
 }

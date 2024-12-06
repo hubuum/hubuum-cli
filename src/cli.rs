@@ -67,6 +67,12 @@ pub fn build_cli() -> Command {
                 .value_name("BOOL")
                 .help("Disable API-related completions"),
         )
+        .arg(
+            Arg::new("command")
+                .long("command")
+                .value_name("COMMAND")
+                .help("Run a command and exit"),
+        )
 }
 
 pub fn get_cli_config_path(matches: &ArgMatches) -> Option<PathBuf> {
