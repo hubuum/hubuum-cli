@@ -4,6 +4,10 @@ use hubuum_client::FilterOperator;
 
 use crate::commandlist::CommandList;
 
+pub fn bool(_cmdlist: &CommandList, _prefix: &str, _parts: &[String]) -> Vec<String> {
+    vec!["true".to_string(), "false".to_string()]
+}
+
 pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
     trace!("Autocompleting classes with prefix: {}", prefix);
     let mut cmd = cmdlist.client().classes().find();

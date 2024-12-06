@@ -1,12 +1,14 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, Class, ClassPost, IntoResourceFilter, QueryFilter, SyncClient};
+use hubuum_client::{
+    Authenticated, Class, ClassPost, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient,
+};
 use serde::{Deserialize, Serialize};
 
 use super::shared::find_class_by_name;
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
-use crate::autocomplete::{classes, namespaces};
+use crate::autocomplete::{bool, classes, namespaces};
 use crate::commands::shared::find_namespace_by_name;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
@@ -41,7 +43,8 @@ pub struct ClassNew {
     #[option(
         short = "v",
         long = "validate",
-        help = "Validate against schema, requires schema to be set"
+        help = "Validate against schema, requires schema to be set",
+        autocomplete = "bool"
     )]
     pub validate_schema: Option<bool>,
 }
@@ -76,6 +79,7 @@ impl IntoResourceFilter<Class> for &ClassInfo {
             filters.push(QueryFilter {
                 key: "name".to_string(),
                 value: name.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -187,12 +191,14 @@ impl IntoResourceFilter<Class> for &ClassList {
             filters.push(QueryFilter {
                 key: "name".to_string(),
                 value: name.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
         if let Some(description) = &self.description {
             filters.push(QueryFilter {
                 key: "description".to_string(),
                 value: description.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
         filters

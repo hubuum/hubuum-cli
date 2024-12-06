@@ -1,5 +1,5 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, NamespacePost, SyncClient};
+use hubuum_client::{Authenticated, FilterOperator, NamespacePost, SyncClient};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -91,7 +91,7 @@ impl CliCommand for NamespaceList {
         let search = match &new.name {
             Some(name) => search.add_filter(
                 "name",
-                hubuum_client::FilterOperator::Contains { is_negated: false },
+                FilterOperator::Contains { is_negated: false },
                 name.clone(),
             ),
             None => search,
@@ -100,7 +100,7 @@ impl CliCommand for NamespaceList {
         let search = match &new.description {
             Some(description) => search.add_filter(
                 "description",
-                hubuum_client::FilterOperator::Contains { is_negated: false },
+                FilterOperator::Contains { is_negated: false },
                 description.clone(),
             ),
             None => search,

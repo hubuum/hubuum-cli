@@ -1,5 +1,7 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, Group, GroupPost, IntoResourceFilter, QueryFilter, SyncClient};
+use hubuum_client::{
+    Authenticated, FilterOperator, Group, GroupPost, IntoResourceFilter, QueryFilter, SyncClient,
+};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -69,6 +71,7 @@ impl IntoResourceFilter<Group> for &GroupList {
             filters.push(QueryFilter {
                 key: "groupname".to_string(),
                 value: self.name.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -76,6 +79,7 @@ impl IntoResourceFilter<Group> for &GroupList {
             filters.push(QueryFilter {
                 key: "groupname__startswith".to_string(),
                 value: self.name_startswith.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -83,6 +87,7 @@ impl IntoResourceFilter<Group> for &GroupList {
             filters.push(QueryFilter {
                 key: "groupname__endswith".to_string(),
                 value: self.name_endswith.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -90,6 +95,7 @@ impl IntoResourceFilter<Group> for &GroupList {
             filters.push(QueryFilter {
                 key: "description".to_string(),
                 value: self.description.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 

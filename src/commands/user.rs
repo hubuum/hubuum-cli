@@ -1,5 +1,7 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{Authenticated, IntoResourceFilter, QueryFilter, SyncClient, User, UserPost};
+use hubuum_client::{
+    Authenticated, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient, User, UserPost,
+};
 use serde::{Deserialize, Serialize};
 
 use rand::distributions::Alphanumeric;
@@ -68,6 +70,7 @@ impl IntoResourceFilter<User> for &UserDelete {
             filters.push(QueryFilter {
                 key: "username".to_string(),
                 value: username.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -120,6 +123,7 @@ impl IntoResourceFilter<User> for &UserInfo {
             filters.push(QueryFilter {
                 key: "username".to_string(),
                 value: username.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -127,6 +131,7 @@ impl IntoResourceFilter<User> for &UserInfo {
             filters.push(QueryFilter {
                 key: "email".to_string(),
                 value: email.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
 
@@ -134,6 +139,7 @@ impl IntoResourceFilter<User> for &UserInfo {
             filters.push(QueryFilter {
                 key: "created_at".to_string(),
                 value: created_at.to_string(),
+                operator: FilterOperator::Equals { is_negated: false },
             });
         }
 
@@ -141,6 +147,7 @@ impl IntoResourceFilter<User> for &UserInfo {
             filters.push(QueryFilter {
                 key: "updated_at".to_string(),
                 value: updated_at.to_string(),
+                operator: FilterOperator::Equals { is_negated: false },
             });
         }
 

@@ -133,12 +133,34 @@ impl CommandList {
 }
 
 impl Validator for CommandList {}
+impl Validator for &CommandList {}
 impl Helper for CommandList {}
+impl Helper for &CommandList {}
 impl Highlighter for CommandList {}
+impl Highlighter for &CommandList {}
 impl Hinter for CommandList {
     type Hint = String;
     fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
         None
+    }
+}
+impl Hinter for &CommandList {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+impl Completer for &CommandList {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        CommandList::complete(self, line, pos, ctx)
     }
 }
 

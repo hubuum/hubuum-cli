@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use cli_command_derive::CliCommand;
 
 use hubuum_client::{
-    Authenticated, IntoResourceFilter, Object, ObjectPatch, ObjectPost, QueryFilter, SyncClient,
+    Authenticated, FilterOperator, IntoResourceFilter, Object, ObjectPatch, ObjectPost,
+    QueryFilter, SyncClient,
 };
 use jqesque::Jqesque;
 use jsonpath_rust::{JsonPath, JsonPathValue};
@@ -97,6 +98,7 @@ impl IntoResourceFilter<Object> for &ObjectInfo {
             filters.push(QueryFilter {
                 key: "name".to_string(),
                 value: name.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
         filters
@@ -336,12 +338,14 @@ impl IntoResourceFilter<Object> for &ObjectList {
             filters.push(QueryFilter {
                 key: "name__contains".to_string(),
                 value: name.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
         if let Some(description) = &self.description {
             filters.push(QueryFilter {
                 key: "description__contains".to_string(),
                 value: description.clone(),
+                operator: FilterOperator::IContains { is_negated: false },
             });
         }
         filters
