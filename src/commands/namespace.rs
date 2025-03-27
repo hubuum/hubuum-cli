@@ -76,6 +76,8 @@ pub struct NamespaceList {
         help = "Description of the namespace"
     )]
     pub description: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for NamespaceList {
@@ -107,6 +109,12 @@ impl CliCommand for NamespaceList {
         };
 
         let namespaces = search.execute()?;
+
+        if new.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&namespaces)?)?;
+            return Ok(());
+        }
+
         namespaces.format()?;
 
         Ok(())
@@ -122,6 +130,8 @@ pub struct NamespaceInfo {
         autocomplete = "namespaces"
     )]
     pub name: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl GetNamespace for &NamespaceInfo {
@@ -149,6 +159,11 @@ impl CliCommand for NamespaceInfo {
             .find()
             .add_filter_name_exact(new.name.clone().unwrap())
             .execute_expecting_single_result()?;
+
+        if new.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&namespace)?)?;
+            return Ok(());
+        }
 
         namespace.format(15)?;
 

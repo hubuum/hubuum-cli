@@ -130,7 +130,7 @@ pub struct ObjectInfo {
     #[option(
         short = "d",
         long = "data",
-        help = "Show full JSON data",
+        help = "Show flattned data (key=value) for the object",
         flag = "true"
     )]
     pub data: Option<bool>,
@@ -140,6 +140,8 @@ pub struct ObjectInfo {
         help = "Path to display within the data, implies -d"
     )]
     pub jsonpath: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for ObjectInfo {
@@ -167,6 +169,12 @@ impl CliCommand for ObjectInfo {
         classmap.insert(class.id, class.clone());
 
         let object = FormattedObject::new(&object, &classmap, &nsmap);
+
+        if query.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&object).unwrap())?;
+            return Ok(());
+        }
+
         object.format(15)?;
 
         if query.jsonpath.is_none() && query.data.is_none() {
@@ -178,7 +186,7 @@ impl CliCommand for ObjectInfo {
             return Ok(());
         }
 
-        let json_data = object.data.unwrap().clone();
+        let json_data = object.data.clone().unwrap();
 
         if query.jsonpath.is_some() {
             let jsonpath = query.jsonpath.clone().unwrap();
@@ -329,6 +337,8 @@ pub struct ObjectList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl IntoResourceFilter<Object> for &ObjectList {
@@ -376,6 +386,11 @@ impl CliCommand for ObjectList {
             .iter()
             .map(|o| FormattedObject::new(o, &classmap, &nsmap))
             .collect::<Vec<_>>();
+
+        if new.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&objects)?)?;
+            return Ok(());
+        }
 
         objects.format()?;
         Ok(())

@@ -12,7 +12,7 @@ use crate::autocomplete::{bool, classes, namespaces};
 use crate::commands::shared::find_namespace_by_name;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
-use crate::output::append_key_value;
+use crate::output::{append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetClassname {
@@ -102,6 +102,9 @@ pub struct ClassInfo {
         autocomplete = "classes"
     )]
     pub name: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
+
 }
 
 impl CliCommand for ClassInfo {
@@ -114,12 +117,18 @@ impl CliCommand for ClassInfo {
         query.name = classname_or_pos(&query, tokens, 0)?;
         let class = find_class_by_name(client, &query.name.unwrap())?;
 
-        class.format(15)?;
-
-        // This will hopefully be a head request in the future
+        // This will hopefully be a head request in the future if we just want a count.
         let objects = client.objects(class.id).find().execute()?;
-        // Not sure why we need to reduce the padding, should be checked.
-        append_key_value("Objects", objects.len(), 14)?;
+        if ! query.rawjson.is_some() {
+            class.format(15)?;
+            append_key_value("Objects", objects.len(), 14)?;
+        } else {
+            // We first make a JSON object out of the class, then we append the objects.
+            let mut json_class = serde_json::to_value(&class)?;
+            json_class["objects"] = serde_json::to_value(objects)?;
+
+            append_line(serde_json::to_string_pretty(&json_class)?)?;
+        }
 
         Ok(())
     }
@@ -187,6 +196,9 @@ pub struct ClassList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
+
 }
 
 impl IntoResourceFilter<Class> for &ClassList {
@@ -218,6 +230,12 @@ impl CliCommand for ClassList {
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
         let classes = client.classes().filter(&new)?;
+
+        if new.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&classes)?)?;
+            return Ok(());
+        }
+
         classes.format()?;
         Ok(())
     }

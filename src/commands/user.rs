@@ -113,6 +113,8 @@ pub struct UserInfo {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl IntoResourceFilter<User> for &UserInfo {
@@ -171,11 +173,16 @@ impl CliCommand for UserInfo {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        client
+        let user = client
             .users()
-            .filter_expecting_single_result(&query)?
-            .format(15)?;
+            .filter_expecting_single_result(&query)?;
 
+        if  query.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&user)?)?;
+            return Ok(());
+        }
+
+        user.format(15)?;
         Ok(())
     }
 }
@@ -190,6 +197,8 @@ pub struct UserList {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for UserList {
@@ -200,6 +209,12 @@ impl CliCommand for UserList {
     ) -> Result<(), AppError> {
         let _ = self.new_from_tokens(tokens)?;
         let users = client.users().find().execute()?;
+
+        if self.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&users)?)?;
+            return Ok(());
+        }
+        
         users.format()?;
 
         Ok(())

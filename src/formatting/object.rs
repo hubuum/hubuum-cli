@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 
+use tabled::Tabled;
+use serde::{Deserialize, Serialize};
+
 use hubuum_client::{
     resources::{tabled_display, tabled_display_option},
     Class, Namespace, Object,
 };
-use tabled::Tabled;
 
 use super::{append_key_value, OutputFormatterWithPadding};
 use crate::errors::AppError;
 
 // A wrapper for objects that can be outputted where class_ids and namespace_ids are replaced with their names.
-#[derive(Debug, Tabled)]
+#[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
 pub struct FormattedObject {
     pub id: i32,
     #[tabled(rename = "Name")]

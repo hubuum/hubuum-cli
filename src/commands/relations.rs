@@ -133,6 +133,8 @@ pub struct RelationList {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,    
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
@@ -172,6 +174,8 @@ pub struct RelationInfo {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
+    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for RelationNew {
@@ -291,7 +295,12 @@ impl CliCommand for RelationList {
                 .iter()
                 .map(|r| FormattedClassRelation::new(r, &class_map))
                 .collect::<Vec<_>>();
-            class_relations_formatted.format()?;
+
+            if new.rawjson.is_some() {
+                append_line(serde_json::to_string_pretty(&class_relations_formatted)?)?;
+            } else {
+                class_relations_formatted.format()?;
+            }                
 
             return Ok(());
         }
@@ -434,6 +443,11 @@ impl CliCommand for RelationList {
             })
             .collect::<Vec<_>>();
 
+        if new.rawjson.is_some() {
+            append_line(serde_json::to_string_pretty(&formatted_object_relations)?)?;
+            return Ok(());
+        }
+
         formatted_object_relations.format()?;
 
         Ok(())
@@ -455,7 +469,12 @@ impl CliCommand for RelationInfo {
 
             let rel = find_class_relation(client, class_from.id, class_to.id)?;
             let rel = FormattedClassRelation::new(&rel, &classmap);
-            rel.format(15)?;
+
+            if new.rawjson.is_some() {
+                append_line(serde_json::to_string_pretty(&rel)?)?;
+            } else {
+                rel.format(15)?;
+            }
         } else {
             let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
             let object_from =
@@ -480,7 +499,12 @@ impl CliCommand for RelationInfo {
                 &objectmap,
                 &classmap,
             );
-            object_relation.format(15)?;
+
+            if new.rawjson.is_some() {
+                append_line(serde_json::to_string_pretty(&object_relation)?)?;
+            } else {
+                object_relation.format(15)?;
+            }
         }
         Ok(())
     }

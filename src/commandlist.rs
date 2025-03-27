@@ -100,14 +100,12 @@ impl CommandList {
         let indent = if prefix.is_empty() { "" } else { "  " };
         let branch = if is_last { "└─ " } else { "├─ " };
 
-        // Add commands
-        let command_count = self.commands.len();
-        for (i, command_name) in self.commands.keys().enumerate() {
+        // Add commands, sort by name
+        let mut command_names: Vec<_> = self.commands.keys().collect();
+        command_names.sort();
+        for command_name in command_names {
             let line = format!("{}{}{}{}\n", prefix, indent, branch, command_name);
             result.push_str(&line);
-            if i < command_count - 1 || !self.scopes.is_empty() {
-                result.push_str(&format!("{}{}│\n", prefix, indent));
-            }
         }
 
         // Add scopes
