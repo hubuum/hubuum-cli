@@ -4,8 +4,8 @@ use hubuum_client::{
 };
 use serde::{Deserialize, Serialize};
 
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::{rng, Rng};
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
@@ -113,7 +113,12 @@ pub struct UserInfo {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -173,11 +178,9 @@ impl CliCommand for UserInfo {
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = client
-            .users()
-            .filter_expecting_single_result(&query)?;
+        let user = client.users().filter_expecting_single_result(&query)?;
 
-        if  query.rawjson.is_some() {
+        if query.rawjson.is_some() {
             append_line(serde_json::to_string_pretty(&user)?)?;
             return Ok(());
         }
@@ -197,7 +200,12 @@ pub struct UserList {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -214,7 +222,7 @@ impl CliCommand for UserList {
             append_line(serde_json::to_string_pretty(&users)?)?;
             return Ok(());
         }
-        
+
         users.format()?;
 
         Ok(())
@@ -222,7 +230,7 @@ impl CliCommand for UserList {
 }
 
 pub fn generate_random_password(length: usize) -> String {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     std::iter::repeat(())
         .map(|()| rng.sample(Alphanumeric))
         .map(char::from)

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tabled::Tabled;
 
-use crate::errors::AppError;
 use super::{append_key_value, OutputFormatterWithPadding};
-use hubuum_client::{ClassRelation, Object, ObjectRelation, resources::tabled_display, Class};
+use crate::errors::AppError;
+use hubuum_client::{resources::tabled_display, Class, ClassRelation, Object, ObjectRelation};
 
 // A wrapper for classrelations that can be outputted where class_ids are replaced with their names
 #[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
@@ -14,9 +14,9 @@ pub struct FormattedClassRelation {
     pub from_class: String,
     #[tabled(rename = "ToClass")]
     pub to_class: String,
-    #[tabled(display_with = "tabled_display", rename = "Created")]
+    #[tabled(display = "tabled_display", rename = "Created")]
     pub created_at: chrono::NaiveDateTime,
-    #[tabled(display_with = "tabled_display", rename = "Updated")]
+    #[tabled(display = "tabled_display", rename = "Updated")]
     pub updated_at: chrono::NaiveDateTime,
 }
 
@@ -31,9 +31,9 @@ pub struct FormattedObjectRelation {
     pub from_object: String,
     #[tabled(rename = "ToObject")]
     pub to_object: String,
-    #[tabled(display_with = "tabled_display", rename = "Created")]
+    #[tabled(display = "tabled_display", rename = "Created")]
     pub created_at: chrono::NaiveDateTime,
-    #[tabled(display_with = "tabled_display", rename = "Updated")]
+    #[tabled(display = "tabled_display", rename = "Updated")]
     pub updated_at: chrono::NaiveDateTime,
 }
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use tabled::Tabled;
 use serde::{Deserialize, Serialize};
+use tabled::Tabled;
 
 use hubuum_client::{
     resources::{tabled_display, tabled_display_option},
@@ -23,11 +23,11 @@ pub struct FormattedObject {
     pub namespace: String,
     #[tabled(rename = "Class")]
     pub class: String,
-    #[tabled(display_with = "tabled_display_option", rename = "Data")]
+    #[tabled(display = "tabled_display_option", rename = "Data")]
     pub data: Option<serde_json::Value>,
-    #[tabled(display_with = "tabled_display", rename = "Created")]
+    #[tabled(display = "tabled_display", rename = "Created")]
     pub created_at: chrono::NaiveDateTime,
-    #[tabled(display_with = "tabled_display", rename = "Updated")]
+    #[tabled(display = "tabled_display", rename = "Updated")]
     pub updated_at: chrono::NaiveDateTime,
 }
 

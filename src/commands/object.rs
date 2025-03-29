@@ -140,7 +140,12 @@ pub struct ObjectInfo {
         help = "Path to display within the data, implies -d"
     )]
     pub jsonpath: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -337,7 +342,12 @@ pub struct ObjectList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
