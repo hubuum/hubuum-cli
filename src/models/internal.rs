@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum Protocol {
     Http,
     #[default]
