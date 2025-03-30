@@ -133,8 +133,8 @@ pub fn find_class_relation(
     client
         .class_relation()
         .find()
-        .add_filter_equals("from_classes", class_to_id)
-        .add_filter_equals("to_classes", class_from_id)
+        .add_filter_equals("from_classes", class_from_id)
+        .add_filter_equals("to_classes", class_to_id)
         .execute_expecting_single_result()
 }
 
