@@ -7,7 +7,7 @@ use hubuum_client::{
     QueryFilter, SyncClient,
 };
 use jqesque::Jqesque;
-use jsonpath_rust::{JsonPath, JsonPathValue};
+use jsonpath_rust::JsonPath;
 
 use serde::{Deserialize, Serialize};
 
@@ -193,42 +193,27 @@ impl CliCommand for ObjectInfo {
 
         let json_data = object.data.clone().unwrap();
 
-        if query.jsonpath.is_some() {
-            let jsonpath = query.jsonpath.clone().unwrap();
-            let path = jsonpath
-                .parse::<JsonPath>()
+        if let Some(jsonpath_expr) = &query.jsonpath {
+            let results: Vec<_> = json_data
+                .query_with_path(jsonpath_expr)
                 .map_err(|e| AppError::JsonPathError(e.to_string()))?;
-
-            let slice_of_data = path.find_slice(&json_data);
-            if slice_of_data.is_empty() {
+            if results.is_empty() {
                 add_warning("JSONPath did not match any data")?;
                 return Ok(());
             }
 
-            // Hashmap to store the key value pairs, allowing for sorting and padding lookups
             let mut key_values = HashMap::new();
-
-            // Iterate over the slices and handle each JsonPathValue
-            for slice in slice_of_data {
-                match slice {
-                    JsonPathValue::Slice(value, path) => {
-                        let pretty_path = prettify_slice_path(&path);
-                        key_values.insert(pretty_path, value.clone());
-                    }
-                    JsonPathValue::NewValue(value) => {
-                        key_values.insert("Generated".to_string(), value.clone());
-                    }
-                    JsonPathValue::NoValue => {
-                        add_warning(format!("{} produced no results", jsonpath))?;
-                    }
-                }
+            for result in results {
+                let pretty_path = prettify_slice_path(&result.clone().path());
+                let value = result.val();
+                key_values.insert(pretty_path, value);
             }
 
             let padding = key_values
                 .keys()
                 .map(|k| k.len())
                 .max()
-                .map_or(15, |len| len.max(15));
+                .map_or(14, |len| len.max(14));
 
             for (key, value) in key_values {
                 append_key_value(key, value, padding)?;

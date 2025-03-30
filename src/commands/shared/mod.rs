@@ -167,7 +167,9 @@ pub fn find_object_relation(
 
 // Convert $.['location'].['country'] to location.country (etc)
 pub fn prettify_slice_path(path: &str) -> String {
-    path.trim_start_matches("$.")
+    println!("prettify_slice_path: {}", path);
+    path.trim_start_matches("$")
+        .replace("']['", ".")
         .replace("['", "")
         .replace("']", "")
 }

@@ -27,7 +27,7 @@ rpassword = "7"
 rand = "0"
 tabled = "0.18"
 jqesque = "0.0.3"
-jsonpath-rust = "0"
+jsonpath-rust = "1"
 smooth-json = "0"
 
 [profile.release]
