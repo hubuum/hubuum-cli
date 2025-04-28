@@ -20,6 +20,8 @@ pub struct ServerConfig {
     pub ssl_validation: bool,
     pub api_version: String,
     pub username: String,
+    #[serde(default)]
+    pub password: Option<String>,
     pub protocol: Protocol,
 }
 
@@ -44,6 +46,7 @@ impl Default for AppConfig {
                 ssl_validation: Defaults::SERVER_SSL_VALIDATION,
                 api_version: Defaults::API_VERSION.to_string(),
                 username: Defaults::USER_USERNAME.to_string(),
+                password: None,
                 protocol: Defaults::PROTOCOL,
             },
             cache: CacheConfig {
@@ -114,6 +117,7 @@ mod tests {
             "HUBUUM_CLI__SERVER__SSL_VALIDATION",
             "HUBUUM_CLI__SERVER__API_VERSION",
             "HUBUUM_CLI__SERVER__USERNAME",
+            "HUBUUM_CLI__SERVER__PASSWORD",
             "HUBUUM_CLI__SERVER__PROTOCOL",
             "HUBUUM_CLI__CACHE__TIME",
             "HUBUUM_CLI__CACHE__SIZE",
@@ -133,6 +137,7 @@ mod tests {
         env::set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
         env::set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
         env::set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
+        env::set_var("HUBUUM_CLI__SERVER__PASSWORD", "hunter2");
         env::set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
 
         env::set_var("HUBUUM_CLI__CACHE__TIME", "99");
@@ -149,6 +154,7 @@ mod tests {
         assert!(!cfg.server.ssl_validation);
         assert_eq!(cfg.server.api_version, "v9");
         assert_eq!(cfg.server.username, "env_user");
+        assert_eq!(cfg.server.password, Some("hunter2".into()));
         assert_eq!(cfg.server.protocol, Protocol::Http);
 
         assert_eq!(cfg.cache.time, 99);
@@ -171,6 +177,7 @@ mod tests {
         assert_eq!(cfg.server.port, 5555);
         assert_eq!(cfg.server.hostname, Defaults::SERVER_HOSTNAME);
         assert_eq!(cfg.cache.disable, Defaults::CACHE_DISABLE);
+        assert!(cfg.server.password.is_none());
 
         clear_env();
     }

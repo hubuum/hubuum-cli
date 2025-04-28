@@ -15,18 +15,21 @@ pub fn build_cli() -> Command {
             Arg::new("hostname")
                 .long("hostname")
                 .value_name("HOST")
+                .env("HUBUUM_CLI__SERVER__HOSTNAME")
                 .help("Set the server hostname"),
         )
         .arg(
             Arg::new("port")
                 .long("port")
                 .value_name("PORT")
+                .env("HUBUUM_CLI__SERVER__PORT")
                 .help("Set the server port"),
         )
         .arg(
             Arg::new("protocol")
                 .long("protocol")
                 .value_name("PROTOCOL")
+                .env("HUBUUM_CLI__SERVER__PROTOCOL")
                 .ignore_case(true)
                 .value_parser(["http", "https"])
                 .help("Set the server protocol (http or https)"),
@@ -35,36 +38,49 @@ pub fn build_cli() -> Command {
             Arg::new("ssl_validation")
                 .long("ssl-validation")
                 .value_name("BOOL")
+                .env("HUBUUM_CLI__SERVER__SSL_VALIDATION")
                 .help("Enable or disable SSL validation"),
         )
         .arg(
             Arg::new("username")
                 .long("username")
                 .value_name("NAME")
+                .env("HUBUUM_CLI__SERVER__USERNAME")
                 .help("Set the username"),
+        )
+        .arg(
+            Arg::new("password")
+                .long("password")
+                .value_name("PASSWORD")
+                .env("HUBUUM_CLI__SERVER__PASSWORD")
+                .help("Set the password (ideally use ENV)"),
         )
         .arg(
             Arg::new("cache_time")
                 .long("cache-time")
                 .value_name("SECONDS")
+                .env("HUBUUM_CLI__CACHE__TIME")
                 .help("Set the cache time in seconds"),
         )
         .arg(
             Arg::new("cache_size")
                 .long("cache-size")
                 .value_name("BYTES")
+                .env("HUBUUM_CLI__CACHE__SIZE")
                 .help("Set the cache size in bytes"),
         )
         .arg(
             Arg::new("cache_disable")
                 .long("cache-disable")
                 .value_name("BOOL")
+                .env("HUBUUM_CLI__CACHE__DISABLE")
                 .help("Enable or disable caching"),
         )
         .arg(
             Arg::new("completion_disable_api")
                 .long("completion-api-disable")
                 .value_name("BOOL")
+                .env("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED")
                 .help("Disable API-related completions"),
         )
         .arg(
@@ -107,6 +123,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(username) = matches.get_one::<String>("username") {
         config.server.username = username.to_string();
+    }
+    if let Some(password) = matches.get_one::<String>("password") {
+        config.server.password = Some(password.to_string());
     }
     if let Some(cache_time) = matches.get_one::<String>("cache_time") {
         if let Ok(cache_time) = cache_time.parse() {

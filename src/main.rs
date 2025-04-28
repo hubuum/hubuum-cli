@@ -141,8 +141,9 @@ fn create_editor(cli: &CommandList) -> Result<Editor<&CommandList, FileHistory>,
 
 fn login(
     client: hubuum_client::SyncClient<Unauthenticated>,
-    username: &str,
     hostname: &str,
+    username: &str,
+    password: Option<&str>,
 ) -> Result<SyncClient<Authenticated>, AppError> {
     let token = files::get_token_from_tokenfile(hostname, username)?;
     if let Some(token) = token {
@@ -156,8 +157,13 @@ fn login(
         }
     }
 
-    let password =
-        rpassword::prompt_password(format!("Password for {} @ {}: ", username, hostname))?;
+    let password = match password {
+        Some(p) => {
+            debug!("Found password in ENV, skipping interaction.");
+            p.to_string()
+        }
+        None => rpassword::prompt_password(format!("Password for {} @ {}: ", username, hostname))?,
+    };
     let client = client
         .clone()
         .login(Credentials::new(username.to_string(), password))?;
@@ -229,8 +235,9 @@ fn main() -> Result<(), AppError> {
 
     let client = login(
         client,
-        config.server.username.as_str(),
         config.server.hostname.as_str(),
+        config.server.username.as_str(),
+        config.server.password.as_deref(),
     )?;
 
     let cli = crate::commands::build_repl_commands(Arc::new(client.clone()));
