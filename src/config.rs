@@ -84,10 +84,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         )?
         // 1. Load system-wide config
         .add_source(File::from(system_config).required(false))
-        // 2. Load user-specific config
-        .add_source(File::from(user_config).required(false))
-        // 3. Add in settings from the environment (with a prefix of HUBUUM_CLI_)
-        .add_source(Environment::with_prefix("HUBUUM_CLI").separator("__"));
+        // 2. Add in settings from the environment (with a prefix of HUBUUM_CLI_)
+        .add_source(Environment::with_prefix("HUBUUM_CLI").separator("__"))
+        // 3. Load user-specific config
+        .add_source(File::from(user_config).required(false));
 
     // 4. Load CLI-specified config file, if provided
     if let Some(config_path) = cli_config_path {
@@ -97,4 +97,81 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
     let config = builder.build()?;
 
     config.try_deserialize()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Protocol;
+    use serial_test::serial;
+    use std::env;
+
+    /// Helper to clear all HUBUUM_CLI_... vars we use in this test.
+    fn clear_env() {
+        for &var in &[
+            "HUBUUM_CLI__SERVER__HOSTNAME",
+            "HUBUUM_CLI__SERVER__PORT",
+            "HUBUUM_CLI__SERVER__SSL_VALIDATION",
+            "HUBUUM_CLI__SERVER__API_VERSION",
+            "HUBUUM_CLI__SERVER__USERNAME",
+            "HUBUUM_CLI__SERVER__PROTOCOL",
+            "HUBUUM_CLI__CACHE__TIME",
+            "HUBUUM_CLI__CACHE__SIZE",
+            "HUBUUM_CLI__CACHE__DISABLE",
+            "HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED",
+        ] {
+            env::remove_var(var);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn env_overrides_entire_config() {
+        clear_env();
+        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+        env::set_var("HUBUUM_CLI__SERVER__PORT", "4321");
+        env::set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
+        env::set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
+        env::set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
+        env::set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
+
+        env::set_var("HUBUUM_CLI__CACHE__TIME", "99");
+        env::set_var("HUBUUM_CLI__CACHE__SIZE", "42");
+        env::set_var("HUBUUM_CLI__CACHE__DISABLE", "true");
+
+        env::set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
+
+        // 2. load and assert
+        let cfg = load_config(None).expect("failed to load config from env");
+
+        assert_eq!(cfg.server.hostname, "env.example.com");
+        assert_eq!(cfg.server.port, 4321);
+        assert!(!cfg.server.ssl_validation);
+        assert_eq!(cfg.server.api_version, "v9");
+        assert_eq!(cfg.server.username, "env_user");
+        assert_eq!(cfg.server.protocol, Protocol::Http);
+
+        assert_eq!(cfg.cache.time, 99);
+        assert_eq!(cfg.cache.size, 42);
+        assert!(cfg.cache.disable);
+
+        assert!(cfg.completion.disable_api_related);
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn mixing_env_and_defaults() {
+        clear_env();
+        // Only override one value
+        env::set_var("HUBUUM_CLI__SERVER__PORT", "5555");
+        let cfg = load_config(None).unwrap();
+
+        // port should be env value, everything else falls back to Default::default()
+        assert_eq!(cfg.server.port, 5555);
+        assert_eq!(cfg.server.hostname, Defaults::SERVER_HOSTNAME);
+        assert_eq!(cfg.cache.disable, Defaults::CACHE_DISABLE);
+
+        clear_env();
+    }
 }

@@ -29,6 +29,7 @@ tabled = "0.18"
 jqesque = "0.0.3"
 jsonpath-rust = "1"
 smooth-json = "0"
+serial_test = "3.2.0"
 
 [profile.release]
 codegen-units = 1
