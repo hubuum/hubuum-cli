@@ -47,7 +47,10 @@ fn add_user_commands(cli: &mut CommandList) {
 fn add_group_commands(cli: &mut CommandList) {
     cli.add_scope("group")
         .add_command("create", commands::GroupNew::default())
-        .add_command("list", commands::GroupList::default());
+        .add_command("list", commands::GroupList::default())
+        .add_command("add_user", commands::GroupAddUser::default())
+        .add_command("remove_user", commands::GroupRemoveUser::default())
+        .add_command("info", commands::GroupInfo::default());
 }
 
 fn add_object_commands(cli: &mut CommandList) {
