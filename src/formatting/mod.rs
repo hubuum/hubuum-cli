@@ -31,7 +31,7 @@ where
         // This should be customizable by the user, including the ability to disable columns
         table
             .with(Style::modern_rounded())
-            .with(Remove::column(Columns::single(0))); // Disable the first column (ID)
+            .with(Remove::column(Columns::one(0))); // Disable the first column (ID)
         let table = table.to_string();
         for line in table.lines() {
             append_line(line)?;
