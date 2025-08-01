@@ -70,12 +70,12 @@ impl FormattedClassRelation {
 }
 
 impl OutputFormatterWithPadding for FormattedClassRelation {
-    fn format(&self, padding: usize) -> Result<(), AppError> {
+    fn format(&self, padding: usize) -> Result<Self, AppError> {
         append_key_value("ClassFrom", &self.from_class, padding)?;
         append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(())
+        Ok(self.clone())
     }
 }
 
@@ -145,13 +145,13 @@ impl FormattedObjectRelation {
 }
 
 impl OutputFormatterWithPadding for FormattedObjectRelation {
-    fn format(&self, padding: usize) -> Result<(), AppError> {
+    fn format(&self, padding: usize) -> Result<Self, AppError> {
         append_key_value("ClassFrom", &self.from_class, padding)?;
         append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("ObjectFrom", &self.from_object, padding)?;
         append_key_value("ObjectTo", &self.to_object, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(())
+        Ok(self.clone())
     }
 }

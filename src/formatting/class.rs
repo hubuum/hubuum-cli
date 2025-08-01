@@ -1,10 +1,10 @@
-use hubuum_client::Class;
+use hubuum_client::{client::sync::Handle, Class};
 
 use super::{append_key_value, append_some_key_value, OutputFormatterWithPadding};
 use crate::errors::AppError;
 
 impl OutputFormatterWithPadding for Class {
-    fn format(&self, padding: usize) -> Result<(), AppError> {
+    fn format(&self, padding: usize) -> Result<Self, AppError> {
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
         append_key_value("Namespace", &self.namespace.name, padding)?;
@@ -26,6 +26,13 @@ impl OutputFormatterWithPadding for Class {
         append_some_key_value("Validate", &self.validate_schema, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(())
+        Ok(self.clone())
+    }
+}
+
+impl OutputFormatterWithPadding for Handle<Class> {
+    fn format(&self, padding: usize) -> Result<Self, AppError> {
+        self.resource().format(padding)?;
+        Ok(self.clone())
     }
 }

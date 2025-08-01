@@ -63,7 +63,7 @@ impl FormattedObject {
 }
 
 impl OutputFormatterWithPadding for FormattedObject {
-    fn format(&self, padding: usize) -> Result<(), AppError> {
+    fn format(&self, padding: usize) -> Result<Self, AppError> {
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
         append_key_value("Namespace", &self.namespace, padding)?;
@@ -80,6 +80,6 @@ impl OutputFormatterWithPadding for FormattedObject {
         append_key_value("Data", size, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(())
+        Ok(self.clone())
     }
 }

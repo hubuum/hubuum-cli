@@ -8,8 +8,7 @@ use std::vec;
 use super::{CliCommand, CliCommandInfo, CliOption};
 use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
 use crate::commands::shared::{
-    find_class_by_name, find_class_relation, find_classes, find_object_by_name,
-    find_object_relation, Commafy,
+    find_class_relation, find_object_by_name, find_object_relation, Commafy,
 };
 use crate::errors::AppError;
 use crate::formatting::{
@@ -133,8 +132,13 @@ pub struct RelationList {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
-    pub rawjson: Option<bool>,    
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
+    pub rawjson: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
@@ -174,7 +178,12 @@ pub struct RelationInfo {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -185,16 +194,24 @@ impl CliCommand for RelationNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
+        let (class_from, class_to) = (
+            client.classes().select_by_name(&new.class_from)?,
+            client.classes().select_by_name(&new.class_to)?,
+        );
 
         let mut class_map = HashMap::new();
-        class_map.insert(class_from.id, class_from.clone());
-        class_map.insert(class_to.id, class_to.clone());
+        class_map.insert(class_from.id(), class_from.resource().clone());
+        class_map.insert(class_to.id(), class_to.resource().clone());
 
         if new.object_from.is_none() && new.object_to.is_none() {
-            create_class_relation(client, &class_from, &class_to, &class_map)?;
+            create_class_relation(
+                client,
+                &class_from.resource(),
+                &class_to.resource(),
+                &class_map,
+            )?;
         } else {
-            create_object_relation(client, new, &class_from, &class_to)?;
+            create_object_relation(client, new, &class_from.resource(), &class_to.resource())?;
         }
 
         Ok(())
@@ -208,12 +225,15 @@ impl CliCommand for RelationDelete {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
+        let (class_from, class_to) = (
+            client.classes().select_by_name(&new.class_from)?,
+            client.classes().select_by_name(&new.class_to)?,
+        );
 
         if new.object_from.is_none() && new.object_to.is_none() {
-            delete_class_relation(client, &class_from, &class_to)?;
+            delete_class_relation(client, &class_from.resource(), &class_to.resource())?;
         } else {
-            delete_object_relation(client, new, &class_from, &class_to)?;
+            delete_object_relation(client, new, &class_from.resource(), &class_to.resource())?;
         }
 
         Ok(())
@@ -235,32 +255,42 @@ impl CliCommand for RelationList {
         let mut to_class = None;
 
         if new.class_from.is_some() && new.class_to.is_some() {
-            from_class = Some(find_class_by_name(
-                client,
-                new.class_from.as_ref().unwrap(),
-            )?);
-            to_class = Some(find_class_by_name(client, new.class_to.as_ref().unwrap())?);
+            from_class = Some(
+                client
+                    .classes()
+                    .select_by_name(new.class_from.as_ref().unwrap())?,
+            );
+            to_class = Some(
+                client
+                    .classes()
+                    .select_by_name(new.class_to.as_ref().unwrap())?,
+            );
 
             let from = from_class.clone().unwrap();
             let to = to_class.clone().unwrap();
 
-            if from.id > to.id {
+            if from.id() > to.id() {
                 swapped = true;
                 (from_class, to_class) = (to_class.clone(), from_class.clone())
             }
 
             query = query
-                .add_filter_equals("from_classes", from_class.clone().unwrap().id)
-                .add_filter_equals("to_classes", to_class.clone().unwrap().id);
+                .add_filter_equals("from_classes", from_class.clone().unwrap().id())
+                .add_filter_equals("to_classes", to_class.clone().unwrap().id());
         } else if new.class_from.is_some() {
-            from_class = Some(find_class_by_name(
-                client,
-                new.class_from.as_ref().unwrap(),
-            )?);
-            query = query.add_filter_equals("from_classes", from_class.clone().unwrap().id);
+            from_class = Some(
+                client
+                    .classes()
+                    .select_by_name(new.class_from.as_ref().unwrap())?,
+            );
+            query = query.add_filter_equals("from_classes", from_class.clone().unwrap().id());
         } else if new.class_to.is_some() {
-            to_class = Some(find_class_by_name(client, new.class_to.as_ref().unwrap())?);
-            query = query.add_filter_equals("to_classes", to_class.clone().unwrap().id);
+            to_class = Some(
+                client
+                    .classes()
+                    .select_by_name(new.class_to.as_ref().unwrap())?,
+            );
+            query = query.add_filter_equals("to_classes", to_class.clone().unwrap().id());
         }
 
         let class_relations = query.execute()?;
@@ -300,7 +330,7 @@ impl CliCommand for RelationList {
                 append_line(serde_json::to_string_pretty(&class_relations_formatted)?)?;
             } else {
                 class_relations_formatted.format()?;
-            }                
+            }
 
             return Ok(());
         }
@@ -310,17 +340,13 @@ impl CliCommand for RelationList {
                 to_class = Some(
                     client
                         .classes()
-                        .find()
-                        .add_filter_id(class_relations[0].from_hubuum_class_id)
-                        .execute_expecting_single_result()?,
+                        .select(class_relations[0].from_hubuum_class_id)?,
                 )
             } else {
                 to_class = Some(
                     client
                         .classes()
-                        .find()
-                        .add_filter_id(class_relations[0].to_hubuum_class_id)
-                        .execute_expecting_single_result()?,
+                        .select(class_relations[0].to_hubuum_class_id)?,
                 )
             }
         }
@@ -330,17 +356,13 @@ impl CliCommand for RelationList {
                 from_class = Some(
                     client
                         .classes()
-                        .find()
-                        .add_filter_id(class_relations[0].to_hubuum_class_id)
-                        .execute_expecting_single_result()?,
+                        .select(class_relations[0].to_hubuum_class_id)?,
                 )
             } else {
                 from_class = Some(
                     client
                         .classes()
-                        .find()
-                        .add_filter_id(class_relations[0].from_hubuum_class_id)
-                        .execute_expecting_single_result()?,
+                        .select(class_relations[0].from_hubuum_class_id)?,
                 )
             }
         }
@@ -353,7 +375,7 @@ impl CliCommand for RelationList {
         if new.object_from.is_some() {
             let object_from = find_object_by_name(
                 client,
-                from_class.clone().unwrap().id,
+                from_class.clone().unwrap().id(),
                 new.object_from.as_ref().unwrap(),
             )?;
             let target = if swapped {
@@ -368,7 +390,7 @@ impl CliCommand for RelationList {
         if new.object_to.is_some() {
             let object_to = find_object_by_name(
                 client,
-                to_class.clone().unwrap().id,
+                to_class.clone().unwrap().id(),
                 new.object_to.as_ref().unwrap(),
             )?;
 
@@ -404,7 +426,7 @@ impl CliCommand for RelationList {
         let mut object_map = HashMap::new();
 
         let class_from_objects = client
-            .objects(from_class.clone().unwrap().id)
+            .objects(from_class.clone().unwrap().id())
             .find()
             .add_filter_equals("id", &object_ids_joined)
             .execute()?;
@@ -413,7 +435,7 @@ impl CliCommand for RelationList {
         }
 
         let class_to_objects = client
-            .objects(to_class.clone().unwrap().id)
+            .objects(to_class.clone().unwrap().id())
             .find()
             .add_filter_equals("id", &object_ids_joined)
             .execute()?;
@@ -462,12 +484,15 @@ impl CliCommand for RelationInfo {
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
         if new.object_from.is_none() && new.object_to.is_none() {
-            let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
+            let (class_from, class_to) = (
+                client.classes().select_by_name(&new.class_from)?,
+                client.classes().select_by_name(&new.class_to)?,
+            );
             let mut classmap = HashMap::new();
-            classmap.insert(class_from.id, class_from.clone());
-            classmap.insert(class_to.id, class_to.clone());
+            classmap.insert(class_from.id(), class_from.resource().clone());
+            classmap.insert(class_to.id(), class_to.resource().clone());
 
-            let rel = find_class_relation(client, class_from.id, class_to.id)?;
+            let rel = find_class_relation(client, class_from.id(), class_to.id())?;
             let rel = FormattedClassRelation::new(&rel, &classmap);
 
             if new.rawjson.is_some() {
@@ -476,21 +501,24 @@ impl CliCommand for RelationInfo {
                 rel.format(15)?;
             }
         } else {
-            let (class_from, class_to) = find_classes(client, &new.class_from, &new.class_to)?;
+            let (class_from, class_to) = (
+                client.classes().select_by_name(&new.class_from)?,
+                client.classes().select_by_name(&new.class_to)?,
+            );
             let object_from =
-                find_object_by_name(client, class_from.id, new.object_from.as_ref().unwrap())?;
+                find_object_by_name(client, class_from.id(), new.object_from.as_ref().unwrap())?;
             let object_to =
-                find_object_by_name(client, class_to.id, new.object_to.as_ref().unwrap())?;
+                find_object_by_name(client, class_to.id(), new.object_to.as_ref().unwrap())?;
 
             let mut objectmap = HashMap::new();
             objectmap.insert(object_from.id, object_from.clone());
             objectmap.insert(object_to.id, object_to.clone());
 
             let mut classmap = HashMap::new();
-            classmap.insert(class_from.id, class_from.clone());
-            classmap.insert(class_to.id, class_to.clone());
+            classmap.insert(class_from.id(), class_from.resource().clone());
+            classmap.insert(class_to.id(), class_to.resource().clone());
 
-            let class_relation = find_class_relation(client, class_from.id, class_to.id)?;
+            let class_relation = find_class_relation(client, class_from.id(), class_to.id())?;
             let object_relation =
                 find_object_relation(client, &class_relation, &object_from, &object_to)?;
             let object_relation = FormattedObjectRelation::new(

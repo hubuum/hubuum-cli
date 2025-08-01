@@ -1,5 +1,6 @@
 use std::fmt::Display;
-use tabled::{settings::object::Columns, settings::Remove, settings::Style, Table, Tabled};
+use tabled::{Table, Tabled};
+// use tabled::settings::{object::Columns, Remove, Style};
 
 use crate::errors::AppError;
 use crate::output::append_line;
@@ -14,29 +15,29 @@ mod user;
 pub use object::FormattedObject;
 pub use relations::{FormattedClassRelation, FormattedObjectRelation};
 
-pub trait OutputFormatterWithPadding {
-    fn format(&self, padding: usize) -> Result<(), AppError>;
+pub trait OutputFormatterWithPadding: Sized {
+    fn format(&self, padding: usize) -> Result<Self, AppError>;
 }
 
-pub trait OutputFormatter {
-    fn format(&self) -> Result<(), AppError>;
+pub trait OutputFormatter: Sized {
+    fn format(&self) -> Result<Self, AppError>;
 }
 
 impl<T> OutputFormatter for Vec<T>
 where
-    T: Tabled,
+    T: Tabled + Clone,
 {
-    fn format(&self) -> Result<(), AppError> {
-        let mut table = Table::new(self);
+    fn format(&self) -> Result<Self, AppError> {
+        let table = Table::new(self);
         // This should be customizable by the user, including the ability to disable columns
-        table
-            .with(Style::modern_rounded())
-            .with(Remove::column(Columns::one(0))); // Disable the first column (ID)
+        // table
+        //            .with(Style::modern_rounded())
+        //    .with(Remove::column(Columns::one(0))); // Disable the first column (ID)
         let table = table.to_string();
         for line in table.lines() {
             append_line(line)?;
         }
-        Ok(())
+        Ok(self.clone())
     }
 }
 

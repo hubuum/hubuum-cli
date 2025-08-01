@@ -58,18 +58,10 @@ impl CliCommand for GroupAddUser {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client
-            .groups()
-            .find()
-            .add_filter_name_exact(&new.groupname)
-            .execute_expecting_single_result()?;
-        let user = client
-            .users()
-            .find()
-            .add_filter_equals("username", &new.username)
-            .execute_expecting_single_result()?;
+        let group = client.groups().select_by_name(&new.groupname)?;
+        let user = client.users().select_by_name(&new.username)?;
 
-        client.group_add_user(group.id, user.id)?;
+        group.add_user(user.id())?;
 
         append_line(format!(
             "User {} added to group {}",
@@ -97,18 +89,10 @@ impl CliCommand for GroupRemoveUser {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client
-            .groups()
-            .find()
-            .add_filter_name_exact(&new.groupname)
-            .execute_expecting_single_result()?;
-        let user = client
-            .users()
-            .find()
-            .add_filter_equals("username", &new.username)
-            .execute_expecting_single_result()?;
+        let group = client.groups().select_by_name(&new.groupname)?;
+        let user = client.users().select_by_name(&new.username)?;
 
-        client.group_remove_user(group.id, user.id)?;
+        group.remove_user(user.id())?;
 
         append_line(format!(
             "User {} removed from group {}",
@@ -130,16 +114,12 @@ impl CliCommand for GroupInfo {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client
+        client
             .groups()
-            .find()
-            .add_filter_name_exact(&new.groupname)
-            .execute_expecting_single_result()?;
-
-        let members = client.group_members(group.id)?;
-
-        group.format(12)?;
-        members.format()?;
+            .select_by_name(&new.groupname)?
+            .format(12)?
+            .members()?
+            .format()?;
 
         Ok(())
     }

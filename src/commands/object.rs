@@ -11,11 +11,11 @@ use jsonpath_rust::JsonPath;
 
 use serde::{Deserialize, Serialize};
 
-use super::shared::{find_object_by_name, prettify_slice_path};
+use super::shared::prettify_slice_path;
 use super::{CliCommand, CliCommandInfo, CliOption};
 
 use crate::autocomplete::{classes, namespaces, objects_from_class};
-use crate::commands::shared::{find_class_by_name, find_entities_by_ids, find_namespace_by_name};
+use crate::commands::shared::find_entities_by_ids;
 use crate::errors::AppError;
 use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
 use crate::output::{add_warning, append_key_value, append_line};
@@ -66,22 +66,22 @@ impl CliCommand for ObjectNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = find_namespace_by_name(client, &new.namespace)?;
-        let class = find_class_by_name(client, &new.class)?;
+        let namespace = client.namespaces().select_by_name(&new.namespace)?;
+        let class = client.classes().select_by_name(&new.class)?;
 
-        let result = client.objects(class.id).create(ObjectPost {
+        let result = client.objects(class.id()).create(ObjectPost {
             name: new.name.clone(),
-            hubuum_class_id: class.id,
-            namespace_id: namespace.id,
+            hubuum_class_id: class.id(),
+            namespace_id: namespace.id(),
             description: new.description.clone(),
             data: new.data.clone(),
         })?;
 
         let mut classmap = HashMap::new();
-        classmap.insert(class.id, class.clone());
+        classmap.insert(class.id(), class.resource().clone());
 
         let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id, namespace.clone());
+        nsmap.insert(namespace.id(), namespace.resource().clone());
 
         let object = FormattedObject::new(&result, &classmap, &nsmap);
 
@@ -158,22 +158,22 @@ impl CliCommand for ObjectInfo {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
-        let class = find_class_by_name(client, &query.class)?;
-        let object = find_object_by_name(client, class.id, &query.name.unwrap())?;
+        let class = client.classes().select_by_name(&query.class)?;
+        let object = class.object_by_name(&query.name.unwrap())?;
 
         let namespace = client
             .namespaces()
             .find()
-            .add_filter_id(object.namespace_id)
+            .add_filter_id(object.resource().namespace_id)
             .execute_expecting_single_result()?;
 
         let mut nsmap = HashMap::new();
         nsmap.insert(namespace.id, namespace.clone());
 
         let mut classmap = HashMap::new();
-        classmap.insert(class.id, class.clone());
+        classmap.insert(class.id(), class.resource().clone());
 
-        let object = FormattedObject::new(&object, &classmap, &nsmap);
+        let object = FormattedObject::new(&object.resource(), &classmap, &nsmap);
 
         if query.rawjson.is_some() {
             append_line(serde_json::to_string_pretty(&object).unwrap())?;
@@ -273,14 +273,14 @@ impl CliCommand for ObjectDelete {
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
         let class = if query.class.is_some() {
-            find_class_by_name(client, &query.class.unwrap())?
+            client.classes().select_by_name(&query.class.unwrap())?
         } else {
             return Err(AppError::MissingOptions(vec!["class".to_string()]));
         };
 
-        let object = find_object_by_name(client, class.id, &query.name.unwrap())?;
+        let object = class.object_by_name(&query.name.unwrap())?;
 
-        client.objects(class.id).delete(object.id)?;
+        client.objects(class.id()).delete(object.id())?;
         Ok(())
     }
 }
@@ -365,9 +365,9 @@ impl CliCommand for ObjectList {
     ) -> Result<(), AppError> {
         let new: ObjectList = self.new_from_tokens(tokens)?;
 
-        let class = find_class_by_name(client, &new.class)?;
+        let class = client.classes().select_by_name(&new.class)?;
 
-        let objects = client.objects(class.id).filter(&new)?;
+        let objects = client.objects(class.id()).filter(&new)?;
 
         if objects.is_empty() {
             append_line("No objects found")?;
@@ -443,24 +443,24 @@ impl CliCommand for ObjectModify {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let class = find_class_by_name(client, &new.class)?;
-        let object = find_object_by_name(client, class.id, &new.name)?;
+        let class = client.classes().select_by_name(&new.class)?;
+        let object = class.object_by_name(&new.name)?;
 
         let mut patch = ObjectPatch::default();
 
         if let Some(data) = &new.data.clone() {
             let jqesque = data.parse::<Jqesque>()?;
             let mut json_data = serde_json::Value::Null;
-            if object.data.is_some() {
-                json_data = object.data.unwrap().clone();
+            if object.resource().data.is_some() {
+                json_data = object.resource().data.as_ref().unwrap().clone();
             }
             jqesque.apply_to(&mut json_data)?;
             patch.data = Some(json_data);
         }
 
         if let Some(namespace) = &new.namespace {
-            let namespace = find_namespace_by_name(client, namespace)?;
-            patch.namespace_id = Some(namespace.id);
+            let namespace = client.namespaces().select_by_name(namespace)?;
+            patch.namespace_id = Some(namespace.id());
         };
 
         if let Some(rename) = &new.rename {
@@ -471,10 +471,10 @@ impl CliCommand for ObjectModify {
             patch.description = Some(description.clone());
         }
 
-        let result = client.objects(class.id).update(object.id, patch)?;
+        let result = client.objects(class.id()).update(object.id(), patch)?;
 
         let mut classmap = HashMap::new();
-        classmap.insert(class.id, class.clone());
+        classmap.insert(class.id(), class.resource().clone());
 
         let namespace = client
             .namespaces()

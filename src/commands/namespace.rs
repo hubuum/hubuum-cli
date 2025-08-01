@@ -76,7 +76,12 @@ pub struct NamespaceList {
         help = "Description of the namespace"
     )]
     pub description: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -130,7 +135,12 @@ pub struct NamespaceInfo {
         autocomplete = "namespaces"
     )]
     pub name: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
 }
 
@@ -210,6 +220,54 @@ impl CliCommand for NamespaceDelete {
 
         client.namespaces().delete(namespace.id)?;
         append_line(format!("Namespace '{}' deleted", namespace.name))?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+pub struct NamespacePermissions {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the namespace",
+        autocomplete = "namespaces"
+    )]
+    pub name: Option<String>,
+}
+
+impl GetNamespace for &NamespacePermissions {
+    fn namespace(&self) -> Option<String> {
+        self.name.clone()
+    }
+}
+
+impl CliCommand for NamespacePermissions {
+    fn execute(
+        &self,
+        client: &SyncClient<Authenticated>,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
+        let mut new = self.new_from_tokens(tokens)?;
+
+        new.name = namespace_or_pos(&new, tokens, 0)?;
+
+        let name = match &new.name {
+            Some(name) => name,
+            None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
+        };
+
+        let permissions = client
+            .namespaces()
+            .select_by_name(&name)?
+            .format(15)?
+            .permissions()?;
+
+        if permissions.is_empty() {
+            append_line(format!("No permissions found for namespace '{name}'"))?;
+        } else {
+            permissions.format(0)?;
+        }
 
         Ok(())
     }

@@ -3,11 +3,9 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use hubuum_client::{
-    client::sync::Resource, client::GetID, ApiError, ApiResource, Authenticated, Class,
-    ClassRelation, FilterOperator, Namespace, Object, ObjectRelation, SyncClient,
+    client::sync::Resource, client::GetID, ApiError, ApiResource, Authenticated, ClassRelation,
+    FilterOperator, Object, ObjectRelation, SyncClient,
 };
-
-use crate::errors::AppError;
 
 /// Extension trait for iterators to remove duplicates.
 pub trait Uniqify: Iterator + Sized {
@@ -91,38 +89,6 @@ where
         .collect::<HashMap<i32, T::GetOutput>>();
 
     Ok(map)
-}
-
-pub fn find_classes(
-    client: &SyncClient<Authenticated>,
-    class_from_name: &str,
-    class_to_name: &str,
-) -> Result<(Class, Class), AppError> {
-    let class_from = find_class_by_name(client, class_from_name)?;
-    let class_to = find_class_by_name(client, class_to_name)?;
-    Ok((class_from, class_to))
-}
-
-pub fn find_class_by_name(
-    client: &SyncClient<Authenticated>,
-    name: &str,
-) -> Result<Class, ApiError> {
-    client
-        .classes()
-        .find()
-        .add_filter_name_exact(name)
-        .execute_expecting_single_result()
-}
-
-pub fn find_namespace_by_name(
-    client: &SyncClient<Authenticated>,
-    name: &str,
-) -> Result<Namespace, ApiError> {
-    client
-        .namespaces()
-        .find()
-        .add_filter_name_exact(name)
-        .execute_expecting_single_result()
 }
 
 pub fn find_class_relation(

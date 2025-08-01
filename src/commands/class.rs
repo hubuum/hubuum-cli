@@ -4,12 +4,10 @@ use hubuum_client::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::shared::find_class_by_name;
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{bool, classes, namespaces};
-use crate::commands::shared::find_namespace_by_name;
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
 use crate::output::{append_key_value, append_line};
@@ -56,11 +54,11 @@ impl CliCommand for ClassNew {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = &self.new_from_tokens(tokens)?;
-        let namespace = find_namespace_by_name(client, &new.namespace)?;
+        let namespace = client.namespaces().select_by_name(&new.namespace)?;
 
         let result = client.classes().create(ClassPost {
             name: new.name.clone(),
-            namespace_id: namespace.id,
+            namespace_id: namespace.id(),
             description: new.description.clone(),
             json_schema: new.json_schema.clone(),
             validate_schema: new.validate_schema,
@@ -102,9 +100,13 @@ pub struct ClassInfo {
         autocomplete = "classes"
     )]
     pub name: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
-
 }
 
 impl CliCommand for ClassInfo {
@@ -115,16 +117,16 @@ impl CliCommand for ClassInfo {
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let class = find_class_by_name(client, &query.name.unwrap())?;
+        let class = client.classes().select_by_name(&query.name.unwrap())?;
 
         // This will hopefully be a head request in the future if we just want a count.
-        let objects = client.objects(class.id).find().execute()?;
-        if ! query.rawjson.is_some() {
+        let objects = class.objects()?;
+        if !query.rawjson.is_some() {
             class.format(15)?;
             append_key_value("Objects", objects.len(), 14)?;
         } else {
             // We first make a JSON object out of the class, then we append the objects.
-            let mut json_class = serde_json::to_value(&class)?;
+            let mut json_class = serde_json::to_value(&class.resource())?;
             json_class["objects"] = serde_json::to_value(objects)?;
 
             append_line(serde_json::to_string_pretty(&json_class)?)?;
@@ -154,8 +156,10 @@ impl CliCommand for ClassDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
 
-        let class = find_class_by_name(client, &query.name.unwrap())?;
-        client.classes().delete(class.id)?;
+        client
+            .classes()
+            .select_by_name(&query.name.unwrap())?
+            .delete()?;
 
         Ok(())
     }
@@ -196,9 +200,13 @@ pub struct ClassList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-    #[option(short = "j", long = "json", help = "Output in JSON format", flag = "true")]
+    #[option(
+        short = "j",
+        long = "json",
+        help = "Output in JSON format",
+        flag = "true"
+    )]
     pub rawjson: Option<bool>,
-
 }
 
 impl IntoResourceFilter<Class> for &ClassList {
