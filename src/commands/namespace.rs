@@ -255,8 +255,8 @@ impl CliCommand for NamespacePermissions {
         match (self.desired_format(tokens), permissions.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => permissions.format_json_noreturn()?,
-            (OutputFormat::Text, false) => append_line(empty_message)?,
-            (OutputFormat::Text, true) => permissions.format_noreturn(15)?,
+            (OutputFormat::Text, true) => append_line(empty_message)?,
+            (OutputFormat::Text, false) => permissions.format_noreturn(15)?,
         }
 
         Ok(())
