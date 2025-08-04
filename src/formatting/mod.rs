@@ -28,10 +28,11 @@ where
     T: Tabled + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        let table = Table::new(self);
-        // This should be customizable by the user, including the ability to disable columns
-        // table
-        //            .with(Style::modern_rounded())
+        let table = Table::new(self)
+            // This should be customizable by the user, including the ability to disable columns
+            // table
+            .with(tabled::settings::Style::rounded())
+            .clone();
         //    .with(Remove::column(Columns::one(0))); // Disable the first column (ID)
         let table = table.to_string();
         for line in table.lines() {

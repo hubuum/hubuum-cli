@@ -133,53 +133,88 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
     });
 
     let field_setters: Vec<_> = fields.named.iter().map(|f| {
+        let opts       = FieldOpts::from_field(f).unwrap_or_default();
         let field_name = f.ident.as_ref().unwrap();
         let field_type = &f.ty;
-        let opts = FieldOpts::from_field(f).unwrap_or_default();
-        let short_opt = opts.short.as_ref().map(|s| s.to_string());
-        let long_opt = opts.long.as_ref().map(|l| l.to_string());
-    
-        let is_optional = match &f.ty {
-            syn::Type::Path(type_path) => {
-                type_path.path.segments.last()
-                    .map(|seg| seg.ident == "Option")
-                    .unwrap_or(false)
-            },
-            _ => false,
-        };
-    
+
+        // are we an Option<T>?
+        let is_optional = matches!(
+            &f.ty,
+            syn::Type::Path(tp)
+                if tp.path.segments.last().unwrap().ident == "Option"
+        );
         let is_flag = opts.flag.unwrap_or(false);
-    
+
+        // Use the *stripped* names here, exactly as the tokenizer stores them.
+        //   opts.short = Some("f"), opts.long = Some("foo")
+        let short_str = opts.short.clone();
+        let long_str  = opts.long.clone();
+
+        // Build matcher on *those* strings:
+        let matcher = match (short_str, long_str) {
+            (Some(short), Some(long)) => {
+                quote! { key == #short || key == #long }
+            }
+            (Some(short), None) => {
+                quote! { key == #short }
+            }
+            (None, Some(long)) => {
+                quote! { key == #long }
+            }
+            (None, None) => panic!(
+                "CliCommand derive: field `{}` has neither short nor long!",
+                stringify!(#field_name)
+            ),
+        };
+
         if is_flag {
+            // boolean / flag field
             if is_optional {
+                // e.g. Option<bool>
                 quote! {
-                    if key == #short_opt || key == #long_opt {
+                    if #matcher {
                         obj.#field_name = Some(true);
                     }
                 }
             } else {
+                // e.g. plain bool
                 quote! {
-                    if key == #short_opt || key == #long_opt {
+                    if #matcher {
                         obj.#field_name = true;
                     }
                 }
             }
-        } else {
-            if is_optional {
-                quote! {
-                    if key == #short_opt || key == #long_opt {
-                        obj.#field_name = Some(value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value '{}' (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", ""))))?);
-                    }
+        } else if is_optional {
+            // Option<T> with a value
+            quote! {
+                if #matcher {
+                    obj.#field_name = Some(
+                        value.parse().map_err(|_| AppError::ParseError(
+                            format!(
+                                "Option '{}' has value '{}' (expected type: {})",
+                                key, value,
+                                stringify!(#field_type).to_lowercase()
+                            )
+                        ))?
+                    );
                 }
-            } else {
-                quote! {
-                    if key == #short_opt || key == #long_opt {
-                        obj.#field_name = value.parse().map_err(|_| AppError::ParseError(format!("Option '{}' has value '{}' (expected type: {})", key, value, stringify!(#field_type).to_string().to_lowercase().replace(" ", ""))))?;
-                    }
+            }
+        } else {
+            // T with a value
+            quote! {
+                if #matcher {
+                    obj.#field_name = value.parse().map_err(|_| AppError::ParseError(
+                        format!(
+                            "Option '{}' has value '{}' (expected type: {})",
+                            key, value,
+                            stringify!(#field_type).to_lowercase()
+                        )
+                    ))?;
                 }
             }
         }
     }).collect();
+
     
     let cmd_about = prepare_option_string(&command_info.about);
     let cmd_long_about = prepare_option_string(&command_info.long_about);

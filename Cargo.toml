@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rustyline = "16"
+rustyline = "17"
 cli_command_derive = { path = "./cli_command_derive" }
 thiserror = "2"
 tracing-subscriber = { version = "0", features = ["fmt", "env-filter"] }
@@ -26,11 +26,12 @@ clap = { version = "4", features = ["derive", "env"] }
 hubuum_client = { path = "../hubuum-client-rust" }
 rpassword = "7"
 rand = "0"
-tabled = "0.20"
+tabled = "0.20.0"
 jqesque = "0.0.3"
 jsonpath-rust = "1"
 smooth-json = "0"
 serial_test = "3.2.0"
+strum = "0.27.2"
 
 [profile.release]
 codegen-units = 1

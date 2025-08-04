@@ -1,11 +1,31 @@
-use log::{trace, warn};
-
 use hubuum_client::FilterOperator;
+use log::{trace, warn};
+use strum::IntoEnumIterator;
 
 use crate::commandlist::CommandList;
 
 pub fn bool(_cmdlist: &CommandList, _prefix: &str, _parts: &[String]) -> Vec<String> {
     vec!["true".to_string(), "false".to_string()]
+}
+
+pub fn groups(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
+    trace!("Autocompleting groups with prefix: {}", prefix);
+    let mut cmd = cmdlist.client().groups().find();
+
+    if !prefix.is_empty() {
+        cmd = cmd.add_filter(
+            "groupname",
+            FilterOperator::StartsWith { is_negated: false },
+            prefix,
+        );
+    }
+    match cmd.execute() {
+        Ok(groups) => groups.into_iter().map(|g| g.groupname).collect(),
+        Err(_) => {
+            warn!("Failed to fetch groups for autocomplete");
+            Vec::new()
+        }
+    }
 }
 
 pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -46,6 +66,19 @@ pub fn namespaces(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec
             Vec::new()
         }
     }
+}
+
+#[allow(dead_code)]
+pub fn permissions(_cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
+    use hubuum_client::types::Permissions;
+
+    trace!("Autocompleting permissions with prefix: {}", prefix);
+
+    // Permissions are are an enum, so we can just return the variants that match the prefix.
+    Permissions::iter()
+        .filter(|p| p.to_string().starts_with(prefix))
+        .map(|p| p.to_string())
+        .collect()
 }
 
 fn objects_from_class_source(

@@ -1,8 +1,8 @@
 use hubuum_client::{client::sync::Handle, GroupPermissionsResult, Namespace};
-use tabled::{Table, Tabled};
+use tabled::Tabled;
 
-use super::{append_key_value, OutputFormatterWithPadding};
-use crate::{errors::AppError, output::append_line};
+use super::{append_key_value, OutputFormatter, OutputFormatterWithPadding};
+use crate::errors::AppError;
 
 impl OutputFormatterWithPadding for Namespace {
     fn format(&self, padding: usize) -> Result<Self, AppError> {
@@ -89,7 +89,7 @@ impl OutputFormatterWithPadding for GroupPermissionsResult {
     }
 }
 
-#[derive(Debug, Tabled)]
+#[derive(Debug, Clone, Tabled)]
 pub struct FormattedGroupPermissions {
     #[tabled(rename = "Group")]
     pub group: String,
@@ -162,8 +162,7 @@ impl OutputFormatterWithPadding for Vec<GroupPermissionsResult> {
     fn format(&self, _padding: usize) -> Result<Self, AppError> {
         let formatted: Vec<FormattedGroupPermissions> =
             self.iter().cloned().map(Into::into).collect();
-        let table = Table::new(formatted).to_string();
-        append_line(&table)?;
+        formatted.format()?;
         Ok(self.clone())
     }
 }
