@@ -1,4 +1,5 @@
 use hubuum_client::{client::sync::Handle, GroupPermissionsResult, Namespace};
+use serde::Serialize;
 use tabled::Tabled;
 
 use super::{append_key_value, OutputFormatter, OutputFormatterWithPadding};
@@ -89,7 +90,7 @@ impl OutputFormatterWithPadding for GroupPermissionsResult {
     }
 }
 
-#[derive(Debug, Clone, Tabled)]
+#[derive(Debug, Clone, Tabled, Serialize)]
 pub struct FormattedGroupPermissions {
     #[tabled(rename = "Group")]
     pub group: String,

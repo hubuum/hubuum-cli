@@ -17,7 +17,10 @@ use super::{CliCommand, CliCommandInfo, CliOption};
 use crate::autocomplete::{classes, namespaces, objects_from_class};
 use crate::commands::shared::find_entities_by_ids;
 use crate::errors::AppError;
-use crate::formatting::{FormattedObject, OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{
+    append_json_message, FormattedObject, OutputFormatter, OutputFormatterWithPadding,
+};
+use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
 
@@ -85,7 +88,10 @@ impl CliCommand for ObjectNew {
 
         let object = FormattedObject::new(&result, &classmap, &nsmap);
 
-        object.format(15)?;
+        match self.desired_format(tokens) {
+            OutputFormat::Json => object.format_json_noreturn()?,
+            OutputFormat::Text => object.format_noreturn(15)?,
+        }
 
         Ok(())
     }
@@ -140,13 +146,6 @@ pub struct ObjectInfo {
         help = "Path to display within the data, implies -d"
     )]
     pub jsonpath: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for ObjectInfo {
@@ -175,7 +174,7 @@ impl CliCommand for ObjectInfo {
 
         let object = FormattedObject::new(&object.resource(), &classmap, &nsmap);
 
-        if query.rawjson.is_some() {
+        if self.want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object).unwrap())?;
             return Ok(());
         }
@@ -187,7 +186,6 @@ impl CliCommand for ObjectInfo {
         }
 
         if object.data.is_none() {
-            add_warning("JSON data requested, but object has no data")?;
             return Ok(());
         }
 
@@ -281,6 +279,18 @@ impl CliCommand for ObjectDelete {
         let object = class.object_by_name(&query.name.unwrap())?;
 
         client.objects(class.id()).delete(object.id())?;
+
+        let message = format!(
+            "Object '{}' in class '{}' deleted successfully",
+            object.resource().name,
+            class.resource().name
+        );
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
         Ok(())
     }
 }
@@ -327,13 +337,6 @@ pub struct ObjectList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl IntoResourceFilter<Object> for &ObjectList {
@@ -382,12 +385,11 @@ impl CliCommand for ObjectList {
             .map(|o| FormattedObject::new(o, &classmap, &nsmap))
             .collect::<Vec<_>>();
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&objects)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => objects.format_json_noreturn()?,
+            OutputFormat::Text => objects.format_noreturn()?,
         }
 
-        objects.format()?;
         Ok(())
     }
 }
@@ -476,17 +478,17 @@ impl CliCommand for ObjectModify {
         let mut classmap = HashMap::new();
         classmap.insert(class.id(), class.resource().clone());
 
-        let namespace = client
-            .namespaces()
-            .find()
-            .add_filter_id(result.namespace_id)
-            .execute_expecting_single_result()?;
+        let namespace = client.namespaces().select(result.namespace_id)?;
 
         let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id, namespace.clone());
+        nsmap.insert(namespace.id(), namespace.resource().clone());
 
         let object = FormattedObject::new(&result, &classmap, &nsmap);
-        object.format(15)?;
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => object.format_json_noreturn()?,
+            OutputFormat::Text => object.format_noreturn(15)?,
+        }
 
         Ok(())
     }

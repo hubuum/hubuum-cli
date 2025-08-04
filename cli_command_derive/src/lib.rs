@@ -132,6 +132,21 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
         }
     });
 
+    options.push(quote! {
+        CliOption {
+            name: "json".to_string(),
+            short: Some("-j".to_string()),
+            long: Some("--json".to_string()),
+            help: "Output as JSON".to_string(),
+            field_type_help: "bool".to_string(),
+            field_type: std::any::TypeId::of::<bool>(),
+            required: false,
+            flag: true,
+            autocomplete: None,
+        }
+    });
+
+
     let field_setters: Vec<_> = fields.named.iter().map(|f| {
         let opts       = FieldOpts::from_field(f).unwrap_or_default();
         let field_name = f.ident.as_ref().unwrap();
@@ -255,6 +270,24 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                 }
 
                 Ok(obj)
+            }
+
+            pub fn desired_format(&self, tokens: &CommandTokenizer) -> crate::models::OutputFormat {
+                if self.want_json(tokens) {
+                    crate::models::OutputFormat::Json
+                } else {
+                    crate::models::OutputFormat::Text
+                }
+            }
+
+            pub fn want_json(&self, tokens: &CommandTokenizer) -> bool {
+                let opts = tokens.get_options();
+                opts.contains_key("j") || opts.contains_key("json")
+            }
+
+            pub fn want_help(&self, tokens: &CommandTokenizer) -> bool {
+                let opts = tokens.get_options();
+                opts.contains_key("h") || opts.contains_key("help")
             }
         }
 

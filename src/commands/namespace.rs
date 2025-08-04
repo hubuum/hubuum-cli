@@ -9,7 +9,8 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{groups, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
 
@@ -62,7 +63,11 @@ impl CliCommand for NamespaceNew {
         let post = new.into_post(group.id);
 
         let namespace = client.namespaces().create(post)?;
-        namespace.format(15)?;
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => namespace.format_json_noreturn()?,
+            OutputFormat::Text => namespace.format_noreturn(15)?,
+        }
 
         Ok(())
     }
@@ -78,13 +83,6 @@ pub struct NamespaceList {
         help = "Description of the namespace"
     )]
     pub description: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for NamespaceList {
@@ -117,12 +115,10 @@ impl CliCommand for NamespaceList {
 
         let namespaces = search.execute()?;
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&namespaces)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => namespaces.format_json_noreturn()?,
+            OutputFormat::Text => namespaces.format_noreturn()?,
         }
-
-        namespaces.format()?;
 
         Ok(())
     }
@@ -137,13 +133,6 @@ pub struct NamespaceInfo {
         autocomplete = "namespaces"
     )]
     pub name: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl GetNamespace for &NamespaceInfo {
@@ -168,16 +157,12 @@ impl CliCommand for NamespaceInfo {
 
         let namespace = client
             .namespaces()
-            .find()
-            .add_filter_name_exact(new.name.clone().unwrap())
-            .execute_expecting_single_result()?;
+            .select_by_name(new.name.as_ref().unwrap())?;
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&namespace)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => namespace.format_json_noreturn()?,
+            OutputFormat::Text => namespace.format_noreturn(15)?,
         }
-
-        namespace.format(15)?;
 
         Ok(())
     }
@@ -216,12 +201,16 @@ impl CliCommand for NamespaceDelete {
 
         let namespace = client
             .namespaces()
-            .find()
-            .add_filter_name_exact(new.name.clone().unwrap())
-            .execute_expecting_single_result()?;
+            .select_by_name(new.name.as_ref().unwrap())?;
 
-        client.namespaces().delete(namespace.id)?;
-        append_line(format!("Namespace '{}' deleted", namespace.name))?;
+        client.namespaces().delete(namespace.id())?;
+
+        let message = format!("Namespace '{}' deleted", namespace.resource().name);
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
 
         Ok(())
     }
@@ -259,16 +248,15 @@ impl CliCommand for NamespacePermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
-        let permissions = client
-            .namespaces()
-            .select_by_name(&name)?
-            .format(15)?
-            .permissions()?;
+        let permissions = client.namespaces().select_by_name(&name)?.permissions()?;
 
-        if permissions.is_empty() {
-            append_line(format!("No permissions found for namespace '{name}'"))?;
-        } else {
-            permissions.format(0)?;
+        let empty_message = format!("No permissions found for namespace '{name}'");
+
+        match (self.desired_format(tokens), permissions.is_empty()) {
+            (OutputFormat::Json, true) => append_json_message(&empty_message)?,
+            (OutputFormat::Json, false) => permissions.format_json_noreturn()?,
+            (OutputFormat::Text, false) => append_line(empty_message)?,
+            (OutputFormat::Text, true) => permissions.format_noreturn(15)?,
         }
 
         Ok(())
@@ -564,12 +552,17 @@ impl CliCommand for NamespacePermissionsGrant {
                 .join(", ")
         };
 
-        append_line(format!(
+        let message = format!(
             "Granted {} to group '{}' on namespace '{}'",
             perm_string,
             new.group,
             new.name.as_ref().unwrap()
-        ))?;
+        );
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
 
         Ok(())
     }

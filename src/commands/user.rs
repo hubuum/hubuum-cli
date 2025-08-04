@@ -8,7 +8,8 @@ use rand::distr::Alphanumeric;
 use rand::{rng, Rng};
 
 use crate::errors::AppError;
-use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 
 use crate::tokenizer::CommandTokenizer;
@@ -49,8 +50,17 @@ impl CliCommand for UserNew {
 
         let user = client.users().create(new)?;
 
-        user.format(15)?;
-        append_key_value("Password", password, 15)?;
+        match self.desired_format(tokens) {
+            OutputFormat::Json => {
+                let mut json = serde_json::to_value(&user)?;
+                json["password"] = serde_json::to_value(password)?;
+                append_line(serde_json::to_string_pretty(&json)?)?;
+            }
+            OutputFormat::Text => {
+                user.format_noreturn(15)?;
+                append_key_value("Password", password, 15)?;
+            }
+        }
 
         Ok(())
     }
@@ -97,7 +107,13 @@ impl CliCommand for UserDelete {
         let user = client.users().filter_expecting_single_result(&query)?;
 
         client.users().delete(user.id)?;
-        append_line(format!("User '{}' deleted", user.username.clone()))?;
+
+        let message = format!("User '{}' deleted", user.username);
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
 
         Ok(())
     }
@@ -113,13 +129,6 @@ pub struct UserInfo {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl IntoResourceFilter<User> for &UserInfo {
@@ -180,12 +189,11 @@ impl CliCommand for UserInfo {
 
         let user = client.users().filter_expecting_single_result(&query)?;
 
-        if query.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&user)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => user.format_json_noreturn()?,
+            OutputFormat::Text => user.format_noreturn(15)?,
         }
 
-        user.format(15)?;
         Ok(())
     }
 }
@@ -200,13 +208,6 @@ pub struct UserList {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for UserList {
@@ -218,12 +219,10 @@ impl CliCommand for UserList {
         let _ = self.new_from_tokens(tokens)?;
         let users = client.users().find().execute()?;
 
-        if self.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&users)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => users.format_json_noreturn()?,
+            OutputFormat::Text => users.format_noreturn()?,
         }
-
-        users.format()?;
 
         Ok(())
     }

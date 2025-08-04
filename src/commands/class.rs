@@ -9,7 +9,8 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{bool, classes, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
 
@@ -64,7 +65,10 @@ impl CliCommand for ClassNew {
             validate_schema: new.validate_schema,
         })?;
 
-        result.format(15)?;
+        match self.desired_format(tokens) {
+            OutputFormat::Json => result.format_json_noreturn()?,
+            OutputFormat::Text => result.format_noreturn(15)?,
+        }
 
         Ok(())
     }
@@ -100,13 +104,6 @@ pub struct ClassInfo {
         autocomplete = "classes"
     )]
     pub name: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for ClassInfo {
@@ -121,15 +118,20 @@ impl CliCommand for ClassInfo {
 
         // This will hopefully be a head request in the future if we just want a count.
         let objects = class.objects()?;
-        if !query.rawjson.is_some() {
-            class.format(15)?;
-            append_key_value("Objects", objects.len(), 14)?;
-        } else {
-            // We first make a JSON object out of the class, then we append the objects.
-            let mut json_class = serde_json::to_value(&class.resource())?;
-            json_class["objects"] = serde_json::to_value(objects)?;
 
-            append_line(serde_json::to_string_pretty(&json_class)?)?;
+        // We should newtype all of this, but oh well.
+        match self.desired_format(tokens) {
+            OutputFormat::Json => {
+                // We first make a JSON object out of the class, then we append the objects.
+                let mut json_class = serde_json::to_value(&class.resource())?;
+                json_class["objects"] = serde_json::to_value(objects)?;
+
+                append_line(serde_json::to_string_pretty(&json_class)?)?;
+            }
+            OutputFormat::Text => {
+                class.format(15)?;
+                append_key_value("Objects", objects.len(), 14)?;
+            }
         }
 
         Ok(())
@@ -153,13 +155,20 @@ impl CliCommand for ClassDelete {
         client: &SyncClient<Authenticated>,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
-        query.name = classname_or_pos(&query, tokens, 0)?;
+        let query = self.new_from_tokens(tokens)?;
+        let name = match classname_or_pos(&query, tokens, 0)? {
+            Some(name) => name,
+            None => return Err(AppError::MissingOptions(vec!["name".to_string()])),
+        };
 
-        client
-            .classes()
-            .select_by_name(&query.name.unwrap())?
-            .delete()?;
+        client.classes().select_by_name(&name)?.delete()?;
+
+        let message = format!("Class '{name}' deleted successfully");
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
 
         Ok(())
     }
@@ -169,24 +178,6 @@ impl GetClassname for &ClassDelete {
     fn classname(&self) -> Option<String> {
         self.name.clone()
     }
-}
-
-fn classname_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetClassname,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.classname().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    };
-    Ok(query.classname().clone())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
@@ -200,13 +191,6 @@ pub struct ClassList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl IntoResourceFilter<Class> for &ClassList {
@@ -239,12 +223,29 @@ impl CliCommand for ClassList {
         let new = self.new_from_tokens(tokens)?;
         let classes = client.classes().filter(&new)?;
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&classes)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => classes.format_json_noreturn()?,
+            OutputFormat::Text => classes.format_noreturn()?,
         }
 
-        classes.format()?;
         Ok(())
     }
+}
+
+fn classname_or_pos<U>(
+    query: U,
+    tokens: &CommandTokenizer,
+    pos: usize,
+) -> Result<Option<String>, AppError>
+where
+    U: GetClassname,
+{
+    let pos0 = tokens.get_positionals().get(pos);
+    if query.classname().is_none() {
+        if pos0.is_none() {
+            return Err(AppError::MissingOptions(vec!["name".to_string()]));
+        }
+        return Ok(pos0.cloned());
+    };
+    Ok(query.classname().clone())
 }

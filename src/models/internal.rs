@@ -2,6 +2,11 @@ use config::Value;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
+use crate::{
+    errors::AppError,
+    formatting::{FormattedClassRelation, FormattedObjectRelation, OutputFormatterWithPadding},
+};
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
@@ -42,4 +47,42 @@ pub struct TokenEntry {
     pub hostname: String,
     pub username: String,
     pub token: String,
+}
+
+pub enum OutputFormat {
+    Json,
+    Text,
+}
+
+pub enum Relation {
+    Class(FormattedClassRelation),
+    Object(FormattedObjectRelation),
+}
+
+impl Relation {
+    pub fn format_json_noreturn(&self) -> Result<(), AppError> {
+        match self {
+            Relation::Class(r) => r.format_json_noreturn(),
+            Relation::Object(r) => r.format_json_noreturn(),
+        }
+    }
+
+    pub fn format_noreturn(&self, width: usize) -> Result<(), AppError> {
+        match self {
+            Relation::Class(r) => r.format_noreturn(width),
+            Relation::Object(r) => r.format_noreturn(width),
+        }
+    }
+}
+
+impl From<FormattedClassRelation> for Relation {
+    fn from(r: FormattedClassRelation) -> Self {
+        Relation::Class(r)
+    }
+}
+
+impl From<FormattedObjectRelation> for Relation {
+    fn from(r: FormattedObjectRelation) -> Self {
+        Relation::Object(r)
+    }
 }

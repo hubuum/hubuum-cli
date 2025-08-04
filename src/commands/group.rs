@@ -8,7 +8,8 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
-use crate::formatting::{OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
 
@@ -38,7 +39,11 @@ impl CliCommand for GroupNew {
         let new = self.new_from_tokens(tokens)?;
 
         let group = client.groups().create(new.into_post())?;
-        group.format(15)?;
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => group.format_json_noreturn()?,
+            OutputFormat::Text => group.format_noreturn(12)?,
+        }
 
         Ok(())
     }
@@ -63,10 +68,13 @@ impl CliCommand for GroupAddUser {
 
         group.add_user(user.id())?;
 
-        append_line(format!(
-            "User {} added to group {}",
-            new.username, new.groupname
-        ))?;
+        let message = format!("User '{}' added to group '{}'", new.username, new.groupname);
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
         Ok(())
     }
 }
@@ -94,10 +102,16 @@ impl CliCommand for GroupRemoveUser {
 
         group.remove_user(user.id())?;
 
-        append_line(format!(
-            "User {} removed from group {}",
+        let message = format!(
+            "User '{}' removed from group '{}'",
             new.username, new.groupname
-        ))?;
+        );
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
         Ok(())
     }
 }
@@ -114,12 +128,17 @@ impl CliCommand for GroupInfo {
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        client
-            .groups()
-            .select_by_name(&new.groupname)?
-            .format(12)?
-            .members()?
-            .format()?;
+        let group = client.groups().select_by_name(&new.groupname)?;
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => {
+                let mut json_class = serde_json::to_value(&group.resource())?;
+                json_class["members"] = serde_json::to_value(group.members()?)?;
+
+                append_line(serde_json::to_string_pretty(&json_class)?)?;
+            }
+            OutputFormat::Text => group.format(12)?.members()?.format_noreturn()?,
+        }
 
         Ok(())
     }
@@ -194,12 +213,10 @@ impl CliCommand for GroupList {
         let new = self.new_from_tokens(tokens)?;
         let groups = client.groups().filter(&new)?;
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&groups)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => groups.format_json_noreturn()?,
+            OutputFormat::Text => groups.format_noreturn()?,
         }
-
-        groups.format()?;
 
         Ok(())
     }

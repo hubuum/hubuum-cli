@@ -2,6 +2,7 @@ use cli_command_derive::CliCommand;
 
 use hubuum_client::{Authenticated, Class, ClassRelationPost, ObjectRelationPost, SyncClient};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::vec;
 
@@ -12,8 +13,10 @@ use crate::commands::shared::{
 };
 use crate::errors::AppError;
 use crate::formatting::{
-    FormattedClassRelation, FormattedObjectRelation, OutputFormatter, OutputFormatterWithPadding,
+    append_json_message, FormattedClassRelation, FormattedObjectRelation, OutputFormatter,
+    OutputFormatterWithPadding,
 };
+use crate::models::{OutputFormat, Relation};
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
 
@@ -132,13 +135,6 @@ pub struct RelationList {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
@@ -178,13 +174,6 @@ pub struct RelationInfo {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
-    #[option(
-        short = "j",
-        long = "json",
-        help = "Output in JSON format",
-        flag = "true"
-    )]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for RelationNew {
@@ -203,16 +192,23 @@ impl CliCommand for RelationNew {
         class_map.insert(class_from.id(), class_from.resource().clone());
         class_map.insert(class_to.id(), class_to.resource().clone());
 
-        if new.object_from.is_none() && new.object_to.is_none() {
+        let rel: Relation = if new.object_from.is_none() && new.object_to.is_none() {
             create_class_relation(
                 client,
                 &class_from.resource(),
                 &class_to.resource(),
                 &class_map,
-            )?;
+            )?
+            .into()
         } else {
-            create_object_relation(client, new, &class_from.resource(), &class_to.resource())?;
-        }
+            create_object_relation(client, new, &class_from.resource(), &class_to.resource())?
+                .into()
+        };
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => rel.format_json_noreturn()?,
+            OutputFormat::Text => rel.format_noreturn(15)?,
+        };
 
         Ok(())
     }
@@ -235,6 +231,23 @@ impl CliCommand for RelationDelete {
         } else {
             delete_object_relation(client, new, &class_from.resource(), &class_to.resource())?;
         }
+
+        let message = match (new.object_from.as_ref(), new.object_to.as_ref()) {
+            (None, None) => format!(
+                "Deleted class relation from '{}' to '{}'",
+                new.class_from, new.class_to
+            ),
+            (Some(from), Some(to)) => format!(
+                "Deleted object relation from '{}' to '{}' in classes '{}' and '{}'",
+                from, to, new.class_from, new.class_to
+            ),
+            _ => panic!("Unexpected state"),
+        };
+
+        match self.desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        };
 
         Ok(())
     }
@@ -296,7 +309,10 @@ impl CliCommand for RelationList {
         let class_relations = query.execute()?;
 
         if class_relations.is_empty() {
-            println!("No relations found");
+            match self.desired_format(tokens) {
+                OutputFormat::Json => append_line(serde_json::to_string(&json!([]))?)?,
+                OutputFormat::Text => append_line("No relations found")?,
+            }
             return Ok(());
         }
 
@@ -326,12 +342,10 @@ impl CliCommand for RelationList {
                 .map(|r| FormattedClassRelation::new(r, &class_map))
                 .collect::<Vec<_>>();
 
-            if new.rawjson.is_some() {
-                append_line(serde_json::to_string_pretty(&class_relations_formatted)?)?;
-            } else {
-                class_relations_formatted.format()?;
+            match self.desired_format(tokens) {
+                OutputFormat::Json => class_relations_formatted.format_json_noreturn()?,
+                OutputFormat::Text => class_relations_formatted.format_noreturn()?,
             }
-
             return Ok(());
         }
 
@@ -465,12 +479,10 @@ impl CliCommand for RelationList {
             })
             .collect::<Vec<_>>();
 
-        if new.rawjson.is_some() {
-            append_line(serde_json::to_string_pretty(&formatted_object_relations)?)?;
-            return Ok(());
+        match self.desired_format(tokens) {
+            OutputFormat::Json => formatted_object_relations.format_json_noreturn()?,
+            OutputFormat::Text => formatted_object_relations.format_noreturn()?,
         }
-
-        formatted_object_relations.format()?;
 
         Ok(())
     }
@@ -495,10 +507,9 @@ impl CliCommand for RelationInfo {
             let rel = find_class_relation(client, class_from.id(), class_to.id())?;
             let rel = FormattedClassRelation::new(&rel, &classmap);
 
-            if new.rawjson.is_some() {
-                append_line(serde_json::to_string_pretty(&rel)?)?;
-            } else {
-                rel.format(15)?;
+            match self.desired_format(tokens) {
+                OutputFormat::Json => rel.format_json_noreturn()?,
+                OutputFormat::Text => rel.format_noreturn(15)?,
             }
         } else {
             let (class_from, class_to) = (
@@ -528,10 +539,9 @@ impl CliCommand for RelationInfo {
                 &classmap,
             );
 
-            if new.rawjson.is_some() {
-                append_line(serde_json::to_string_pretty(&object_relation)?)?;
-            } else {
-                object_relation.format(15)?;
+            match self.desired_format(tokens) {
+                OutputFormat::Json => object_relation.format_json_noreturn()?,
+                OutputFormat::Text => object_relation.format_noreturn(15)?,
             }
         }
         Ok(())
@@ -543,7 +553,7 @@ fn create_class_relation(
     class_from: &Class,
     class_to: &Class,
     class_map: &HashMap<i32, Class>,
-) -> Result<(), AppError> {
+) -> Result<FormattedClassRelation, AppError> {
     let post = ClassRelationPost {
         from_hubuum_class_id: class_from.id,
         to_hubuum_class_id: class_to.id,
@@ -552,7 +562,7 @@ fn create_class_relation(
     let relation = client.class_relation().create(post)?;
     let formatted_relation = FormattedClassRelation::new(&relation, class_map);
     formatted_relation.format(15)?;
-    Ok(())
+    Ok(formatted_relation)
 }
 
 fn create_object_relation(
@@ -560,7 +570,7 @@ fn create_object_relation(
     new: &RelationNew,
     class_from: &Class,
     class_to: &Class,
-) -> Result<(), AppError> {
+) -> Result<FormattedObjectRelation, AppError> {
     let (object_from, object_to) = validate_object_names(new)?;
     let class_relation = find_class_relation(client, class_from.id, class_to.id)?;
     let object_from = find_object_by_name(client, class_from.id, &object_from)?;
@@ -599,8 +609,8 @@ fn create_object_relation(
     let relation = client.object_relation().create(post)?;
     let relation =
         FormattedObjectRelation::new(&relation, &class_relation, &object_map, &class_map);
-    relation.format(15)?;
-    Ok(())
+
+    Ok(relation)
 }
 
 fn delete_class_relation(

@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::fmt::Display;
 use tabled::{Table, Tabled};
 // use tabled::settings::{object::Columns, Remove, Style};
@@ -15,17 +16,34 @@ mod user;
 pub use object::FormattedObject;
 pub use relations::{FormattedClassRelation, FormattedObjectRelation};
 
-pub trait OutputFormatterWithPadding: Sized {
+pub trait OutputFormatterWithPadding: Sized + Serialize + Clone {
     fn format(&self, padding: usize) -> Result<Self, AppError>;
+    fn format_noreturn(&self, padding: usize) -> Result<(), AppError> {
+        self.format(padding)?;
+        Ok(())
+    }
+    #[allow(dead_code)]
+    fn format_json(&self) -> Result<Self, AppError> {
+        append_line(serde_json::to_string_pretty(self)?)?;
+        Ok(self.clone())
+    }
+    fn format_json_noreturn(&self) -> Result<(), AppError> {
+        append_line(serde_json::to_string_pretty(self)?)?;
+        Ok(())
+    }
 }
 
 pub trait OutputFormatter: Sized {
     fn format(&self) -> Result<Self, AppError>;
+    fn format_noreturn(&self) -> Result<(), AppError>;
+    #[allow(dead_code)]
+    fn format_json(&self) -> Result<Self, AppError>;
+    fn format_json_noreturn(&self) -> Result<(), AppError>;
 }
 
 impl<T> OutputFormatter for Vec<T>
 where
-    T: Tabled + Clone,
+    T: Tabled + Clone + Serialize,
 {
     fn format(&self) -> Result<Self, AppError> {
         let table = Table::new(self)
@@ -39,6 +57,21 @@ where
             append_line(line)?;
         }
         Ok(self.clone())
+    }
+
+    fn format_noreturn(&self) -> Result<(), AppError> {
+        self.format()?;
+        Ok(())
+    }
+
+    fn format_json(&self) -> Result<Self, AppError> {
+        append_json(self)?;
+        Ok(self.clone())
+    }
+
+    fn format_json_noreturn(&self) -> Result<(), AppError> {
+        append_json(self)?;
+        Ok(())
     }
 }
 
@@ -68,4 +101,21 @@ where
     } else {
         append_key_value(key, "<none>", padding)
     }
+}
+
+pub fn append_json_message<V>(value: V) -> Result<(), AppError>
+where
+    V: Serialize,
+{
+    let message = serde_json::json!({ "message": value });
+    append_line(serde_json::to_string_pretty(&message)?)?;
+    Ok(())
+}
+
+pub fn append_json<T>(value: &T) -> Result<(), AppError>
+where
+    T: Serialize,
+{
+    append_line(serde_json::to_string_pretty(value)?)?;
+    Ok(())
 }
