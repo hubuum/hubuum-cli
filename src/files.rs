@@ -5,7 +5,7 @@ use crate::{errors::AppError, models::TokenEntry};
 fn ensure_root_dir() -> Result<PathBuf, AppError> {
     let root_dir = dirs::data_dir()
         .ok_or_else(|| AppError::DataDirError("Could not determine data directory".to_string()))?
-        .join(".hubuum_cli");
+        .join("hubuum_cli");
 
     if !root_dir.exists() {
         std::fs::create_dir_all(&root_dir)?;
