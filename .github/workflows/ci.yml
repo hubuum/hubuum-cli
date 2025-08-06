@@ -130,7 +130,7 @@ jobs:
     name: Publish “main” binaries
     if: github.ref == 'refs/heads/main'
     needs: test
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: write
       packages: write
