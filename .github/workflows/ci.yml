@@ -1,0 +1,196 @@
+name: Tests and release
+
+on:
+  push:
+    branches:
+      - "**"
+    tags-ignore:
+      - "hubuum-*"
+  pull_request:
+
+env:
+  CRATE_NAME: hubuum-cli
+  GITHUB_TOKEN: ${{ github.token }}
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      - name: Install clippy
+        run: rustup component add clippy
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          config: '.markdownlint.json'
+          globs: '**/*.md'
+
+  test:
+    name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os_name: Linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: hubuum-cli
+            name: hubuum-cli-Linux-x86_64-gnu.tar.gz
+          - os_name: Linux-aarch64
+            os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            bin: hubuum-cli
+            name: hubuum-cli-Linux-aarch64-gnu.tar.gz
+            skip_tests: true
+          - os_name: macOS-aarch64
+            os: macOS-latest
+            target: aarch64-apple-darwin
+            bin: hubuum-cli
+            name: hubuum-cli-Darwin-aarch64.tar.gz
+            skip_tests: true
+          - os_name: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: hubuum-cli.exe
+            name: hubuum-cli-Windows-x86_64.zip
+            skip_tests: true
+        toolchain:
+          - stable
+          - beta
+          - nightly
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      - name: Cache cargo & target directories
+        uses: Swatinem/rust-cache@v2
+      - name: Configure Git
+        run: |
+          git config --global user.email "terje@kvernes.no"
+          git config --global user.name "Terje Kvernes"
+      - name: Install musl-tools on Linux
+        run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
+        if: contains(matrix.platform.name, 'musl')
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: "build"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--release"
+          strip: true
+      - name: Run tests      
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: "test"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--release"
+        if: ${{ !matrix.platform.skip_tests }}
+      - name: Package as archive
+        shell: bash
+        run: |
+          cd target/${{ matrix.platform.target }}/release
+          if [[ "${{ matrix.platform.os }}" == "windows-latest" ]]; then
+            7z a ../../../${{ matrix.platform.name }} ${{ matrix.platform.bin }}
+          else
+            tar czvf ../../../${{ matrix.platform.name }} ${{ matrix.platform.bin }}
+          fi
+          cd -
+        if: |
+          matrix.toolchain == 'stable' &&
+          ( startsWith( github.ref, 'refs/tags/v' ) ||
+            github.ref == 'refs/tags/test-release' )
+      - name: Publish release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hubuum-cli${{ matrix.platform.os_name }}
+          path: "hubuum-*"
+        if: matrix.toolchain == 'stable' && github.ref == 'refs/tags/test-release'
+      - name: Generate SHA-256
+        run: shasum -a 256 ${{ matrix.platform.name }}
+        if: |
+          matrix.toolchain == 'stable' &&
+          ( startsWith( github.ref, 'refs/tags/v' ) ||
+            github.ref == 'refs/tags/test-release' )
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: "hubuum-*"
+          body_path: Changes.md
+        if: matrix.toolchain == 'stable' && startsWith( github.ref, 'refs/tags/v' )
+
+  release-main:
+    name: Publish “main” binaries
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+
+    strategy:
+      matrix:
+        platform:
+          - name: Linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            os_name: linux-x86_64
+            bin: hubuum-cli
+          - name: Linux-aarch64
+            target: aarch64-unknown-linux-gnu
+            os_name: linux-aarch64
+            bin: hubuum-cli
+          - name: Windows-x86_64
+            target: x86_64-pc-windows-msvc
+            os_name: windows-x86_64
+            bin: hubuum-cli.exe
+          - name: macOS-aarch64
+            target: aarch64-apple-darwin
+            os_name: macos-latest
+            bin: hubuum-cli
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Build ${{ matrix.platform.name }}
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: build
+          target: ${{ matrix.platform.target }}
+          toolchain: stable
+          args: "--release"
+          strip: true
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+
+          # verify that the binary really is there
+          ls -l target/${{ matrix.platform.target }}/release/
+
+          FILENAME=hubuum-cli-${{ matrix.platform.os_name }}-main.tar.gz
+          tar czvf artifacts/$FILENAME -C target/${{ matrix.platform.target }}/release/ hubuum-cli
+
+      - name: Create or update “main” release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: main
+          name: Main build
+          body: Automatically published build for `main` branch
+          draft: false
+          prerelease: false
+          files: artifacts/*.tar.gz
+ 
+      - name: Upload “main” artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.os_name }}-cli-main
+          path: artifacts/*.tar.gz

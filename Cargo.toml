@@ -22,8 +22,8 @@ anyhow = "1"
 dirs = "6"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-# hubuum_client = { git = "https://github.com/terjekv/hubuum-client-rust" }
-hubuum_client = { path = "../hubuum-client-rust" }
+hubuum_client = { git = "https://github.com/hubuum/hubuum-client-rust" }
+# hubuum_client = { path = "../hubuum-client-rust" }
 rpassword = "7"
 rand = "0"
 tabled = "0.20.0"
