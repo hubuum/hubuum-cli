@@ -43,7 +43,7 @@ impl OutputBuffer {
 
     fn set_filter(&mut self, pattern: String, invert: bool) -> Result<(), AppError> {
         let regex = Regex::new(&pattern)?;
-        debug!("Setting filter: pattern='{}', invert={}", pattern, invert);
+        debug!("Setting filter: pattern='{pattern}', invert={invert}");
         self.filter = Some((regex, invert));
         Ok(())
     }
@@ -56,29 +56,28 @@ impl OutputBuffer {
         debug!("Flushing output buffer ({} lines)", self.lines.len());
 
         for warning in &self.warnings {
-            println!("{}", format!("Warning: {}", warning).yellow());
+            println!("{}", format!("Warning: {warning}").yellow());
         }
         self.warnings.clear();
 
         for error in &self.errors {
-            println!("{}", format!("Error: {}", error).red());
+            println!("{}", format!("Error: {error}").red());
         }
         self.errors.clear();
 
         if let Some((regex, invert)) = &self.filter {
             debug!(
-                "Filtering output buffer with pattern='{}', invert={}",
-                regex, invert
+                "Filtering output buffer with pattern='{regex}', invert={invert}"
             );
             for line in &self.lines {
                 let matches = regex.is_match(line);
                 if matches != *invert {
-                    println!("{}", line);
+                    println!("{line}");
                 }
             }
         } else {
             for line in &self.lines {
-                println!("{}", line);
+                println!("{line}");
             }
         }
         self.lines.clear();
@@ -200,7 +199,7 @@ pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
 #[allow(dead_code)]
 pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
     let mut debug_output = String::new();
-    write!(&mut debug_output, "{:#?}", value).map_err(|_| AppError::FormatError)?;
+    write!(&mut debug_output, "{value:#?}").map_err(|_| AppError::FormatError)?;
 
     let mut output_buffer = OUTPUT_BUFFER.lock().map_err(|_| AppError::LockError)?;
 
@@ -229,7 +228,7 @@ pub fn append_key_value<K: Display, V: Display>(
     value: V,
     padding: usize,
 ) -> Result<(), AppError> {
-    let line = format!("{:<pad$} : {}", key, value, pad = padding);
+    let line = format!("{key:<padding$} : {value}");
     append_line(line)
 }
 

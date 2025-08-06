@@ -22,7 +22,7 @@ impl FromStr for Protocol {
         match s.to_lowercase().as_str() {
             "http" => Ok(Protocol::Http),
             "https" => Ok(Protocol::Https),
-            _ => Err(format!("Invalid protocol: {}. Use 'http' or 'https'.", s)),
+            _ => Err(format!("Invalid protocol: {s}. Use 'http' or 'https'.")),
         }
     }
 }

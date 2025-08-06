@@ -99,8 +99,7 @@ fn find_command<'a>(
             break;
         } else {
             return Err(AppError::CommandNotFound(format!(
-                "Command not found: {}",
-                part
+                "Command not found: {part}"
             )));
         }
     }
@@ -117,7 +116,7 @@ fn execute_command(
 ) -> Result<(), AppError> {
     debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
     let tokens = tokenizer::CommandTokenizer::new(line, cmd_name.unwrap())?;
-    trace!("Tokens: {:?}", tokens);
+    trace!("Tokens: {tokens:?}");
 
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
@@ -151,7 +150,7 @@ fn login(
         match client.clone().login_with_token(Token { token }) {
             Ok(client) => return Ok(client.clone()),
             Err(err) => {
-                add_warning(format!("Error logging in with existing token: {}", err))?;
+                add_warning(format!("Error logging in with existing token: {err}"))?;
                 flush_output()?;
             }
         }
@@ -162,7 +161,7 @@ fn login(
             debug!("Found password in ENV, skipping interaction.");
             p.to_string()
         }
-        None => rpassword::prompt_password(format!("Password for {} @ {}: ", username, hostname))?,
+        None => rpassword::prompt_password(format!("Password for {username} @ {hostname}: "))?,
     };
     let client = client
         .clone()
@@ -188,10 +187,10 @@ fn process_line_as_command(
         Err(AppError::Quiet) => {}
         Err(AppError::EntityNotFound(entity)) => add_warning(entity.to_string())?,
         Err(AppError::ApiError(ApiError::HttpWithBody { status, message })) => {
-            add_error(format!("API Error: Status {} - {}", status, message))?
+            add_error(format!("API Error: Status {status} - {message}"))?
         }
 
-        Err(err @ AppError::ApiError(_)) => add_error(format!("API Error: {}", err))?,
+        Err(err @ AppError::ApiError(_)) => add_error(format!("API Error: {err}"))?,
         Err(err) => add_error(err)?,
     }
     flush_output()

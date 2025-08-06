@@ -48,25 +48,25 @@ impl CommandList {
     }
 
     pub fn add_command<T: CliCommand + 'static>(&mut self, name: &str, command: T) -> &mut Self {
-        debug!("Adding command: {}", name);
+        debug!("Adding command: {name}");
         self.commands.insert(name.to_string(), Box::new(command));
         self
     }
 
     pub fn add_scope(&mut self, name: &str) -> &mut CommandList {
-        debug!("Adding scope: {}", name);
+        debug!("Adding scope: {name}");
         self.scopes
             .entry(name.to_string())
             .or_insert_with(|| CommandList::new(self.client.clone()))
     }
 
     pub fn get_command(&self, name: &str) -> Option<&BoxedDynCommand> {
-        debug!("Getting command: {}", name);
+        debug!("Getting command: {name}");
         self.commands.get(name)
     }
 
     pub fn get_scope(&self, name: &str) -> Option<&CommandList> {
-        debug!("Getting scope: {}", name);
+        debug!("Getting scope: {name}");
         self.scopes.get(name)
     }
 
@@ -104,14 +104,14 @@ impl CommandList {
         let mut command_names: Vec<_> = self.commands.keys().collect();
         command_names.sort();
         for command_name in command_names {
-            let line = format!("{}{}{}{}\n", prefix, indent, branch, command_name);
+            let line = format!("{prefix}{indent}{branch}{command_name}\n");
             result.push_str(&line);
         }
 
         // Add scopes
         let scope_count = self.scopes.len();
         for (i, (scope_name, scope)) in self.scopes.iter().enumerate() {
-            let line = format!("{}{}{}{}\n", prefix, indent, branch, scope_name);
+            let line = format!("{prefix}{indent}{branch}{scope_name}\n");
             result.push_str(&line);
             let new_prefix = format!(
                 "{}{}{}",
@@ -176,18 +176,14 @@ impl Completer for CommandList {
             .map_or((0, &line[..pos]), |(l, r)| (l.len() + 1, r));
         let mut completions = Vec::new();
         trace!(
-            "Completing. Line: {}, Pos: {}, Start: {}, Word: {}",
-            line,
-            pos,
-            start,
-            word,
+            "Completing. Line: {line}, Pos: {pos}, Start: {start}, Word: {word}",
         );
         let parts = shlex::split(&line[..pos]);
         if parts.is_none() {
             return Ok((start, completions));
         }
         let parts = parts.unwrap();
-        trace!("Parts: {:?}", parts);
+        trace!("Parts: {parts:?}");
 
         let mut current_scope = self;
         let mut command = None;
@@ -207,19 +203,19 @@ impl Completer for CommandList {
         if let Some(command) = command {
             let options = command.options();
             let options_seen = options_seen(&parts, &options);
-            trace!("Options seen: {:?}", options_seen);
+            trace!("Options seen: {options_seen:?}");
 
             let last_token = word;
 
             // Determine if the last token is an option or a value
             if let Some(current_token) = parts.iter().rev().nth(0) {
-                trace!("Current token: {}", current_token);
+                trace!("Current token: {current_token}");
                 if current_token.starts_with('-') {
                     trace!("Current token is an option");
                     let opt_def = option_definiton(&options, current_token);
 
                     if let Some(opt_def) = opt_def {
-                        trace!("Current option is known with definition: {:?}", opt_def);
+                        trace!("Current option is known with definition: {opt_def:?}");
                         if opt_def.flag {
                             suggest_options(&options, &options_seen, last_token, &mut completions);
                         } else {
@@ -244,7 +240,7 @@ impl Completer for CommandList {
                             let opt_def = option_definiton(&options, prev_token);
 
                             if let Some(opt_def) = opt_def {
-                                trace!("Previous option is known with definition: {:?}", opt_def);
+                                trace!("Previous option is known with definition: {opt_def:?}");
                                 if opt_def.flag {
                                     // Option is a flag, does not expect a value
                                     suggest_options(
@@ -383,7 +379,7 @@ fn suggest_options(
         let short = opt
             .short
             .as_ref()
-            .map_or("".to_string(), |s| format!("{},", s));
+            .map_or("".to_string(), |s| format!("{s},"));
         let long = opt.long.as_ref().map_or("".to_string(), |l| l.to_string());
         let short_padding = " ".repeat(max_short_width + 2 - short.len());
         let long_padding = " ".repeat(max_long_width + 2 - long.len());

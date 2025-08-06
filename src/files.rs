@@ -26,9 +26,9 @@ pub fn get_system_config_path() -> PathBuf {
 
 fn ensure_file_exists(file: &str) -> Result<PathBuf, AppError> {
     let fqfile = ensure_root_dir()?.join(file);
-    log::trace!("Checking file: {:?}", fqfile);
+    log::trace!("Checking file: {fqfile:?}");
     if !fqfile.exists() {
-        log::debug!("Creating file: {:?}", fqfile);
+        log::debug!("Creating file: {fqfile:?}");
         if file == "token.json" {
             std::fs::write(fqfile.clone(), "[]")?;
         } else {

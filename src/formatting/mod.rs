@@ -80,7 +80,7 @@ where
     K: Display,
     V: Display,
 {
-    format!("{:<padding$}: {}", key, value, padding = padding)
+    format!("{key:<padding$}: {value}")
 }
 
 fn append_key_value<K, V>(key: K, value: V, padding: usize) -> Result<(), AppError>

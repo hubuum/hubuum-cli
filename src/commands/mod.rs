@@ -89,13 +89,13 @@ pub trait CliCommand: CliCommandInfo {
                 if tokenpairs.contains_key(short) {
                     continue;
                 }
-                trace!("Short not found: {}", short);
+                trace!("Short not found: {short}");
             }
             if let Some(long) = &opt.long_without_dashes() {
                 if tokenpairs.contains_key(long) {
                     continue;
                 }
-                trace!("Long not found: {}", long);
+                trace!("Long not found: {long}");
             }
 
             missing_options.push(opt.name.clone());
@@ -166,12 +166,12 @@ pub trait CliCommand: CliCommandInfo {
         let mut help = String::new();
         let fq_name = format!("\n{} {}", context.join(" "), command_name);
         if let Some(about) = self.about() {
-            help.push_str(&format!("{} - {} \n\n", fq_name, about));
+            help.push_str(&format!("{fq_name} - {about} \n\n"));
         } else {
-            help.push_str(&format!("{}\n\n", fq_name));
+            help.push_str(&format!("{fq_name}\n\n"));
         }
         if let Some(long_about) = self.long_about() {
-            help.push_str(&format!("{}\n\n", long_about));
+            help.push_str(&format!("{long_about}\n\n"));
         }
         let options = self.options();
         if !options.is_empty() {
@@ -198,11 +198,11 @@ pub trait CliCommand: CliCommandInfo {
                 let short = opt
                     .short
                     .as_ref()
-                    .map_or(String::new(), |s| format!("{},", s));
+                    .map_or(String::new(), |s| format!("{s},"));
                 let long = opt
                     .long
                     .as_ref()
-                    .map_or(String::new(), |l| format!("{},", l));
+                    .map_or(String::new(), |l| format!("{l},"));
                 let flag = if opt.flag { " (flag)" } else { "" };
 
                 help.push_str(&format!(
@@ -223,7 +223,7 @@ pub trait CliCommand: CliCommandInfo {
             help.push_str("Examples:\n");
 
             for line in examples.lines() {
-                help.push_str(&format!("  {} {}\n", fq_name, line));
+                help.push_str(&format!("  {fq_name} {line}\n"));
             }
         }
         for line in help.lines() {

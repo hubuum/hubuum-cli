@@ -9,7 +9,7 @@ pub fn bool(_cmdlist: &CommandList, _prefix: &str, _parts: &[String]) -> Vec<Str
 }
 
 pub fn groups(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
-    trace!("Autocompleting groups with prefix: {}", prefix);
+    trace!("Autocompleting groups with prefix: {prefix}");
     let mut cmd = cmdlist.client().groups().find();
 
     if !prefix.is_empty() {
@@ -29,7 +29,7 @@ pub fn groups(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<Str
 }
 
 pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
-    trace!("Autocompleting classes with prefix: {}", prefix);
+    trace!("Autocompleting classes with prefix: {prefix}");
     let mut cmd = cmdlist.client().classes().find();
 
     if !prefix.is_empty() {
@@ -49,7 +49,7 @@ pub fn classes(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<St
 }
 
 pub fn namespaces(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
-    trace!("Autocompleting namespaces with prefix: {}", prefix);
+    trace!("Autocompleting namespaces with prefix: {prefix}");
     let mut cmd = cmdlist.client().namespaces().find();
 
     if !prefix.is_empty() {
@@ -72,7 +72,7 @@ pub fn namespaces(cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec
 pub fn permissions(_cmdlist: &CommandList, prefix: &str, _parts: &[String]) -> Vec<String> {
     use hubuum_client::types::Permissions;
 
-    trace!("Autocompleting permissions with prefix: {}", prefix);
+    trace!("Autocompleting permissions with prefix: {prefix}");
 
     // Permissions are are an enum, so we can just return the variants that match the prefix.
     Permissions::iter()
@@ -88,9 +88,7 @@ fn objects_from_class_source(
     source: &str,
 ) -> Vec<String> {
     trace!(
-        "Autocompleting objects via source '{}' with prefix: {}",
-        source,
-        prefix
+        "Autocompleting objects via source '{source}' with prefix: {prefix}"
     );
     let classname = match parts.windows(2).find(|w| w[0] == source) {
         Some(window) => window[1].clone(),
@@ -106,7 +104,7 @@ fn objects_from_class_source(
     {
         Ok(ret) => ret,
         Err(_) => {
-            warn!("Failed to fetch class from {} autocomplete", source);
+            warn!("Failed to fetch class from {source} autocomplete");
             return Vec::new();
         }
     };
