@@ -142,10 +142,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             os_name: linux-x86_64
             bin: hubuum-cli
-          - name: Linux-aarch64
-            target: aarch64-unknown-linux-gnu
-            os_name: linux-aarch64
-            bin: hubuum-cli
+#          - name: Linux-aarch64
+#            target: aarch64-unknown-linux-gnu
+#            os_name: linux-aarch64
+#            bin: hubuum-cli
           - name: Windows-x86_64
             target: x86_64-pc-windows-msvc
             os_name: windows-x86_64
