@@ -172,9 +172,6 @@ jobs:
         run: |
           mkdir -p artifacts
 
-          # verify that the binary really is there
-          ls -l target/${{ matrix.platform.target }}/release/
-
           FILENAME=hubuum-cli-${{ matrix.platform.os_name }}-main.tar.gz
           tar czvf artifacts/$FILENAME -C target/${{ matrix.platform.target }}/release/ hubuum-cli
 
