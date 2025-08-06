@@ -139,6 +139,7 @@ jobs:
       matrix:
         platform:
           - name: Linux-x86_64
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             os_name: linux-x86_64
             bin: hubuum-cli
@@ -147,10 +148,12 @@ jobs:
 #            os_name: linux-aarch64
 #            bin: hubuum-cli
           - name: Windows-x86_64
+            os: windows-latest
             target: x86_64-pc-windows-msvc
             os_name: windows-x86_64
             bin: hubuum-cli.exe
           - name: macOS-aarch64
+            
             target: aarch64-apple-darwin
             os_name: macos-latest
             bin: hubuum-cli
