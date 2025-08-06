@@ -195,13 +195,13 @@ impl CliCommand for RelationNew {
         let rel: Relation = if new.object_from.is_none() && new.object_to.is_none() {
             create_class_relation(
                 client,
-                &class_from.resource(),
-                &class_to.resource(),
+                class_from.resource(),
+                class_to.resource(),
                 &class_map,
             )?
             .into()
         } else {
-            create_object_relation(client, new, &class_from.resource(), &class_to.resource())?
+            create_object_relation(client, new, class_from.resource(), class_to.resource())?
                 .into()
         };
 
@@ -227,9 +227,9 @@ impl CliCommand for RelationDelete {
         );
 
         if new.object_from.is_none() && new.object_to.is_none() {
-            delete_class_relation(client, &class_from.resource(), &class_to.resource())?;
+            delete_class_relation(client, class_from.resource(), class_to.resource())?;
         } else {
-            delete_object_relation(client, new, &class_from.resource(), &class_to.resource())?;
+            delete_object_relation(client, new, class_from.resource(), class_to.resource())?;
         }
 
         let message = match (new.object_from.as_ref(), new.object_to.as_ref()) {

@@ -123,7 +123,7 @@ impl CliCommand for ClassInfo {
         match self.desired_format(tokens) {
             OutputFormat::Json => {
                 // We first make a JSON object out of the class, then we append the objects.
-                let mut json_class = serde_json::to_value(&class.resource())?;
+                let mut json_class = serde_json::to_value(class.resource())?;
                 json_class["objects"] = serde_json::to_value(objects)?;
 
                 append_line(serde_json::to_string_pretty(&json_class)?)?;

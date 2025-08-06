@@ -25,7 +25,7 @@ impl OutputFormatterWithPadding for Handle<Namespace> {
 impl OutputFormatterWithPadding for GroupPermissionsResult {
     fn format(&self, padding: usize) -> Result<Self, AppError> {
         append_key_value("Group", &self.group.groupname, padding)?;
-        append_key_value("Namespace", &self.permission.namespace_id, padding)?;
+        append_key_value("Namespace", self.permission.namespace_id, padding)?;
         append_key_value("Permissions:", "", padding)?;
 
         let permission_groups: &[(&str, &[(&str, bool)])] = &[
@@ -83,7 +83,7 @@ impl OutputFormatterWithPadding for GroupPermissionsResult {
                 .collect();
 
             if !enabled.is_empty() {
-                append_key_value(format!("  {group_name}"), &enabled.join(", "), padding)?;
+                append_key_value(format!("  {group_name}"), enabled.join(", "), padding)?;
             }
         }
         Ok(self.clone())

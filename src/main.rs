@@ -30,6 +30,8 @@ use crate::commandlist::CommandList;
 use crate::files::get_history_file;
 use crate::models::internal::TokenEntry;
 
+pub type BoxedDynCommand = Box<dyn commands::CliCommand>;
+
 fn process_filter(line: &str) -> Result<String, AppError> {
     let parts: Vec<&str> = line.split('|').collect();
     if parts.len() > 1 {
@@ -78,12 +80,11 @@ fn handle_command(
     }
 }
 
-#[allow(clippy::type_complexity)]
 fn find_command<'a>(
     cli: &'a CommandList,
     parts: &'a [String],
     context: &mut Vec<String>,
-) -> Result<(Option<&'a Box<dyn commands::CliCommand>>, Option<&'a str>), AppError> {
+) -> Result<(Option<&'a BoxedDynCommand>, Option<&'a str>), AppError> {
     let mut current_scope = cli;
     let mut command = None;
     let mut cmd_name = None;
@@ -107,9 +108,8 @@ fn find_command<'a>(
     Ok((command, cmd_name))
 }
 
-#[allow(clippy::borrowed_box)]
 fn execute_command(
-    cmd: &Box<dyn commands::CliCommand>,
+    cmd: &BoxedDynCommand,
     cmd_name: Option<&str>,
     line: &str,
     context: &[String],
@@ -183,7 +183,7 @@ fn process_line_as_command(
 ) -> Result<(), AppError> {
     let line = process_filter(line)?;
     let mut context = Vec::new();
-    match handle_command(&cli, &line, &mut context, &client) {
+    match handle_command(cli, &line, &mut context, client) {
         Ok(_) => {}
         Err(AppError::Quiet) => {}
         Err(AppError::EntityNotFound(entity)) => add_warning(entity.to_string())?,
@@ -244,12 +244,12 @@ fn main() -> Result<(), AppError> {
     let mut rl = create_editor(&cli)?;
 
     if let Some(command) = matches.get_one::<String>("command") {
-        process_line_as_command(&cli, &command, &client)?;
+        process_line_as_command(&cli, command, &client)?;
         return Ok(());
     }
 
     if let Some(filename) = matches.get_one::<String>("source") {
-        source_commands_from_file(&cli, &filename, &client)?;
+        source_commands_from_file(&cli, filename, &client)?;
         return Ok(());
     }
 

@@ -12,9 +12,10 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::Context;
 
 use crate::commands::{CliCommand, CliOption};
+use crate::BoxedDynCommand;
 
 pub struct CommandList {
-    commands: HashMap<String, Box<dyn CliCommand>>,
+    commands: HashMap<String, BoxedDynCommand>,
     scopes: HashMap<String, CommandList>,
     client: Arc<SyncClient<Authenticated>>,
 }
@@ -59,8 +60,7 @@ impl CommandList {
             .or_insert_with(|| CommandList::new(self.client.clone()))
     }
 
-    #[allow(clippy::borrowed_box)]
-    pub fn get_command(&self, name: &str) -> Option<&Box<dyn CliCommand>> {
+    pub fn get_command(&self, name: &str) -> Option<&BoxedDynCommand> {
         debug!("Getting command: {}", name);
         self.commands.get(name)
     }
@@ -224,9 +224,9 @@ impl Completer for CommandList {
                             suggest_options(&options, &options_seen, last_token, &mut completions);
                         } else {
                             suggest_from_autocomplete(
-                                &self,
-                                &opt_def,
-                                &last_token,
+                                self,
+                                opt_def,
+                                last_token,
                                 &parts,
                                 &mut completions,
                             )
@@ -241,7 +241,7 @@ impl Completer for CommandList {
                     if let Some(prev_token) = parts.iter().rev().nth(1) {
                         if prev_token.starts_with('-') {
                             trace!("Previous token is an option, expanding completions for option");
-                            let opt_def = option_definiton(&options, &prev_token);
+                            let opt_def = option_definiton(&options, prev_token);
 
                             if let Some(opt_def) = opt_def {
                                 trace!("Previous option is known with definition: {:?}", opt_def);
@@ -257,8 +257,7 @@ impl Completer for CommandList {
                                     trace!("Option is not a flag");
                                     if let Some(autocomplete_fn) = opt_def.autocomplete {
                                         trace!("Option has autocomplete function");
-                                        let suggestions =
-                                            autocomplete_fn(&self, last_token, &parts);
+                                        let suggestions = autocomplete_fn(self, last_token, &parts);
 
                                         if suggestions.contains(&current_token.to_string()) {
                                             // The previous token matches one of the suggestions, so move on to the rest of the options.
@@ -335,7 +334,7 @@ fn suggest_from_autocomplete(
     use colored::Colorize;
     if let Some(autocomplete_fn) = opt_def.autocomplete {
         trace!("Option has autocomplete function");
-        let suggestions = autocomplete_fn(&cmdlist, last_token, &tokens);
+        let suggestions = autocomplete_fn(cmdlist, last_token, tokens);
         completions.extend(suggestions.into_iter().map(|s| Pair {
             display: s.clone().bold().italic().green().to_string(),
             replacement: s,
@@ -357,11 +356,11 @@ fn suggest_options(
             && (opt
                 .long
                 .as_deref()
-                .map_or(false, |long| long.starts_with(last_token))
+                .is_some_and(|long| long.starts_with(last_token))
                 || opt
                     .short
                     .as_deref()
-                    .map_or(false, |short| short.starts_with(last_token)))
+                    .is_some_and(|short| short.starts_with(last_token)))
     });
 
     let max_short_width = options_left
@@ -385,28 +384,26 @@ fn suggest_options(
             .short
             .as_ref()
             .map_or("".to_string(), |s| format!("{},", s));
-        let long = opt
-            .long
-            .as_ref()
-            .map_or("".to_string(), |l| format!("{}", l));
+        let long = opt.long.as_ref().map_or("".to_string(), |l| l.to_string());
         let short_padding = " ".repeat(max_short_width + 2 - short.len());
         let long_padding = " ".repeat(max_long_width + 2 - long.len());
         let type_padding = " ".repeat(max_type_width + 2 - opt.field_type_help.len());
+        let field_type = format!("<{}>", opt.field_type_help);
 
-        let diplay = format!(
+        let display = format!(
             "{}{}{}{}{}{}{}{}",
             short,
             short_padding,
             long,
             long_padding,
             type_padding,
-            format!("<{}>", opt.field_type_help),
+            field_type,
             " ".repeat(2),
             opt.help
         );
 
         completions.push(Pair {
-            display: diplay,
+            display,
             replacement: long.clone(),
         });
     }

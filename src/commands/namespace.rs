@@ -248,7 +248,7 @@ impl CliCommand for NamespacePermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
-        let permissions = client.namespaces().select_by_name(&name)?.permissions()?;
+        let permissions = client.namespaces().select_by_name(name)?.permissions()?;
 
         let empty_message = format!("No permissions found for namespace '{name}'");
 

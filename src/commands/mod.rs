@@ -26,6 +26,8 @@ pub use user::*;
 
 use crate::{errors::AppError, tokenizer::CommandTokenizer};
 
+type AutoCompleter = fn(&CommandList, &str, &[String]) -> Vec<String>;
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct CliOption {
@@ -37,7 +39,7 @@ pub struct CliOption {
     pub field_type: TypeId,
     pub field_type_help: String,
     pub required: bool,
-    pub autocomplete: Option<fn(&CommandList, &str, &[String]) -> Vec<String>>,
+    pub autocomplete: Option<AutoCompleter>,
 }
 
 impl CliOption {

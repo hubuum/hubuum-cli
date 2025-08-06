@@ -132,7 +132,7 @@ impl CliCommand for GroupInfo {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => {
-                let mut json_class = serde_json::to_value(&group.resource())?;
+                let mut json_class = serde_json::to_value(group.resource())?;
                 json_class["members"] = serde_json::to_value(group.members()?)?;
 
                 append_line(serde_json::to_string_pretty(&json_class)?)?;

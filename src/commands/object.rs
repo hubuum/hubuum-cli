@@ -172,7 +172,7 @@ impl CliCommand for ObjectInfo {
         let mut classmap = HashMap::new();
         classmap.insert(class.id(), class.resource().clone());
 
-        let object = FormattedObject::new(&object.resource(), &classmap, &nsmap);
+        let object = FormattedObject::new(object.resource(), &classmap, &nsmap);
 
         if self.want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object).unwrap())?;
