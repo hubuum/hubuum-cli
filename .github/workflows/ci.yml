@@ -179,7 +179,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: main
+          tag_name: main-latest
           name: Main build
           body: Automatically published build for `main` branch
           draft: false
