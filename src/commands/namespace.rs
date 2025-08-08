@@ -270,7 +270,7 @@ impl CliCommand for NamespacePermissions {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-pub struct NamespacePermissionsGrant {
+pub struct NamespacePermissionsSet {
     #[option(
         short = "n",
         long = "name",
@@ -436,13 +436,13 @@ pub struct NamespacePermissionsGrant {
     pub delete_object_relation: Option<bool>,
 }
 
-impl GetNamespace for &NamespacePermissionsGrant {
+impl GetNamespace for &NamespacePermissionsSet {
     fn namespace(&self) -> Option<String> {
         self.name.clone()
     }
 }
 
-impl CliCommand for NamespacePermissionsGrant {
+impl CliCommand for NamespacePermissionsSet {
     fn execute(
         &self,
         client: &SyncClient<Authenticated>,

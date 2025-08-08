@@ -34,8 +34,9 @@ fn add_namespace_commands(cli: &mut CommandList) {
         .add_command("list", commands::NamespaceList::default())
         .add_command("delete", commands::NamespaceDelete::default())
         .add_command("info", commands::NamespaceInfo::default())
-        .add_command("permissions", commands::NamespacePermissions::default())
-        .add_command("grant", commands::NamespacePermissionsGrant::default());
+        .add_scope("permissions")
+        .add_command("list", commands::NamespacePermissions::default())
+        .add_command("set", commands::NamespacePermissionsSet::default());
 }
 
 fn add_user_commands(cli: &mut CommandList) {
