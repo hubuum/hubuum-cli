@@ -11,7 +11,7 @@ use crate::autocomplete::{groups, namespaces};
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, FormattedGroupPermissions, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json, append_line};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetNamespace {
@@ -248,10 +248,9 @@ impl CliCommand for NamespacePermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
-        let permissions = client
-            .namespaces()
-            .select_by_name(name)?
-            .permissions()?
+        let permissions = client.namespaces().select_by_name(name)?.permissions()?;
+
+        let formatted_permissions = permissions
             .iter()
             .map(|p| FormattedGroupPermissions::from(p.clone()))
             .collect::<Vec<_>>();
@@ -260,9 +259,9 @@ impl CliCommand for NamespacePermissions {
 
         match (self.desired_format(tokens), permissions.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
-            (OutputFormat::Json, false) => permissions.format_json_noreturn()?,
+            (OutputFormat::Json, false) => append_json(&permissions)?,
             (OutputFormat::Text, true) => append_line(empty_message)?,
-            (OutputFormat::Text, false) => permissions.format_noreturn()?,
+            (OutputFormat::Text, false) => formatted_permissions.format_noreturn()?,
         }
 
         Ok(())
