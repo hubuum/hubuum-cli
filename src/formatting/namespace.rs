@@ -2,11 +2,13 @@ use hubuum_client::{client::sync::Handle, GroupPermissionsResult, Namespace};
 use serde::Serialize;
 use tabled::Tabled;
 
-use super::{append_key_value, OutputFormatter, OutputFormatterWithPadding};
+use super::{append_key_value, OutputFormatter};
+use crate::config::get_config;
 use crate::errors::AppError;
 
-impl OutputFormatterWithPadding for Namespace {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
+impl OutputFormatter for Namespace {
+    fn format(&self) -> Result<Self, AppError> {
+        let padding = get_config().output.padding;
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
         append_key_value("Created", self.created_at, padding)?;
@@ -15,15 +17,16 @@ impl OutputFormatterWithPadding for Namespace {
     }
 }
 
-impl OutputFormatterWithPadding for Handle<Namespace> {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
-        self.resource().format(padding)?;
+impl OutputFormatter for Handle<Namespace> {
+    fn format(&self) -> Result<Self, AppError> {
+        self.resource().format()?;
         Ok(self.clone())
     }
 }
 
-impl OutputFormatterWithPadding for GroupPermissionsResult {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
+impl OutputFormatter for GroupPermissionsResult {
+    fn format(&self) -> Result<Self, AppError> {
+        let padding = get_config().output.padding;
         append_key_value("Group", &self.group.groupname, padding)?;
         append_key_value("Namespace", self.permission.namespace_id, padding)?;
         append_key_value("Permissions:", "", padding)?;
@@ -156,14 +159,5 @@ impl From<GroupPermissionsResult> for FormattedGroupPermissions {
                 ("delete", permissions.has_delete_object_relation),
             ]),
         }
-    }
-}
-
-impl OutputFormatterWithPadding for Vec<GroupPermissionsResult> {
-    fn format(&self, _padding: usize) -> Result<Self, AppError> {
-        let formatted: Vec<FormattedGroupPermissions> =
-            self.iter().cloned().map(Into::into).collect();
-        formatted.format()?;
-        Ok(self.clone())
     }
 }

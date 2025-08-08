@@ -4,13 +4,28 @@ use std::path::PathBuf;
 
 use crate::defaults::Defaults;
 use crate::files::get_system_config_path;
-use crate::models::Protocol;
+use crate::models::{OutputFormat, Protocol};
+
+use std::sync::OnceLock;
+
+static CONFIG: OnceLock<AppConfig> = OnceLock::new();
+
+pub fn init_config(cfg: AppConfig) -> Result<(), AppConfig> {
+    CONFIG.set(cfg)
+}
+
+pub fn get_config() -> &'static AppConfig {
+    CONFIG
+        .get()
+        .expect("App config not initialized. Call init_config(...) in main after loading.")
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub cache: CacheConfig,
     pub completion: CompletionConfig,
+    pub output: OutputConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -37,6 +52,12 @@ pub struct CompletionConfig {
     pub disable_api_related: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OutputConfig {
+    pub format: OutputFormat,
+    pub padding: i8,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -57,6 +78,10 @@ impl Default for AppConfig {
             completion: CompletionConfig {
                 disable_api_related: Defaults::COMPLETION_DISABLE_API_RELATED,
             },
+            output: OutputConfig {
+                format: Defaults::OUTPUT_FORMAT,
+                padding: Defaults::OUTPUT_PADDING,
+            },
         }
     }
 }
@@ -72,6 +97,8 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
 
     let mut builder = Config::builder()
         // Start with default values
+        .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
+        .set_default("output.padding", Defaults::OUTPUT_PADDING)?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
         .set_default("server.ssl_validation", Defaults::SERVER_SSL_VALIDATION)?

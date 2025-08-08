@@ -1,10 +1,11 @@
+use hubuum_client::{resources::tabled_display, Class, ClassRelation, Object, ObjectRelation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tabled::Tabled;
 
-use super::{append_key_value, OutputFormatterWithPadding};
+use super::{append_key_value, OutputFormatter};
+use crate::config::get_config;
 use crate::errors::AppError;
-use hubuum_client::{resources::tabled_display, Class, ClassRelation, Object, ObjectRelation};
 
 // A wrapper for classrelations that can be outputted where class_ids are replaced with their names
 #[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
@@ -69,8 +70,9 @@ impl FormattedClassRelation {
     }
 }
 
-impl OutputFormatterWithPadding for FormattedClassRelation {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
+impl OutputFormatter for FormattedClassRelation {
+    fn format(&self) -> Result<Self, AppError> {
+        let padding = get_config().output.padding;
         append_key_value("ClassFrom", &self.from_class, padding)?;
         append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("Created", self.created_at, padding)?;
@@ -144,8 +146,9 @@ impl FormattedObjectRelation {
     }
 }
 
-impl OutputFormatterWithPadding for FormattedObjectRelation {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
+impl OutputFormatter for FormattedObjectRelation {
+    fn format(&self) -> Result<Self, AppError> {
+        let padding = get_config().output.padding;
         append_key_value("ClassFrom", &self.from_class, padding)?;
         append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("ObjectFrom", &self.from_object, padding)?;

@@ -17,9 +17,7 @@ use super::{CliCommand, CliCommandInfo, CliOption};
 use crate::autocomplete::{classes, namespaces, objects_from_class};
 use crate::commands::shared::find_entities_by_ids;
 use crate::errors::AppError;
-use crate::formatting::{
-    append_json_message, FormattedObject, OutputFormatter, OutputFormatterWithPadding,
-};
+use crate::formatting::{append_json_message, FormattedObject, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
@@ -90,7 +88,7 @@ impl CliCommand for ObjectNew {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
-            OutputFormat::Text => object.format_noreturn(15)?,
+            OutputFormat::Text => object.format_noreturn()?,
         }
 
         Ok(())
@@ -179,7 +177,7 @@ impl CliCommand for ObjectInfo {
             return Ok(());
         }
 
-        object.format(15)?;
+        object.format()?;
 
         if query.jsonpath.is_none() && query.data.is_none() {
             return Ok(());
@@ -487,7 +485,7 @@ impl CliCommand for ObjectModify {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
-            OutputFormat::Text => object.format_noreturn(15)?,
+            OutputFormat::Text => object.format_noreturn()?,
         }
 
         Ok(())

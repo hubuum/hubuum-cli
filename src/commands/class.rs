@@ -9,7 +9,7 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{bool, classes, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
@@ -67,7 +67,7 @@ impl CliCommand for ClassNew {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => result.format_json_noreturn()?,
-            OutputFormat::Text => result.format_noreturn(15)?,
+            OutputFormat::Text => result.format_noreturn()?,
         }
 
         Ok(())
@@ -129,7 +129,7 @@ impl CliCommand for ClassInfo {
                 append_line(serde_json::to_string_pretty(&json_class)?)?;
             }
             OutputFormat::Text => {
-                class.format(15)?;
+                class.format()?;
                 append_key_value("Objects", objects.len(), 14)?;
             }
         }

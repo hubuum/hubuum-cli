@@ -1,4 +1,4 @@
-use crate::models::Protocol;
+use crate::models::{OutputFormat, Protocol};
 
 pub struct Defaults;
 
@@ -13,4 +13,6 @@ impl Defaults {
     pub const COMPLETION_DISABLE_API_RELATED: bool = false;
     pub const API_VERSION: &'static str = "v1";
     pub const PROTOCOL: Protocol = Protocol::Https;
+    pub const OUTPUT_FORMAT: OutputFormat = OutputFormat::Text;
+    pub const OUTPUT_PADDING: i8 = 15;
 }

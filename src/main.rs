@@ -225,6 +225,8 @@ fn main() -> Result<(), AppError> {
     let cli_config_path = cli::get_cli_config_path(&matches);
     let mut config = config::load_config(cli_config_path)?;
     cli::update_config_from_cli(&mut config, &matches);
+    config::init_config(config).expect("Config already initialized?");
+    let config = config::get_config();
 
     let baseurl = hubuum_client::BaseUrl::from_str(&format!(
         "{}://{}:{}",
@@ -236,7 +238,7 @@ fn main() -> Result<(), AppError> {
         client,
         config.server.hostname.as_str(),
         config.server.username.as_str(),
-        config.server.password.as_deref(),
+        config.server.password.clone().as_deref(),
     )?;
 
     let cli = crate::commands::build_repl_commands(Arc::new(client.clone()));

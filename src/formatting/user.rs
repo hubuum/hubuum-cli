@@ -1,10 +1,12 @@
 use hubuum_client::{client::sync::Handle, User};
 
-use super::{append_key_value, append_some_key_value, OutputFormatterWithPadding};
+use super::{append_key_value, append_some_key_value, OutputFormatter};
+use crate::config::get_config;
 use crate::errors::AppError;
 
-impl OutputFormatterWithPadding for User {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
+impl OutputFormatter for User {
+    fn format(&self) -> Result<Self, AppError> {
+        let padding = get_config().output.padding;
         append_key_value("Username", &self.username, padding)?;
         append_some_key_value("Email", &self.email, padding)?;
         append_key_value("Created", self.created_at, padding)?;
@@ -13,9 +15,9 @@ impl OutputFormatterWithPadding for User {
     }
 }
 
-impl OutputFormatterWithPadding for Handle<User> {
-    fn format(&self, padding: usize) -> Result<Self, AppError> {
-        self.resource().format(padding)?;
+impl OutputFormatter for Handle<User> {
+    fn format(&self) -> Result<Self, AppError> {
+        self.resource().format()?;
         Ok(self.clone())
     }
 }

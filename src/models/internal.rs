@@ -1,10 +1,11 @@
 use config::Value;
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
+use strum::{Display, EnumString};
 
 use crate::{
     errors::AppError,
-    formatting::{FormattedClassRelation, FormattedObjectRelation, OutputFormatterWithPadding},
+    formatting::{FormattedClassRelation, FormattedObjectRelation, OutputFormatter},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -49,7 +50,9 @@ pub struct TokenEntry {
     pub token: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Display, EnumString)]
 pub enum OutputFormat {
+    #[strum(serialize = "JSON")]
     Json,
     Text,
 }
@@ -67,10 +70,10 @@ impl Relation {
         }
     }
 
-    pub fn format_noreturn(&self, width: usize) -> Result<(), AppError> {
+    pub fn format_noreturn(&self) -> Result<(), AppError> {
         match self {
-            Relation::Class(r) => r.format_noreturn(width),
-            Relation::Object(r) => r.format_noreturn(width),
+            Relation::Class(r) => r.format_noreturn(),
+            Relation::Object(r) => r.format_noreturn(),
         }
     }
 }

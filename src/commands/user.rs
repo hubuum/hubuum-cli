@@ -8,7 +8,7 @@ use rand::distr::Alphanumeric;
 use rand::{rng, Rng};
 
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 
@@ -57,7 +57,7 @@ impl CliCommand for UserNew {
                 append_line(serde_json::to_string_pretty(&json)?)?;
             }
             OutputFormat::Text => {
-                user.format_noreturn(15)?;
+                user.format_noreturn()?;
                 append_key_value("Password", password, 15)?;
             }
         }
@@ -191,7 +191,7 @@ impl CliCommand for UserInfo {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => user.format_json_noreturn()?,
-            OutputFormat::Text => user.format_noreturn(15)?,
+            OutputFormat::Text => user.format_noreturn()?,
         }
 
         Ok(())

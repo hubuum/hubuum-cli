@@ -13,32 +13,25 @@ mod object;
 mod relations;
 mod user;
 
+pub use namespace::FormattedGroupPermissions;
 pub use object::FormattedObject;
 pub use relations::{FormattedClassRelation, FormattedObjectRelation};
 
-pub trait OutputFormatterWithPadding: Sized + Serialize + Clone {
-    fn format(&self, padding: usize) -> Result<Self, AppError>;
-    fn format_noreturn(&self, padding: usize) -> Result<(), AppError> {
-        self.format(padding)?;
+pub trait OutputFormatter: Sized + Serialize + Clone {
+    fn format(&self) -> Result<Self, AppError>;
+    fn format_noreturn(&self) -> Result<(), AppError> {
+        self.format()?;
         Ok(())
     }
     #[allow(dead_code)]
     fn format_json(&self) -> Result<Self, AppError> {
-        append_line(serde_json::to_string_pretty(self)?)?;
+        append_json(self)?;
         Ok(self.clone())
     }
     fn format_json_noreturn(&self) -> Result<(), AppError> {
-        append_line(serde_json::to_string_pretty(self)?)?;
+        append_json(self)?;
         Ok(())
     }
-}
-
-pub trait OutputFormatter: Sized {
-    fn format(&self) -> Result<Self, AppError>;
-    fn format_noreturn(&self) -> Result<(), AppError>;
-    #[allow(dead_code)]
-    fn format_json(&self) -> Result<Self, AppError>;
-    fn format_json_noreturn(&self) -> Result<(), AppError>;
 }
 
 impl<T> OutputFormatter for Vec<T>
@@ -75,15 +68,16 @@ where
     }
 }
 
-fn pad_key_value<K, V>(key: K, value: V, padding: usize) -> String
+fn pad_key_value<K, V>(key: K, value: V, padding: i8) -> String
 where
     K: Display,
     V: Display,
 {
+    let padding = padding as usize;
     format!("{key:<padding$}: {value}")
 }
 
-fn append_key_value<K, V>(key: K, value: V, padding: usize) -> Result<(), AppError>
+fn append_key_value<K, V>(key: K, value: V, padding: i8) -> Result<(), AppError>
 where
     K: Display,
     V: Display,
@@ -91,7 +85,7 @@ where
     append_line(pad_key_value(key, value, padding))
 }
 
-fn append_some_key_value<K, V>(key: K, value: &Option<V>, padding: usize) -> Result<(), AppError>
+fn append_some_key_value<K, V>(key: K, value: &Option<V>, padding: i8) -> Result<(), AppError>
 where
     K: Display,
     V: Display,

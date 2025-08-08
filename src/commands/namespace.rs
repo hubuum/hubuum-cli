@@ -9,7 +9,7 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{groups, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, FormattedGroupPermissions, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
@@ -66,7 +66,7 @@ impl CliCommand for NamespaceNew {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn(15)?,
+            OutputFormat::Text => namespace.format_noreturn()?,
         }
 
         Ok(())
@@ -161,7 +161,7 @@ impl CliCommand for NamespaceInfo {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn(15)?,
+            OutputFormat::Text => namespace.format_noreturn()?,
         }
 
         Ok(())
@@ -248,7 +248,13 @@ impl CliCommand for NamespacePermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
-        let permissions = client.namespaces().select_by_name(name)?.permissions()?;
+        let permissions = client
+            .namespaces()
+            .select_by_name(name)?
+            .permissions()?
+            .iter()
+            .map(|p| FormattedGroupPermissions::from(p.clone()))
+            .collect::<Vec<_>>();
 
         let empty_message = format!("No permissions found for namespace '{name}'");
 
@@ -256,7 +262,7 @@ impl CliCommand for NamespacePermissions {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => permissions.format_json_noreturn()?,
             (OutputFormat::Text, true) => append_line(empty_message)?,
-            (OutputFormat::Text, false) => permissions.format_noreturn(15)?,
+            (OutputFormat::Text, false) => permissions.format_noreturn()?,
         }
 
         Ok(())

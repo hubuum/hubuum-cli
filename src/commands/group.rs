@@ -8,7 +8,7 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter, OutputFormatterWithPadding};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
@@ -42,7 +42,7 @@ impl CliCommand for GroupNew {
 
         match self.desired_format(tokens) {
             OutputFormat::Json => group.format_json_noreturn()?,
-            OutputFormat::Text => group.format_noreturn(12)?,
+            OutputFormat::Text => group.format_noreturn()?,
         }
 
         Ok(())
@@ -137,7 +137,7 @@ impl CliCommand for GroupInfo {
 
                 append_line(serde_json::to_string_pretty(&json_class)?)?;
             }
-            OutputFormat::Text => group.format(12)?.members()?.format_noreturn()?,
+            OutputFormat::Text => group.format()?.members()?.format_noreturn()?,
         }
 
         Ok(())

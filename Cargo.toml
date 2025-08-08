@@ -31,7 +31,7 @@ jqesque = "0.0.3"
 jsonpath-rust = "1"
 smooth-json = "0"
 serial_test = "3.2.0"
-strum = "0.27.2"
+strum = { version = "0.27.2", features = ["derive", "strum_macros"] }
 
 [profile.release]
 codegen-units = 1

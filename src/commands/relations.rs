@@ -14,7 +14,6 @@ use crate::commands::shared::{
 use crate::errors::AppError;
 use crate::formatting::{
     append_json_message, FormattedClassRelation, FormattedObjectRelation, OutputFormatter,
-    OutputFormatterWithPadding,
 };
 use crate::models::{OutputFormat, Relation};
 use crate::output::append_line;
@@ -201,13 +200,12 @@ impl CliCommand for RelationNew {
             )?
             .into()
         } else {
-            create_object_relation(client, new, class_from.resource(), class_to.resource())?
-                .into()
+            create_object_relation(client, new, class_from.resource(), class_to.resource())?.into()
         };
 
         match self.desired_format(tokens) {
             OutputFormat::Json => rel.format_json_noreturn()?,
-            OutputFormat::Text => rel.format_noreturn(15)?,
+            OutputFormat::Text => rel.format_noreturn()?,
         };
 
         Ok(())
@@ -509,7 +507,7 @@ impl CliCommand for RelationInfo {
 
             match self.desired_format(tokens) {
                 OutputFormat::Json => rel.format_json_noreturn()?,
-                OutputFormat::Text => rel.format_noreturn(15)?,
+                OutputFormat::Text => rel.format_noreturn()?,
             }
         } else {
             let (class_from, class_to) = (
@@ -541,7 +539,7 @@ impl CliCommand for RelationInfo {
 
             match self.desired_format(tokens) {
                 OutputFormat::Json => object_relation.format_json_noreturn()?,
-                OutputFormat::Text => object_relation.format_noreturn(15)?,
+                OutputFormat::Text => object_relation.format_noreturn()?,
             }
         }
         Ok(())
@@ -561,7 +559,7 @@ fn create_class_relation(
 
     let relation = client.class_relation().create(post)?;
     let formatted_relation = FormattedClassRelation::new(&relation, class_map);
-    formatted_relation.format(15)?;
+    formatted_relation.format()?;
     Ok(formatted_relation)
 }
 
