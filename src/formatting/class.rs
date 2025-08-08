@@ -1,4 +1,4 @@
-use hubuum_client::{client::sync::Handle, Class};
+use hubuum_client::Class;
 
 use super::{append_key_value, append_some_key_value, OutputFormatter};
 use crate::config::get_config;
@@ -28,13 +28,6 @@ impl OutputFormatter for Class {
         append_some_key_value("Validate", &self.validate_schema, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(self.clone())
-    }
-}
-
-impl OutputFormatter for Handle<Class> {
-    fn format(&self) -> Result<Self, AppError> {
-        self.resource().format()?;
         Ok(self.clone())
     }
 }

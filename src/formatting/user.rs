@@ -1,4 +1,4 @@
-use hubuum_client::{client::sync::Handle, User};
+use hubuum_client::User;
 
 use super::{append_key_value, append_some_key_value, OutputFormatter};
 use crate::config::get_config;
@@ -11,13 +11,6 @@ impl OutputFormatter for User {
         append_some_key_value("Email", &self.email, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(self.clone())
-    }
-}
-
-impl OutputFormatter for Handle<User> {
-    fn format(&self) -> Result<Self, AppError> {
-        self.resource().format()?;
         Ok(self.clone())
     }
 }

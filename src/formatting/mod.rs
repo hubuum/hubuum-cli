@@ -1,3 +1,7 @@
+use hubuum_client::{
+    client::{sync::GetID, sync::Handle},
+    ApiResource,
+};
 use serde::Serialize;
 use std::fmt::Display;
 use tabled::{Table, Tabled};
@@ -65,6 +69,16 @@ where
     fn format_json_noreturn(&self) -> Result<(), AppError> {
         append_json(self)?;
         Ok(())
+    }
+}
+
+impl<T> OutputFormatter for Handle<T>
+where
+    T: OutputFormatter + Clone + Serialize + Tabled + Display + Default + GetID + ApiResource,
+{
+    fn format(&self) -> Result<Self, AppError> {
+        self.resource().format()?;
+        Ok(self.clone())
     }
 }
 

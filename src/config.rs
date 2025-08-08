@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::defaults::Defaults;
+use crate::errors::AppError;
 use crate::files::get_system_config_path;
 use crate::models::{OutputFormat, Protocol};
 
@@ -10,8 +11,10 @@ use std::sync::OnceLock;
 
 static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
-pub fn init_config(cfg: AppConfig) -> Result<(), AppConfig> {
-    CONFIG.set(cfg)
+pub fn init_config(cfg: AppConfig) -> Result<(), AppError> {
+    CONFIG
+        .set(cfg)
+        .map_err(|_| AppError::GeneralConfigError("Failed to initialize config".to_string()))
 }
 
 pub fn get_config() -> &'static AppConfig {

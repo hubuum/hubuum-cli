@@ -1,4 +1,4 @@
-use hubuum_client::{client::sync::Handle, GroupPermissionsResult, Namespace};
+use hubuum_client::{GroupPermissionsResult, Namespace};
 use serde::Serialize;
 use tabled::Tabled;
 
@@ -13,13 +13,6 @@ impl OutputFormatter for Namespace {
         append_key_value("Description", &self.description, padding)?;
         append_key_value("Created", self.created_at, padding)?;
         append_key_value("Updated", self.updated_at, padding)?;
-        Ok(self.clone())
-    }
-}
-
-impl OutputFormatter for Handle<Namespace> {
-    fn format(&self) -> Result<Self, AppError> {
-        self.resource().format()?;
         Ok(self.clone())
     }
 }

@@ -80,4 +80,7 @@ pub enum AppError {
 
     #[error("Error parsing JSONPath: {0}")]
     JsonPathError(String),
+
+    #[error("Configuration error: {0}")]
+    GeneralConfigError(String),
 }

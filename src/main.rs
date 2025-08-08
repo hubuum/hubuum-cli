@@ -255,7 +255,7 @@ fn main() -> Result<(), AppError> {
     }
 
     loop {
-        match rl.readline(&prompt(&config)) {
+        match rl.readline(&prompt(config)) {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
                 rl.save_history(&get_history_file()?)?;
