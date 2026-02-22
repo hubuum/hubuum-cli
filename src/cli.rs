@@ -1,7 +1,9 @@
 // src/cli.rs
 use crate::config::AppConfig;
-use clap::{Arg, ArgMatches, Command};
-use std::{path::PathBuf, process::exit};
+use crate::models::Protocol;
+use clap::builder::BoolishValueParser;
+use clap::{value_parser, Arg, ArgMatches, Command};
+use std::path::PathBuf;
 
 pub fn build_cli() -> Command {
     Command::new("Hubuum CLI")
@@ -22,6 +24,7 @@ pub fn build_cli() -> Command {
             Arg::new("port")
                 .long("port")
                 .value_name("PORT")
+                .value_parser(value_parser!(u16))
                 .env("HUBUUM_CLI__SERVER__PORT")
                 .help("Set the server port"),
         )
@@ -38,6 +41,7 @@ pub fn build_cli() -> Command {
             Arg::new("ssl_validation")
                 .long("ssl-validation")
                 .value_name("BOOL")
+                .value_parser(BoolishValueParser::new())
                 .env("HUBUUM_CLI__SERVER__SSL_VALIDATION")
                 .help("Enable or disable SSL validation"),
         )
@@ -59,6 +63,7 @@ pub fn build_cli() -> Command {
             Arg::new("cache_time")
                 .long("cache-time")
                 .value_name("SECONDS")
+                .value_parser(value_parser!(u64))
                 .env("HUBUUM_CLI__CACHE__TIME")
                 .help("Set the cache time in seconds"),
         )
@@ -66,6 +71,7 @@ pub fn build_cli() -> Command {
             Arg::new("cache_size")
                 .long("cache-size")
                 .value_name("BYTES")
+                .value_parser(value_parser!(i32))
                 .env("HUBUUM_CLI__CACHE__SIZE")
                 .help("Set the cache size in bytes"),
         )
@@ -73,6 +79,7 @@ pub fn build_cli() -> Command {
             Arg::new("cache_disable")
                 .long("cache-disable")
                 .value_name("BOOL")
+                .value_parser(BoolishValueParser::new())
                 .env("HUBUUM_CLI__CACHE__DISABLE")
                 .help("Enable or disable caching"),
         )
@@ -80,6 +87,7 @@ pub fn build_cli() -> Command {
             Arg::new("completion_disable_api")
                 .long("completion-api-disable")
                 .value_name("BOOL")
+                .value_parser(BoolishValueParser::new())
                 .env("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED")
                 .help("Disable API-related completions"),
         )
@@ -87,12 +95,14 @@ pub fn build_cli() -> Command {
             Arg::new("command")
                 .long("command")
                 .value_name("COMMAND")
+                .conflicts_with("source")
                 .help("Run a command and exit"),
         )
         .arg(
             Arg::new("source")
                 .long("source")
                 .value_name("FILE")
+                .conflicts_with("command")
                 .help("Run commands from a file and exit"),
         )
 }
@@ -105,21 +115,18 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(hostname) = matches.get_one::<String>("hostname") {
         config.server.hostname = hostname.to_string();
     }
-    if let Some(port) = matches.get_one::<String>("port") {
-        if let Ok(port) = port.parse() {
-            config.server.port = port;
-        }
+    if let Some(port) = matches.get_one::<u16>("port") {
+        config.server.port = *port;
     }
     if let Some(protocol) = matches.get_one::<String>("protocol") {
-        config.server.protocol = protocol.parse().unwrap_or_else(|_| {
-            eprintln!("Invalid protocol. Must be 'http' or 'https'");
-            exit(1);
-        });
+        config.server.protocol = match protocol.as_str() {
+            "http" => Protocol::Http,
+            "https" => Protocol::Https,
+            _ => config.server.protocol.clone(),
+        };
     }
-    if let Some(ssl_validation) = matches.get_one::<String>("ssl_validation") {
-        if let Ok(ssl_validation) = ssl_validation.parse() {
-            config.server.ssl_validation = ssl_validation;
-        }
+    if let Some(ssl_validation) = matches.get_one::<bool>("ssl_validation") {
+        config.server.ssl_validation = *ssl_validation;
     }
     if let Some(username) = matches.get_one::<String>("username") {
         config.server.username = username.to_string();
@@ -127,24 +134,16 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(password) = matches.get_one::<String>("password") {
         config.server.password = Some(password.to_string());
     }
-    if let Some(cache_time) = matches.get_one::<String>("cache_time") {
-        if let Ok(cache_time) = cache_time.parse() {
-            config.cache.time = cache_time;
-        }
+    if let Some(cache_time) = matches.get_one::<u64>("cache_time") {
+        config.cache.time = *cache_time;
     }
-    if let Some(cache_size) = matches.get_one::<String>("cache_size") {
-        if let Ok(cache_size) = cache_size.parse() {
-            config.cache.size = cache_size;
-        }
+    if let Some(cache_size) = matches.get_one::<i32>("cache_size") {
+        config.cache.size = *cache_size;
     }
-    if let Some(cache_disable) = matches.get_one::<String>("cache_disable") {
-        if let Ok(cache_disable) = cache_disable.parse() {
-            config.cache.disable = cache_disable;
-        }
+    if let Some(cache_disable) = matches.get_one::<bool>("cache_disable") {
+        config.cache.disable = *cache_disable;
     }
-    if let Some(disable_api_completion) = matches.get_one::<String>("completion_disable_api") {
-        if let Ok(completion_disable_api) = disable_api_completion.parse() {
-            config.completion.disable_api_related = completion_disable_api;
-        }
+    if let Some(completion_disable_api) = matches.get_one::<bool>("completion_disable_api") {
+        config.completion.disable_api_related = *completion_disable_api;
     }
 }

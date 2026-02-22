@@ -239,7 +239,10 @@ impl CliCommand for RelationDelete {
                 "Deleted object relation from '{}' to '{}' in classes '{}' and '{}'",
                 from, to, new.class_from, new.class_to
             ),
-            _ => panic!("Unexpected state"),
+            (None, Some(_)) => {
+                return Err(AppError::MissingOptions(vec!["object_from".to_string()]))
+            }
+            (Some(_), None) => return Err(AppError::MissingOptions(vec!["object_to".to_string()])),
         };
 
         match self.desired_format(tokens) {
@@ -265,43 +268,44 @@ impl CliCommand for RelationList {
         let mut from_class = None;
         let mut to_class = None;
 
-        if new.class_from.is_some() && new.class_to.is_some() {
-            from_class = Some(
-                client
-                    .classes()
-                    .select_by_name(new.class_from.as_ref().unwrap())?,
-            );
-            to_class = Some(
-                client
-                    .classes()
-                    .select_by_name(new.class_to.as_ref().unwrap())?,
-            );
+        if let (Some(class_from_name), Some(class_to_name)) = (&new.class_from, &new.class_to) {
+            from_class = Some(client.classes().select_by_name(class_from_name)?);
+            to_class = Some(client.classes().select_by_name(class_to_name)?);
 
-            let from = from_class.clone().unwrap();
-            let to = to_class.clone().unwrap();
+            let from = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve source class".to_string())
+            })?;
+            let to = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
+            })?;
 
-            if from.id() > to.id() {
+            if from > to {
                 swapped = true;
                 (from_class, to_class) = (to_class.clone(), from_class.clone())
             }
 
+            let from_id = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve source class".to_string())
+            })?;
+            let to_id = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
+            })?;
+
             query = query
-                .add_filter_equals("from_classes", from_class.clone().unwrap().id())
-                .add_filter_equals("to_classes", to_class.clone().unwrap().id());
-        } else if new.class_from.is_some() {
-            from_class = Some(
-                client
-                    .classes()
-                    .select_by_name(new.class_from.as_ref().unwrap())?,
-            );
-            query = query.add_filter_equals("from_classes", from_class.clone().unwrap().id());
-        } else if new.class_to.is_some() {
-            to_class = Some(
-                client
-                    .classes()
-                    .select_by_name(new.class_to.as_ref().unwrap())?,
-            );
-            query = query.add_filter_equals("to_classes", to_class.clone().unwrap().id());
+                .add_filter_equals("from_classes", from_id)
+                .add_filter_equals("to_classes", to_id);
+        } else if let Some(class_from_name) = &new.class_from {
+            from_class = Some(client.classes().select_by_name(class_from_name)?);
+            let from_id = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve source class".to_string())
+            })?;
+            query = query.add_filter_equals("from_classes", from_id);
+        } else if let Some(class_to_name) = &new.class_to {
+            to_class = Some(client.classes().select_by_name(class_to_name)?);
+            let to_id = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
+                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
+            })?;
+            query = query.add_filter_equals("to_classes", to_id);
         }
 
         let class_relations = query.execute()?;
@@ -384,12 +388,15 @@ impl CliCommand for RelationList {
             .find()
             .add_filter_equals("class_relation", class_relations[0].id);
 
-        if new.object_from.is_some() {
-            let object_from = find_object_by_name(
-                client,
-                from_class.clone().unwrap().id(),
-                new.object_from.as_ref().unwrap(),
-            )?;
+        let from_class_ref = from_class.as_ref().ok_or_else(|| {
+            AppError::CommandExecutionError("Unable to resolve source class".to_string())
+        })?;
+        let to_class_ref = to_class.as_ref().ok_or_else(|| {
+            AppError::CommandExecutionError("Unable to resolve destination class".to_string())
+        })?;
+
+        if let Some(object_from_name) = &new.object_from {
+            let object_from = find_object_by_name(client, from_class_ref.id(), object_from_name)?;
             let target = if swapped {
                 "from_objects"
             } else {
@@ -399,12 +406,8 @@ impl CliCommand for RelationList {
             query = query.add_filter_equals(target, object_from.id);
         }
 
-        if new.object_to.is_some() {
-            let object_to = find_object_by_name(
-                client,
-                to_class.clone().unwrap().id(),
-                new.object_to.as_ref().unwrap(),
-            )?;
+        if let Some(object_to_name) = &new.object_to {
+            let object_to = find_object_by_name(client, to_class_ref.id(), object_to_name)?;
 
             let target = if swapped {
                 "to_objects"
@@ -418,7 +421,7 @@ impl CliCommand for RelationList {
         let object_relations = query.execute()?;
 
         if object_relations.is_empty() {
-            println!("No relations found");
+            append_line("No relations found")?;
             return Ok(());
         }
 
@@ -438,7 +441,7 @@ impl CliCommand for RelationList {
         let mut object_map = HashMap::new();
 
         let class_from_objects = client
-            .objects(from_class.clone().unwrap().id())
+            .objects(from_class_ref.id())
             .find()
             .add_filter_equals("id", &object_ids_joined)
             .execute()?;
@@ -447,7 +450,7 @@ impl CliCommand for RelationList {
         }
 
         let class_to_objects = client
-            .objects(to_class.clone().unwrap().id())
+            .objects(to_class_ref.id())
             .find()
             .add_filter_equals("id", &object_ids_joined)
             .execute()?;
@@ -514,10 +517,16 @@ impl CliCommand for RelationInfo {
                 client.classes().select_by_name(&new.class_from)?,
                 client.classes().select_by_name(&new.class_to)?,
             );
-            let object_from =
-                find_object_by_name(client, class_from.id(), new.object_from.as_ref().unwrap())?;
-            let object_to =
-                find_object_by_name(client, class_to.id(), new.object_to.as_ref().unwrap())?;
+            let object_from_name = new
+                .object_from
+                .as_ref()
+                .ok_or_else(|| AppError::MissingOptions(vec!["object_from".to_string()]))?;
+            let object_to_name = new
+                .object_to
+                .as_ref()
+                .ok_or_else(|| AppError::MissingOptions(vec!["object_to".to_string()]))?;
+            let object_from = find_object_by_name(client, class_from.id(), object_from_name)?;
+            let object_to = find_object_by_name(client, class_to.id(), object_to_name)?;
 
             let mut objectmap = HashMap::new();
             objectmap.insert(object_from.id, object_from.clone());
@@ -635,7 +644,7 @@ fn delete_object_relation(
     let relation = find_object_relation(client, &class_relation, &object_from, &object_to)?;
     client.object_relation().delete(relation.id)?;
     append_line(format!(
-        "Deleted object relation ({} <> {}",
+        "Deleted object relation ({} <> {})",
         object_from.name, object_to.name
     ))?;
     Ok(())

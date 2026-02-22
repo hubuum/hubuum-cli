@@ -114,13 +114,18 @@ fn execute_command(
     context: &[String],
     client: &SyncClient<Authenticated>,
 ) -> Result<(), AppError> {
-    debug!("Executing command: {:?} {}", context, cmd_name.unwrap());
-    let tokens = tokenizer::CommandTokenizer::new(line, cmd_name.unwrap())?;
+    let cmd_name = cmd_name.ok_or_else(|| {
+        AppError::CommandExecutionError("No command name resolved for execution".to_string())
+    })?;
+    debug!("Executing command: {:?} {}", context, cmd_name);
+
+    let option_defs = cmd.options();
+    let tokens = tokenizer::CommandTokenizer::new(line, cmd_name, &option_defs)?;
     trace!("Tokens: {tokens:?}");
 
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
-        cmd.help(&cmd_name.unwrap().to_string(), context)
+        cmd.help(&cmd_name.to_string(), context)
     } else {
         cmd.execute(client, &tokens)
     }
@@ -212,8 +217,10 @@ fn source_commands_from_file(
 }
 
 fn main() -> Result<(), AppError> {
+    let matches = cli::build_cli().get_matches();
+
     let file = get_log_file()?;
-    let file = std::fs::File::create(file).expect("Failed to create log file");
+    let file = std::fs::File::create(file)?;
 
     // Set up the tracing subscriber
     tracing_subscriber::fmt()
@@ -221,11 +228,10 @@ fn main() -> Result<(), AppError> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let matches = cli::build_cli().get_matches();
     let cli_config_path = cli::get_cli_config_path(&matches);
     let mut config = config::load_config(cli_config_path)?;
     cli::update_config_from_cli(&mut config, &matches);
-    config::init_config(config).expect("Config already initialized?");
+    config::init_config(config)?;
     let config = config::get_config();
 
     let baseurl = hubuum_client::BaseUrl::from_str(&format!(

@@ -156,7 +156,11 @@ impl CliCommand for ObjectInfo {
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
         let class = client.classes().select_by_name(&query.class)?;
-        let object = class.object_by_name(&query.name.unwrap())?;
+        let object_name = query
+            .name
+            .as_ref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let object = class.object_by_name(object_name)?;
 
         let namespace = client
             .namespaces()
@@ -173,7 +177,7 @@ impl CliCommand for ObjectInfo {
         let object = FormattedObject::new(object.resource(), &classmap, &nsmap);
 
         if self.want_json(tokens) {
-            append_line(serde_json::to_string_pretty(&object).unwrap())?;
+            append_line(serde_json::to_string_pretty(&object)?)?;
             return Ok(());
         }
 
@@ -268,13 +272,17 @@ impl CliCommand for ObjectDelete {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
-        let class = if query.class.is_some() {
-            client.classes().select_by_name(&query.class.unwrap())?
-        } else {
-            return Err(AppError::MissingOptions(vec!["class".to_string()]));
-        };
+        let class_name = query
+            .class
+            .as_ref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
+        let class = client.classes().select_by_name(class_name)?;
 
-        let object = class.object_by_name(&query.name.unwrap())?;
+        let object_name = query
+            .name
+            .as_ref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let object = class.object_by_name(object_name)?;
 
         client.objects(class.id()).delete(object.id())?;
 

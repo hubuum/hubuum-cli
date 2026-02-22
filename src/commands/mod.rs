@@ -1,6 +1,7 @@
 use hubuum_client::{Authenticated, SyncClient};
 use log::trace;
 use std::any::TypeId;
+use std::collections::HashSet;
 
 mod builder;
 mod class;
@@ -69,10 +70,37 @@ pub trait CliCommand: CliCommandInfo {
     ) -> Result<(), AppError>;
 
     fn validate(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        self.validate_unknown_options(tokens)?;
         self.validate_not_both_short_and_long_set(tokens)?;
         self.validate_missing_options(tokens)?;
         self.validate_flag_options(tokens)?;
         Ok(())
+    }
+
+    fn validate_unknown_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut known_options = HashSet::new();
+        for opt in self.options() {
+            if let Some(short) = opt.short_without_dash() {
+                known_options.insert(short);
+            }
+            if let Some(long) = opt.long_without_dashes() {
+                known_options.insert(long);
+            }
+        }
+
+        let mut unknown_options: Vec<String> = tokens
+            .get_options()
+            .keys()
+            .filter(|key| !known_options.contains(*key))
+            .cloned()
+            .collect();
+
+        if unknown_options.is_empty() {
+            return Ok(());
+        }
+
+        unknown_options.sort();
+        Err(AppError::InvalidOption(unknown_options.join(", ")))
     }
 
     fn validate_missing_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
@@ -116,9 +144,9 @@ pub trait CliCommand: CliCommandInfo {
         let mut duplicate_options = Vec::new();
 
         for opt in self.options() {
-            if let Some(short) = &opt.short {
-                if let Some(long) = &opt.long {
-                    if tokenpairs.contains_key(short) && tokenpairs.contains_key(long) {
+            if let Some(short) = opt.short_without_dash() {
+                if let Some(long) = opt.long_without_dashes() {
+                    if tokenpairs.contains_key(&short) && tokenpairs.contains_key(&long) {
                         duplicate_options.push(opt.name.clone());
                     }
                 }
@@ -142,14 +170,17 @@ pub trait CliCommand: CliCommandInfo {
         for opt in self.options() {
             if opt.flag {
                 if let Some(short) = &opt.short_without_dash() {
-                    if tokenpairs.contains_key(short) && !tokenpairs.get(short).unwrap().is_empty()
-                    {
-                        populated_flag_options.push(short.clone());
+                    if let Some(value) = tokenpairs.get(short) {
+                        if !value.is_empty() {
+                            populated_flag_options.push(short.clone());
+                        }
                     }
                 }
                 if let Some(long) = &opt.long_without_dashes() {
-                    if tokenpairs.contains_key(long) && !tokenpairs.get(long).unwrap().is_empty() {
-                        populated_flag_options.push(long.clone());
+                    if let Some(value) = tokenpairs.get(long) {
+                        if !value.is_empty() {
+                            populated_flag_options.push(long.clone());
+                        }
                     }
                 }
             }
@@ -199,10 +230,7 @@ pub trait CliCommand: CliCommandInfo {
                     .short
                     .as_ref()
                     .map_or(String::new(), |s| format!("{s},"));
-                let long = opt
-                    .long
-                    .as_ref()
-                    .map_or(String::new(), |l| format!("{l},"));
+                let long = opt.long.as_ref().map_or(String::new(), |l| format!("{l},"));
                 let flag = if opt.flag { " (flag)" } else { "" };
 
                 help.push_str(&format!(

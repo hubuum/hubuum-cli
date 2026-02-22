@@ -66,9 +66,7 @@ impl OutputBuffer {
         self.errors.clear();
 
         if let Some((regex, invert)) = &self.filter {
-            debug!(
-                "Filtering output buffer with pattern='{regex}', invert={invert}"
-            );
+            debug!("Filtering output buffer with pattern='{regex}', invert={invert}");
             for line in &self.lines {
                 let matches = regex.is_match(line);
                 if matches != *invert {

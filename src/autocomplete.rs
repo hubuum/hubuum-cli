@@ -87,9 +87,7 @@ fn objects_from_class_source(
     parts: &[String],
     source: &str,
 ) -> Vec<String> {
-    trace!(
-        "Autocompleting objects via source '{source}' with prefix: {prefix}"
-    );
+    trace!("Autocompleting objects via source '{source}' with prefix: {prefix}");
     let classname = match parts.windows(2).find(|w| w[0] == source) {
         Some(window) => window[1].clone(),
         None => return Vec::new(),

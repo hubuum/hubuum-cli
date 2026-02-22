@@ -175,9 +175,7 @@ impl Completer for CommandList {
             .rsplit_once(char::is_whitespace)
             .map_or((0, &line[..pos]), |(l, r)| (l.len() + 1, r));
         let mut completions = Vec::new();
-        trace!(
-            "Completing. Line: {line}, Pos: {pos}, Start: {start}, Word: {word}",
-        );
+        trace!("Completing. Line: {line}, Pos: {pos}, Start: {start}, Word: {word}",);
         let parts = shlex::split(&line[..pos]);
         if parts.is_none() {
             return Ok((start, completions));
