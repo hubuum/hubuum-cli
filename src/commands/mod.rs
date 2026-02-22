@@ -30,7 +30,7 @@ use crate::{errors::AppError, tokenizer::CommandTokenizer};
 type AutoCompleter = fn(&CommandList, &str, &[String]) -> Vec<String>;
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CliOption {
     pub name: String,
     pub short: Option<String>,
@@ -258,5 +258,130 @@ pub trait CliCommand: CliCommandInfo {
             append_line(line)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::TypeId;
+
+    use hubuum_client::{Authenticated, SyncClient};
+
+    use super::{CliCommand, CliCommandInfo, CliOption};
+    use crate::errors::AppError;
+    use crate::tokenizer::CommandTokenizer;
+
+    struct DummyCommand {
+        options: Vec<CliOption>,
+    }
+
+    impl CliCommandInfo for DummyCommand {
+        fn options(&self) -> Vec<CliOption> {
+            self.options.clone()
+        }
+
+        fn name(&self) -> String {
+            "dummy".to_string()
+        }
+
+        fn about(&self) -> Option<String> {
+            None
+        }
+
+        fn long_about(&self) -> Option<String> {
+            None
+        }
+
+        fn examples(&self) -> Option<String> {
+            None
+        }
+    }
+
+    impl CliCommand for DummyCommand {
+        fn execute(
+            &self,
+            _client: &SyncClient<Authenticated>,
+            _tokens: &CommandTokenizer,
+        ) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    fn option(
+        name: &str,
+        short: Option<&str>,
+        long: Option<&str>,
+        flag: bool,
+        required: bool,
+    ) -> CliOption {
+        CliOption {
+            name: name.to_string(),
+            short: short.map(|s| s.to_string()),
+            long: long.map(|l| l.to_string()),
+            flag,
+            help: String::new(),
+            field_type: TypeId::of::<String>(),
+            field_type_help: "string".to_string(),
+            required,
+            autocomplete: None,
+        }
+    }
+
+    #[test]
+    fn validate_rejects_unknown_options() {
+        let cmd = DummyCommand {
+            options: vec![option("json", Some("-j"), Some("--json"), true, false)],
+        };
+        let tokens = CommandTokenizer::new("scope cmd --unknown value", "cmd", &cmd.options())
+            .expect("tokenization should succeed");
+
+        let err = cmd
+            .validate(&tokens)
+            .expect_err("unknown option should fail");
+        assert!(matches!(err, AppError::InvalidOption(ref v) if v == "unknown"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_short_and_long_options() {
+        let cmd = DummyCommand {
+            options: vec![option("json", Some("-j"), Some("--json"), true, false)],
+        };
+        let tokens = CommandTokenizer::new("scope cmd -j --json", "cmd", &cmd.options())
+            .expect("tokenization should succeed");
+
+        let err = cmd
+            .validate(&tokens)
+            .expect_err("duplicate options should fail");
+        assert!(matches!(err, AppError::DuplicateOptions(ref v) if v == &vec!["json".to_string()]));
+    }
+
+    #[test]
+    fn validate_rejects_populated_flag_options() {
+        let cmd = DummyCommand {
+            options: vec![option("json", Some("-j"), Some("--json"), true, false)],
+        };
+        let tokens = CommandTokenizer::new("scope cmd --json=true", "cmd", &cmd.options())
+            .expect("tokenization should succeed");
+
+        let err = cmd
+            .validate(&tokens)
+            .expect_err("populated flag options should fail");
+        assert!(
+            matches!(err, AppError::PopulatedFlagOptions(ref v) if v == &vec!["json".to_string()])
+        );
+    }
+
+    #[test]
+    fn validate_rejects_missing_required_options() {
+        let cmd = DummyCommand {
+            options: vec![option("name", Some("-n"), Some("--name"), false, true)],
+        };
+        let tokens = CommandTokenizer::new("scope cmd", "cmd", &cmd.options())
+            .expect("tokenization should succeed");
+
+        let err = cmd
+            .validate(&tokens)
+            .expect_err("missing required option should fail");
+        assert!(matches!(err, AppError::MissingOptions(ref v) if v == &vec!["name".to_string()]));
     }
 }

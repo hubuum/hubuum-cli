@@ -133,9 +133,30 @@ pub fn find_object_relation(
 
 // Convert $.['location'].['country'] to location.country (etc)
 pub fn prettify_slice_path(path: &str) -> String {
-    println!("prettify_slice_path: {path}");
     path.trim_start_matches("$")
         .replace("']['", ".")
         .replace("['", "")
         .replace("']", "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{prettify_slice_path, Commafy};
+
+    #[test]
+    fn commafy_unique_contains_unique_values() {
+        let joined = vec!["b", "a", "b"].into_iter().commafy_unique();
+        let mut items = joined
+            .split(',')
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        items.sort();
+        assert_eq!(items, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn prettify_slice_path_rewrites_jsonpath_slices() {
+        let path = "$['location']['country']";
+        assert_eq!(prettify_slice_path(path), "location.country");
+    }
 }

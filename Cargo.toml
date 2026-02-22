@@ -33,6 +33,10 @@ smooth-json = "0"
 serial_test = "3.2.0"
 strum = { version = "0.27.2", features = ["derive", "strum_macros"] }
 
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+
 [profile.release]
 codegen-units = 1
 lto = "fat"

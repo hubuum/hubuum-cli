@@ -52,6 +52,18 @@ impl OutputBuffer {
         self.filter = None;
     }
 
+    fn filtered_lines(&self) -> Vec<String> {
+        match &self.filter {
+            Some((regex, invert)) => self
+                .lines
+                .iter()
+                .filter(|line| regex.is_match(line) != *invert)
+                .cloned()
+                .collect(),
+            None => self.lines.clone(),
+        }
+    }
+
     fn flush(&mut self) {
         debug!("Flushing output buffer ({} lines)", self.lines.len());
 
@@ -67,16 +79,9 @@ impl OutputBuffer {
 
         if let Some((regex, invert)) = &self.filter {
             debug!("Filtering output buffer with pattern='{regex}', invert={invert}");
-            for line in &self.lines {
-                let matches = regex.is_match(line);
-                if matches != *invert {
-                    println!("{line}");
-                }
-            }
-        } else {
-            for line in &self.lines {
-                println!("{line}");
-            }
+        }
+        for line in self.filtered_lines() {
+            println!("{line}");
         }
         self.lines.clear();
     }
@@ -273,4 +278,81 @@ pub fn clear_filter() -> Result<(), AppError> {
         .map_err(|_| AppError::LockError)?
         .clear_filter();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OutputBuffer;
+
+    fn sample_buffer() -> OutputBuffer {
+        let mut buffer = OutputBuffer::new();
+        buffer.append_line("alpha".to_string());
+        buffer.append_line("beta".to_string());
+        buffer.append_line("gamma".to_string());
+        buffer
+    }
+
+    #[test]
+    fn filter_keeps_matching_lines() {
+        let mut buffer = sample_buffer();
+        buffer
+            .set_filter("a$".to_string(), false)
+            .expect("regex should be valid");
+
+        let lines = buffer.filtered_lines();
+        assert_eq!(
+            lines,
+            vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]
+        );
+    }
+
+    #[test]
+    fn invert_filter_excludes_matching_lines() {
+        let mut buffer = sample_buffer();
+        buffer
+            .set_filter("^a".to_string(), true)
+            .expect("regex should be valid");
+
+        let lines = buffer.filtered_lines();
+        assert_eq!(lines, vec!["beta".to_string(), "gamma".to_string()]);
+    }
+
+    #[test]
+    fn clear_filter_restores_all_lines() {
+        let mut buffer = sample_buffer();
+        buffer
+            .set_filter("^a".to_string(), true)
+            .expect("regex should be valid");
+        assert_eq!(buffer.filtered_lines().len(), 2);
+
+        buffer.clear_filter();
+        assert_eq!(buffer.filtered_lines().len(), 3);
+    }
+
+    #[test]
+    fn warnings_and_errors_are_independent_of_filter() {
+        let mut buffer = sample_buffer();
+        buffer.add_warning("warn-1".to_string());
+        buffer.add_error("err-1".to_string());
+        buffer
+            .set_filter("^a".to_string(), false)
+            .expect("regex should be valid");
+
+        assert_eq!(buffer.warnings, vec!["warn-1".to_string()]);
+        assert_eq!(buffer.errors, vec!["err-1".to_string()]);
+        assert_eq!(buffer.filtered_lines(), vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn flush_clears_all_buffers() {
+        let mut buffer = sample_buffer();
+        buffer.add_warning("warn-1".to_string());
+        buffer.add_error("err-1".to_string());
+
+        buffer.flush();
+
+        assert!(buffer.lines.is_empty());
+        assert!(buffer.warnings.is_empty());
+        assert!(buffer.errors.is_empty());
+    }
 }

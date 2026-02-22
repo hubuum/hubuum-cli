@@ -208,6 +208,8 @@ impl CommandTokenizer {
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::CommandTokenizer;
     use crate::commands::CliOption;
@@ -276,5 +278,90 @@ mod tests {
             Some(&"whatever".to_string())
         );
         assert_eq!(tokens.get_options().get("json"), Some(&String::new()));
+    }
+
+    #[test]
+    fn parses_inline_value_for_non_flag_option() {
+        let options = vec![opt("name", Some("-n"), Some("--name"), false)];
+
+        let tokens = CommandTokenizer::new("object list --name=item-1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("name"),
+            Some(&"item-1".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_inline_value_for_flag_option_for_validation() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let tokens = CommandTokenizer::new("object list --json=true", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("json"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn accepts_negative_number_as_option_value() {
+        let options = vec![opt("offset", Some("-o"), Some("--offset"), false)];
+
+        let tokens = CommandTokenizer::new("object list --offset -1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("offset"), Some(&"-1".to_string()));
+    }
+
+    #[test]
+    fn rejects_non_option_token_after_options_are_seen() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let err = CommandTokenizer::new("object list --json trailing", "list", &options)
+            .expect_err("non-option token after options should fail");
+
+        assert!(matches!(err, AppError::InvalidInput));
+    }
+
+    #[test]
+    fn reads_file_uri_option_values() {
+        let options = vec![opt("data", Some("-d"), Some("--data"), false)];
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic enough for tests")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("hubuum-cli-tokenizer-{unique_suffix}.txt"));
+        fs::write(&path, "payload from file\n").expect("should write test file");
+
+        let line = format!("object list --data file://{}", path.to_string_lossy());
+        let tokens =
+            CommandTokenizer::new(&line, "list", &options).expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("data"),
+            Some(&"payload from file".to_string())
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn unknown_option_without_value_is_empty_string() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let tokens = CommandTokenizer::new("object list --unknown --json", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("unknown"), Some(&String::new()));
+    }
+
+    #[test]
+    fn flag_followed_by_free_value_is_invalid_input() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let err = CommandTokenizer::new("object list --json true", "list", &options)
+            .expect_err("free value after flag should fail tokenization");
+
+        assert!(matches!(err, AppError::InvalidInput));
     }
 }

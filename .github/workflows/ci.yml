@@ -24,6 +24,8 @@ jobs:
         run: rustup component add clippy
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests (all targets)
+        run: cargo test --all-targets
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@v18
         with:
@@ -47,19 +49,19 @@ jobs:
 #            target: aarch64-unknown-linux-gnu
 #            bin: hubuum-cli
 #            name: hubuum-cli-Linux-aarch64-gnu.tar.gz
-            skip_tests: true
+            skip_tests: false
           - os_name: macOS-aarch64
             os: macOS-latest
             target: aarch64-apple-darwin
             bin: hubuum-cli
             name: hubuum-cli-Darwin-aarch64.tar.gz
-            skip_tests: true
+            skip_tests: false
           - os_name: Windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: hubuum-cli.exe
             name: hubuum-cli-Windows-x86_64.zip
-            skip_tests: true
+            skip_tests: false
         toolchain:
           - stable
           - beta
@@ -90,7 +92,7 @@ jobs:
           command: "test"
           target: ${{ matrix.platform.target }}
           toolchain: ${{ matrix.toolchain }}
-          args: "--release"
+          args: "--release --all-targets"
         if: ${{ !matrix.platform.skip_tests }}
       - name: Package as archive
         shell: bash
