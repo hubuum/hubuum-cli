@@ -172,7 +172,8 @@ impl CommandTokenizer {
                 .trim_end()
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
-            std::fs::read_to_string(stripped)
+            let normalized = normalize_file_uri_path(stripped);
+            std::fs::read_to_string(normalized)
                 .map_err(AppError::IoError)?
                 .trim_end()
                 .to_string()
@@ -205,10 +206,22 @@ impl CommandTokenizer {
     }
 }
 
+fn normalize_file_uri_path(stripped: &str) -> &str {
+    if cfg!(windows) && stripped.len() > 3 {
+        let bytes = stripped.as_bytes();
+        // file:///C:/... -> /C:/... after stripping prefix; convert to C:/...
+        if bytes[0] == b'/' && bytes[2] == b':' && bytes[1].is_ascii_alphabetic() {
+            return &stripped[1..];
+        }
+    }
+    stripped
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
     use std::fs;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::CommandTokenizer;
@@ -226,6 +239,14 @@ mod tests {
             field_type_help: "string".to_string(),
             required: false,
             autocomplete: None,
+        }
+    }
+
+    fn file_uri_from_path(path: &Path) -> String {
+        if cfg!(windows) {
+            format!("file://{}", path.to_string_lossy().replace('\\', "/"))
+        } else {
+            format!("file://{}", path.to_string_lossy())
         }
     }
 
@@ -333,13 +354,42 @@ mod tests {
         let path = std::env::temp_dir().join(format!("hubuum-cli-tokenizer-{unique_suffix}.txt"));
         fs::write(&path, "payload from file\n").expect("should write test file");
 
-        let line = format!("object list --data file://{}", path.to_string_lossy());
+        let line = format!("object list --data '{}'", file_uri_from_path(&path));
         let tokens =
             CommandTokenizer::new(&line, "list", &options).expect("tokenization should succeed");
 
         assert_eq!(
             tokens.get_options().get("data"),
             Some(&"payload from file".to_string())
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reads_file_uri_with_triple_slash_style() {
+        let options = vec![opt("data", Some("-d"), Some("--data"), false)];
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic enough for tests")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("hubuum-cli-tokenizer-3s-{unique_suffix}.txt"));
+        fs::write(&path, "payload triple slash\n").expect("should write test file");
+
+        let base = file_uri_from_path(&path);
+        let triple_slash = if cfg!(windows) {
+            base.replacen("file://", "file:///", 1)
+        } else {
+            base.clone()
+        };
+        let line = format!("object list --data '{}'", triple_slash);
+        let tokens =
+            CommandTokenizer::new(&line, "list", &options).expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("data"),
+            Some(&"payload triple slash".to_string())
         );
 
         let _ = fs::remove_file(path);
