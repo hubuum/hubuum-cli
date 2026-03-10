@@ -66,7 +66,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         .add_command(
             &["relation"],
             catalog_command(
-                "info",
+                "show",
                 RelationInfo::default(),
                 CommandDocs {
                     about: Some("Information about a relationships"),

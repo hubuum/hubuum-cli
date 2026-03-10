@@ -1,4 +1,4 @@
-use hubuum_client::{ClassPost, FilterOperator};
+use hubuum_client::{ClassPatch, ClassPost, FilterOperator};
 
 use crate::domain::{ClassDetails, ClassRecord, ObjectRecord};
 use crate::errors::AppError;
@@ -20,6 +20,16 @@ pub struct CreateClassInput {
     pub validate_schema: Option<bool>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ClassUpdateInput {
+    pub name: String,
+    pub rename: Option<String>,
+    pub namespace: Option<String>,
+    pub description: Option<String>,
+    pub json_schema: Option<serde_json::Value>,
+    pub validate_schema: Option<bool>,
+}
+
 impl HubuumGateway {
     pub fn list_class_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
@@ -34,7 +44,7 @@ impl HubuumGateway {
 
     pub fn create_class(&self, input: CreateClassInput) -> Result<ClassRecord, AppError> {
         let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
-        let class = self.client.classes().create(ClassPost {
+        let class = self.client.classes().create_raw(ClassPost {
             name: input.name,
             namespace_id: namespace.id(),
             description: input.description,
@@ -61,6 +71,28 @@ impl HubuumGateway {
     pub fn delete_class(&self, name: &str) -> Result<(), AppError> {
         self.client.classes().select_by_name(name)?.delete()?;
         Ok(())
+    }
+
+    pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
+        let class = self.client.classes().select_by_name(&input.name)?;
+
+        let namespace_id = match input.namespace {
+            Some(namespace) => self.client.namespaces().select_by_name(&namespace)?.id(),
+            None => class.resource().namespace.id,
+        };
+
+        let updated = self.client.classes().update_raw(
+            class.id(),
+            ClassPatch {
+                name: input.rename,
+                namespace_id,
+                description: input.description,
+                json_schema: input.json_schema,
+                validate_schema: input.validate_schema,
+            },
+        )?;
+
+        Ok(ClassRecord::from(updated))
     }
 
     pub fn list_classes(&self, filter: ClassFilter) -> Result<Vec<ClassRecord>, AppError> {

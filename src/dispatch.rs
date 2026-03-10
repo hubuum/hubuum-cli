@@ -184,10 +184,13 @@ fn process_filter(line: &str) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use super::{is_help_alias, process_filter};
     use crate::output::{append_line, reset_output, take_output};
 
     #[test]
+    #[serial]
     fn process_filter_sets_runtime_filter() {
         reset_output().expect("buffer should reset");
         let line = process_filter("list | alpha").expect("filter should parse");
@@ -200,6 +203,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn help_alias_accepts_question_mark() {
         assert!(is_help_alias(&["?".to_string(), "class".to_string()]));
         assert!(is_help_alias(&["help".to_string()]));

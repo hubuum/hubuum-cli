@@ -213,9 +213,12 @@ pub fn clear_filter() -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use super::{append_line, reset_output, set_filter, take_output};
 
     #[test]
+    #[serial]
     fn take_output_applies_filter_and_resets_buffer() {
         reset_output().expect("buffer should reset");
         append_line("alpha").expect("line should append");

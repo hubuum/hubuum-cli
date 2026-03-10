@@ -30,7 +30,7 @@ impl HubuumGateway {
         class_to: &str,
     ) -> Result<ResolvedClassRelationRecord, AppError> {
         let (class_from, class_to) = self.class_pair(class_from, class_to)?;
-        let relation = self.client.class_relation().create(ClassRelationPost {
+        let relation = self.client.class_relation().create_raw(ClassRelationPost {
             from_hubuum_class_id: class_from.id,
             to_hubuum_class_id: class_to.id,
         })?;
@@ -49,11 +49,14 @@ impl HubuumGateway {
         let object_from = self.find_object_by_name(class_from.id, object_from_name)?;
         let object_to = self.find_object_by_name(class_to.id, object_to_name)?;
 
-        let relation = self.client.object_relation().create(ObjectRelationPost {
-            class_relation_id: class_relation.id,
-            from_hubuum_object_id: object_from.id,
-            to_hubuum_object_id: object_to.id,
-        })?;
+        let relation = self
+            .client
+            .object_relation()
+            .create_raw(ObjectRelationPost {
+                class_relation_id: class_relation.id,
+                from_hubuum_object_id: object_from.id,
+                to_hubuum_object_id: object_to.id,
+            })?;
 
         let class_map = self.class_map_from_classes([&class_from, &class_to]);
         let object_map = HashMap::from([(object_from.id, object_from), (object_to.id, object_to)]);

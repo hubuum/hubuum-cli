@@ -446,4 +446,41 @@ mod tests {
         assert!(help.contains("[required]"));
         assert!(help.contains("Name filter"));
     }
+
+    #[test]
+    fn all_registered_commands_have_about_text() {
+        let catalog = crate::commands::build_command_catalog();
+        let mut missing = Vec::new();
+        collect_commands_missing_about(&catalog.root, &mut Vec::new(), &mut missing);
+
+        assert!(
+            missing.is_empty(),
+            "commands missing about text: {}",
+            missing.join(", ")
+        );
+    }
+
+    fn collect_commands_missing_about(
+        scope: &super::ScopeSpec,
+        path: &mut Vec<String>,
+        missing: &mut Vec<String>,
+    ) {
+        for command in scope.commands.values() {
+            if command
+                .about
+                .as_deref()
+                .is_none_or(|about| about.trim().is_empty())
+            {
+                let mut command_path = path.clone();
+                command_path.push(command.name.clone());
+                missing.push(command_path.join(" "));
+            }
+        }
+
+        for nested_scope in scope.scopes.values() {
+            path.push(nested_scope.name.clone());
+            collect_commands_missing_about(nested_scope, path, missing);
+            path.pop();
+        }
+    }
 }

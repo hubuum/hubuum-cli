@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use hubuum_client::{FilterOperator, UserPost};
+use hubuum_client::{FilterOperator, UserPatch, UserPost};
 
 use crate::domain::{CreatedUser, UserRecord};
 use crate::errors::AppError;
@@ -21,9 +21,16 @@ pub struct CreateUserInput {
     pub password: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct UserUpdateInput {
+    pub username: String,
+    pub rename: Option<String>,
+    pub email: Option<String>,
+}
+
 impl HubuumGateway {
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
-        let user = self.client.users().create(UserPost {
+        let user = self.client.users().create_raw(UserPost {
             username: input.username,
             email: input.email,
             password: input.password.clone(),
@@ -111,5 +118,18 @@ impl HubuumGateway {
         let user = self.client.users().select_by_name(username)?;
         self.client.users().delete(user.id())?;
         Ok(())
+    }
+
+    pub fn update_user(&self, input: UserUpdateInput) -> Result<UserRecord, AppError> {
+        let user = self.client.users().select_by_name(&input.username)?;
+        let updated = self.client.users().update_raw(
+            user.id(),
+            UserPatch {
+                username: input.rename,
+                email: input.email,
+            },
+        )?;
+
+        Ok(UserRecord::from(updated))
     }
 }

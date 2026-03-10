@@ -26,7 +26,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 "create",
                 ObjectNew::default(),
                 CommandDocs {
-                    about: Some("Create a object class"),
+                    about: Some("Create an object"),
                     long_about: Some(
                         "Create a new object in a specific class with the specified properties.",
                     ),
@@ -39,11 +39,25 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         )
         .add_command(
             &["object"],
-            catalog_command("list", ObjectList::default(), CommandDocs::default()),
+            catalog_command(
+                "list",
+                ObjectList::default(),
+                CommandDocs {
+                    about: Some("List objects"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["object"],
-            catalog_command("delete", ObjectDelete::default(), CommandDocs::default()),
+            catalog_command(
+                "delete",
+                ObjectDelete::default(),
+                CommandDocs {
+                    about: Some("Delete an object"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["object"],
@@ -64,7 +78,14 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         )
         .add_command(
             &["object"],
-            catalog_command("info", ObjectInfo::default(), CommandDocs::default()),
+            catalog_command(
+                "show",
+                ObjectInfo::default(),
+                CommandDocs {
+                    about: Some("Show object details"),
+                    ..CommandDocs::default()
+                },
+            ),
         );
 }
 
@@ -419,6 +440,7 @@ impl CliCommand for ObjectModify {
             class_name: new.class,
             rename: new.rename,
             namespace: new.namespace,
+            reclass: new.reclass,
             description: new.description,
             data,
         })?;

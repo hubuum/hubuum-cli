@@ -10,35 +10,85 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, CreateGroupInput, GroupFilter};
+use crate::services::{AppServices, CreateGroupInput, GroupFilter, GroupUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
             &["group"],
-            catalog_command("create", GroupNew::default(), CommandDocs::default()),
+            catalog_command(
+                "create",
+                GroupNew::default(),
+                CommandDocs {
+                    about: Some("Create a group"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["group"],
-            catalog_command("list", GroupList::default(), CommandDocs::default()),
+            catalog_command(
+                "list",
+                GroupList::default(),
+                CommandDocs {
+                    about: Some("List groups"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["group"],
-            catalog_command("add_user", GroupAddUser::default(), CommandDocs::default()),
+            catalog_command(
+                "add_user",
+                GroupAddUser::default(),
+                CommandDocs {
+                    about: Some("Add a user to a group"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["group"],
             catalog_command(
                 "remove_user",
                 GroupRemoveUser::default(),
-                CommandDocs::default(),
+                CommandDocs {
+                    about: Some("Remove a user from a group"),
+                    ..CommandDocs::default()
+                },
             ),
         )
         .add_command(
             &["group"],
-            catalog_command("info", GroupInfo::default(), CommandDocs::default()),
+            catalog_command(
+                "show",
+                GroupInfo::default(),
+                CommandDocs {
+                    about: Some("Show group details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["group"],
+            catalog_command(
+                "modify",
+                GroupModify::default(),
+                CommandDocs {
+                    about: Some("Modify a group"),
+                    long_about: Some("Update an existing group by group name."),
+                    examples: Some(
+                        r#"modify my-group --rename other-group
+modify --groupname my-group --description "Updated description""#,
+                    ),
+                },
+            ),
         );
+}
+
+trait GetGroupname {
+    fn groupname(&self) -> Option<String>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -146,6 +196,46 @@ impl CliCommand for GroupInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct GroupModify {
+    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    pub groupname: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the group")]
+    pub rename: Option<String>,
+    #[option(short = "d", long = "description", help = "Description of the group")]
+    pub description: Option<String>,
+}
+
+impl GetGroupname for &GroupModify {
+    fn groupname(&self) -> Option<String> {
+        self.groupname.clone()
+    }
+}
+
+impl CliCommand for GroupModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.groupname = groupname_or_pos(&query, tokens, 0)?;
+        let groupname = query
+            .groupname
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["groupname".to_string()]))?;
+
+        let group = services.gateway().update_group(GroupUpdateInput {
+            groupname,
+            rename: query.rename,
+            description: query.description,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => group.format_json_noreturn()?,
+            OutputFormat::Text => group.format_noreturn()?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupList {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub name: Option<String>,
@@ -182,4 +272,22 @@ impl CliCommand for GroupList {
 
         Ok(())
     }
+}
+
+fn groupname_or_pos<U>(
+    query: U,
+    tokens: &CommandTokenizer,
+    pos: usize,
+) -> Result<Option<String>, AppError>
+where
+    U: GetGroupname,
+{
+    let pos0 = tokens.get_positionals().get(pos);
+    if query.groupname().is_none() {
+        if pos0.is_none() {
+            return Err(AppError::MissingOptions(vec!["groupname".to_string()]));
+        }
+        return Ok(pos0.cloned());
+    }
+    Ok(query.groupname().clone())
 }

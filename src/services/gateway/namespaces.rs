@@ -1,4 +1,4 @@
-use hubuum_client::{FilterOperator, NamespacePost};
+use hubuum_client::{FilterOperator, NamespacePatch, NamespacePost};
 
 use crate::domain::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
@@ -13,6 +13,13 @@ pub struct CreateNamespaceInput {
     pub name: String,
     pub description: String,
     pub owner: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NamespaceUpdateInput {
+    pub name: String,
+    pub rename: Option<String>,
+    pub description: Option<String>,
 }
 
 impl HubuumGateway {
@@ -32,7 +39,7 @@ impl HubuumGateway {
         input: CreateNamespaceInput,
     ) -> Result<NamespaceRecord, AppError> {
         let group = self.client.groups().select_by_name(&input.owner)?;
-        let namespace = self.client.namespaces().create(NamespacePost {
+        let namespace = self.client.namespaces().create_raw(NamespacePost {
             name: input.name,
             description: input.description,
             group_id: group.id(),
@@ -74,6 +81,22 @@ impl HubuumGateway {
         let namespace = self.client.namespaces().select_by_name(name)?;
         self.client.namespaces().delete(namespace.id())?;
         Ok(())
+    }
+
+    pub fn update_namespace(
+        &self,
+        input: NamespaceUpdateInput,
+    ) -> Result<NamespaceRecord, AppError> {
+        let namespace = self.client.namespaces().select_by_name(&input.name)?;
+        let updated = self.client.namespaces().update_raw(
+            namespace.id(),
+            NamespacePatch {
+                name: input.rename,
+                description: input.description,
+            },
+        )?;
+
+        Ok(NamespaceRecord::from(updated))
     }
 
     pub fn list_namespace_permissions(

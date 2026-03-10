@@ -10,9 +10,10 @@ use crate::config::AppConfig;
 
 pub use completion::CompletionContext;
 pub use gateway::{
-    ClassFilter, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
-    CreateUserInput, GroupFilter, HubuumGateway, ObjectFilter, ObjectUpdateInput, RelationFilter,
-    RelationTarget, UserFilter,
+    ClassFilter, ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput,
+    CreateObjectInput, CreateUserInput, GroupFilter, GroupUpdateInput, HubuumGateway,
+    NamespaceUpdateInput, ObjectFilter, ObjectUpdateInput, RelationFilter, RelationTarget,
+    UserFilter, UserUpdateInput,
 };
 
 #[derive(Clone)]

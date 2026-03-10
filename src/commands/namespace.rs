@@ -12,33 +12,85 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_json, append_line};
-use crate::services::{AppServices, CreateNamespaceInput};
+use crate::services::{AppServices, CreateNamespaceInput, NamespaceUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
             &["namespace"],
-            catalog_command("create", NamespaceNew::default(), CommandDocs::default()),
+            catalog_command(
+                "create",
+                NamespaceNew::default(),
+                CommandDocs {
+                    about: Some("Create a namespace"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["namespace"],
-            catalog_command("list", NamespaceList::default(), CommandDocs::default()),
+            catalog_command(
+                "list",
+                NamespaceList::default(),
+                CommandDocs {
+                    about: Some("List namespaces"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["namespace"],
-            catalog_command("delete", NamespaceDelete::default(), CommandDocs::default()),
+            catalog_command(
+                "delete",
+                NamespaceDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a namespace"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["namespace"],
-            catalog_command("info", NamespaceInfo::default(), CommandDocs::default()),
+            catalog_command(
+                "show",
+                NamespaceInfo::default(),
+                CommandDocs {
+                    about: Some("Show namespace details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["namespace"],
+            catalog_command(
+                "modify",
+                NamespaceModify::default(),
+                CommandDocs {
+                    about: Some("Modify a namespace"),
+                    long_about: Some("Update an existing namespace by name."),
+                    examples: Some(
+                        r#"modify my-namespace --rename other-ns
+modify --name my-namespace --description "Updated description""#,
+                    ),
+                },
+            ),
         )
         .add_command(
             &["namespace", "permissions"],
             catalog_command(
                 "list",
                 NamespacePermissions::default(),
-                CommandDocs::default(),
+                CommandDocs {
+                    about: Some("List permissions for a namespace"),
+                    long_about: Some(
+                        "Show namespace permissions for a single namespace. Pass the namespace as the first positional argument or with --name.",
+                    ),
+                    examples: Some(
+                        r#"list my-namespace
+list --name my-namespace"#,
+                    ),
+                },
             ),
         )
         .add_command(
@@ -46,7 +98,16 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             catalog_command(
                 "set",
                 NamespacePermissionsSet::default(),
-                CommandDocs::default(),
+                CommandDocs {
+                    about: Some("Grant permissions on a namespace"),
+                    long_about: Some(
+                        "Grant namespace permissions to a group. Pass the namespace as the first positional argument or with --name, then select permissions with --all or individual permission flags.",
+                    ),
+                    examples: Some(
+                        r#"set my-namespace --group editors --all
+set --name my-namespace --group readers --ReadCollection --ReadClass --ReadObject"#,
+                    ),
+                },
             ),
         );
 }
@@ -194,6 +255,55 @@ impl CliCommand for NamespaceDelete {
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct NamespaceModify {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the namespace",
+        autocomplete = "namespaces"
+    )]
+    pub name: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the namespace")]
+    pub rename: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Description of the namespace"
+    )]
+    pub description: Option<String>,
+}
+
+impl GetNamespace for &NamespaceModify {
+    fn namespace(&self) -> Option<String> {
+        self.name.clone()
+    }
+}
+
+impl CliCommand for NamespaceModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.name = namespace_or_pos(&query, tokens, 0)?;
+        let name = query
+            .name
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["namespace".to_string()]))?;
+
+        let namespace = services.gateway().update_namespace(NamespaceUpdateInput {
+            name,
+            rename: query.rename,
+            description: query.description,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => namespace.format_json_noreturn()?,
+            OutputFormat::Text => namespace.format_noreturn()?,
         }
 
         Ok(())

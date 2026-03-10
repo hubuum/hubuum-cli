@@ -10,12 +10,12 @@ use std::sync::Arc;
 
 use hubuum_client::{Authenticated, SyncClient};
 
-pub use classes::{ClassFilter, CreateClassInput};
-pub use groups::{CreateGroupInput, GroupFilter};
-pub use namespaces::CreateNamespaceInput;
+pub use classes::{ClassFilter, ClassUpdateInput, CreateClassInput};
+pub use groups::{CreateGroupInput, GroupFilter, GroupUpdateInput};
+pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectFilter, ObjectUpdateInput};
 pub use relations::{RelationFilter, RelationTarget};
-pub use users::{CreateUserInput, UserFilter};
+pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
 pub struct HubuumGateway {

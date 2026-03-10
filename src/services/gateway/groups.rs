@@ -1,4 +1,4 @@
-use hubuum_client::{FilterOperator, GroupPost};
+use hubuum_client::{FilterOperator, GroupPatch, GroupPost};
 
 use crate::domain::{GroupDetails, GroupRecord, UserRecord};
 use crate::errors::AppError;
@@ -19,6 +19,13 @@ pub struct GroupFilter {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GroupUpdateInput {
+    pub groupname: String,
+    pub rename: Option<String>,
+    pub description: Option<String>,
+}
+
 impl HubuumGateway {
     pub fn list_group_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
@@ -32,7 +39,7 @@ impl HubuumGateway {
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
-        let group = self.client.groups().create(GroupPost {
+        let group = self.client.groups().create_raw(GroupPost {
             groupname: input.groupname,
             description: input.description,
         })?;
@@ -65,6 +72,19 @@ impl HubuumGateway {
             group: GroupRecord::from(group.resource()),
             members,
         })
+    }
+
+    pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
+        let group = self.client.groups().select_by_name(&input.groupname)?;
+        let updated = self.client.groups().update_raw(
+            group.id(),
+            GroupPatch {
+                groupname: input.rename,
+                description: input.description,
+            },
+        )?;
+
+        Ok(GroupRecord::from(updated))
     }
 
     pub fn list_groups(&self, filter: GroupFilter) -> Result<Vec<GroupRecord>, AppError> {

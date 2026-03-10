@@ -10,7 +10,7 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, ClassFilter, CreateClassInput};
+use crate::services::{AppServices, ClassFilter, ClassUpdateInput, CreateClassInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -32,15 +32,51 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         )
         .add_command(
             &["class"],
-            catalog_command("list", ClassList::default(), CommandDocs::default()),
+            catalog_command(
+                "list",
+                ClassList::default(),
+                CommandDocs {
+                    about: Some("List classes"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["class"],
-            catalog_command("delete", ClassDelete::default(), CommandDocs::default()),
+            catalog_command(
+                "delete",
+                ClassDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a class"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["class"],
-            catalog_command("info", ClassInfo::default(), CommandDocs::default()),
+            catalog_command(
+                "show",
+                ClassInfo::default(),
+                CommandDocs {
+                    about: Some("Show class details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["class"],
+            catalog_command(
+                "modify",
+                ClassModify::default(),
+                CommandDocs {
+                    about: Some("Modify a class"),
+                    long_about: Some("Update an existing class by name."),
+                    examples: Some(
+                        r#"modify my-class --rename new-class
+modify --name my-class --description "Updated description" --namespace other-ns"#,
+                    ),
+                },
+            ),
         );
 }
 
@@ -166,6 +202,74 @@ impl CliCommand for ClassDelete {
 impl GetClassname for &ClassDelete {
     fn classname(&self) -> Option<String> {
         self.name.clone()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ClassModify {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the class",
+        autocomplete = "classes"
+    )]
+    pub name: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the class")]
+    pub rename: Option<String>,
+    #[option(
+        short = "N",
+        long = "namespace",
+        help = "Move the class to another namespace",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "New description of the class"
+    )]
+    pub description: Option<String>,
+    #[option(short = "s", long = "schema", help = "JSON schema for the class")]
+    pub json_schema: Option<serde_json::Value>,
+    #[option(
+        short = "v",
+        long = "validate",
+        help = "Set schema validation",
+        autocomplete = "bool"
+    )]
+    pub validate_schema: Option<bool>,
+}
+
+impl GetClassname for &ClassModify {
+    fn classname(&self) -> Option<String> {
+        self.name.clone()
+    }
+}
+
+impl CliCommand for ClassModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.name = classname_or_pos(&query, tokens, 0)?;
+        let name = query
+            .name
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+
+        let updated = services.gateway().update_class(ClassUpdateInput {
+            name,
+            rename: query.rename,
+            namespace: query.namespace,
+            description: query.description,
+            json_schema: query.json_schema,
+            validate_schema: query.validate_schema,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => updated.format_json_noreturn()?,
+            OutputFormat::Text => updated.format_noreturn()?,
+        }
+
+        Ok(())
     }
 }
 

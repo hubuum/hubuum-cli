@@ -29,6 +29,7 @@ pub struct ObjectUpdateInput {
     pub class_name: String,
     pub rename: Option<String>,
     pub namespace: Option<String>,
+    pub reclass: Option<String>,
     pub description: Option<String>,
     pub data: Option<serde_json::Value>,
 }
@@ -53,7 +54,7 @@ impl HubuumGateway {
         let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
         let class = self.client.classes().select_by_name(&input.class_name)?;
 
-        let object = self.client.objects(class.id()).create(ObjectPost {
+        let object = self.client.objects(class.id()).create_raw(ObjectPost {
             name: input.name,
             hubuum_class_id: class.id(),
             namespace_id: namespace.id(),
@@ -152,6 +153,10 @@ impl HubuumGateway {
             let namespace = self.client.namespaces().select_by_name(&namespace)?;
             patch.namespace_id = Some(namespace.id());
         }
+        if let Some(reclass) = input.reclass {
+            let reclass = self.client.classes().select_by_name(&reclass)?;
+            patch.hubuum_class_id = Some(reclass.id());
+        }
         if let Some(rename) = input.rename {
             patch.name = Some(rename);
         }
@@ -159,7 +164,10 @@ impl HubuumGateway {
             patch.description = Some(description);
         }
 
-        let result = self.client.objects(class.id()).update(object.id(), patch)?;
+        let result = self
+            .client
+            .objects(class.id())
+            .update_raw(object.id(), patch)?;
         let namespace = self.client.namespaces().select(result.namespace_id)?;
 
         let classmap = HashMap::from([(class.id(), class.resource().clone())]);

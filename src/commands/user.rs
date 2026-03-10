@@ -10,7 +10,7 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, CreateUserInput, UserFilter};
+use crate::services::{AppServices, CreateUserInput, UserFilter, UserUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -20,19 +20,62 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
             &["user"],
-            catalog_command("create", UserNew::default(), CommandDocs::default()),
+            catalog_command(
+                "create",
+                UserNew::default(),
+                CommandDocs {
+                    about: Some("Create a user"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["user"],
-            catalog_command("list", UserList::default(), CommandDocs::default()),
+            catalog_command(
+                "list",
+                UserList::default(),
+                CommandDocs {
+                    about: Some("List users"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["user"],
-            catalog_command("delete", UserDelete::default(), CommandDocs::default()),
+            catalog_command(
+                "delete",
+                UserDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a user"),
+                    ..CommandDocs::default()
+                },
+            ),
         )
         .add_command(
             &["user"],
-            catalog_command("info", UserInfo::default(), CommandDocs::default()),
+            catalog_command(
+                "show",
+                UserInfo::default(),
+                CommandDocs {
+                    about: Some("Show user details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "modify",
+                UserModify::default(),
+                CommandDocs {
+                    about: Some("Modify a user"),
+                    long_about: Some("Update an existing user by username."),
+                    examples: Some(
+                        r#"modify alice --rename alice2
+modify --username alice --email alice@example.com"#,
+                    ),
+                },
+            ),
         );
 }
 
@@ -172,6 +215,46 @@ impl CliCommand for UserList {
         match desired_format(tokens) {
             OutputFormat::Json => users.format_json_noreturn()?,
             OutputFormat::Text => users.format_noreturn()?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserModify {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the user")]
+    pub rename: Option<String>,
+    #[option(short = "e", long = "email", help = "Email address for the user")]
+    pub email: Option<String>,
+}
+
+impl GetUsername for &UserModify {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let user = services.gateway().update_user(UserUpdateInput {
+            username,
+            rename: query.rename,
+            email: query.email,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => user.format_json_noreturn()?,
+            OutputFormat::Text => user.format_noreturn()?,
         }
 
         Ok(())

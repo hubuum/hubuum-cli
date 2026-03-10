@@ -2,10 +2,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Completer, DefaultHinter, EditCommand, Emacs,
-    FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode,
-    PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal,
-    Span, Suggestion,
+    default_emacs_keybindings, ColumnarMenu, Completer, EditCommand, Emacs, FileBackedHistory,
+    KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
+    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion,
 };
 
 use crate::app::{AppRuntime, SharedSession};
@@ -45,7 +44,6 @@ fn run_thread(
             .with_marker("")
             .with_only_buffer_difference(false),
     );
-    let hinter = Box::new(DefaultHinter::default());
     let mut keybindings = default_emacs_keybindings();
     keybindings.add_binding(
         KeyModifiers::NONE,
@@ -64,7 +62,6 @@ fn run_thread(
 
     let mut editor = Reedline::create()
         .with_history(history)
-        .with_hinter(hinter)
         .with_completer(completer)
         .with_menu(ReedlineMenu::EngineCompleter(menu))
         .with_edit_mode(edit_mode)
@@ -158,6 +155,7 @@ struct ReplCompleter {
 impl Completer for ReplCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let prefix_line = &line[..safe_prefix_end(line, pos)];
+        let ends_with_space = prefix_line.ends_with(' ');
         let (start, word) = prefix_line
             .rsplit_once(char::is_whitespace)
             .map_or((0, prefix_line), |(left, right)| (left.len() + 1, right));
@@ -167,13 +165,13 @@ impl Completer for ReplCompleter {
         };
 
         if parts.is_empty() {
-            return self.scope_suggestions(start, word, &[]);
+            return self.scope_suggestions(start, word, &[], ends_with_space);
         }
 
         let scope = self.session.scope();
 
         if parts[0] == "help" || parts[0] == "?" {
-            return self.scope_suggestions(start, word, &parts[1..]);
+            return self.scope_suggestions(start, word, &parts[1..], ends_with_space);
         }
 
         if let Ok(resolved) = self.app.catalog.resolve_command(&scope, &parts) {
@@ -199,16 +197,18 @@ impl Completer for ReplCompleter {
                     }
                 }
 
-                if let Some(prev) = parts.iter().rev().nth(1) {
-                    if let Some(option) = options.iter().find(|option| {
-                        option.short.as_deref() == Some(prev.as_str())
-                            || option.long.as_deref() == Some(prev.as_str())
-                    }) {
-                        if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
-                            return completion(&self.completion, word, &parts)
-                                .into_iter()
-                                .map(|value| suggestion(value, start, pos, None))
-                                .collect();
+                if is_completing_option_value(&parts, ends_with_space) {
+                    if let Some(prev) = parts.iter().rev().nth(1) {
+                        if let Some(option) = options.iter().find(|option| {
+                            option.short.as_deref() == Some(prev.as_str())
+                                || option.long.as_deref() == Some(prev.as_str())
+                        }) {
+                            if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
+                                return completion(&self.completion, word, &parts)
+                                    .into_iter()
+                                    .map(|value| suggestion(value, start, pos, None))
+                                    .collect();
+                            }
                         }
                     }
                 }
@@ -226,16 +226,23 @@ impl Completer for ReplCompleter {
             }
         }
 
-        self.scope_suggestions(start, word, &parts)
+        self.scope_suggestions(start, word, &parts, ends_with_space)
     }
 }
 
 impl ReplCompleter {
-    fn scope_suggestions(&self, start: usize, word: &str, parts: &[String]) -> Vec<Suggestion> {
+    fn scope_suggestions(
+        &self,
+        start: usize,
+        word: &str,
+        parts: &[String],
+        ends_with_space: bool,
+    ) -> Vec<Suggestion> {
         let scope = self.session.scope();
-        let scope_words = if parts.is_empty() {
+        let context_parts = completion_context_parts(parts, ends_with_space);
+        let scope_words = if context_parts.is_empty() {
             self.app.catalog.list_words(&scope)
-        } else if let Some(scope_spec) = self.app.catalog.resolve_scope(&scope, parts) {
+        } else if let Some(scope_spec) = self.app.catalog.resolve_scope(&scope, context_parts) {
             scope_spec
                 .commands
                 .keys()
@@ -258,6 +265,22 @@ impl ReplCompleter {
             .map(|value| suggestion(value, start, start + word.len(), None))
             .collect()
     }
+}
+
+fn completion_context_parts(parts: &[String], ends_with_space: bool) -> &[String] {
+    if ends_with_space || parts.is_empty() {
+        parts
+    } else {
+        &parts[..parts.len().saturating_sub(1)]
+    }
+}
+
+fn is_completing_option_value(parts: &[String], ends_with_space: bool) -> bool {
+    !ends_with_space
+        && parts.len() >= 2
+        && parts
+            .get(parts.len().saturating_sub(2))
+            .is_some_and(|part| part.starts_with('-'))
 }
 
 fn suggestion(value: String, start: usize, end: usize, description: Option<String>) -> Suggestion {
@@ -353,7 +376,45 @@ mod tests {
 
     use crate::catalog::{CompletionSpec, OptionSpec};
 
-    use super::{option_suggestion, safe_prefix_end};
+    use super::{
+        completion_context_parts, is_completing_option_value, option_suggestion, safe_prefix_end,
+    };
+
+    #[test]
+    fn completion_context_uses_parent_path_for_partial_word() {
+        let parts = vec!["namespace".to_string(), "mod".to_string()];
+        let context = completion_context_parts(&parts, false);
+        assert_eq!(context, &parts[..1]);
+    }
+
+    #[test]
+    fn completion_context_keeps_full_path_after_space() {
+        let parts = vec!["namespace".to_string()];
+        let context = completion_context_parts(&parts, true);
+        assert_eq!(context, &parts[..]);
+    }
+
+    #[test]
+    fn option_value_completion_stops_after_trailing_space() {
+        let parts = vec![
+            "namespace".to_string(),
+            "modify".to_string(),
+            "--name".to_string(),
+            "UiO-wide".to_string(),
+        ];
+        assert!(!is_completing_option_value(&parts, true));
+    }
+
+    #[test]
+    fn option_value_completion_runs_while_typing_value() {
+        let parts = vec![
+            "namespace".to_string(),
+            "modify".to_string(),
+            "--name".to_string(),
+            "Ui".to_string(),
+        ];
+        assert!(is_completing_option_value(&parts, false));
+    }
 
     #[test]
     fn safe_prefix_end_clamps_past_end_positions() {
