@@ -24,6 +24,9 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::namespace::register_commands(&mut builder);
     commands::user::register_commands(&mut builder);
     commands::group::register_commands(&mut builder);
+    commands::report::register_commands(&mut builder);
+    commands::imports::register_commands(&mut builder);
+    commands::task::register_commands(&mut builder);
     commands::object::register_commands(&mut builder);
     commands::relations::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);

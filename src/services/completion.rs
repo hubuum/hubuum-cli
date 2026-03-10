@@ -19,6 +19,7 @@ struct CompletionSnapshot {
     groups: Option<Vec<String>>,
     classes: Option<Vec<String>>,
     namespaces: Option<Vec<String>>,
+    report_templates: Option<Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
 }
 
@@ -32,6 +33,7 @@ enum CompletionKind {
     Groups,
     Classes,
     Namespaces,
+    ReportTemplates,
 }
 
 impl CompletionContext {
@@ -57,6 +59,10 @@ impl CompletionContext {
 
     pub fn namespaces(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::Namespaces)
+    }
+
+    pub fn report_templates(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::ReportTemplates)
     }
 
     pub fn objects_from_class(&self, prefix: &str, parts: &[String], source: &str) -> Vec<String> {
@@ -121,6 +127,7 @@ impl CompletionStore {
                 CompletionKind::Groups => gateway.list_group_names(),
                 CompletionKind::Classes => gateway.list_class_names(),
                 CompletionKind::Namespaces => gateway.list_namespace_names(),
+                CompletionKind::ReportTemplates => gateway.list_report_template_names(),
             }
         })
         .await
@@ -131,6 +138,9 @@ impl CompletionStore {
                 CompletionKind::Groups => snapshot.groups = Some(fetched.clone()),
                 CompletionKind::Classes => snapshot.classes = Some(fetched.clone()),
                 CompletionKind::Namespaces => snapshot.namespaces = Some(fetched.clone()),
+                CompletionKind::ReportTemplates => {
+                    snapshot.report_templates = Some(fetched.clone())
+                }
             }
         }
 
@@ -170,6 +180,7 @@ impl CompletionStore {
             CompletionKind::Groups => snapshot.groups.clone(),
             CompletionKind::Classes => snapshot.classes.clone(),
             CompletionKind::Namespaces => snapshot.namespaces.clone(),
+            CompletionKind::ReportTemplates => snapshot.report_templates.clone(),
         }
     }
 }

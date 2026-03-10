@@ -20,17 +20,23 @@ macro_rules! transparent_record {
 
 mod classes;
 mod groups;
+mod imports;
 mod namespaces;
 mod objects;
 mod relations;
+mod reports;
+mod tasks;
 mod users;
 
 pub use classes::{ClassDetails, ClassRecord};
 pub use groups::{GroupDetails, GroupRecord};
+pub use imports::ImportResultRecord;
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
     NamespaceRecord,
 };
 pub use objects::{ObjectRecord, ResolvedObjectRecord};
 pub use relations::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord};
+pub use reports::{ReportOutput, ReportTemplateRecord};
+pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};

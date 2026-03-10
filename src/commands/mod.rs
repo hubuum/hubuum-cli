@@ -6,9 +6,12 @@ mod builder;
 mod class;
 mod group;
 mod help;
+mod imports;
 mod namespace;
 mod object;
 mod relations;
+mod report;
+mod task;
 mod user;
 
 pub use builder::build_command_catalog;
