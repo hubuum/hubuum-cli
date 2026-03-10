@@ -18,6 +18,13 @@ mod user;
 pub use builder::build_command_catalog;
 
 use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
+use crate::{
+    formatting::TableRenderable,
+    list_query::{
+        filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
+        PagedResult,
+    },
+};
 
 pub type AutoCompleter = fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>;
 
@@ -28,6 +35,9 @@ pub struct CliOption {
     pub short: Option<String>,
     pub long: Option<String>,
     pub flag: bool,
+    pub greedy: bool,
+    pub nargs: Option<usize>,
+    pub repeatable: bool,
     pub help: String,
     pub field_type: TypeId,
     pub field_type_help: String,
@@ -62,6 +72,9 @@ pub fn standard_options() -> Vec<CliOption> {
             short: Some("-h".to_string()),
             long: Some("--help".to_string()),
             flag: true,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
             help: "Prints help information".to_string(),
             field_type: TypeId::of::<bool>(),
             field_type_help: "bool".to_string(),
@@ -73,6 +86,9 @@ pub fn standard_options() -> Vec<CliOption> {
             short: Some("-j".to_string()),
             long: Some("--json".to_string()),
             flag: true,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
             help: "Output as JSON".to_string(),
             field_type: TypeId::of::<bool>(),
             field_type_help: "bool".to_string(),
@@ -216,6 +232,43 @@ pub fn desired_format(tokens: &CommandTokenizer) -> crate::models::OutputFormat 
     } else {
         crate::models::OutputFormat::Text
     }
+}
+
+pub fn build_list_query(
+    where_clauses: &[String],
+    limit: Option<usize>,
+    cursor: Option<String>,
+    compatibility_filters: impl IntoIterator<Item = FilterClause>,
+) -> Result<ListQuery, AppError> {
+    let mut query = list_query_from_raw(where_clauses, limit, cursor)?;
+    query.filters.extend(compatibility_filters);
+    Ok(query)
+}
+
+pub fn render_list_page<T>(
+    tokens: &CommandTokenizer,
+    paged: &PagedResult<T>,
+) -> Result<(), AppError>
+where
+    T: serde::Serialize + Clone + TableRenderable,
+{
+    render_paged_result(tokens, paged, desired_format(tokens))
+}
+
+pub fn contains_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::IContains { is_negated: false },
+        value,
+    )
+}
+
+pub fn equals_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::Equals { is_negated: false },
+        value,
+    )
 }
 
 pub fn want_json(tokens: &CommandTokenizer) -> bool {

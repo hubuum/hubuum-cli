@@ -1,10 +1,14 @@
-use hubuum_client::{FilterOperator, NamespacePatch, NamespacePost};
+use hubuum_client::{NamespacePatch, NamespacePost};
 
 use crate::domain::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
     NamespaceRecord,
 };
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, ListQuery, PagedResult,
+};
 
 use super::HubuumGateway;
 
@@ -49,27 +53,21 @@ impl HubuumGateway {
 
     pub fn list_namespaces(
         &self,
-        name: Option<String>,
-        description: Option<String>,
-    ) -> Result<Vec<NamespaceRecord>, AppError> {
-        let mut search = self.client.namespaces().find();
-        if let Some(name) = name {
-            search =
-                search.add_filter("name", FilterOperator::Contains { is_negated: false }, name);
-        }
-        if let Some(description) = description {
-            search = search.add_filter(
-                "description",
-                FilterOperator::Contains { is_negated: false },
-                description,
-            );
-        }
+        query: &ListQuery,
+    ) -> Result<PagedResult<NamespaceRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, NAMESPACE_FILTER_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(search
-            .execute()?
-            .into_iter()
-            .map(NamespaceRecord::from)
-            .collect())
+        let page =
+            apply_query_paging(self.client.namespaces().find().filters(filters), query).page()?;
+        Ok(PagedResult::from_page(
+            page,
+            query.limit,
+            NamespaceRecord::from,
+        ))
     }
 
     pub fn get_namespace(&self, name: &str) -> Result<NamespaceRecord, AppError> {
@@ -139,3 +137,36 @@ impl HubuumGateway {
         Ok(())
     }
 }
+
+pub(crate) const NAMESPACE_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "description",
+        "description",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];

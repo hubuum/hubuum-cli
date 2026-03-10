@@ -50,6 +50,9 @@ where
             field_type: option.field_type,
             required: option.required,
             flag: option.flag,
+            greedy: option.greedy,
+            nargs: option.nargs,
+            repeatable: option.repeatable,
             completion: match option.autocomplete {
                 Some(completion) => CompletionSpec::Dynamic(completion),
                 None => CompletionSpec::None,

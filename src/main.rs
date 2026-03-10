@@ -18,6 +18,7 @@ mod domain;
 mod errors;
 mod files;
 mod formatting;
+mod list_query;
 mod models;
 mod output;
 mod repl;

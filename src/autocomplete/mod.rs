@@ -1,4 +1,5 @@
 mod classes;
+mod filters;
 mod groups;
 mod namespaces;
 mod objects;
@@ -6,6 +7,11 @@ mod reports;
 mod shared;
 
 pub use classes::classes;
+pub(crate) use filters::complete_where_clause;
+pub use filters::{
+    class_where, group_where, namespace_where, object_where, relation_where, report_where,
+    user_where,
+};
 pub use groups::groups;
 pub use namespaces::namespaces;
 pub use objects::{objects_from_class, objects_from_class_from, objects_from_class_to};

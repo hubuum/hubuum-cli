@@ -1,5 +1,6 @@
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
+use crate::list_query::{apply_cursor_request_paging, ListQuery, PagedResult};
 
 use super::HubuumGateway;
 
@@ -25,14 +26,17 @@ impl HubuumGateway {
         Ok(TaskRecord::from(self.client.imports().get(task_id)?))
     }
 
-    pub fn import_results(&self, task_id: i32) -> Result<Vec<ImportResultRecord>, AppError> {
-        Ok(self
-            .client
-            .imports()
-            .results(task_id)
-            .list()?
-            .into_iter()
-            .map(ImportResultRecord::from)
-            .collect())
+    pub fn import_results(
+        &self,
+        task_id: i32,
+        query: &ListQuery,
+    ) -> Result<PagedResult<ImportResultRecord>, AppError> {
+        let page =
+            apply_cursor_request_paging(self.client.imports().results(task_id), query).page()?;
+        Ok(PagedResult::from_page(
+            page,
+            query.limit,
+            ImportResultRecord::from,
+        ))
     }
 }

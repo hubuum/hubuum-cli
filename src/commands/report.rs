@@ -2,10 +2,10 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
     classes, namespaces, objects_from_class, report_missing_data_policies, report_scope_kinds,
-    report_templates,
+    report_templates, report_where,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::ReportOutput;
@@ -96,18 +96,26 @@ trait GetReportName {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportList {}
+pub struct ReportList {
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "report_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
+}
 
 impl CliCommand for ReportList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let reports = services.gateway().list_report_templates()?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&reports)?)?,
-            OutputFormat::Text => reports.format_noreturn()?,
-        }
-
-        Ok(())
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(&query.where_clauses, query.limit, query.cursor, [])?;
+        let reports = services.gateway().list_report_templates(&list_query)?;
+        render_list_page(tokens, &reports)
     }
 }
 

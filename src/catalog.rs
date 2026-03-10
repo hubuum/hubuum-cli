@@ -17,6 +17,9 @@ pub struct OptionSpec {
     pub field_type: TypeId,
     pub required: bool,
     pub flag: bool,
+    pub greedy: bool,
+    pub nargs: Option<usize>,
+    pub repeatable: bool,
     pub completion: CompletionSpec,
 }
 
@@ -343,6 +346,9 @@ impl OptionSpec {
             short: self.short.clone(),
             long: self.long.clone(),
             flag: self.flag,
+            greedy: self.greedy,
+            nargs: self.nargs,
+            repeatable: self.repeatable,
             help: self.help.clone(),
             field_type: self.field_type,
             field_type_help: self.field_type_help.clone(),
@@ -434,6 +440,9 @@ mod tests {
             field_type: std::any::TypeId::of::<String>(),
             required: true,
             flag: false,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
             completion: super::CompletionSpec::None,
         });
         builder.add_command(&["class"], spec);
@@ -448,6 +457,26 @@ mod tests {
     }
 
     #[test]
+    fn option_spec_round_trips_nargs_to_cli_option() {
+        let option = super::OptionSpec {
+            name: "where_clauses".to_string(),
+            short: None,
+            long: Some("--where".to_string()),
+            help: "Filter clause".to_string(),
+            field_type_help: "string".to_string(),
+            field_type: std::any::TypeId::of::<Vec<String>>(),
+            required: false,
+            flag: false,
+            greedy: false,
+            nargs: Some(3),
+            repeatable: true,
+            completion: super::CompletionSpec::None,
+        };
+
+        assert_eq!(option.to_cli_option().nargs, Some(3));
+    }
+
+    #[test]
     fn all_registered_commands_have_about_text() {
         let catalog = crate::commands::build_command_catalog();
         let mut missing = Vec::new();
@@ -458,6 +487,55 @@ mod tests {
             "commands missing about text: {}",
             missing.join(", ")
         );
+    }
+
+    #[test]
+    fn list_commands_expose_generic_filter_and_paging_options() {
+        let catalog = crate::commands::build_command_catalog();
+
+        for path in [
+            ["class", "list"],
+            ["group", "list"],
+            ["namespace", "list"],
+            ["object", "list"],
+            ["user", "list"],
+            ["report", "list"],
+            ["relation", "list"],
+        ] {
+            let resolved = catalog
+                .resolve_command(
+                    &[],
+                    &path.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
+                )
+                .expect("list command should resolve");
+            let option_names = resolved
+                .command
+                .options
+                .iter()
+                .map(|option| option.name.as_str())
+                .collect::<Vec<_>>();
+            assert!(option_names.contains(&"where_clauses"));
+            assert!(option_names.contains(&"limit"));
+            assert!(option_names.contains(&"cursor"));
+        }
+
+        for path in [["task", "events"], ["import", "results"]] {
+            let resolved = catalog
+                .resolve_command(
+                    &[],
+                    &path.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
+                )
+                .expect("cursor command should resolve");
+            let option_names = resolved
+                .command
+                .options
+                .iter()
+                .map(|option| option.name.as_str())
+                .collect::<Vec<_>>();
+            assert!(!option_names.contains(&"where_clauses"));
+            assert!(option_names.contains(&"limit"));
+            assert!(option_names.contains(&"cursor"));
+        }
     }
 
     fn collect_commands_missing_about(

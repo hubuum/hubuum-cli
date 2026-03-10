@@ -4,17 +4,19 @@ use serde::{Deserialize, Serialize};
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 
+use crate::autocomplete::user_where;
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
+use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 use crate::services::{AppServices, CreateUserInput, UserFilter, UserUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
@@ -200,24 +202,51 @@ pub struct UserList {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "user_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for UserList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let users = services.gateway().list_users(UserFilter {
-            username: query.username,
-            email: query.email,
-            created_at: query.created_at,
-            updated_at: query.updated_at,
-        })?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => users.format_json_noreturn()?,
-            OutputFormat::Text => users.format_noreturn()?,
-        }
-
-        Ok(())
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query
+                    .username
+                    .map(|value| contains_clause("username", value)),
+                query.email.map(|value| contains_clause("email", value)),
+                query.created_at.map(|value| {
+                    filter_clause(
+                        "created_at",
+                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        value.to_string(),
+                    )
+                }),
+                query.updated_at.map(|value| {
+                    filter_clause(
+                        "updated_at",
+                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        value.to_string(),
+                    )
+                }),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let users = services.gateway().list_users(&list_query)?;
+        render_list_page(tokens, &users)
     }
 }
 

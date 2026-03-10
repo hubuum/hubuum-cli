@@ -1,5 +1,6 @@
 use crate::domain::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 use crate::errors::AppError;
+use crate::list_query::{apply_cursor_request_paging, ListQuery, PagedResult};
 
 use super::HubuumGateway;
 
@@ -17,14 +18,17 @@ impl HubuumGateway {
         Ok(TaskRecord::from(self.client.tasks().get(input.task_id)?))
     }
 
-    pub fn task_events(&self, input: TaskLookupInput) -> Result<Vec<TaskEventRecord>, AppError> {
-        Ok(self
-            .client
-            .tasks()
-            .events(input.task_id)
-            .list()?
-            .into_iter()
-            .map(TaskEventRecord::from)
-            .collect())
+    pub fn task_events(
+        &self,
+        input: TaskLookupInput,
+        query: &ListQuery,
+    ) -> Result<PagedResult<TaskEventRecord>, AppError> {
+        let page =
+            apply_cursor_request_paging(self.client.tasks().events(input.task_id), query).page()?;
+        Ok(PagedResult::from_page(
+            page,
+            query.limit,
+            TaskEventRecord::from,
+        ))
     }
 }

@@ -1,15 +1,13 @@
-use hubuum_client::{ClassPatch, ClassPost, FilterOperator};
+use hubuum_client::{ClassPatch, ClassPost};
 
 use crate::domain::{ClassDetails, ClassRecord, ObjectRecord};
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+};
 
 use super::HubuumGateway;
-
-#[derive(Debug, Clone, Default)]
-pub struct ClassFilter {
-    pub name: Option<String>,
-    pub description: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct CreateClassInput {
@@ -95,27 +93,68 @@ impl HubuumGateway {
         Ok(ClassRecord::from(updated))
     }
 
-    pub fn list_classes(&self, filter: ClassFilter) -> Result<Vec<ClassRecord>, AppError> {
-        let mut search = self.client.classes().find();
-        if let Some(name) = filter.name {
-            search = search.add_filter(
-                "name",
-                FilterOperator::IContains { is_negated: false },
-                name,
-            );
-        }
-        if let Some(description) = filter.description {
-            search = search.add_filter(
-                "description",
-                FilterOperator::IContains { is_negated: false },
-                description,
-            );
-        }
+    pub fn list_classes(&self, query: &ListQuery) -> Result<PagedResult<ClassRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, CLASS_FILTER_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(search
-            .execute()?
-            .into_iter()
-            .map(ClassRecord::from)
-            .collect())
+        let page =
+            apply_query_paging(self.client.classes().find().filters(filters), query).page()?;
+        Ok(PagedResult::from_page(page, query.limit, ClassRecord::from))
     }
 }
+
+pub(crate) const CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "description",
+        "description",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "namespace",
+        "namespace",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::NamespaceNameToId),
+    FilterFieldSpec::new(
+        "validate_schema",
+        "validate_schema",
+        FilterOperatorProfile::Boolean,
+        FilterValueProfile::Boolean,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "json_schema",
+        "json_schema",
+        FilterOperatorProfile::Any,
+        FilterValueProfile::Any,
+    )
+    .json_root(),
+];

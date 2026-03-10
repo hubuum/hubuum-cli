@@ -1,7 +1,11 @@
-use hubuum_client::{FilterOperator, GroupPatch, GroupPost};
+use hubuum_client::{GroupPatch, GroupPost};
 
 use crate::domain::{GroupDetails, GroupRecord, UserRecord};
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, ListQuery, PagedResult,
+};
 
 use super::HubuumGateway;
 
@@ -9,14 +13,6 @@ use super::HubuumGateway;
 pub struct CreateGroupInput {
     pub groupname: String,
     pub description: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct GroupFilter {
-    pub name: Option<String>,
-    pub name_startswith: Option<String>,
-    pub name_endswith: Option<String>,
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,42 +83,48 @@ impl HubuumGateway {
         Ok(GroupRecord::from(updated))
     }
 
-    pub fn list_groups(&self, filter: GroupFilter) -> Result<Vec<GroupRecord>, AppError> {
-        let mut search = self.client.groups().find();
+    pub fn list_groups(&self, query: &ListQuery) -> Result<PagedResult<GroupRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, GROUP_FILTER_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        if let Some(name) = filter.name {
-            search = search.add_filter(
-                "groupname",
-                FilterOperator::IContains { is_negated: false },
-                name,
-            );
-        }
-        if let Some(name_startswith) = filter.name_startswith {
-            search = search.add_filter(
-                "groupname",
-                FilterOperator::StartsWith { is_negated: false },
-                name_startswith,
-            );
-        }
-        if let Some(name_endswith) = filter.name_endswith {
-            search = search.add_filter(
-                "groupname",
-                FilterOperator::EndsWith { is_negated: false },
-                name_endswith,
-            );
-        }
-        if let Some(description) = filter.description {
-            search = search.add_filter(
-                "description",
-                FilterOperator::IContains { is_negated: false },
-                description,
-            );
-        }
-
-        Ok(search
-            .execute()?
-            .into_iter()
-            .map(GroupRecord::from)
-            .collect())
+        let page =
+            apply_query_paging(self.client.groups().find().filters(filters), query).page()?;
+        Ok(PagedResult::from_page(page, query.limit, GroupRecord::from))
     }
 }
+
+pub(crate) const GROUP_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "groupname",
+        "groupname",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "description",
+        "description",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];

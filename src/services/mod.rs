@@ -11,12 +11,12 @@ use crate::background::BackgroundManager;
 use crate::config::AppConfig;
 
 pub use completion::CompletionContext;
+pub(crate) use gateway::filter_specs_for_command_path;
 pub use gateway::{
-    ClassFilter, ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput,
-    CreateObjectInput, CreateReportTemplateInput, CreateUserInput, GroupFilter, GroupUpdateInput,
-    HubuumGateway, NamespaceUpdateInput, ObjectFilter, ObjectUpdateInput, RelationFilter,
-    RelationTarget, RunReportInput, SubmitImportInput, TaskLookupInput, UpdateReportTemplateInput,
-    UserFilter, UserUpdateInput,
+    ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
+    CreateReportTemplateInput, CreateUserInput, GroupUpdateInput, HubuumGateway,
+    NamespaceUpdateInput, ObjectUpdateInput, RelationTarget, RunReportInput, SubmitImportInput,
+    TaskLookupInput, UpdateReportTemplateInput, UserFilter, UserUpdateInput,
 };
 
 #[derive(Clone)]

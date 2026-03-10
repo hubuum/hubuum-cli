@@ -2,10 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use hubuum_client::{
     client::{sync::Resource, GetID},
-    ApiResource, Class, ClassRelation, FilterOperator, Object, ObjectRelation,
+    ApiResource, Class, ClassRelation, FilterOperator, Object, ObjectRelation, QueryFilter,
 };
 
 use crate::errors::AppError;
+use crate::list_query::{
+    validated_clause_to_query_filter, FilterValueResolver, ValidatedFilterClause,
+};
 
 use super::HubuumGateway;
 
@@ -149,6 +152,24 @@ impl HubuumGateway {
             .add_filter_equals("to_objects", object_to.id)
             .add_filter_equals("from_objects", object_from.id)
             .execute_expecting_single_result()?)
+    }
+
+    pub(super) fn namespace_id(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self.client.namespaces().select_by_name(name)?.id())
+    }
+
+    pub(super) fn resolve_validated_filter(
+        &self,
+        clause: &ValidatedFilterClause,
+    ) -> Result<QueryFilter, AppError> {
+        let resolved_value = match clause.spec.resolver {
+            FilterValueResolver::None => clause.value.clone(),
+            FilterValueResolver::NamespaceNameToId => self.namespace_id(&clause.value)?.to_string(),
+        };
+
+        let mut resolved = clause.clone();
+        resolved.value = resolved_value;
+        Ok(validated_clause_to_query_filter(&resolved))
     }
 }
 

@@ -8,6 +8,10 @@ use hubuum_client::{
 
 use crate::domain::{ReportOutput, ReportTemplateRecord};
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+};
 
 use super::{shared::find_entities_by_ids, HubuumGateway};
 
@@ -53,21 +57,34 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn list_report_templates(&self) -> Result<Vec<ReportTemplateRecord>, AppError> {
-        let templates = self.client.templates().find().execute()?;
-        if templates.is_empty() {
-            return Ok(Vec::new());
+    pub fn list_report_templates(
+        &self,
+        query: &ListQuery,
+    ) -> Result<PagedResult<ReportTemplateRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, REPORT_FILTER_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
+        let page =
+            apply_query_paging(self.client.templates().find().filters(filters), query).page()?;
+        if page.items.is_empty() {
+            return Ok(PagedResult {
+                items: Vec::new(),
+                next_cursor: page.next_cursor,
+                limit: query.limit,
+                returned_count: 0,
+            });
         }
 
         let namespacemap =
-            find_entities_by_ids(&self.client.namespaces(), templates.iter(), |template| {
+            find_entities_by_ids(&self.client.namespaces(), page.items.iter(), |template| {
                 template.namespace_id
             })?;
 
-        Ok(templates
-            .iter()
-            .map(|template| ReportTemplateRecord::new(template, &namespacemap))
-            .collect())
+        Ok(PagedResult::from_page(page, query.limit, |template| {
+            ReportTemplateRecord::new(&template, &namespacemap)
+        }))
     }
 
     pub fn report_template(&self, name: &str) -> Result<ReportTemplateRecord, AppError> {
@@ -197,6 +214,52 @@ impl HubuumGateway {
         Ok(ReportOutput::from(self.client.reports().run(request)?))
     }
 }
+
+pub(crate) const REPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "description",
+        "description",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "namespace",
+        "namespace_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::NamespaceNameToId),
+    FilterFieldSpec::new(
+        "content_type",
+        "content_type",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];
 
 fn validate_report_scope(
     scope_kind: &ReportScopeKind,

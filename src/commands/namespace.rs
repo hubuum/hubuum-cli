@@ -3,13 +3,14 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{groups, namespaces};
+use crate::autocomplete::{groups, namespace_where, namespaces};
 use crate::domain::NamespacePermission;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
+use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_json, append_line};
 use crate::services::{AppServices, CreateNamespaceInput, NamespaceUpdateInput};
@@ -162,21 +163,47 @@ pub struct NamespaceList {
         help = "Description of the namespace"
     )]
     pub description: Option<String>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "namespace_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for NamespaceList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let new = Self::parse_tokens(tokens)?;
-        let namespaces = services
-            .gateway()
-            .list_namespaces(new.name, new.description)?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => namespaces.format_json_noreturn()?,
-            OutputFormat::Text => namespaces.format_noreturn()?,
-        }
-
-        Ok(())
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.name.map(|value| {
+                    filter_clause(
+                        "name",
+                        hubuum_client::FilterOperator::Contains { is_negated: false },
+                        value,
+                    )
+                }),
+                query.description.map(|value| {
+                    filter_clause(
+                        "description",
+                        hubuum_client::FilterOperator::Contains { is_negated: false },
+                        value,
+                    )
+                }),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let namespaces = services.gateway().list_namespaces(&list_query)?;
+        render_list_page(tokens, &namespaces)
     }
 }
 

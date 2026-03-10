@@ -2,7 +2,8 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use crate::autocomplete::group_where;
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
@@ -10,7 +11,7 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, CreateGroupInput, GroupFilter, GroupUpdateInput};
+use crate::services::{AppServices, CreateGroupInput, GroupUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -239,38 +240,39 @@ impl CliCommand for GroupModify {
 pub struct GroupList {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub name: Option<String>,
-    #[option(
-        short = "gs",
-        long = "groupname__startswith",
-        help = "Name of the group starts with"
-    )]
-    pub name_startswith: Option<String>,
-    #[option(
-        short = "ge",
-        long = "groupname__endswith",
-        help = "Name of the group ends with"
-    )]
-    pub name_endswith: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the group")]
     pub description: Option<String>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "group_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for GroupList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let new = Self::parse_tokens(tokens)?;
-        let groups = services.gateway().list_groups(GroupFilter {
-            name: new.name,
-            name_startswith: new.name_startswith,
-            name_endswith: new.name_endswith,
-            description: new.description,
-        })?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => groups.format_json_noreturn()?,
-            OutputFormat::Text => groups.format_noreturn()?,
-        }
-
-        Ok(())
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.name.map(|value| contains_clause("groupname", value)),
+                query
+                    .description
+                    .map(|value| contains_clause("description", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let groups = services.gateway().list_groups(&list_query)?;
+        render_list_page(tokens, &groups)
     }
 }
 
@@ -290,4 +292,39 @@ where
         return Ok(pos0.cloned());
     }
     Ok(query.groupname().clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::command_options;
+    use crate::errors::AppError;
+    use crate::tokenizer::CommandTokenizer;
+
+    use super::GroupList;
+
+    #[test]
+    fn simple_group_alias_still_parses() {
+        let tokens = CommandTokenizer::new(
+            "group list --groupname admins",
+            "list",
+            &command_options::<GroupList>(),
+        )
+        .expect("tokenization should succeed");
+        let parsed = GroupList::parse_tokens(&tokens).expect("group list should parse");
+
+        assert_eq!(parsed.name.as_deref(), Some("admins"));
+    }
+
+    #[test]
+    fn double_underscore_flags_are_rejected() {
+        let tokens = CommandTokenizer::new(
+            "group list --groupname__startswith adm",
+            "list",
+            &command_options::<GroupList>(),
+        )
+        .expect("tokenization should succeed");
+        let err = GroupList::parse_tokens(&tokens).expect_err("removed flag should be rejected");
+
+        assert!(matches!(err, AppError::InvalidOption(_)));
+    }
 }

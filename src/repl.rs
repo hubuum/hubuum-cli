@@ -2,12 +2,13 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Completer, EditCommand, Emacs, FileBackedHistory,
-    KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
+    default_emacs_keybindings, ColumnarMenu, Completer, Emacs, FileBackedHistory, KeyCode,
+    KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
     PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion,
 };
 
 use crate::app::{AppRuntime, SharedSession};
+use crate::autocomplete::complete_where_clause;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::dispatch;
 use crate::errors::AppError;
@@ -51,7 +52,7 @@ fn run_thread(
         KeyCode::Tab,
         ReedlineEvent::UntilFound(vec![
             ReedlineEvent::Menu("completion_menu".to_string()),
-            ReedlineEvent::Edit(vec![EditCommand::Complete]),
+            ReedlineEvent::MenuNext,
         ]),
     );
     keybindings.add_binding(
@@ -173,6 +174,9 @@ struct ReplCompleter {
 impl Completer for ReplCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let prefix_line = &line[..safe_prefix_end(line, pos)];
+        if let Some(suggestions) = self.quoted_where_suggestions(prefix_line, pos) {
+            return suggestions;
+        }
         let ends_with_space = prefix_line.ends_with(' ');
         let (start, word) = prefix_line
             .rsplit_once(char::is_whitespace)
@@ -199,6 +203,17 @@ impl Completer for ReplCompleter {
                 .filter(|part| part.starts_with('-'))
                 .map(String::as_str)
                 .collect();
+
+            if let Some(suggestions) = self.where_clause_suggestions(
+                &resolved.command_path,
+                &parts,
+                start,
+                pos,
+                word,
+                ends_with_space,
+            ) {
+                return suggestions;
+            }
 
             if let Some(last) = parts.last() {
                 if prefix_line.ends_with(' ') && last.starts_with('-') {
@@ -235,8 +250,10 @@ impl Completer for ReplCompleter {
                     return options
                         .iter()
                         .filter(|option| {
-                            !options_seen.contains(&option.short.as_deref().unwrap_or(""))
-                                && !options_seen.contains(&option.long.as_deref().unwrap_or(""))
+                            option.repeatable
+                                || (!options_seen.contains(&option.short.as_deref().unwrap_or(""))
+                                    && !options_seen
+                                        .contains(&option.long.as_deref().unwrap_or("")))
                         })
                         .filter_map(|option| option_suggestion(option, word, start, pos))
                         .collect();
@@ -249,6 +266,86 @@ impl Completer for ReplCompleter {
 }
 
 impl ReplCompleter {
+    fn quoted_where_suggestions(&self, prefix_line: &str, pos: usize) -> Option<Vec<Suggestion>> {
+        let quoted = quoted_where_context(prefix_line)?;
+        let parts = shlex::split(quoted.command_prefix)?;
+        let scope = self.session.scope();
+        let resolved = self.app.catalog.resolve_command(&scope, &parts).ok()?;
+        Some(
+            complete_where_clause(
+                &self.completion,
+                &resolved.command_path,
+                quoted.clause_prefix,
+                quoted.clause_ends_with_space,
+            )
+            .into_iter()
+            .map(|candidate| {
+                suggestion_with_whitespace(
+                    candidate.value,
+                    quoted.start,
+                    pos,
+                    candidate.description,
+                    candidate.append_whitespace,
+                )
+            })
+            .collect(),
+        )
+    }
+
+    fn where_clause_suggestions(
+        &self,
+        command_path: &[String],
+        parts: &[String],
+        start: usize,
+        pos: usize,
+        _word: &str,
+        ends_with_space: bool,
+    ) -> Option<Vec<Suggestion>> {
+        let where_index = parts.iter().rposition(|part| part == "--where")?;
+        let clause_parts = &parts[where_index + 1..];
+        if clause_parts.len() >= 3 && !ends_with_space {
+            return Some(vec![suggestion_with_whitespace(
+                clause_parts.last()?.clone(),
+                start,
+                pos,
+                None,
+                true,
+            )]);
+        }
+        if clause_parts.len() >= 3 && ends_with_space {
+            return None;
+        }
+        let (clause_prefix, clause_ends_with_space) = if clause_parts.is_empty() {
+            ("".to_string(), false)
+        } else {
+            let mut clause = clause_parts.join(" ");
+            if ends_with_space {
+                clause.push(' ');
+            }
+            (clause, ends_with_space)
+        };
+
+        Some(
+            complete_where_clause(
+                &self.completion,
+                command_path,
+                &clause_prefix,
+                clause_ends_with_space,
+            )
+            .into_iter()
+            .map(|candidate| {
+                suggestion_with_whitespace(
+                    candidate.value,
+                    start,
+                    pos,
+                    candidate.description,
+                    candidate.append_whitespace,
+                )
+            })
+            .collect(),
+        )
+    }
+
     fn scope_suggestions(
         &self,
         start: usize,
@@ -302,6 +399,16 @@ fn is_completing_option_value(parts: &[String], ends_with_space: bool) -> bool {
 }
 
 fn suggestion(value: String, start: usize, end: usize, description: Option<String>) -> Suggestion {
+    suggestion_with_whitespace(value, start, end, description, true)
+}
+
+fn suggestion_with_whitespace(
+    value: String,
+    start: usize,
+    end: usize,
+    description: Option<String>,
+    append_whitespace: bool,
+) -> Suggestion {
     Suggestion {
         value,
         description,
@@ -310,7 +417,7 @@ fn suggestion(value: String, start: usize, end: usize, description: Option<Strin
         match_indices: Some(Vec::new()),
         span: Span { start, end },
         display_override: None,
-        append_whitespace: true,
+        append_whitespace,
     }
 }
 
@@ -388,6 +495,36 @@ fn safe_prefix_end(line: &str, pos: usize) -> usize {
     end
 }
 
+struct QuotedWhereContext<'a> {
+    command_prefix: &'a str,
+    clause_prefix: &'a str,
+    clause_ends_with_space: bool,
+    start: usize,
+}
+
+fn quoted_where_context(prefix_line: &str) -> Option<QuotedWhereContext<'_>> {
+    let where_index = prefix_line.rfind("--where")?;
+    let after_option = &prefix_line[where_index + "--where".len()..];
+    let spaces = after_option.len() - after_option.trim_start().len();
+    let after_spaces = &after_option[spaces..];
+    let quote = after_spaces.chars().next()?;
+    if !matches!(quote, '\'' | '"') {
+        return None;
+    }
+    let quoted = &after_spaces[quote.len_utf8()..];
+    if quoted.contains(quote) {
+        return None;
+    }
+
+    let start = where_index + "--where".len() + spaces + quote.len_utf8();
+    Some(QuotedWhereContext {
+        command_prefix: &prefix_line[..where_index + "--where".len()],
+        clause_prefix: quoted,
+        clause_ends_with_space: quoted.ends_with(' '),
+        start,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
@@ -395,7 +532,8 @@ mod tests {
     use crate::catalog::{CompletionSpec, OptionSpec};
 
     use super::{
-        completion_context_parts, is_completing_option_value, option_suggestion, safe_prefix_end,
+        completion_context_parts, is_completing_option_value, option_suggestion,
+        quoted_where_context, safe_prefix_end,
     };
 
     #[test]
@@ -471,6 +609,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn quoted_where_context_extracts_open_clause_contents() {
+        let context = quoted_where_context("namespace list --where 'name ic")
+            .expect("quoted where should be detected");
+
+        assert_eq!(context.command_prefix, "namespace list --where");
+        assert_eq!(context.clause_prefix, "name ic");
+        assert_eq!(context.start, "namespace list --where '".len());
+    }
+
+    #[test]
+    fn quoted_where_context_ignores_closed_quotes() {
+        assert!(quoted_where_context("namespace list --where 'name icontains foo'").is_none());
+    }
+
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {
         OptionSpec {
             name: "name".to_string(),
@@ -481,6 +634,9 @@ mod tests {
             field_type: TypeId::of::<String>(),
             required: false,
             flag,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
             completion: CompletionSpec::None,
         }
     }

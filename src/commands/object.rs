@@ -7,15 +7,18 @@ use jsonpath_rust::JsonPath;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, want_json, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, equals_clause, render_list_page, want_json,
+    CliCommand,
+};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{classes, namespaces, objects_from_class};
+use crate::autocomplete::{classes, namespaces, object_where, objects_from_class};
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
-use crate::services::{AppServices, CreateObjectInput, ObjectFilter, ObjectUpdateInput};
+use crate::services::{AppServices, CreateObjectInput, ObjectUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -346,7 +349,7 @@ pub struct ObjectList {
         help = "Name of the class",
         autocomplete = "classes"
     )]
-    pub class: String,
+    pub class: Option<String>,
     #[option(
         short = "n",
         long = "name",
@@ -356,28 +359,38 @@ pub struct ObjectList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "object_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for ObjectList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let new: ObjectList = Self::parse_tokens(tokens)?;
-        let objects = services.gateway().list_objects(ObjectFilter {
-            class_name: new.class,
-            name: new.name,
-            description: new.description,
-        })?;
-
-        if objects.is_empty() {
-            append_line("No objects found")?;
-            return Ok(());
-        }
-
-        match desired_format(tokens) {
-            OutputFormat::Json => objects.format_json_noreturn()?,
-            OutputFormat::Text => objects.format_noreturn()?,
-        }
-
-        Ok(())
+        let query: ObjectList = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.class.map(|value| equals_clause("class", value)),
+                query.name.map(|value| contains_clause("name", value)),
+                query
+                    .description
+                    .map(|value| contains_clause("description", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let objects = services.gateway().list_objects(&list_query)?;
+        render_list_page(tokens, &objects)
     }
 }
 

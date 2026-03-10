@@ -1,16 +1,17 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
-use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
+use super::{build_list_query, desired_format, equals_clause, render_list_page, CliCommand};
+use crate::autocomplete::{
+    classes, objects_from_class_from, objects_from_class_to, relation_where,
+};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::{OutputFormat, Relation};
 use crate::output::append_line;
-use crate::services::{AppServices, RelationFilter, RelationTarget};
+use crate::services::{AppServices, RelationTarget};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -177,6 +178,17 @@ pub struct RelationList {
         autocomplete = "objects_from_class_to"
     )]
     pub object_to: Option<String>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -283,44 +295,48 @@ impl CliCommand for RelationDelete {
 
 impl CliCommand for RelationList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let new = Self::parse_tokens(tokens)?;
-        let filter = RelationFilter {
-            class_from: new.class_from.clone(),
-            class_to: new.class_to.clone(),
-            object_from: new.object_from.clone(),
-            object_to: new.object_to.clone(),
-        };
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query
+                    .class_from
+                    .map(|value| equals_clause("class_from", value)),
+                query.class_to.map(|value| equals_clause("class_to", value)),
+                query
+                    .object_from
+                    .map(|value| equals_clause("object_from", value)),
+                query
+                    .object_to
+                    .map(|value| equals_clause("object_to", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
 
-        let class_relations = services.gateway().list_class_relations(&filter)?;
+        let has_object_filters = list_query
+            .filters
+            .iter()
+            .any(|clause| matches!(clause.field.as_str(), "object_from" | "object_to"));
+        let has_both_class_filters = list_query
+            .filters
+            .iter()
+            .any(|clause| clause.field == "class_from")
+            && list_query
+                .filters
+                .iter()
+                .any(|clause| clause.field == "class_to");
+        let wants_object_relations = has_object_filters || has_both_class_filters;
 
-        if class_relations.is_empty() {
-            match desired_format(tokens) {
-                OutputFormat::Json => append_line(serde_json::to_string(&json!([]))?)?,
-                OutputFormat::Text => append_line("No relations found")?,
-            }
-            return Ok(());
+        if wants_object_relations {
+            let relations = services.gateway().list_object_relations(&list_query)?;
+            render_list_page(tokens, &relations)
+        } else {
+            let relations = services.gateway().list_class_relations(&list_query)?;
+            render_list_page(tokens, &relations)
         }
-
-        if class_relations.len() > 1 || (new.class_from.is_none() || new.class_to.is_none()) {
-            match desired_format(tokens) {
-                OutputFormat::Json => class_relations.format_json_noreturn()?,
-                OutputFormat::Text => class_relations.format_noreturn()?,
-            }
-            return Ok(());
-        }
-
-        let object_relations = services.gateway().list_object_relations(&filter)?;
-        if object_relations.is_empty() {
-            append_line("No relations found")?;
-            return Ok(());
-        }
-
-        match desired_format(tokens) {
-            OutputFormat::Json => object_relations.format_json_noreturn()?,
-            OutputFormat::Text => object_relations.format_noreturn()?,
-        }
-
-        Ok(())
     }
 }
 

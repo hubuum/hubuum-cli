@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -137,6 +137,10 @@ impl CliCommand for ImportShow {
 pub struct ImportResults {
     #[option(short = "i", long = "id", help = "Import task ID")]
     pub id: Option<i32>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl GetTaskId for &ImportResults {
@@ -149,18 +153,14 @@ impl CliCommand for ImportResults {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = task_id_or_pos(&query, tokens, 0)?;
+        let list_query = build_list_query(&[], query.limit, query.cursor, [])?;
         let results = services.gateway().import_results(
             query
                 .id
                 .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
+            &list_query,
         )?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&results)?)?,
-            OutputFormat::Text => results.format_noreturn()?,
-        }
-
-        Ok(())
+        render_list_page(tokens, &results)
     }
 }
 

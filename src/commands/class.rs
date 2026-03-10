@@ -2,15 +2,15 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{bool, classes, namespaces};
+use crate::autocomplete::{bool, class_where, classes, namespaces};
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, ClassFilter, ClassUpdateInput, CreateClassInput};
+use crate::services::{AppServices, ClassUpdateInput, CreateClassInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -284,22 +284,37 @@ pub struct ClassList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "class_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for ClassList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let new = Self::parse_tokens(tokens)?;
-        let classes = services.gateway().list_classes(ClassFilter {
-            name: new.name,
-            description: new.description,
-        })?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => classes.format_json_noreturn()?,
-            OutputFormat::Text => classes.format_noreturn()?,
-        }
-
-        Ok(())
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.name.map(|value| contains_clause("name", value)),
+                query
+                    .description
+                    .map(|value| contains_clause("description", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let classes = services.gateway().list_classes(&list_query)?;
+        render_list_page(tokens, &classes)
     }
 }
 

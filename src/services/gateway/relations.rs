@@ -4,6 +4,10 @@ use hubuum_client::{ClassRelationPost, ObjectRelationPost};
 
 use crate::domain::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord};
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, ListQuery, PagedResult,
+};
 
 use super::HubuumGateway;
 
@@ -11,14 +15,6 @@ use super::HubuumGateway;
 pub struct RelationTarget {
     pub class_from: String,
     pub class_to: String,
-    pub object_from: Option<String>,
-    pub object_to: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RelationFilter {
-    pub class_from: Option<String>,
-    pub class_to: Option<String>,
     pub object_from: Option<String>,
     pub object_to: Option<String>,
 }
@@ -123,47 +119,52 @@ impl HubuumGateway {
 
     pub fn list_class_relations(
         &self,
-        filter: &RelationFilter,
-    ) -> Result<Vec<ResolvedClassRelationRecord>, AppError> {
-        let mut query = self.client.class_relation().find();
-
-        if let (Some(class_from_name), Some(class_to_name)) = (&filter.class_from, &filter.class_to)
-        {
-            let (class_from, class_to) = self.class_pair(class_from_name, class_to_name)?;
-            query = query
-                .add_filter_equals("from_classes", class_from.id)
-                .add_filter_equals("to_classes", class_to.id);
-        } else if let Some(class_from_name) = &filter.class_from {
-            let class_from = self.client.classes().select_by_name(class_from_name)?;
-            query = query.add_filter_equals("from_classes", class_from.id());
-        } else if let Some(class_to_name) = &filter.class_to {
-            let class_to = self.client.classes().select_by_name(class_to_name)?;
-            query = query.add_filter_equals("to_classes", class_to.id());
-        }
-
-        let relations = query.execute()?;
-        if relations.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let class_map = self.class_map_from_relation_ids(&relations)?;
-        Ok(relations
+        query: &ListQuery,
+    ) -> Result<PagedResult<ResolvedClassRelationRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, RELATION_FILTER_SPECS)?;
+        if validated
             .iter()
-            .map(|relation| ResolvedClassRelationRecord::new(relation, &class_map))
-            .collect())
+            .any(|clause| matches!(clause.spec.public_name, "object_from" | "object_to"))
+        {
+            return Err(AppError::ParseError(
+                "object_from/object_to filters require object relation listing".to_string(),
+            ));
+        }
+
+        let mut search = self.client.class_relation().find();
+        if let Some(class_from_name) = relation_filter_value(&validated, "class_from") {
+            let class_from = self.client.classes().select_by_name(class_from_name)?;
+            search = search.add_filter_equals("from_classes", class_from.id());
+        }
+        if let Some(class_to_name) = relation_filter_value(&validated, "class_to") {
+            let class_to = self.client.classes().select_by_name(class_to_name)?;
+            search = search.add_filter_equals("to_classes", class_to.id());
+        }
+
+        let page = apply_query_paging(search, query).page()?;
+        if page.items.is_empty() {
+            return Ok(PagedResult {
+                items: Vec::new(),
+                next_cursor: page.next_cursor,
+                limit: query.limit,
+                returned_count: 0,
+            });
+        }
+
+        let class_map = self.class_map_from_relation_ids(&page.items)?;
+        Ok(PagedResult::from_page(page, query.limit, |relation| {
+            ResolvedClassRelationRecord::new(&relation, &class_map)
+        }))
     }
 
     pub fn list_object_relations(
         &self,
-        filter: &RelationFilter,
-    ) -> Result<Vec<ResolvedObjectRelationRecord>, AppError> {
-        let class_from_name = filter
-            .class_from
-            .as_deref()
+        query: &ListQuery,
+    ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, RELATION_FILTER_SPECS)?;
+        let class_from_name = relation_filter_value(&validated, "class_from")
             .ok_or_else(|| AppError::MissingOptions(vec!["class_from".to_string()]))?;
-        let class_to_name = filter
-            .class_to
-            .as_deref()
+        let class_to_name = relation_filter_value(&validated, "class_to")
             .ok_or_else(|| AppError::MissingOptions(vec!["class_to".to_string()]))?;
 
         let (mut class_from, mut class_to) = self.class_pair(class_from_name, class_to_name)?;
@@ -174,39 +175,43 @@ impl HubuumGateway {
         }
 
         let class_relation = self.find_class_relation(class_from.id, class_to.id)?;
-        let mut query = self
+        let mut search = self
             .client
             .object_relation()
             .find()
             .add_filter_equals("class_relation", class_relation.id);
 
-        if let Some(object_from_name) = &filter.object_from {
+        if let Some(object_from_name) = relation_filter_value(&validated, "object_from") {
             let object_from = self.find_object_by_name(class_from.id, object_from_name)?;
             let target = if swapped {
                 "from_objects"
             } else {
                 "to_objects"
             };
-            query = query.add_filter_equals(target, object_from.id);
+            search = search.add_filter_equals(target, object_from.id);
         }
 
-        if let Some(object_to_name) = &filter.object_to {
+        if let Some(object_to_name) = relation_filter_value(&validated, "object_to") {
             let object_to = self.find_object_by_name(class_to.id, object_to_name)?;
             let target = if swapped {
                 "to_objects"
             } else {
                 "from_objects"
             };
-            query = query.add_filter_equals(target, object_to.id);
+            search = search.add_filter_equals(target, object_to.id);
         }
 
-        let object_relations = query.execute()?;
-        if object_relations.is_empty() {
-            return Ok(Vec::new());
+        let page = apply_query_paging(search, query).page()?;
+        if page.items.is_empty() {
+            return Ok(PagedResult {
+                items: Vec::new(),
+                next_cursor: page.next_cursor,
+                limit: query.limit,
+                returned_count: 0,
+            });
         }
 
-        let object_map =
-            self.object_map_for_relation(&object_relations, class_from.id, class_to.id)?;
+        let object_map = self.object_map_for_relation(&page.items, class_from.id, class_to.id)?;
         let class_map = self.class_map_from_classes([&class_from, &class_to]);
 
         let mut corrected_relation = class_relation.clone();
@@ -217,19 +222,43 @@ impl HubuumGateway {
             );
         }
 
-        Ok(object_relations
-            .iter()
-            .map(|relation| {
-                ResolvedObjectRelationRecord::new(
-                    relation,
-                    &corrected_relation,
-                    &object_map,
-                    &class_map,
-                )
-            })
-            .collect())
+        Ok(PagedResult::from_page(page, query.limit, |relation| {
+            ResolvedObjectRelationRecord::new(
+                &relation,
+                &corrected_relation,
+                &object_map,
+                &class_map,
+            )
+        }))
     }
 }
+
+pub(crate) const RELATION_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "class_from",
+        "from_classes",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "class_to",
+        "to_classes",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "object_from",
+        "from_objects",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "object_to",
+        "to_objects",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+];
 
 fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppError> {
     match (target.object_from.as_deref(), target.object_to.as_deref()) {
@@ -237,4 +266,14 @@ fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppErr
         (None, _) => Err(AppError::MissingOptions(vec!["object_from".to_string()])),
         (_, None) => Err(AppError::MissingOptions(vec!["object_to".to_string()])),
     }
+}
+
+fn relation_filter_value<'a>(
+    clauses: &'a [crate::list_query::ValidatedFilterClause],
+    field: &str,
+) -> Option<&'a str> {
+    clauses
+        .iter()
+        .find(|clause| clause.spec.public_name == field)
+        .map(|clause| clause.value.as_str())
 }

@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 
-use hubuum_client::{FilterOperator, ObjectPatch, ObjectPost};
+use hubuum_client::{ObjectPatch, ObjectPost};
 
 use crate::domain::ResolvedObjectRecord;
 use crate::errors::AppError;
+use crate::list_query::{
+    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
+    FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+};
 
 use super::{shared::find_entities_by_ids, HubuumGateway};
 
@@ -14,13 +18,6 @@ pub struct CreateObjectInput {
     pub namespace: String,
     pub description: String,
     pub data: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ObjectFilter {
-    pub class_name: String,
-    pub name: Option<String>,
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,42 +96,46 @@ impl HubuumGateway {
 
     pub fn list_objects(
         &self,
-        filter: ObjectFilter,
-    ) -> Result<Vec<ResolvedObjectRecord>, AppError> {
-        let class = self.client.classes().select_by_name(&filter.class_name)?;
-        let mut search = self.client.objects(class.id()).find();
+        query: &ListQuery,
+    ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, OBJECT_FILTER_SPECS)?;
+        let class_filter = validated
+            .iter()
+            .find(|clause| clause.spec.public_name == "class")
+            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
+        let class = self.client.classes().select_by_name(&class_filter.value)?;
 
-        if let Some(name) = filter.name {
-            search = search.add_filter(
-                "name",
-                FilterOperator::IContains { is_negated: false },
-                name,
-            );
-        }
-        if let Some(description) = filter.description {
-            search = search.add_filter(
-                "description",
-                FilterOperator::IContains { is_negated: false },
-                description,
-            );
+        let filters = validated
+            .iter()
+            .filter(|clause| clause.spec.public_name != "class")
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let page = apply_query_paging(
+            self.client.objects(class.id()).find().filters(filters),
+            query,
+        )
+        .page()?;
+        if page.items.is_empty() {
+            return Ok(PagedResult {
+                items: Vec::new(),
+                next_cursor: page.next_cursor,
+                limit: query.limit,
+                returned_count: 0,
+            });
         }
 
-        let objects = search.execute()?;
-        if objects.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let classmap = find_entities_by_ids(&self.client.classes(), &objects, |object| {
+        let classmap = find_entities_by_ids(&self.client.classes(), page.items.iter(), |object| {
             object.hubuum_class_id
         })?;
-        let namespacemap = find_entities_by_ids(&self.client.namespaces(), &objects, |object| {
-            object.namespace_id
-        })?;
+        let namespacemap =
+            find_entities_by_ids(&self.client.namespaces(), page.items.iter(), |object| {
+                object.namespace_id
+            })?;
 
-        Ok(objects
-            .iter()
-            .map(|object| ResolvedObjectRecord::new(object, &classmap, &namespacemap))
-            .collect())
+        Ok(PagedResult::from_page(page, query.limit, |object| {
+            ResolvedObjectRecord::new(&object, &classmap, &namespacemap)
+        }))
     }
 
     pub fn update_object(
@@ -176,3 +177,56 @@ impl HubuumGateway {
         Ok(ResolvedObjectRecord::new(&result, &classmap, &namespacemap))
     }
 }
+
+pub(crate) const OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "class",
+        "hubuum_class_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "description",
+        "description",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "namespace",
+        "namespace_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::NamespaceNameToId),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "data",
+        "data",
+        FilterOperatorProfile::Any,
+        FilterValueProfile::Any,
+    )
+    .json_root(),
+];
