@@ -26,6 +26,7 @@ fn run_thread(
     app: Arc<AppRuntime>,
     session: SharedSession,
 ) -> Result<(), AppError> {
+    let _background_guard = BackgroundGuard::new(app.services.background());
     let history = Box::new(
         FileBackedHistory::with_file(1000, get_history_file()?)
             .map_err(|err| AppError::ReplError(err.to_string()))?,
@@ -101,6 +102,23 @@ fn run_thread(
     }
 
     Ok(())
+}
+
+struct BackgroundGuard {
+    manager: crate::background::BackgroundManager,
+}
+
+impl BackgroundGuard {
+    fn new(manager: crate::background::BackgroundManager) -> Self {
+        manager.enable();
+        Self { manager }
+    }
+}
+
+impl Drop for BackgroundGuard {
+    fn drop(&mut self) {
+        self.manager.disable();
+    }
 }
 
 fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) {

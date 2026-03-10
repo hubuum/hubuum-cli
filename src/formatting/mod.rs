@@ -1,3 +1,4 @@
+mod background;
 mod classes;
 mod core;
 mod groups;

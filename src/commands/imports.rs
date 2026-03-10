@@ -73,10 +73,29 @@ impl CliCommand for ImportSubmit {
             request_json,
             idempotency_key: query.idempotency_key,
         })?;
+        let watcher = services
+            .background()
+            .watch_task(task.clone(), format!("import {}", task.0.id));
 
         match desired_format(tokens) {
             OutputFormat::Json => append_line(serde_json::to_string_pretty(&task)?)?,
-            OutputFormat::Text => task.format_noreturn()?,
+            OutputFormat::Text => {
+                task.format_noreturn()?;
+                if let Some(registration) = watcher {
+                    let message = if registration.created {
+                        format!(
+                            "Watching import task {} as local background job {}",
+                            registration.task_id, registration.local_id
+                        )
+                    } else {
+                        format!(
+                            "Already watching import task {} as local background job {}",
+                            registration.task_id, registration.local_id
+                        )
+                    };
+                    append_line(message)?;
+                }
+            }
         }
 
         Ok(())

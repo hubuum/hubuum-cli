@@ -92,6 +92,14 @@ pub fn build_cli() -> Command {
                 .help("Disable API-related completions"),
         )
         .arg(
+            Arg::new("background_poll_interval")
+                .long("background-poll-interval")
+                .value_name("SECONDS")
+                .value_parser(value_parser!(u64))
+                .env("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS")
+                .help("Set the background task poll interval in seconds"),
+        )
+        .arg(
             Arg::new("command")
                 .long("command")
                 .value_name("COMMAND")
@@ -145,5 +153,8 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(completion_disable_api) = matches.get_one::<bool>("completion_disable_api") {
         config.completion.disable_api_related = *completion_disable_api;
+    }
+    if let Some(background_poll_interval) = matches.get_one::<u64>("background_poll_interval") {
+        config.background.poll_interval_seconds = *background_poll_interval;
     }
 }

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use app::{AppRuntime, SharedSession};
 use errors::AppError;
@@ -6,6 +7,7 @@ use services::AppServices;
 
 mod app;
 mod autocomplete;
+mod background;
 mod catalog;
 mod cli;
 mod commands;
@@ -29,7 +31,11 @@ async fn main() -> Result<(), AppError> {
     let config = app::load_app_config(&matches)?;
     let client = app::login(config.clone()).await?;
 
-    let services = Arc::new(AppServices::new(client));
+    let services = Arc::new(AppServices::new(
+        client,
+        tokio::runtime::Handle::current(),
+        Duration::from_secs(config.background.poll_interval_seconds),
+    ));
     let catalog = Arc::new(commands::build_command_catalog());
     let runtime = Arc::new(AppRuntime::new(config, services, catalog));
     let session = SharedSession::new();

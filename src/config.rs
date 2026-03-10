@@ -28,6 +28,7 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub cache: CacheConfig,
     pub completion: CompletionConfig,
+    pub background: BackgroundConfig,
     pub output: OutputConfig,
 }
 
@@ -56,6 +57,11 @@ pub struct CompletionConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackgroundConfig {
+    pub poll_interval_seconds: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub padding: i8,
@@ -81,6 +87,9 @@ impl Default for AppConfig {
             },
             completion: CompletionConfig {
                 disable_api_related: Defaults::COMPLETION_DISABLE_API_RELATED,
+            },
+            background: BackgroundConfig {
+                poll_interval_seconds: Defaults::BACKGROUND_POLL_INTERVAL_SECONDS,
             },
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
@@ -121,6 +130,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
             "completion.disable_api_related",
             Defaults::COMPLETION_DISABLE_API_RELATED,
         )?
+        .set_default(
+            "background.poll_interval_seconds",
+            Defaults::BACKGROUND_POLL_INTERVAL_SECONDS,
+        )?
         // 1. Load system-wide config
         .add_source(File::from(system_config).required(false))
         // 2. Add in settings from the environment (with a prefix of HUBUUM_CLI_)
@@ -159,6 +172,7 @@ mod tests {
             "HUBUUM_CLI__CACHE__SIZE",
             "HUBUUM_CLI__CACHE__DISABLE",
             "HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED",
+            "HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
         ] {
             env::remove_var(var);
@@ -182,6 +196,7 @@ mod tests {
         env::set_var("HUBUUM_CLI__CACHE__DISABLE", "true");
 
         env::set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
+        env::set_var("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS", "7");
 
         // 2. load and assert
         let cfg = load_config(None).expect("failed to load config from env");
@@ -199,6 +214,7 @@ mod tests {
         assert!(cfg.cache.disable);
 
         assert!(cfg.completion.disable_api_related);
+        assert_eq!(cfg.background.poll_interval_seconds, 7);
         clear_env();
     }
 
@@ -214,6 +230,10 @@ mod tests {
         assert_eq!(cfg.server.port, 5555);
         assert_eq!(cfg.server.hostname, Defaults::SERVER_HOSTNAME);
         assert_eq!(cfg.cache.disable, Defaults::CACHE_DISABLE);
+        assert_eq!(
+            cfg.background.poll_interval_seconds,
+            Defaults::BACKGROUND_POLL_INTERVAL_SECONDS
+        );
         assert!(cfg.server.password.is_none());
 
         clear_env();

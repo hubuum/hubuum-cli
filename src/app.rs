@@ -151,10 +151,16 @@ impl AppRuntime {
             self.config.server.username, self.config.server.hostname, self.config.server.port
         );
         let scope = session.scope();
+        let background = self
+            .services
+            .background()
+            .take_prompt_badge()
+            .map(|badge| format!("{badge} "))
+            .unwrap_or_default();
         if scope.is_empty() {
-            format!("{base} > ")
+            format!("{background}{base} > ")
         } else {
-            format!("{base} [{}] > ", scope.join(" "))
+            format!("{background}{base} [{}] > ", scope.join(" "))
         }
     }
 }

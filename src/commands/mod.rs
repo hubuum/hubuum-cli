@@ -2,6 +2,7 @@ use log::trace;
 use std::any::TypeId;
 use std::collections::HashSet;
 
+mod bg;
 mod builder;
 mod class;
 mod group;

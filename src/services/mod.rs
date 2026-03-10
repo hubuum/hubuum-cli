@@ -2,10 +2,12 @@ mod completion;
 mod gateway;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use hubuum_client::{Authenticated, SyncClient};
 use tokio::runtime::Handle;
 
+use crate::background::BackgroundManager;
 use crate::config::AppConfig;
 
 pub use completion::CompletionContext;
@@ -20,19 +22,30 @@ pub use gateway::{
 #[derive(Clone)]
 pub struct AppServices {
     gateway: Arc<HubuumGateway>,
+    background: BackgroundManager,
     completion: completion::CompletionStore,
 }
 
 impl AppServices {
-    pub fn new(client: Arc<SyncClient<Authenticated>>) -> Self {
+    pub fn new(
+        client: Arc<SyncClient<Authenticated>>,
+        runtime: Handle,
+        background_poll_interval: Duration,
+    ) -> Self {
+        let gateway = Arc::new(HubuumGateway::new(client));
         Self {
-            gateway: Arc::new(HubuumGateway::new(client)),
+            background: BackgroundManager::new(runtime, gateway.clone(), background_poll_interval),
+            gateway,
             completion: completion::CompletionStore::default(),
         }
     }
 
     pub fn gateway(&self) -> Arc<HubuumGateway> {
         self.gateway.clone()
+    }
+
+    pub fn background(&self) -> BackgroundManager {
+        self.background.clone()
     }
 
     pub fn completion_context(
