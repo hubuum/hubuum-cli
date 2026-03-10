@@ -27,7 +27,10 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn create_namespace(&self, input: CreateNamespaceInput) -> Result<NamespaceRecord, AppError> {
+    pub fn create_namespace(
+        &self,
+        input: CreateNamespaceInput,
+    ) -> Result<NamespaceRecord, AppError> {
         let group = self.client.groups().select_by_name(&input.owner)?;
         let namespace = self.client.namespaces().create(NamespacePost {
             name: input.name,
@@ -44,11 +47,8 @@ impl HubuumGateway {
     ) -> Result<Vec<NamespaceRecord>, AppError> {
         let mut search = self.client.namespaces().find();
         if let Some(name) = name {
-            search = search.add_filter(
-                "name",
-                FilterOperator::Contains { is_negated: false },
-                name,
-            );
+            search =
+                search.add_filter("name", FilterOperator::Contains { is_negated: false }, name);
         }
         if let Some(description) = description {
             search = search.add_filter(
@@ -80,7 +80,11 @@ impl HubuumGateway {
         &self,
         name: &str,
     ) -> Result<NamespacePermissionsView, AppError> {
-        let permissions = self.client.namespaces().select_by_name(name)?.permissions()?;
+        let permissions = self
+            .client
+            .namespaces()
+            .select_by_name(name)?
+            .permissions()?;
         let entries = permissions
             .iter()
             .cloned()
@@ -104,7 +108,10 @@ impl HubuumGateway {
         let group = self.client.groups().select_by_name(group_name)?;
         namespace.grant_permissions(
             group.id(),
-            permissions.iter().map(|permission| permission.api_name()).collect(),
+            permissions
+                .iter()
+                .map(|permission| permission.api_name())
+                .collect(),
         )?;
         Ok(())
     }

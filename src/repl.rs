@@ -142,7 +142,10 @@ impl Prompt for ReplPrompt {
             PromptHistorySearchStatus::Passing => "",
             PromptHistorySearchStatus::Failing => "failing ",
         };
-        Cow::Owned(format!("({status}reverse-search: {}) ", history_search.term))
+        Cow::Owned(format!(
+            "({status}reverse-search: {}) ",
+            history_search.term
+        ))
     }
 }
 
@@ -257,12 +260,7 @@ impl ReplCompleter {
     }
 }
 
-fn suggestion(
-    value: String,
-    start: usize,
-    end: usize,
-    description: Option<String>,
-) -> Suggestion {
+fn suggestion(value: String, start: usize, end: usize, description: Option<String>) -> Suggestion {
     Suggestion {
         value,
         description,
@@ -275,12 +273,20 @@ fn suggestion(
     }
 }
 
-fn option_suggestion(option: &OptionSpec, word: &str, start: usize, end: usize) -> Option<Suggestion> {
+fn option_suggestion(
+    option: &OptionSpec,
+    word: &str,
+    start: usize,
+    end: usize,
+) -> Option<Suggestion> {
     let short_matches = option
         .short
         .as_deref()
         .is_some_and(|name| name.starts_with(word));
-    let long_matches = option.long.as_deref().is_some_and(|name| name.starts_with(word));
+    let long_matches = option
+        .long
+        .as_deref()
+        .is_some_and(|name| name.starts_with(word));
 
     if !short_matches && !long_matches {
         return None;
@@ -368,7 +374,10 @@ mod tests {
         let suggestion = option_suggestion(&option, "-", 0, 1).expect("suggestion");
 
         assert_eq!(suggestion.value, "-n");
-        assert_eq!(suggestion.description.as_deref(), Some("--name  <string>  Name of the namespace"));
+        assert_eq!(
+            suggestion.description.as_deref(),
+            Some("--name  <string>  Name of the namespace")
+        );
     }
 
     #[test]
@@ -377,15 +386,13 @@ mod tests {
         let suggestion = option_suggestion(&option, "--n", 0, 3).expect("suggestion");
 
         assert_eq!(suggestion.value, "--name");
-        assert_eq!(suggestion.description.as_deref(), Some("-n  <string>  Name of the namespace"));
+        assert_eq!(
+            suggestion.description.as_deref(),
+            Some("-n  <string>  Name of the namespace")
+        );
     }
 
-    fn test_option(
-        short: Option<&str>,
-        long: Option<&str>,
-        flag: bool,
-        help: &str,
-    ) -> OptionSpec {
+    fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {
         OptionSpec {
             name: "name".to_string(),
             short: short.map(str::to_string),

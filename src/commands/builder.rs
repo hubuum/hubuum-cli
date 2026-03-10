@@ -6,118 +6,36 @@ use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
-use crate::commands::{self, CliCommand};
+use crate::commands::{self, command_options, CliCommand};
 use crate::errors::AppError;
 use crate::output::{reset_output, take_output};
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CommandDocs {
+    pub about: Option<&'static str>,
+    pub long_about: Option<&'static str>,
+    pub examples: Option<&'static str>,
+}
 
 pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
 
-    add_class_commands(&mut builder);
-    add_namespace_commands(&mut builder);
-    add_user_commands(&mut builder);
-    add_group_commands(&mut builder);
-    add_object_commands(&mut builder);
-    add_relation_commands(&mut builder);
+    commands::class::register_commands(&mut builder);
+    commands::namespace::register_commands(&mut builder);
+    commands::user::register_commands(&mut builder);
+    commands::group::register_commands(&mut builder);
+    commands::object::register_commands(&mut builder);
+    commands::relations::register_commands(&mut builder);
+    commands::help::register_commands(&mut builder);
 
-    builder.add_command(&[], legacy_command("help", commands::Help::default()));
     builder.build()
 }
 
-fn add_class_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(&["class"], legacy_command("create", commands::ClassNew::default()))
-        .add_command(&["class"], legacy_command("list", commands::ClassList::default()))
-        .add_command(&["class"], legacy_command("delete", commands::ClassDelete::default()))
-        .add_command(&["class"], legacy_command("info", commands::ClassInfo::default()));
-}
-
-fn add_namespace_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(
-            &["namespace"],
-            legacy_command("create", commands::NamespaceNew::default()),
-        )
-        .add_command(
-            &["namespace"],
-            legacy_command("list", commands::NamespaceList::default()),
-        )
-        .add_command(
-            &["namespace"],
-            legacy_command("delete", commands::NamespaceDelete::default()),
-        )
-        .add_command(
-            &["namespace"],
-            legacy_command("info", commands::NamespaceInfo::default()),
-        )
-        .add_command(
-            &["namespace", "permissions"],
-            legacy_command("list", commands::NamespacePermissions::default()),
-        )
-        .add_command(
-            &["namespace", "permissions"],
-            legacy_command("set", commands::NamespacePermissionsSet::default()),
-        );
-}
-
-fn add_user_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(&["user"], legacy_command("create", commands::UserNew::default()))
-        .add_command(&["user"], legacy_command("list", commands::UserList::default()))
-        .add_command(&["user"], legacy_command("delete", commands::UserDelete::default()))
-        .add_command(&["user"], legacy_command("info", commands::UserInfo::default()));
-}
-
-fn add_group_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(&["group"], legacy_command("create", commands::GroupNew::default()))
-        .add_command(&["group"], legacy_command("list", commands::GroupList::default()))
-        .add_command(
-            &["group"],
-            legacy_command("add_user", commands::GroupAddUser::default()),
-        )
-        .add_command(
-            &["group"],
-            legacy_command("remove_user", commands::GroupRemoveUser::default()),
-        )
-        .add_command(&["group"], legacy_command("info", commands::GroupInfo::default()));
-}
-
-fn add_object_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(&["object"], legacy_command("create", commands::ObjectNew::default()))
-        .add_command(&["object"], legacy_command("list", commands::ObjectList::default()))
-        .add_command(&["object"], legacy_command("delete", commands::ObjectDelete::default()))
-        .add_command(&["object"], legacy_command("modify", commands::ObjectModify::default()))
-        .add_command(&["object"], legacy_command("info", commands::ObjectInfo::default()));
-}
-
-fn add_relation_commands(builder: &mut CommandCatalogBuilder) {
-    builder
-        .add_command(
-            &["relation"],
-            legacy_command("create", commands::RelationNew::default()),
-        )
-        .add_command(
-            &["relation"],
-            legacy_command("list", commands::RelationList::default()),
-        )
-        .add_command(
-            &["relation"],
-            legacy_command("delete", commands::RelationDelete::default()),
-        )
-        .add_command(
-            &["relation"],
-            legacy_command("info", commands::RelationInfo::default()),
-        );
-}
-
-fn legacy_command<C>(name: &str, command: C) -> CommandSpec
+pub(crate) fn catalog_command<C>(name: &str, command: C, docs: CommandDocs) -> CommandSpec
 where
     C: CliCommand + Clone + 'static,
 {
-    let options = command
-        .options()
+    let options = command_options::<C>()
         .into_iter()
         .map(|option| OptionSpec {
             name: option.name,
@@ -137,17 +55,17 @@ where
 
     CommandSpec {
         name: name.to_string(),
-        about: command.about(),
-        long_about: command.long_about(),
-        examples: command.examples(),
+        about: docs.about.map(str::to_string),
+        long_about: docs.long_about.map(str::to_string),
+        examples: docs.examples.map(str::to_string),
         options,
-        handler: Arc::new(LegacyCommandHandler {
+        handler: Arc::new(CommandHandler {
             command: Arc::new(command),
         }) as Arc<dyn AsyncCommandHandler>,
     }
 }
 
-struct LegacyCommandHandler<C>
+struct CommandHandler<C>
 where
     C: CliCommand + Clone + 'static,
 {
@@ -155,7 +73,7 @@ where
 }
 
 #[async_trait]
-impl<C> AsyncCommandHandler for LegacyCommandHandler<C>
+impl<C> AsyncCommandHandler for CommandHandler<C>
 where
     C: CliCommand + Clone + 'static,
 {
@@ -170,16 +88,14 @@ where
 
         tokio::task::spawn_blocking(move || {
             reset_output()?;
-            let cmd_name = invocation
-                .command_path
-                .last()
-                .cloned()
-                .ok_or_else(|| AppError::CommandExecutionError("Missing command name".to_string()))?;
+            let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
+                AppError::CommandExecutionError("Missing command name".to_string())
+            })?;
 
             let tokens = crate::tokenizer::CommandTokenizer::new(
                 &raw_line,
                 &cmd_name,
-                &command.options(),
+                &command_options::<C>(),
             )?;
 
             command.execute(services.as_ref(), &tokens)?;

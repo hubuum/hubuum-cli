@@ -182,7 +182,11 @@ impl CommandCatalog {
         Err(AppError::CommandNotFound(parts.join(" ")))
     }
 
-    pub fn resolve_scope<'a>(&'a self, scope: &[String], parts: &[String]) -> Option<&'a ScopeSpec> {
+    pub fn resolve_scope<'a>(
+        &'a self,
+        scope: &[String],
+        parts: &[String],
+    ) -> Option<&'a ScopeSpec> {
         let mut current = self.scope(scope)?;
         for part in parts {
             current = current.scopes.get(part)?;
@@ -247,7 +251,9 @@ impl CommandCatalog {
             lines.push("  Type a nested scope name to descend.".to_string());
             lines.push("  Use .. to leave the current scope.".to_string());
             lines.push("  Use ? for quick help in the current scope.".to_string());
-            lines.push("  Use exit to leave the current scope, or Ctrl-D to leave the REPL.".to_string());
+            lines.push(
+                "  Use exit to leave the current scope, or Ctrl-D to leave the REPL.".to_string(),
+            );
         }
 
         lines.join("\n")
@@ -309,10 +315,7 @@ impl CommandCatalog {
                 let required = if option.required { " [required]" } else { "" };
                 help.push_str(&format!(
                     "  {:<28} {:<16} {}{}\n",
-                    label,
-                    field_type,
-                    option.help,
-                    required
+                    label, field_type, option.help, required
                 ));
             }
             help.push('\n');
@@ -411,7 +414,10 @@ mod tests {
         let resolved = catalog
             .resolve_command(&[], &["class".to_string(), "list".to_string()])
             .expect("command should resolve");
-        assert_eq!(resolved.command_path, vec!["class".to_string(), "list".to_string()]);
+        assert_eq!(
+            resolved.command_path,
+            vec!["class".to_string(), "list".to_string()]
+        );
         assert!(catalog.resolve_scope(&[], &["class".to_string()]).is_some());
     }
 

@@ -1,9 +1,10 @@
-use cli_command_derive::CliCommand;
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 
+use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -12,14 +13,34 @@ use crate::output::{append_key_value, append_line};
 use crate::services::{AppServices, CreateUserInput, UserFilter};
 use crate::tokenizer::CommandTokenizer;
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{desired_format, CliCommand};
+
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["user"],
+            catalog_command("create", UserNew::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["user"],
+            catalog_command("list", UserList::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["user"],
+            catalog_command("delete", UserDelete::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["user"],
+            catalog_command("info", UserInfo::default(), CommandDocs::default()),
+        );
+}
 
 trait GetUsername {
     fn username(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserNew {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: String,
@@ -28,12 +49,8 @@ pub struct UserNew {
 }
 
 impl CliCommand for UserNew {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let password = generate_random_password(20);
         let created: CreatedUser = services.gateway().create_user(CreateUserInput {
             username: new.username,
@@ -41,7 +58,7 @@ impl CliCommand for UserNew {
             password: password.clone(),
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => {
                 append_line(serde_json::to_string_pretty(&created)?)?;
             }
@@ -55,7 +72,7 @@ impl CliCommand for UserNew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserDelete {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
@@ -68,12 +85,8 @@ impl GetUsername for &UserDelete {
 }
 
 impl CliCommand for UserDelete {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
@@ -85,7 +98,7 @@ impl CliCommand for UserDelete {
 
         let message = format!("User '{}' deleted", username);
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -94,7 +107,7 @@ impl CliCommand for UserDelete {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserInfo {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
@@ -113,12 +126,8 @@ impl GetUsername for &UserInfo {
 }
 
 impl CliCommand for UserInfo {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
@@ -129,7 +138,7 @@ impl CliCommand for UserInfo {
             updated_at: query.updated_at,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => user.format_json_noreturn()?,
             OutputFormat::Text => user.format_noreturn()?,
         }
@@ -138,7 +147,7 @@ impl CliCommand for UserInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserList {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
@@ -151,12 +160,8 @@ pub struct UserList {
 }
 
 impl CliCommand for UserList {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
         let users = services.gateway().list_users(UserFilter {
             username: query.username,
             email: query.email,
@@ -164,7 +169,7 @@ impl CliCommand for UserList {
             updated_at: query.updated_at,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => users.format_json_noreturn()?,
             OutputFormat::Text => users.format_noreturn()?,
         }

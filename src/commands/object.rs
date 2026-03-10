@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
-use cli_command_derive::CliCommand;
+use cli_command_derive::CommandArgs;
 use jqesque::Jqesque;
 use jsonpath_rust::JsonPath;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CliCommand, CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{desired_format, want_json, CliCommand};
+use crate::catalog::CommandCatalogBuilder;
 
 use crate::autocomplete::{classes, namespaces, objects_from_class};
 use crate::errors::AppError;
@@ -16,17 +18,61 @@ use crate::output::{add_warning, append_key_value, append_line};
 use crate::services::{AppServices, CreateObjectInput, ObjectFilter, ObjectUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["object"],
+            catalog_command(
+                "create",
+                ObjectNew::default(),
+                CommandDocs {
+                    about: Some("Create a object class"),
+                    long_about: Some(
+                        "Create a new object in a specific class with the specified properties.",
+                    ),
+                    examples: Some(
+                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command("list", ObjectList::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["object"],
+            catalog_command("delete", ObjectDelete::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "modify",
+                ObjectModify::default(),
+                CommandDocs {
+                    about: Some("Modify an object"),
+                    long_about: Some(
+                        "Modify an object in a specific class with the specified properties.",
+                    ),
+                    examples: Some(
+                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command("info", ObjectInfo::default(), CommandDocs::default()),
+        );
+}
+
 trait GetObjectname {
     fn objectname(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Create a object class",
-    long_about = "Create a new object in a specific class with the specified properties.",
-    examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectNew {
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: String,
@@ -55,12 +101,8 @@ pub struct ObjectNew {
 }
 
 impl CliCommand for ObjectNew {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let object = services.gateway().create_object(CreateObjectInput {
             name: new.name,
             class_name: new.class,
@@ -69,7 +111,7 @@ impl CliCommand for ObjectNew {
             data: new.data,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }
@@ -84,7 +126,7 @@ impl GetObjectname for &ObjectInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectInfo {
     #[option(
         short = "n",
@@ -116,21 +158,19 @@ pub struct ObjectInfo {
 }
 
 impl CliCommand for ObjectInfo {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
         let object_name = query
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = services.gateway().object_details(&query.class, object_name)?;
+        let object = services
+            .gateway()
+            .object_details(&query.class, object_name)?;
 
-        if self.want_json(tokens) {
+        if want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object)?)?;
             return Ok(());
         }
@@ -199,7 +239,7 @@ impl CliCommand for ObjectInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectDelete {
     #[option(
         short = "n",
@@ -218,12 +258,8 @@ pub struct ObjectDelete {
 }
 
 impl CliCommand for ObjectDelete {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
         let class_name = query
@@ -238,11 +274,10 @@ impl CliCommand for ObjectDelete {
 
         let message = format!(
             "Object '{}' in class '{}' deleted successfully",
-            object_name,
-            class_name
+            object_name, class_name
         );
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -282,7 +317,7 @@ fn prettify_slice_path(path: &str) -> String {
         .replace("']", "")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectList {
     #[option(
         short = "c",
@@ -303,12 +338,8 @@ pub struct ObjectList {
 }
 
 impl CliCommand for ObjectList {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new: ObjectList = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new: ObjectList = Self::parse_tokens(tokens)?;
         let objects = services.gateway().list_objects(ObjectFilter {
             class_name: new.class,
             name: new.name,
@@ -320,7 +351,7 @@ impl CliCommand for ObjectList {
             return Ok(());
         }
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => objects.format_json_noreturn()?,
             OutputFormat::Text => objects.format_noreturn()?,
         }
@@ -329,13 +360,7 @@ impl CliCommand for ObjectList {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Modify an object",
-    long_about = "Modify an object in a specific class with the specified properties.",
-    examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectModify {
     #[option(
         short = "n",
@@ -374,12 +399,8 @@ pub struct ObjectModify {
 }
 
 impl CliCommand for ObjectModify {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let object = services.gateway().object_details(&new.class, &new.name)?;
 
         let data = if let Some(data) = &new.data {
@@ -402,7 +423,7 @@ impl CliCommand for ObjectModify {
             data,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }

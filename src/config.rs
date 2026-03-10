@@ -104,7 +104,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         // Start with default values
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
         .set_default("output.padding", Defaults::OUTPUT_PADDING)?
-        .set_default("output.table_style", Defaults::OUTPUT_TABLE_STYLE.to_string())?
+        .set_default(
+            "output.table_style",
+            Defaults::OUTPUT_TABLE_STYLE.to_string(),
+        )?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
         .set_default("server.ssl_validation", Defaults::SERVER_SSL_VALIDATION)?

@@ -35,7 +35,11 @@ enum CompletionKind {
 }
 
 impl CompletionContext {
-    pub(crate) fn new(services: Arc<AppServices>, runtime: Handle, disable_api_related: bool) -> Self {
+    pub(crate) fn new(
+        services: Arc<AppServices>,
+        runtime: Handle,
+        disable_api_related: bool,
+    ) -> Self {
         Self {
             services,
             runtime,
@@ -60,16 +64,21 @@ impl CompletionContext {
             return Vec::new();
         }
 
-        let Some(class_name) = parts.windows(2).find(|pair| pair[0] == source).map(|pair| pair[1].clone()) else {
+        let Some(class_name) = parts
+            .windows(2)
+            .find(|pair| pair[0] == source)
+            .map(|pair| pair[1].clone())
+        else {
             return Vec::new();
         };
 
         let fetched = self
             .runtime
-            .block_on(self.services.completion_store().load_objects_for_class(
-                self.services.gateway(),
-                class_name,
-            ))
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_objects_for_class(self.services.gateway(), class_name),
+            )
             .unwrap_or_default();
         filter_prefix(&fetched, prefix)
     }
@@ -81,10 +90,11 @@ impl CompletionContext {
 
         let fetched = self
             .runtime
-            .block_on(self.services.completion_store().load(
-                self.services.gateway(),
-                kind,
-            ))
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load(self.services.gateway(), kind),
+            )
             .unwrap_or_default();
         filter_prefix(&fetched, prefix)
     }
@@ -139,9 +149,10 @@ impl CompletionStore {
         }
 
         let cache_key = class_name.clone();
-        let fetched = tokio::task::spawn_blocking(move || gateway.list_object_names_for_class(&class_name))
-            .await
-            .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+        let fetched =
+            tokio::task::spawn_blocking(move || gateway.list_object_names_for_class(&class_name))
+                .await
+                .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
         if let Ok(mut snapshot) = self.snapshot.write() {
             snapshot.objects_by_class.insert(cache_key, fetched.clone());

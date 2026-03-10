@@ -9,7 +9,7 @@ use crate::catalog::CommandCatalog;
 use crate::config::{self, AppConfig};
 use crate::errors::AppError;
 use crate::files::{self, get_log_file};
-use crate::models::internal::TokenEntry;
+use crate::models::TokenEntry;
 use crate::services::AppServices;
 
 #[derive(Clone)]
@@ -133,7 +133,11 @@ fn authenticate(
 }
 
 impl AppRuntime {
-    pub fn new(config: Arc<AppConfig>, services: Arc<AppServices>, catalog: Arc<CommandCatalog>) -> Self {
+    pub fn new(
+        config: Arc<AppConfig>,
+        services: Arc<AppServices>,
+        catalog: Arc<CommandCatalog>,
+    ) -> Self {
         Self {
             config,
             services,

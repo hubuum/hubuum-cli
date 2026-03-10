@@ -1,9 +1,11 @@
-use cli_command_derive::CliCommand;
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::{CliCommand, CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{desired_format, CliCommand};
 use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
+use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::{OutputFormat, Relation};
@@ -11,14 +13,77 @@ use crate::output::append_line;
 use crate::services::{AppServices, RelationFilter, RelationTarget};
 use crate::tokenizer::CommandTokenizer;
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Create a relationship",
-    long_about = "Create a new relationship between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["relation"],
+            catalog_command(
+                "create",
+                RelationNew::default(),
+                CommandDocs {
+                    about: Some("Create a relationship"),
+                    long_about: Some("Create a new relationship between classes or objects."),
+                    examples: Some(
+                        r#"--class_from FromClass --class_to ToClass
     --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
+    "#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["relation"],
+            catalog_command(
+                "list",
+                RelationList::default(),
+                CommandDocs {
+                    about: Some("List relationships"),
+                    long_about: Some("List relationships between classes or objects."),
+                    examples: Some(
+                        r#"--class_from FromClass --class_to ToClass
+    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
+    "#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["relation"],
+            catalog_command(
+                "delete",
+                RelationDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a relationship"),
+                    long_about: Some("Delete a new relationship between classes or objects."),
+                    examples: Some(
+                        r#"--class_from FromClass --class_to ToClass
+    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
+    "#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["relation"],
+            catalog_command(
+                "info",
+                RelationInfo::default(),
+                CommandDocs {
+                    about: Some("Information about a relationships"),
+                    long_about: Some(
+                        "Show information about relationships between classes or objects.",
+                    ),
+                    examples: Some(
+                        r#"--class_from FromClass --class_to ToClass
+    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
+    "#,
+                    ),
+                },
+            ),
+        );
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RelationNew {
     #[option(
         short = "f",
@@ -50,14 +115,7 @@ pub struct RelationNew {
     pub object_to: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Delete a relationship",
-    long_about = "Delete a new relationship between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RelationDelete {
     #[option(
         short = "f",
@@ -89,14 +147,7 @@ pub struct RelationDelete {
     pub object_to: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "List relationships",
-    long_about = "List relationships between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RelationList {
     #[option(
         short = "f",
@@ -128,14 +179,7 @@ pub struct RelationList {
     pub object_to: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Information about a relationships",
-    long_about = "Show information about relationships between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RelationInfo {
     #[option(
         short = "f",
@@ -168,12 +212,8 @@ pub struct RelationInfo {
 }
 
 impl CliCommand for RelationNew {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let rel: Relation = if new.object_from.is_none() && new.object_to.is_none() {
             services
                 .gateway()
@@ -191,7 +231,7 @@ impl CliCommand for RelationNew {
                 .into()
         };
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => rel.format_json_noreturn()?,
             OutputFormat::Text => rel.format_noreturn()?,
         };
@@ -201,26 +241,20 @@ impl CliCommand for RelationNew {
 }
 
 impl CliCommand for RelationDelete {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
 
         if new.object_from.is_none() && new.object_to.is_none() {
             services
                 .gateway()
                 .delete_class_relation(&new.class_from, &new.class_to)?;
         } else {
-            services
-                .gateway()
-                .delete_object_relation(&RelationTarget {
-                    class_from: new.class_from.clone(),
-                    class_to: new.class_to.clone(),
-                    object_from: new.object_from.clone(),
-                    object_to: new.object_to.clone(),
-                })?;
+            services.gateway().delete_object_relation(&RelationTarget {
+                class_from: new.class_from.clone(),
+                class_to: new.class_to.clone(),
+                object_from: new.object_from.clone(),
+                object_to: new.object_to.clone(),
+            })?;
         }
 
         let message = match (new.object_from.as_ref(), new.object_to.as_ref()) {
@@ -238,7 +272,7 @@ impl CliCommand for RelationDelete {
             (Some(_), None) => return Err(AppError::MissingOptions(vec!["object_to".to_string()])),
         };
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         };
@@ -248,12 +282,8 @@ impl CliCommand for RelationDelete {
 }
 
 impl CliCommand for RelationList {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let filter = RelationFilter {
             class_from: new.class_from.clone(),
             class_to: new.class_to.clone(),
@@ -264,7 +294,7 @@ impl CliCommand for RelationList {
         let class_relations = services.gateway().list_class_relations(&filter)?;
 
         if class_relations.is_empty() {
-            match self.desired_format(tokens) {
+            match desired_format(tokens) {
                 OutputFormat::Json => append_line(serde_json::to_string(&json!([]))?)?,
                 OutputFormat::Text => append_line("No relations found")?,
             }
@@ -272,7 +302,7 @@ impl CliCommand for RelationList {
         }
 
         if class_relations.len() > 1 || (new.class_from.is_none() || new.class_to.is_none()) {
-            match self.desired_format(tokens) {
+            match desired_format(tokens) {
                 OutputFormat::Json => class_relations.format_json_noreturn()?,
                 OutputFormat::Text => class_relations.format_noreturn()?,
             }
@@ -285,7 +315,7 @@ impl CliCommand for RelationList {
             return Ok(());
         }
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => object_relations.format_json_noreturn()?,
             OutputFormat::Text => object_relations.format_noreturn()?,
         }
@@ -295,32 +325,26 @@ impl CliCommand for RelationList {
 }
 
 impl CliCommand for RelationInfo {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         if new.object_from.is_none() && new.object_to.is_none() {
             let rel = services
                 .gateway()
                 .get_class_relation(&new.class_from, &new.class_to)?;
 
-            match self.desired_format(tokens) {
+            match desired_format(tokens) {
                 OutputFormat::Json => rel.format_json_noreturn()?,
                 OutputFormat::Text => rel.format_noreturn()?,
             }
         } else {
-            let object_relation = services
-                .gateway()
-                .get_object_relation(&RelationTarget {
-                    class_from: new.class_from.clone(),
-                    class_to: new.class_to.clone(),
-                    object_from: new.object_from.clone(),
-                    object_to: new.object_to.clone(),
-                })?;
+            let object_relation = services.gateway().get_object_relation(&RelationTarget {
+                class_from: new.class_from.clone(),
+                class_to: new.class_to.clone(),
+                object_from: new.object_from.clone(),
+                object_to: new.object_to.clone(),
+            })?;
 
-            match self.desired_format(tokens) {
+            match desired_format(tokens) {
                 OutputFormat::Json => object_relation.format_json_noreturn()?,
                 OutputFormat::Text => object_relation.format_noreturn()?,
             }

@@ -46,7 +46,10 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn create_object(&self, input: CreateObjectInput) -> Result<ResolvedObjectRecord, AppError> {
+    pub fn create_object(
+        &self,
+        input: CreateObjectInput,
+    ) -> Result<ResolvedObjectRecord, AppError> {
         let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
         let class = self.client.classes().select_by_name(&input.class_name)?;
 
@@ -71,7 +74,10 @@ impl HubuumGateway {
     ) -> Result<ResolvedObjectRecord, AppError> {
         let class = self.client.classes().select_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
-        let namespace = self.client.namespaces().select(object.resource().namespace_id)?;
+        let namespace = self
+            .client
+            .namespaces()
+            .select(object.resource().namespace_id)?;
 
         let classmap = HashMap::from([(class.id(), class.resource().clone())]);
         let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
@@ -90,7 +96,10 @@ impl HubuumGateway {
         Ok(())
     }
 
-    pub fn list_objects(&self, filter: ObjectFilter) -> Result<Vec<ResolvedObjectRecord>, AppError> {
+    pub fn list_objects(
+        &self,
+        filter: ObjectFilter,
+    ) -> Result<Vec<ResolvedObjectRecord>, AppError> {
         let class = self.client.classes().select_by_name(&filter.class_name)?;
         let mut search = self.client.objects(class.id()).find();
 
@@ -114,10 +123,12 @@ impl HubuumGateway {
             return Ok(Vec::new());
         }
 
-        let classmap =
-            find_entities_by_ids(&self.client.classes(), &objects, |object| object.hubuum_class_id)?;
-        let namespacemap =
-            find_entities_by_ids(&self.client.namespaces(), &objects, |object| object.namespace_id)?;
+        let classmap = find_entities_by_ids(&self.client.classes(), &objects, |object| {
+            object.hubuum_class_id
+        })?;
+        let namespacemap = find_entities_by_ids(&self.client.namespaces(), &objects, |object| {
+            object.namespace_id
+        })?;
 
         Ok(objects
             .iter()
@@ -125,12 +136,17 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn update_object(&self, input: ObjectUpdateInput) -> Result<ResolvedObjectRecord, AppError> {
+    pub fn update_object(
+        &self,
+        input: ObjectUpdateInput,
+    ) -> Result<ResolvedObjectRecord, AppError> {
         let class = self.client.classes().select_by_name(&input.class_name)?;
         let object = class.object_by_name(&input.name)?;
 
-        let mut patch = ObjectPatch::default();
-        patch.data = input.data;
+        let mut patch = ObjectPatch {
+            data: input.data,
+            ..ObjectPatch::default()
+        };
 
         if let Some(namespace) = input.namespace {
             let namespace = self.client.namespaces().select_by_name(&namespace)?;

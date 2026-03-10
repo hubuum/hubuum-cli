@@ -33,7 +33,11 @@ impl AppServices {
         self.gateway.clone()
     }
 
-    pub fn completion_context(self: &Arc<Self>, runtime: Handle, config: &AppConfig) -> CompletionContext {
+    pub fn completion_context(
+        self: &Arc<Self>,
+        runtime: Handle,
+        config: &AppConfig,
+    ) -> CompletionContext {
         CompletionContext::new(self.clone(), runtime, config.completion.disable_api_related)
     }
 

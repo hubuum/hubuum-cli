@@ -1,8 +1,9 @@
-use cli_command_derive::CliCommand;
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{desired_format, CliCommand};
+use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
 use crate::errors::AppError;
@@ -12,7 +13,35 @@ use crate::output::append_line;
 use crate::services::{AppServices, CreateGroupInput, GroupFilter};
 use crate::tokenizer::CommandTokenizer;
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["group"],
+            catalog_command("create", GroupNew::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["group"],
+            catalog_command("list", GroupList::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["group"],
+            catalog_command("add_user", GroupAddUser::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["group"],
+            catalog_command(
+                "remove_user",
+                GroupRemoveUser::default(),
+                CommandDocs::default(),
+            ),
+        )
+        .add_command(
+            &["group"],
+            catalog_command("info", GroupInfo::default(), CommandDocs::default()),
+        );
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupNew {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub groupname: String,
@@ -21,18 +50,14 @@ pub struct GroupNew {
 }
 
 impl CliCommand for GroupNew {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let group = services.gateway().create_group(CreateGroupInput {
             groupname: new.groupname,
             description: new.description,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => group.format_json_noreturn()?,
             OutputFormat::Text => group.format_noreturn()?,
         }
@@ -41,7 +66,7 @@ impl CliCommand for GroupNew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupAddUser {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub groupname: String,
@@ -49,19 +74,15 @@ pub struct GroupAddUser {
     pub username: String,
 }
 impl CliCommand for GroupAddUser {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         services
             .gateway()
             .add_user_to_group(&new.groupname, &new.username)?;
 
         let message = format!("User '{}' added to group '{}'", new.username, new.groupname);
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -70,7 +91,7 @@ impl CliCommand for GroupAddUser {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupRemoveUser {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub groupname: String,
@@ -82,12 +103,8 @@ pub struct GroupRemoveUser {
     pub username: String,
 }
 impl CliCommand for GroupRemoveUser {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         services
             .gateway()
             .remove_user_from_group(&new.groupname, &new.username)?;
@@ -97,7 +114,7 @@ impl CliCommand for GroupRemoveUser {
             new.username, new.groupname
         );
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -106,21 +123,17 @@ impl CliCommand for GroupRemoveUser {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupInfo {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub groupname: String,
 }
 impl CliCommand for GroupInfo {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_line(serde_json::to_string_pretty(&details)?)?,
             OutputFormat::Text => {
                 details.group.format()?;
@@ -132,7 +145,7 @@ impl CliCommand for GroupInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupList {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
     pub name: Option<String>,
@@ -150,17 +163,11 @@ pub struct GroupList {
     pub name_endswith: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the group")]
     pub description: Option<String>,
-    #[option(short = "j", long = "json", help = "Output as JSON", flag = "true")]
-    pub rawjson: Option<bool>,
 }
 
 impl CliCommand for GroupList {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let groups = services.gateway().list_groups(GroupFilter {
             name: new.name,
             name_startswith: new.name_startswith,
@@ -168,7 +175,7 @@ impl CliCommand for GroupList {
             description: new.description,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => groups.format_json_noreturn()?,
             OutputFormat::Text => groups.format_noreturn()?,
         }

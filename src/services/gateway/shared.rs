@@ -10,10 +10,22 @@ use crate::errors::AppError;
 use super::HubuumGateway;
 
 impl HubuumGateway {
-    pub(super) fn class_pair(&self, class_from: &str, class_to: &str) -> Result<(Class, Class), AppError> {
+    pub(super) fn class_pair(
+        &self,
+        class_from: &str,
+        class_to: &str,
+    ) -> Result<(Class, Class), AppError> {
         Ok((
-            self.client.classes().select_by_name(class_from)?.resource().clone(),
-            self.client.classes().select_by_name(class_to)?.resource().clone(),
+            self.client
+                .classes()
+                .select_by_name(class_from)?
+                .resource()
+                .clone(),
+            self.client
+                .classes()
+                .select_by_name(class_to)?
+                .resource()
+                .clone(),
         ))
     }
 
@@ -21,7 +33,10 @@ impl HubuumGateway {
     where
         I: IntoIterator<Item = &'a Class>,
     {
-        classes.into_iter().map(|class| (class.id, class.clone())).collect()
+        classes
+            .into_iter()
+            .map(|class| (class.id, class.clone()))
+            .collect()
     }
 
     pub(super) fn class_map_from_relation_ids(
@@ -107,7 +122,11 @@ impl HubuumGateway {
             .execute_expecting_single_result()?)
     }
 
-    pub(super) fn find_object_by_name(&self, class_id: i32, name: &str) -> Result<Object, AppError> {
+    pub(super) fn find_object_by_name(
+        &self,
+        class_id: i32,
+        name: &str,
+    ) -> Result<Object, AppError> {
         Ok(self
             .client
             .objects(class_id)
@@ -159,5 +178,8 @@ where
         .add_filter("id", FilterOperator::Equals { is_negated: false }, ids)
         .execute()?;
 
-    Ok(results.into_iter().map(|entity| (entity.id(), entity)).collect())
+    Ok(results
+        .into_iter()
+        .map(|entity| (entity.id(), entity))
+        .collect())
 }

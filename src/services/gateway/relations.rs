@@ -104,7 +104,8 @@ impl HubuumGateway {
         let object_from = self.find_object_by_name(class_from.id, object_from_name)?;
         let object_to = self.find_object_by_name(class_to.id, object_to_name)?;
         let class_relation = self.find_class_relation(class_from.id, class_to.id)?;
-        let object_relation = self.find_object_relation(&class_relation, &object_from, &object_to)?;
+        let object_relation =
+            self.find_object_relation(&class_relation, &object_from, &object_to)?;
 
         let class_map = self.class_map_from_classes([&class_from, &class_to]);
         let object_map = HashMap::from([(object_from.id, object_from), (object_to.id, object_to)]);
@@ -123,7 +124,8 @@ impl HubuumGateway {
     ) -> Result<Vec<ResolvedClassRelationRecord>, AppError> {
         let mut query = self.client.class_relation().find();
 
-        if let (Some(class_from_name), Some(class_to_name)) = (&filter.class_from, &filter.class_to) {
+        if let (Some(class_from_name), Some(class_to_name)) = (&filter.class_from, &filter.class_to)
+        {
             let (class_from, class_to) = self.class_pair(class_from_name, class_to_name)?;
             query = query
                 .add_filter_equals("from_classes", class_from.id)
@@ -177,13 +179,21 @@ impl HubuumGateway {
 
         if let Some(object_from_name) = &filter.object_from {
             let object_from = self.find_object_by_name(class_from.id, object_from_name)?;
-            let target = if swapped { "from_objects" } else { "to_objects" };
+            let target = if swapped {
+                "from_objects"
+            } else {
+                "to_objects"
+            };
             query = query.add_filter_equals(target, object_from.id);
         }
 
         if let Some(object_to_name) = &filter.object_to {
             let object_to = self.find_object_by_name(class_to.id, object_to_name)?;
-            let target = if swapped { "to_objects" } else { "from_objects" };
+            let target = if swapped {
+                "to_objects"
+            } else {
+                "from_objects"
+            };
             query = query.add_filter_equals(target, object_to.id);
         }
 
@@ -192,7 +202,8 @@ impl HubuumGateway {
             return Ok(Vec::new());
         }
 
-        let object_map = self.object_map_for_relation(&object_relations, class_from.id, class_to.id)?;
+        let object_map =
+            self.object_map_for_relation(&object_relations, class_from.id, class_to.id)?;
         let class_map = self.class_map_from_classes([&class_from, &class_to]);
 
         let mut corrected_relation = class_relation.clone();

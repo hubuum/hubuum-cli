@@ -1,9 +1,10 @@
-use cli_command_derive::CliCommand;
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{desired_format, CliCommand};
+use crate::catalog::CommandCatalogBuilder;
 
 use crate::autocomplete::{groups, namespaces};
 use crate::domain::NamespacePermission;
@@ -14,11 +15,47 @@ use crate::output::{append_json, append_line};
 use crate::services::{AppServices, CreateNamespaceInput};
 use crate::tokenizer::CommandTokenizer;
 
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["namespace"],
+            catalog_command("create", NamespaceNew::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["namespace"],
+            catalog_command("list", NamespaceList::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["namespace"],
+            catalog_command("delete", NamespaceDelete::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["namespace"],
+            catalog_command("info", NamespaceInfo::default(), CommandDocs::default()),
+        )
+        .add_command(
+            &["namespace", "permissions"],
+            catalog_command(
+                "list",
+                NamespacePermissions::default(),
+                CommandDocs::default(),
+            ),
+        )
+        .add_command(
+            &["namespace", "permissions"],
+            catalog_command(
+                "set",
+                NamespacePermissionsSet::default(),
+                CommandDocs::default(),
+            ),
+        );
+}
+
 trait GetNamespace {
     fn namespace(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespaceNew {
     #[option(short = "n", long = "name", help = "Name of the namespace")]
     pub name: String,
@@ -37,19 +74,15 @@ pub struct NamespaceNew {
 }
 
 impl CliCommand for NamespaceNew {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let namespace = services.gateway().create_namespace(CreateNamespaceInput {
             name: new.name,
             description: new.description,
             owner: new.owner,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
             OutputFormat::Text => namespace.format_noreturn()?,
         }
@@ -58,7 +91,7 @@ impl CliCommand for NamespaceNew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespaceList {
     #[option(short = "n", long = "name", help = "Name of the namespace")]
     pub name: Option<String>,
@@ -71,17 +104,13 @@ pub struct NamespaceList {
 }
 
 impl CliCommand for NamespaceList {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
         let namespaces = services
             .gateway()
             .list_namespaces(new.name, new.description)?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => namespaces.format_json_noreturn()?,
             OutputFormat::Text => namespaces.format_noreturn()?,
         }
@@ -90,7 +119,7 @@ impl CliCommand for NamespaceList {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespaceInfo {
     #[option(
         short = "n",
@@ -108,12 +137,8 @@ impl GetNamespace for &NamespaceInfo {
 }
 
 impl CliCommand for NamespaceInfo {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut new = Self::parse_tokens(tokens)?;
 
         new.name = namespace_or_pos(&new, tokens, 0)?;
 
@@ -121,9 +146,11 @@ impl CliCommand for NamespaceInfo {
             return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
         }
 
-        let namespace = services.gateway().get_namespace(new.name.as_ref().unwrap())?;
+        let namespace = services
+            .gateway()
+            .get_namespace(new.name.as_ref().unwrap())?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
             OutputFormat::Text => namespace.format_noreturn()?,
         }
@@ -132,7 +159,7 @@ impl CliCommand for NamespaceInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespaceDelete {
     #[option(
         short = "n",
@@ -150,12 +177,8 @@ impl GetNamespace for &NamespaceDelete {
 }
 
 impl CliCommand for NamespaceDelete {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut new = Self::parse_tokens(tokens)?;
 
         new.name = namespace_or_pos(&new, tokens, 0)?;
 
@@ -168,7 +191,7 @@ impl CliCommand for NamespaceDelete {
 
         let message = format!("Namespace '{}' deleted", namespace_name);
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -177,7 +200,7 @@ impl CliCommand for NamespaceDelete {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespacePermissions {
     #[option(
         short = "n",
@@ -195,12 +218,8 @@ impl GetNamespace for &NamespacePermissions {
 }
 
 impl CliCommand for NamespacePermissions {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut new = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut new = Self::parse_tokens(tokens)?;
 
         new.name = namespace_or_pos(&new, tokens, 0)?;
 
@@ -213,7 +232,7 @@ impl CliCommand for NamespacePermissions {
 
         let empty_message = format!("No permissions found for namespace '{name}'");
 
-        match (self.desired_format(tokens), permissions.entries.is_empty()) {
+        match (desired_format(tokens), permissions.entries.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => append_json(&permissions.entries)?,
             (OutputFormat::Text, true) => append_line(empty_message)?,
@@ -224,7 +243,7 @@ impl CliCommand for NamespacePermissions {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct NamespacePermissionsSet {
     #[option(
         short = "n",
@@ -398,13 +417,9 @@ impl GetNamespace for &NamespacePermissionsSet {
 }
 
 impl CliCommand for NamespacePermissionsSet {
-    fn execute(
-        &self,
-        services: &AppServices,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         // 1) parse the raw args
-        let mut new = self.new_from_tokens(tokens)?;
+        let mut new = Self::parse_tokens(tokens)?;
 
         // 2) figure out namespace (or positional)
         new.name = namespace_or_pos(&new, tokens, 0)?;
@@ -513,7 +528,7 @@ impl CliCommand for NamespacePermissionsSet {
             new.name.as_ref().unwrap()
         );
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }

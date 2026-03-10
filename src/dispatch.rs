@@ -5,7 +5,9 @@ use hubuum_client::ApiError;
 use crate::app::{AppRuntime, SharedSession};
 use crate::catalog::{CommandContext, CommandInvocation, CommandOutcome, ScopeAction};
 use crate::errors::AppError;
-use crate::output::{add_error, add_warning, append_line, clear_filter, reset_output, set_filter, take_output};
+use crate::output::{
+    add_error, add_warning, append_line, clear_filter, reset_output, set_filter, take_output,
+};
 
 pub async fn execute_line(
     app: Arc<AppRuntime>,
@@ -83,9 +85,7 @@ pub async fn execute_line(
         raw_line: line.clone(),
         command_path: resolved.command_path.clone(),
     };
-    let ctx = CommandContext {
-        app: app.clone(),
-    };
+    let ctx = CommandContext { app: app.clone() };
 
     resolved.command.handler.execute(ctx, invocation).await
 }
