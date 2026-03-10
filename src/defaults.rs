@@ -1,4 +1,4 @@
-use crate::models::{OutputFormat, Protocol};
+use crate::models::{OutputFormat, Protocol, TableStyle};
 
 pub struct Defaults;
 
@@ -15,4 +15,5 @@ impl Defaults {
     pub const PROTOCOL: Protocol = Protocol::Https;
     pub const OUTPUT_FORMAT: OutputFormat = OutputFormat::Text;
     pub const OUTPUT_PADDING: i8 = 15;
+    pub const OUTPUT_TABLE_STYLE: TableStyle = TableStyle::Rounded;
 }

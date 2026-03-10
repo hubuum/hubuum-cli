@@ -1,0 +1,401 @@
+use std::borrow::Cow;
+use std::sync::Arc;
+
+use reedline::{
+    default_emacs_keybindings, ColumnarMenu, Completer, DefaultHinter, EditCommand, Emacs,
+    FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode,
+    PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+    Span, Suggestion,
+};
+
+use crate::app::{AppRuntime, SharedSession};
+use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
+use crate::dispatch;
+use crate::errors::AppError;
+use crate::files::get_history_file;
+
+pub async fn run(app: Arc<AppRuntime>, session: SharedSession) -> Result<(), AppError> {
+    let runtime = tokio::runtime::Handle::current();
+    let join = std::thread::spawn(move || run_thread(runtime, app, session));
+
+    join.join()
+        .map_err(|_| AppError::CommandExecutionError("REPL thread panicked".to_string()))?
+}
+
+fn run_thread(
+    runtime: tokio::runtime::Handle,
+    app: Arc<AppRuntime>,
+    session: SharedSession,
+) -> Result<(), AppError> {
+    let history = Box::new(
+        FileBackedHistory::with_file(1000, get_history_file()?)
+            .map_err(|err| AppError::ReplError(err.to_string()))?,
+    );
+    let completion = app
+        .services
+        .completion_context(runtime.clone(), app.config.as_ref());
+    let completer = Box::new(ReplCompleter {
+        app: app.clone(),
+        session: session.clone(),
+        completion,
+    });
+    let menu = Box::new(
+        ColumnarMenu::default()
+            .with_name("completion_menu")
+            .with_marker("")
+            .with_only_buffer_difference(false),
+    );
+    let hinter = Box::new(DefaultHinter::default());
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::Edit(vec![EditCommand::Complete]),
+        ]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::SHIFT,
+        KeyCode::BackTab,
+        ReedlineEvent::MenuPrevious,
+    );
+    let edit_mode = Box::new(Emacs::new(keybindings));
+
+    let mut editor = Reedline::create()
+        .with_history(history)
+        .with_hinter(hinter)
+        .with_completer(completer)
+        .with_menu(ReedlineMenu::EngineCompleter(menu))
+        .with_edit_mode(edit_mode)
+        .with_quick_completions(true)
+        .with_ansi_colors(true);
+
+    println!("{}", app.catalog.render_scope_help(&[]));
+
+    loop {
+        let prompt = ReplPrompt {
+            left: app.prompt(&session),
+        };
+
+        let signal = editor
+            .read_line(&prompt)
+            .map_err(|err| AppError::ReplError(err.to_string()))?;
+
+        match signal {
+            Signal::Success(line) => {
+                let result = runtime.block_on(dispatch::execute_line(app.clone(), &session, &line));
+                match result {
+                    Ok(outcome) => {
+                        let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
+                        apply_outcome(&session, outcome);
+                        if exit_repl {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        print!("{}", dispatch::render_error(err).render());
+                    }
+                }
+            }
+            Signal::CtrlD => break,
+            Signal::CtrlC => continue,
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) {
+    dispatch::apply_scope_action(session, &outcome.scope_action);
+    if !outcome.output.is_empty() {
+        print!("{}", outcome.output.render());
+    }
+}
+
+struct ReplPrompt {
+    left: String,
+}
+
+impl Prompt for ReplPrompt {
+    fn render_prompt_left(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.left)
+    }
+
+    fn render_prompt_right(&self) -> Cow<'_, str> {
+        Cow::Borrowed("")
+    }
+
+    fn render_prompt_indicator(&self, _prompt_mode: PromptEditMode) -> Cow<'_, str> {
+        Cow::Borrowed("")
+    }
+
+    fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
+        Cow::Borrowed("... ")
+    }
+
+    fn render_prompt_history_search_indicator(
+        &self,
+        history_search: PromptHistorySearch,
+    ) -> Cow<'_, str> {
+        let status = match history_search.status {
+            PromptHistorySearchStatus::Passing => "",
+            PromptHistorySearchStatus::Failing => "failing ",
+        };
+        Cow::Owned(format!("({status}reverse-search: {}) ", history_search.term))
+    }
+}
+
+struct ReplCompleter {
+    app: Arc<AppRuntime>,
+    session: SharedSession,
+    completion: crate::services::CompletionContext,
+}
+
+impl Completer for ReplCompleter {
+    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+        let prefix_line = &line[..safe_prefix_end(line, pos)];
+        let (start, word) = prefix_line
+            .rsplit_once(char::is_whitespace)
+            .map_or((0, prefix_line), |(left, right)| (left.len() + 1, right));
+
+        let Some(parts) = shlex::split(prefix_line) else {
+            return Vec::new();
+        };
+
+        if parts.is_empty() {
+            return self.scope_suggestions(start, word, &[]);
+        }
+
+        let scope = self.session.scope();
+
+        if parts[0] == "help" || parts[0] == "?" {
+            return self.scope_suggestions(start, word, &parts[1..]);
+        }
+
+        if let Ok(resolved) = self.app.catalog.resolve_command(&scope, &parts) {
+            let options = &resolved.command.options;
+            let options_seen: Vec<&str> = parts
+                .iter()
+                .filter(|part| part.starts_with('-'))
+                .map(String::as_str)
+                .collect();
+
+            if let Some(last) = parts.last() {
+                if prefix_line.ends_with(' ') && last.starts_with('-') {
+                    if let Some(option) = options.iter().find(|option| {
+                        option.short.as_deref() == Some(last.as_str())
+                            || option.long.as_deref() == Some(last.as_str())
+                    }) {
+                        if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
+                            return completion(&self.completion, "", &parts)
+                                .into_iter()
+                                .map(|value| suggestion(value, pos, pos, None))
+                                .collect();
+                        }
+                    }
+                }
+
+                if let Some(prev) = parts.iter().rev().nth(1) {
+                    if let Some(option) = options.iter().find(|option| {
+                        option.short.as_deref() == Some(prev.as_str())
+                            || option.long.as_deref() == Some(prev.as_str())
+                    }) {
+                        if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
+                            return completion(&self.completion, word, &parts)
+                                .into_iter()
+                                .map(|value| suggestion(value, start, pos, None))
+                                .collect();
+                        }
+                    }
+                }
+
+                if last.starts_with('-') || prefix_line.ends_with(' ') {
+                    return options
+                        .iter()
+                        .filter(|option| {
+                            !options_seen.contains(&option.short.as_deref().unwrap_or(""))
+                                && !options_seen.contains(&option.long.as_deref().unwrap_or(""))
+                        })
+                        .filter_map(|option| option_suggestion(option, word, start, pos))
+                        .collect();
+                }
+            }
+        }
+
+        self.scope_suggestions(start, word, &parts)
+    }
+}
+
+impl ReplCompleter {
+    fn scope_suggestions(&self, start: usize, word: &str, parts: &[String]) -> Vec<Suggestion> {
+        let scope = self.session.scope();
+        let scope_words = if parts.is_empty() {
+            self.app.catalog.list_words(&scope)
+        } else if let Some(scope_spec) = self.app.catalog.resolve_scope(&scope, parts) {
+            scope_spec
+                .commands
+                .keys()
+                .chain(scope_spec.scopes.keys())
+                .cloned()
+                .collect()
+        } else {
+            self.app.catalog.list_words(&scope)
+        };
+
+        let mut scope_words = scope_words;
+        scope_words.push("?".to_string());
+        if !scope.is_empty() {
+            scope_words.push("..".to_string());
+        }
+
+        scope_words
+            .into_iter()
+            .filter(|value| value.starts_with(word))
+            .map(|value| suggestion(value, start, start + word.len(), None))
+            .collect()
+    }
+}
+
+fn suggestion(
+    value: String,
+    start: usize,
+    end: usize,
+    description: Option<String>,
+) -> Suggestion {
+    Suggestion {
+        value,
+        description,
+        style: None,
+        extra: None,
+        match_indices: Some(Vec::new()),
+        span: Span { start, end },
+        display_override: None,
+        append_whitespace: true,
+    }
+}
+
+fn option_suggestion(option: &OptionSpec, word: &str, start: usize, end: usize) -> Option<Suggestion> {
+    let short_matches = option
+        .short
+        .as_deref()
+        .is_some_and(|name| name.starts_with(word));
+    let long_matches = option.long.as_deref().is_some_and(|name| name.starts_with(word));
+
+    if !short_matches && !long_matches {
+        return None;
+    }
+
+    let value = preferred_option_alias(option, word, short_matches, long_matches)?;
+    let description = option_description(option, value);
+
+    Some(suggestion(value.to_string(), start, end, Some(description)))
+}
+
+fn preferred_option_alias<'a>(
+    option: &'a OptionSpec,
+    word: &str,
+    short_matches: bool,
+    long_matches: bool,
+) -> Option<&'a str> {
+    if word.starts_with("--") {
+        return option.long.as_deref().or(option.short.as_deref());
+    }
+
+    if short_matches && (!long_matches || word.starts_with('-')) {
+        return option.short.as_deref();
+    }
+
+    if long_matches {
+        return option.long.as_deref();
+    }
+
+    option.short.as_deref()
+}
+
+fn option_description(option: &OptionSpec, inserted: &str) -> String {
+    let mut details = Vec::new();
+
+    let aliases: Vec<&str> = [option.short.as_deref(), option.long.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|alias| *alias != inserted)
+        .collect();
+    if !aliases.is_empty() {
+        details.push(aliases.join(", "));
+    }
+
+    if !option.flag {
+        details.push(format!("<{}>", option.field_type_help));
+    }
+
+    details.push(option.help.clone());
+    details.join("  ")
+}
+
+fn safe_prefix_end(line: &str, pos: usize) -> usize {
+    let mut end = pos.min(line.len());
+    while end > 0 && !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::TypeId;
+
+    use crate::catalog::{CompletionSpec, OptionSpec};
+
+    use super::{option_suggestion, safe_prefix_end};
+
+    #[test]
+    fn safe_prefix_end_clamps_past_end_positions() {
+        assert_eq!(safe_prefix_end("", 2), 0);
+        assert_eq!(safe_prefix_end("user list", 99), "user list".len());
+    }
+
+    #[test]
+    fn safe_prefix_end_rewinds_to_char_boundary() {
+        let value = "aø";
+        assert_eq!(safe_prefix_end(value, 2), 1);
+        assert_eq!(safe_prefix_end(value, 3), 3);
+    }
+
+    #[test]
+    fn option_suggestion_renders_one_entry_for_short_and_long_aliases() {
+        let option = test_option(Some("-n"), Some("--name"), false, "Name of the namespace");
+        let suggestion = option_suggestion(&option, "-", 0, 1).expect("suggestion");
+
+        assert_eq!(suggestion.value, "-n");
+        assert_eq!(suggestion.description.as_deref(), Some("--name  <string>  Name of the namespace"));
+    }
+
+    #[test]
+    fn option_suggestion_prefers_long_alias_for_long_prefixes() {
+        let option = test_option(Some("-n"), Some("--name"), false, "Name of the namespace");
+        let suggestion = option_suggestion(&option, "--n", 0, 3).expect("suggestion");
+
+        assert_eq!(suggestion.value, "--name");
+        assert_eq!(suggestion.description.as_deref(), Some("-n  <string>  Name of the namespace"));
+    }
+
+    fn test_option(
+        short: Option<&str>,
+        long: Option<&str>,
+        flag: bool,
+        help: &str,
+    ) -> OptionSpec {
+        OptionSpec {
+            name: "name".to_string(),
+            short: short.map(str::to_string),
+            long: long.map(str::to_string),
+            help: help.to_string(),
+            field_type_help: "string".to_string(),
+            field_type: TypeId::of::<String>(),
+            required: false,
+            flag,
+            completion: CompletionSpec::None,
+        }
+    }
+}

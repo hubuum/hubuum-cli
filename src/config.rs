@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::get_system_config_path;
-use crate::models::{OutputFormat, Protocol};
+use crate::models::{OutputFormat, Protocol, TableStyle};
 
 use std::sync::OnceLock;
 
@@ -59,6 +59,7 @@ pub struct CompletionConfig {
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub padding: i8,
+    pub table_style: TableStyle,
 }
 
 impl Default for AppConfig {
@@ -84,6 +85,7 @@ impl Default for AppConfig {
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
                 padding: Defaults::OUTPUT_PADDING,
+                table_style: Defaults::OUTPUT_TABLE_STYLE,
             },
         }
     }
@@ -102,6 +104,7 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         // Start with default values
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
         .set_default("output.padding", Defaults::OUTPUT_PADDING)?
+        .set_default("output.table_style", Defaults::OUTPUT_TABLE_STYLE.to_string())?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
         .set_default("server.ssl_validation", Defaults::SERVER_SSL_VALIDATION)?
@@ -153,6 +156,7 @@ mod tests {
             "HUBUUM_CLI__CACHE__SIZE",
             "HUBUUM_CLI__CACHE__DISABLE",
             "HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED",
+            "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
         ] {
             env::remove_var(var);
         }

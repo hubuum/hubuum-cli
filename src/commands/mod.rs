@@ -1,4 +1,3 @@
-use hubuum_client::{Authenticated, SyncClient};
 use log::trace;
 use std::any::TypeId;
 use std::collections::HashSet;
@@ -10,12 +9,9 @@ mod help;
 mod namespace;
 mod object;
 mod relations;
-mod shared;
 mod user;
 
-use crate::{output::append_line, CommandList};
-
-pub use builder::build_repl_commands;
+pub use builder::build_command_catalog;
 pub use class::*;
 pub use group::*;
 #[allow(unused_imports)]
@@ -25,9 +21,9 @@ pub use object::*;
 pub use relations::*;
 pub use user::*;
 
-use crate::{errors::AppError, tokenizer::CommandTokenizer};
+use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
 
-type AutoCompleter = fn(&CommandList, &str, &[String]) -> Vec<String>;
+pub type AutoCompleter = fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -62,10 +58,10 @@ pub trait CliCommandInfo {
     fn examples(&self) -> Option<String>;
 }
 
-pub trait CliCommand: CliCommandInfo {
+pub trait CliCommand: CliCommandInfo + Send + Sync {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError>;
 
@@ -190,73 +186,6 @@ pub trait CliCommand: CliCommandInfo {
             return Err(AppError::PopulatedFlagOptions(populated_flag_options));
         }
 
-        Ok(())
-    }
-
-    fn help(&self, command_name: &String, context: &[String]) -> Result<(), AppError> {
-        let mut help = String::new();
-        let fq_name = format!("\n{} {}", context.join(" "), command_name);
-        if let Some(about) = self.about() {
-            help.push_str(&format!("{fq_name} - {about} \n\n"));
-        } else {
-            help.push_str(&format!("{fq_name}\n\n"));
-        }
-        if let Some(long_about) = self.long_about() {
-            help.push_str(&format!("{long_about}\n\n"));
-        }
-        let options = self.options();
-        if !options.is_empty() {
-            help.push_str("Options:\n");
-
-            // Find the maximum width for each column
-            let max_short_width = options
-                .iter()
-                .map(|opt| opt.short.as_ref().map_or(0, |s| s.len()))
-                .max()
-                .unwrap_or(0);
-            let max_long_width = options
-                .iter()
-                .map(|opt| opt.long.as_ref().map_or(0, |l| l.len()))
-                .max()
-                .unwrap_or(0);
-            let max_type_width = options
-                .iter()
-                .map(|opt| opt.field_type_help.len())
-                .max()
-                .unwrap_or(0);
-
-            for opt in self.options() {
-                let short = opt
-                    .short
-                    .as_ref()
-                    .map_or(String::new(), |s| format!("{s},"));
-                let long = opt.long.as_ref().map_or(String::new(), |l| format!("{l},"));
-                let flag = if opt.flag { " (flag)" } else { "" };
-
-                help.push_str(&format!(
-                    "  {:<width_short$} {:<width_long$} {:<width_type$} {}{}\n",
-                    short,
-                    long,
-                    format!("<{}>", opt.field_type_help),
-                    opt.help,
-                    flag,
-                    width_short = max_short_width + 3, // +3 for "-x,"
-                    width_long = max_long_width + 4,   // +4 for "--xx,"
-                    width_type = max_type_width + 2    // +2 for "<>"
-                ));
-            }
-            help.push('\n');
-        }
-        if let Some(examples) = self.examples() {
-            help.push_str("Examples:\n");
-
-            for line in examples.lines() {
-                help.push_str(&format!("  {fq_name} {line}\n"));
-            }
-        }
-        for line in help.lines() {
-            append_line(line)?;
-        }
         Ok(())
     }
 }

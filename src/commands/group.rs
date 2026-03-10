@@ -1,16 +1,15 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{
-    Authenticated, FilterOperator, Group, GroupPost, IntoResourceFilter, QueryFilter, SyncClient,
-};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
+use crate::domain::GroupDetails;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
+use crate::services::{AppServices, CreateGroupInput, GroupFilter};
 use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
@@ -21,24 +20,17 @@ pub struct GroupNew {
     pub description: String,
 }
 
-impl GroupNew {
-    fn into_post(self) -> GroupPost {
-        GroupPost {
-            groupname: self.groupname.clone(),
-            description: self.description.clone(),
-        }
-    }
-}
-
 impl CliCommand for GroupNew {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-
-        let group = client.groups().create(new.into_post())?;
+        let group = services.gateway().create_group(CreateGroupInput {
+            groupname: new.groupname,
+            description: new.description,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => group.format_json_noreturn()?,
@@ -59,14 +51,13 @@ pub struct GroupAddUser {
 impl CliCommand for GroupAddUser {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client.groups().select_by_name(&new.groupname)?;
-        let user = client.users().select_by_name(&new.username)?;
-
-        group.add_user(user.id())?;
+        services
+            .gateway()
+            .add_user_to_group(&new.groupname, &new.username)?;
 
         let message = format!("User '{}' added to group '{}'", new.username, new.groupname);
 
@@ -93,14 +84,13 @@ pub struct GroupRemoveUser {
 impl CliCommand for GroupRemoveUser {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client.groups().select_by_name(&new.groupname)?;
-        let user = client.users().select_by_name(&new.username)?;
-
-        group.remove_user(user.id())?;
+        services
+            .gateway()
+            .remove_user_from_group(&new.groupname, &new.username)?;
 
         let message = format!(
             "User '{}' removed from group '{}'",
@@ -124,20 +114,18 @@ pub struct GroupInfo {
 impl CliCommand for GroupInfo {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let group = client.groups().select_by_name(&new.groupname)?;
+        let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => {
-                let mut json_class = serde_json::to_value(group.resource())?;
-                json_class["members"] = serde_json::to_value(group.members()?)?;
-
-                append_line(serde_json::to_string_pretty(&json_class)?)?;
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&details)?)?,
+            OutputFormat::Text => {
+                details.group.format()?;
+                details.members.format_noreturn()?
             }
-            OutputFormat::Text => group.format()?.members()?.format_noreturn()?,
         }
 
         Ok(())
@@ -166,52 +154,19 @@ pub struct GroupList {
     pub rawjson: Option<bool>,
 }
 
-impl IntoResourceFilter<Group> for &GroupList {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "groupname".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        if let Some(name_startswith) = &self.name_startswith {
-            filters.push(QueryFilter {
-                key: "groupname".to_string(),
-                value: name_startswith.clone(),
-                operator: FilterOperator::StartsWith { is_negated: false },
-            });
-        }
-
-        if let Some(name_endswith) = &self.name_endswith {
-            filters.push(QueryFilter {
-                key: "groupname".to_string(),
-                value: name_endswith.clone(),
-                operator: FilterOperator::EndsWith { is_negated: false },
-            });
-        }
-        if let Some(description) = &self.description {
-            filters.push(QueryFilter {
-                key: "description".to_string(),
-                value: description.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        filters
-    }
-}
-
 impl CliCommand for GroupList {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let groups = client.groups().filter(&new)?;
+        let groups = services.gateway().list_groups(GroupFilter {
+            name: new.name,
+            name_startswith: new.name_startswith,
+            name_endswith: new.name_endswith,
+            description: new.description,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => groups.format_json_noreturn()?,

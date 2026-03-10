@@ -4,8 +4,9 @@ use std::{fmt, str::FromStr};
 use strum::{Display, EnumString};
 
 use crate::{
+    domain::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord},
     errors::AppError,
-    formatting::{FormattedClassRelation, FormattedObjectRelation, OutputFormatter},
+    formatting::OutputFormatter,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -57,9 +58,42 @@ pub enum OutputFormat {
     Text,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Display, Default)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum TableStyle {
+    Ascii,
+    Compact,
+    Markdown,
+    #[default]
+    Rounded,
+}
+
+impl FromStr for TableStyle {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "ascii" => Ok(TableStyle::Ascii),
+            "compact" => Ok(TableStyle::Compact),
+            "markdown" => Ok(TableStyle::Markdown),
+            "rounded" => Ok(TableStyle::Rounded),
+            _ => Err(format!(
+                "Invalid table style: {s}. Use ascii, compact, markdown, or rounded."
+            )),
+        }
+    }
+}
+
+impl From<TableStyle> for Value {
+    fn from(val: TableStyle) -> Self {
+        Value::new(None, val.to_string())
+    }
+}
+
 pub enum Relation {
-    Class(FormattedClassRelation),
-    Object(FormattedObjectRelation),
+    Class(ResolvedClassRelationRecord),
+    Object(ResolvedObjectRelationRecord),
 }
 
 impl Relation {
@@ -78,14 +112,14 @@ impl Relation {
     }
 }
 
-impl From<FormattedClassRelation> for Relation {
-    fn from(r: FormattedClassRelation) -> Self {
+impl From<ResolvedClassRelationRecord> for Relation {
+    fn from(r: ResolvedClassRelationRecord) -> Self {
         Relation::Class(r)
     }
 }
 
-impl From<FormattedObjectRelation> for Relation {
-    fn from(r: FormattedObjectRelation) -> Self {
+impl From<ResolvedObjectRelationRecord> for Relation {
+    fn from(r: ResolvedObjectRelationRecord) -> Self {
         Relation::Object(r)
     }
 }

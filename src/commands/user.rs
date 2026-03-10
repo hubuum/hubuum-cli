@@ -1,17 +1,15 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{
-    Authenticated, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient, User, UserPost,
-};
 use serde::{Deserialize, Serialize};
 
 use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
+use crate::domain::CreatedUser;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-
+use crate::services::{AppServices, CreateUserInput, UserFilter};
 use crate::tokenizer::CommandTokenizer;
 
 use super::CliCommand;
@@ -29,35 +27,26 @@ pub struct UserNew {
     pub email: Option<String>,
 }
 
-impl UserNew {
-    fn into_post(self) -> UserPost {
-        UserPost {
-            username: self.username.clone(),
-            email: self.email.clone(),
-            password: generate_random_password(20),
-        }
-    }
-}
-
 impl CliCommand for UserNew {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?.into_post();
-        let password = new.password.clone();
-
-        let user = client.users().create(new)?;
+        let new = self.new_from_tokens(tokens)?;
+        let password = generate_random_password(20);
+        let created: CreatedUser = services.gateway().create_user(CreateUserInput {
+            username: new.username,
+            email: new.email,
+            password: password.clone(),
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => {
-                let mut json = serde_json::to_value(&user)?;
-                json["password"] = serde_json::to_value(password)?;
-                append_line(serde_json::to_string_pretty(&json)?)?;
+                append_line(serde_json::to_string_pretty(&created)?)?;
             }
             OutputFormat::Text => {
-                user.format_noreturn()?;
+                created.user.format_noreturn()?;
                 append_key_value("Password", password, 15)?;
             }
         }
@@ -72,22 +61,6 @@ pub struct UserDelete {
     pub username: Option<String>,
 }
 
-impl IntoResourceFilter<User> for &UserDelete {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-
-        if let Some(username) = &self.username {
-            filters.push(QueryFilter {
-                key: "username".to_string(),
-                value: username.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        filters
-    }
-}
-
 impl GetUsername for &UserDelete {
     fn username(&self) -> Option<String> {
         self.username.clone()
@@ -97,18 +70,20 @@ impl GetUsername for &UserDelete {
 impl CliCommand for UserDelete {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = client.users().filter_expecting_single_result(&query)?;
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        services.gateway().delete_user(&username)?;
 
-        client.users().delete(user.id)?;
-
-        let message = format!("User '{}' deleted", user.username);
+        let message = format!("User '{}' deleted", username);
 
         match self.desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
@@ -131,46 +106,6 @@ pub struct UserInfo {
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
-impl IntoResourceFilter<User> for &UserInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-
-        if let Some(username) = &self.username {
-            filters.push(QueryFilter {
-                key: "username".to_string(),
-                value: username.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        if let Some(email) = &self.email {
-            filters.push(QueryFilter {
-                key: "email".to_string(),
-                value: email.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        if let Some(created_at) = &self.created_at {
-            filters.push(QueryFilter {
-                key: "created_at".to_string(),
-                value: created_at.to_string(),
-                operator: FilterOperator::Equals { is_negated: false },
-            });
-        }
-
-        if let Some(updated_at) = &self.updated_at {
-            filters.push(QueryFilter {
-                key: "updated_at".to_string(),
-                value: updated_at.to_string(),
-                operator: FilterOperator::Equals { is_negated: false },
-            });
-        }
-
-        filters
-    }
-}
-
 impl GetUsername for &UserInfo {
     fn username(&self) -> Option<String> {
         self.username.clone()
@@ -180,14 +115,19 @@ impl GetUsername for &UserInfo {
 impl CliCommand for UserInfo {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = client.users().filter_expecting_single_result(&query)?;
+        let user = services.gateway().find_user(UserFilter {
+            username: query.username,
+            email: query.email,
+            created_at: query.created_at,
+            updated_at: query.updated_at,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => user.format_json_noreturn()?,
@@ -213,11 +153,16 @@ pub struct UserList {
 impl CliCommand for UserList {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let _ = self.new_from_tokens(tokens)?;
-        let users = client.users().find().execute()?;
+        let query = self.new_from_tokens(tokens)?;
+        let users = services.gateway().list_users(UserFilter {
+            username: query.username,
+            email: query.email,
+            created_at: query.created_at,
+            updated_at: query.updated_at,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => users.format_json_noreturn()?,

@@ -1,25 +1,19 @@
 use std::collections::HashMap;
 
 use cli_command_derive::CliCommand;
-
-use hubuum_client::{
-    Authenticated, FilterOperator, IntoResourceFilter, Object, ObjectPatch, ObjectPost,
-    QueryFilter, SyncClient,
-};
 use jqesque::Jqesque;
 use jsonpath_rust::JsonPath;
 
 use serde::{Deserialize, Serialize};
 
-use super::shared::prettify_slice_path;
 use super::{CliCommand, CliCommandInfo, CliOption};
 
 use crate::autocomplete::{classes, namespaces, objects_from_class};
-use crate::commands::shared::find_entities_by_ids;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, FormattedObject, OutputFormatter};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
+use crate::services::{AppServices, CreateObjectInput, ObjectFilter, ObjectUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetObjectname {
@@ -63,28 +57,17 @@ pub struct ObjectNew {
 impl CliCommand for ObjectNew {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let namespace = client.namespaces().select_by_name(&new.namespace)?;
-        let class = client.classes().select_by_name(&new.class)?;
-
-        let result = client.objects(class.id()).create(ObjectPost {
-            name: new.name.clone(),
-            hubuum_class_id: class.id(),
-            namespace_id: namespace.id(),
-            description: new.description.clone(),
-            data: new.data.clone(),
+        let new = self.new_from_tokens(tokens)?;
+        let object = services.gateway().create_object(CreateObjectInput {
+            name: new.name,
+            class_name: new.class,
+            namespace: new.namespace,
+            description: new.description,
+            data: new.data,
         })?;
-
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id(), namespace.resource().clone());
-
-        let object = FormattedObject::new(&result, &classmap, &nsmap);
 
         match self.desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
@@ -92,20 +75,6 @@ impl CliCommand for ObjectNew {
         }
 
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Object> for &ObjectInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
     }
 }
 
@@ -149,32 +118,17 @@ pub struct ObjectInfo {
 impl CliCommand for ObjectInfo {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
-        let class = client.classes().select_by_name(&query.class)?;
         let object_name = query
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = class.object_by_name(object_name)?;
-
-        let namespace = client
-            .namespaces()
-            .find()
-            .add_filter_id(object.resource().namespace_id)
-            .execute_expecting_single_result()?;
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id, namespace.clone());
-
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let object = FormattedObject::new(object.resource(), &classmap, &nsmap);
+        let object = services.gateway().object_details(&query.class, object_name)?;
 
         if self.want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object)?)?;
@@ -266,7 +220,7 @@ pub struct ObjectDelete {
 impl CliCommand for ObjectDelete {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
@@ -276,20 +230,16 @@ impl CliCommand for ObjectDelete {
             .class
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let class = client.classes().select_by_name(class_name)?;
-
         let object_name = query
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = class.object_by_name(object_name)?;
-
-        client.objects(class.id()).delete(object.id())?;
+        services.gateway().delete_object(class_name, object_name)?;
 
         let message = format!(
             "Object '{}' in class '{}' deleted successfully",
-            object.resource().name,
-            class.resource().name
+            object_name,
+            class_name
         );
 
         match self.desired_format(tokens) {
@@ -325,6 +275,13 @@ where
     Ok(query.objectname().clone())
 }
 
+fn prettify_slice_path(path: &str) -> String {
+    path.trim_start_matches('$')
+        .replace("']['", ".")
+        .replace("['", "")
+        .replace("']", "")
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
 pub struct ObjectList {
     #[option(
@@ -345,51 +302,23 @@ pub struct ObjectList {
     pub description: Option<String>,
 }
 
-impl IntoResourceFilter<Object> for &ObjectList {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        if let Some(description) = &self.description {
-            filters.push(QueryFilter {
-                key: "description".to_string(),
-                value: description.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
-    }
-}
-
 impl CliCommand for ObjectList {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new: ObjectList = self.new_from_tokens(tokens)?;
-
-        let class = client.classes().select_by_name(&new.class)?;
-
-        let objects = client.objects(class.id()).filter(&new)?;
+        let objects = services.gateway().list_objects(ObjectFilter {
+            class_name: new.class,
+            name: new.name,
+            description: new.description,
+        })?;
 
         if objects.is_empty() {
             append_line("No objects found")?;
             return Ok(());
         }
-
-        let classmap = find_entities_by_ids(&client.classes(), &objects, |o| o.hubuum_class_id)?;
-        let nsmap = find_entities_by_ids(&client.namespaces(), &objects, |o| o.namespace_id)?;
-
-        let objects = objects
-            .iter()
-            .map(|o| FormattedObject::new(o, &classmap, &nsmap))
-            .collect::<Vec<_>>();
 
         match self.desired_format(tokens) {
             OutputFormat::Json => objects.format_json_noreturn()?,
@@ -447,49 +376,31 @@ pub struct ObjectModify {
 impl CliCommand for ObjectModify {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let class = client.classes().select_by_name(&new.class)?;
-        let object = class.object_by_name(&new.name)?;
+        let new = self.new_from_tokens(tokens)?;
+        let object = services.gateway().object_details(&new.class, &new.name)?;
 
-        let mut patch = ObjectPatch::default();
-
-        if let Some(data) = &new.data.clone() {
+        let data = if let Some(data) = &new.data {
             let jqesque = data.parse::<Jqesque>()?;
             let mut json_data = serde_json::Value::Null;
-            if object.resource().data.is_some() {
-                json_data = object.resource().data.as_ref().unwrap().clone();
+            if let Some(current_data) = object.data.clone() {
+                json_data = current_data;
             }
             jqesque.apply_to(&mut json_data)?;
-            patch.data = Some(json_data);
-        }
-
-        if let Some(namespace) = &new.namespace {
-            let namespace = client.namespaces().select_by_name(namespace)?;
-            patch.namespace_id = Some(namespace.id());
+            Some(json_data)
+        } else {
+            None
         };
-
-        if let Some(rename) = &new.rename {
-            patch.name = Some(rename.clone());
-        }
-
-        if let Some(description) = &new.description {
-            patch.description = Some(description.clone());
-        }
-
-        let result = client.objects(class.id()).update(object.id(), patch)?;
-
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let namespace = client.namespaces().select(result.namespace_id)?;
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id(), namespace.resource().clone());
-
-        let object = FormattedObject::new(&result, &classmap, &nsmap);
+        let object = services.gateway().update_object(ObjectUpdateInput {
+            name: new.name,
+            class_name: new.class,
+            rename: new.rename,
+            namespace: new.namespace,
+            description: new.description,
+            data,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,

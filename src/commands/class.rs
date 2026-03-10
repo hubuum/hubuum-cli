@@ -1,7 +1,4 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::{
-    Authenticated, Class, ClassPost, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient,
-};
 use serde::{Deserialize, Serialize};
 
 use super::CliCommand;
@@ -12,6 +9,7 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
+use crate::services::{AppServices, ClassFilter, CreateClassInput};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetClassname {
@@ -51,17 +49,15 @@ pub struct ClassNew {
 impl CliCommand for ClassNew {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let namespace = client.namespaces().select_by_name(&new.namespace)?;
-
-        let result = client.classes().create(ClassPost {
-            name: new.name.clone(),
-            namespace_id: namespace.id(),
-            description: new.description.clone(),
-            json_schema: new.json_schema.clone(),
+        let new = self.new_from_tokens(tokens)?;
+        let result = services.gateway().create_class(CreateClassInput {
+            name: new.name,
+            namespace: new.namespace,
+            description: new.description,
+            json_schema: new.json_schema,
             validate_schema: new.validate_schema,
         })?;
 
@@ -71,21 +67,6 @@ impl CliCommand for ClassNew {
         }
 
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Class> for &ClassInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        filters
     }
 }
 
@@ -109,28 +90,22 @@ pub struct ClassInfo {
 impl CliCommand for ClassInfo {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut query = self.new_from_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let class = client.classes().select_by_name(&query.name.unwrap())?;
+        let details = services
+            .gateway()
+            .class_details(&query.name.clone().unwrap())?;
 
-        // This will hopefully be a head request in the future if we just want a count.
-        let objects = class.objects()?;
-
-        // We should newtype all of this, but oh well.
         match self.desired_format(tokens) {
             OutputFormat::Json => {
-                // We first make a JSON object out of the class, then we append the objects.
-                let mut json_class = serde_json::to_value(class.resource())?;
-                json_class["objects"] = serde_json::to_value(objects)?;
-
-                append_line(serde_json::to_string_pretty(&json_class)?)?;
+                append_line(serde_json::to_string_pretty(&details)?)?;
             }
             OutputFormat::Text => {
-                class.format()?;
-                append_key_value("Objects", objects.len(), 14)?;
+                details.class.format()?;
+                append_key_value("Objects", details.objects.len(), 14)?;
             }
         }
 
@@ -152,7 +127,7 @@ pub struct ClassDelete {
 impl CliCommand for ClassDelete {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let query = self.new_from_tokens(tokens)?;
@@ -161,7 +136,7 @@ impl CliCommand for ClassDelete {
             None => return Err(AppError::MissingOptions(vec!["name".to_string()])),
         };
 
-        client.classes().select_by_name(&name)?.delete()?;
+        services.gateway().delete_class(&name)?;
 
         let message = format!("Class '{name}' deleted successfully");
 
@@ -193,35 +168,17 @@ pub struct ClassList {
     pub description: Option<String>,
 }
 
-impl IntoResourceFilter<Class> for &ClassList {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        if let Some(description) = &self.description {
-            filters.push(QueryFilter {
-                key: "description".to_string(),
-                value: description.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
-    }
-}
-
 impl CliCommand for ClassList {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-        let classes = client.classes().filter(&new)?;
+        let classes = services.gateway().list_classes(ClassFilter {
+            name: new.name,
+            description: new.description,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => classes.format_json_noreturn()?,

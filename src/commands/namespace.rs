@@ -1,6 +1,4 @@
 use cli_command_derive::CliCommand;
-use hubuum_client::types::Permissions;
-use hubuum_client::{Authenticated, FilterOperator, NamespacePost, SyncClient};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
@@ -8,10 +6,12 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{groups, namespaces};
+use crate::domain::NamespacePermission;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, FormattedGroupPermissions, OutputFormatter};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_json, append_line};
+use crate::services::{AppServices, CreateNamespaceInput};
 use crate::tokenizer::CommandTokenizer;
 
 trait GetNamespace {
@@ -36,33 +36,18 @@ pub struct NamespaceNew {
     pub owner: String,
 }
 
-impl NamespaceNew {
-    fn into_post(self, group_id: i32) -> NamespacePost {
-        NamespacePost {
-            name: self.name.clone(),
-            description: self.description.clone(),
-            group_id,
-        }
-    }
-}
-
 impl CliCommand for NamespaceNew {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-
-        let group = client
-            .groups()
-            .find()
-            .add_filter_name_exact(new.owner.clone())
-            .execute_expecting_single_result()?;
-
-        let post = new.into_post(group.id);
-
-        let namespace = client.namespaces().create(post)?;
+        let namespace = services.gateway().create_namespace(CreateNamespaceInput {
+            name: new.name,
+            description: new.description,
+            owner: new.owner,
+        })?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
@@ -88,32 +73,13 @@ pub struct NamespaceList {
 impl CliCommand for NamespaceList {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
-
-        let search = client.namespaces().find();
-
-        let search = match &new.name {
-            Some(name) => search.add_filter(
-                "name",
-                FilterOperator::Contains { is_negated: false },
-                name.clone(),
-            ),
-            None => search,
-        };
-
-        let search = match &new.description {
-            Some(description) => search.add_filter(
-                "description",
-                FilterOperator::Contains { is_negated: false },
-                description.clone(),
-            ),
-            None => search,
-        };
-
-        let namespaces = search.execute()?;
+        let namespaces = services
+            .gateway()
+            .list_namespaces(new.name, new.description)?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespaces.format_json_noreturn()?,
@@ -144,7 +110,7 @@ impl GetNamespace for &NamespaceInfo {
 impl CliCommand for NamespaceInfo {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut new = self.new_from_tokens(tokens)?;
@@ -155,9 +121,7 @@ impl CliCommand for NamespaceInfo {
             return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
         }
 
-        let namespace = client
-            .namespaces()
-            .select_by_name(new.name.as_ref().unwrap())?;
+        let namespace = services.gateway().get_namespace(new.name.as_ref().unwrap())?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
@@ -188,7 +152,7 @@ impl GetNamespace for &NamespaceDelete {
 impl CliCommand for NamespaceDelete {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut new = self.new_from_tokens(tokens)?;
@@ -199,13 +163,10 @@ impl CliCommand for NamespaceDelete {
             return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
         }
 
-        let namespace = client
-            .namespaces()
-            .select_by_name(new.name.as_ref().unwrap())?;
+        let namespace_name = new.name.as_ref().unwrap().clone();
+        services.gateway().delete_namespace(&namespace_name)?;
 
-        client.namespaces().delete(namespace.id())?;
-
-        let message = format!("Namespace '{}' deleted", namespace.resource().name);
+        let message = format!("Namespace '{}' deleted", namespace_name);
 
         match self.desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
@@ -236,7 +197,7 @@ impl GetNamespace for &NamespacePermissions {
 impl CliCommand for NamespacePermissions {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         let mut new = self.new_from_tokens(tokens)?;
@@ -248,20 +209,15 @@ impl CliCommand for NamespacePermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
-        let permissions = client.namespaces().select_by_name(name)?.permissions()?;
-
-        let formatted_permissions = permissions
-            .iter()
-            .map(|p| FormattedGroupPermissions::from(p.clone()))
-            .collect::<Vec<_>>();
+        let permissions = services.gateway().list_namespace_permissions(name)?;
 
         let empty_message = format!("No permissions found for namespace '{name}'");
 
-        match (self.desired_format(tokens), permissions.is_empty()) {
+        match (self.desired_format(tokens), permissions.entries.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
-            (OutputFormat::Json, false) => append_json(&permissions)?,
+            (OutputFormat::Json, false) => append_json(&permissions.entries)?,
             (OutputFormat::Text, true) => append_line(empty_message)?,
-            (OutputFormat::Text, false) => formatted_permissions.format_noreturn()?,
+            (OutputFormat::Text, false) => permissions.summary.format_noreturn()?,
         }
 
         Ok(())
@@ -444,7 +400,7 @@ impl GetNamespace for &NamespacePermissionsSet {
 impl CliCommand for NamespacePermissionsSet {
     fn execute(
         &self,
-        client: &SyncClient<Authenticated>,
+        services: &AppServices,
         tokens: &CommandTokenizer,
     ) -> Result<(), AppError> {
         // 1) parse the raw args
@@ -462,69 +418,69 @@ impl CliCommand for NamespacePermissionsSet {
         //      #[derive(EnumIter, AsRefStr)] // or similar
         //      enum Permission { ReadObject, CreateObject, … }
         //
-        let perms: Vec<Permissions> = if new.all.is_some() {
-            Permissions::iter().collect()
+        let perms: Vec<NamespacePermission> = if new.all.is_some() {
+            NamespacePermission::iter().collect()
         } else {
             let mut v = Vec::new();
             if new.read_collection.is_some() {
-                v.push(Permissions::ReadCollection);
+                v.push(NamespacePermission::ReadCollection);
             }
             if new.update_collection.is_some() {
-                v.push(Permissions::UpdateCollection);
+                v.push(NamespacePermission::UpdateCollection);
             }
             if new.delete_collection.is_some() {
-                v.push(Permissions::DeleteCollection);
+                v.push(NamespacePermission::DeleteCollection);
             }
             if new.delegate_collection.is_some() {
-                v.push(Permissions::DelegateCollection);
+                v.push(NamespacePermission::DelegateCollection);
             }
             if new.create_class.is_some() {
-                v.push(Permissions::CreateClass);
+                v.push(NamespacePermission::CreateClass);
             }
             if new.read_class.is_some() {
-                v.push(Permissions::ReadClass);
+                v.push(NamespacePermission::ReadClass);
             }
             if new.update_class.is_some() {
-                v.push(Permissions::UpdateClass);
+                v.push(NamespacePermission::UpdateClass);
             }
             if new.delete_class.is_some() {
-                v.push(Permissions::DeleteClass);
+                v.push(NamespacePermission::DeleteClass);
             }
             if new.create_object.is_some() {
-                v.push(Permissions::CreateObject);
+                v.push(NamespacePermission::CreateObject);
             }
             if new.read_object.is_some() {
-                v.push(Permissions::ReadObject);
+                v.push(NamespacePermission::ReadObject);
             }
             if new.update_object.is_some() {
-                v.push(Permissions::UpdateObject);
+                v.push(NamespacePermission::UpdateObject);
             }
             if new.delete_object.is_some() {
-                v.push(Permissions::DeleteObject);
+                v.push(NamespacePermission::DeleteObject);
             }
             if new.create_class_relation.is_some() {
-                v.push(Permissions::CreateClassRelation);
+                v.push(NamespacePermission::CreateClassRelation);
             }
             if new.read_class_relation.is_some() {
-                v.push(Permissions::ReadClassRelation);
+                v.push(NamespacePermission::ReadClassRelation);
             }
             if new.update_class_relation.is_some() {
-                v.push(Permissions::UpdateClassRelation);
+                v.push(NamespacePermission::UpdateClassRelation);
             }
             if new.delete_class_relation.is_some() {
-                v.push(Permissions::DeleteClassRelation);
+                v.push(NamespacePermission::DeleteClassRelation);
             }
             if new.create_object_relation.is_some() {
-                v.push(Permissions::CreateObjectRelation);
+                v.push(NamespacePermission::CreateObjectRelation);
             }
             if new.read_object_relation.is_some() {
-                v.push(Permissions::ReadObjectRelation);
+                v.push(NamespacePermission::ReadObjectRelation);
             }
             if new.update_object_relation.is_some() {
-                v.push(Permissions::UpdateObjectRelation);
+                v.push(NamespacePermission::UpdateObjectRelation);
             }
             if new.delete_object_relation.is_some() {
-                v.push(Permissions::DeleteObjectRelation);
+                v.push(NamespacePermission::DeleteObjectRelation);
             }
             v
         };
@@ -534,18 +490,11 @@ impl CliCommand for NamespacePermissionsSet {
         }
 
         // 4) turn them into strings (or send the enum directly if your API accepts it)
-        let perm_names: Vec<String> = perms
-            .iter()
-            .map(|p| p.to_string()) // or `p.to_string()` if you impl Display
-            .collect();
-
-        // 5) lookup namespace & group, then call the client
-        let namespace = client
-            .namespaces()
-            .select_by_name(new.name.as_ref().unwrap())?;
-        let group = client.groups().select_by_name(&new.group)?;
-
-        namespace.grant_permissions(group.id(), perm_names)?;
+        services.gateway().grant_namespace_permissions(
+            new.name.as_ref().unwrap(),
+            &new.group,
+            &perms,
+        )?;
 
         let perm_string = if new.all.is_some() {
             "all permissions".to_string()
