@@ -5,7 +5,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
     classes, namespaces, objects_from_class, report_missing_data_policies, report_scope_kinds,
-    report_templates, report_where,
+    report_sort, report_templates, report_where,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::ReportOutput;
@@ -104,6 +104,13 @@ pub struct ReportList {
         autocomplete = "report_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "report_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -113,7 +120,13 @@ pub struct ReportList {
 impl CliCommand for ReportList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let list_query = build_list_query(&query.where_clauses, query.limit, query.cursor, [])?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [],
+        )?;
         let reports = services.gateway().list_report_templates(&list_query)?;
         render_list_page(tokens, &reports)
     }

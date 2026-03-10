@@ -8,7 +8,7 @@ use reedline::{
 };
 
 use crate::app::{AppRuntime, SharedSession};
-use crate::autocomplete::complete_where_clause;
+use crate::autocomplete::{complete_sort_clause, complete_where_clause};
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::dispatch;
 use crate::errors::AppError;
@@ -215,6 +215,16 @@ impl Completer for ReplCompleter {
                 return suggestions;
             }
 
+            if let Some(suggestions) = self.sort_clause_suggestions(
+                &resolved.command_path,
+                &parts,
+                start,
+                pos,
+                ends_with_space,
+            ) {
+                return suggestions;
+            }
+
             if let Some(last) = parts.last() {
                 if prefix_line.ends_with(' ') && last.starts_with('-') {
                     if let Some(option) = options.iter().find(|option| {
@@ -327,6 +337,59 @@ impl ReplCompleter {
 
         Some(
             complete_where_clause(
+                &self.completion,
+                command_path,
+                &clause_prefix,
+                clause_ends_with_space,
+            )
+            .into_iter()
+            .map(|candidate| {
+                suggestion_with_whitespace(
+                    candidate.value,
+                    start,
+                    pos,
+                    candidate.description,
+                    candidate.append_whitespace,
+                )
+            })
+            .collect(),
+        )
+    }
+
+    fn sort_clause_suggestions(
+        &self,
+        command_path: &[String],
+        parts: &[String],
+        start: usize,
+        pos: usize,
+        ends_with_space: bool,
+    ) -> Option<Vec<Suggestion>> {
+        let sort_index = parts.iter().rposition(|part| part == "--sort")?;
+        let clause_parts = &parts[sort_index + 1..];
+        if clause_parts.len() >= 2 && !ends_with_space {
+            return Some(vec![suggestion_with_whitespace(
+                clause_parts.last()?.clone(),
+                start,
+                pos,
+                None,
+                true,
+            )]);
+        }
+        if clause_parts.len() >= 2 && ends_with_space {
+            return None;
+        }
+        let (clause_prefix, clause_ends_with_space) = if clause_parts.is_empty() {
+            ("".to_string(), false)
+        } else {
+            let mut clause = clause_parts.join(" ");
+            if ends_with_space {
+                clause.push(' ');
+            }
+            (clause, ends_with_space)
+        };
+
+        Some(
+            complete_sort_clause(
                 &self.completion,
                 command_path,
                 &clause_prefix,

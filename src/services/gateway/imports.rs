@@ -1,6 +1,8 @@
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
-use crate::list_query::{apply_cursor_request_paging, ListQuery, PagedResult};
+use crate::list_query::{
+    apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
+};
 
 use super::HubuumGateway;
 
@@ -31,8 +33,13 @@ impl HubuumGateway {
         task_id: i32,
         query: &ListQuery,
     ) -> Result<PagedResult<ImportResultRecord>, AppError> {
-        let page =
-            apply_cursor_request_paging(self.client.imports().results(task_id), query).page()?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, IMPORT_RESULT_SORT_SPECS)?;
+        let page = apply_cursor_request_paging(
+            self.client.imports().results(task_id),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         Ok(PagedResult::from_page(
             page,
             query.limit,
@@ -40,3 +47,14 @@ impl HubuumGateway {
         ))
     }
 }
+
+pub(crate) const IMPORT_RESULT_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("task_id", "task_id"),
+    SortFieldSpec::new("item_ref", "item_ref"),
+    SortFieldSpec::new("entity_kind", "entity_kind"),
+    SortFieldSpec::new("action", "action"),
+    SortFieldSpec::new("identifier", "identifier"),
+    SortFieldSpec::new("outcome", "outcome"),
+    SortFieldSpec::new("created_at", "created_at"),
+];

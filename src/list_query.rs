@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDateTime};
 use hubuum_client::{
     client::{sync::CursorRequest, sync::QueryOp, Page},
+    types::SortDirection,
     FilterOperator, QueryFilter,
 };
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ use crate::tokenizer::CommandTokenizer;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListQuery {
     pub filters: Vec<FilterClause>,
+    pub sorts: Vec<SortClause>,
     pub limit: Option<usize>,
     pub cursor: Option<String>,
 }
@@ -23,6 +25,12 @@ pub struct FilterClause {
     pub field: String,
     pub operator: FilterOperator,
     pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SortClause {
+    pub field: String,
+    pub direction: SortDirectionArg,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +49,12 @@ pub struct FilterFieldSpec {
     pub value_profile: FilterValueProfile,
     pub json_root: bool,
     pub resolver: FilterValueResolver,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SortFieldSpec {
+    pub public_name: &'static str,
+    pub backend_field: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +89,19 @@ pub struct ValidatedFilterClause {
     pub json_path: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ValidatedSortClause {
+    pub spec: SortFieldSpec,
+    pub direction: SortDirectionArg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirectionArg {
+    Asc,
+    Desc,
+}
+
 impl FilterFieldSpec {
     pub const fn new(
         public_name: &'static str,
@@ -103,6 +130,24 @@ impl FilterFieldSpec {
     }
 }
 
+impl SortFieldSpec {
+    pub const fn new(public_name: &'static str, backend_field: &'static str) -> Self {
+        Self {
+            public_name,
+            backend_field,
+        }
+    }
+}
+
+impl SortDirectionArg {
+    pub const fn to_api(self) -> SortDirection {
+        match self {
+            Self::Asc => SortDirection::Asc,
+            Self::Desc => SortDirection::Desc,
+        }
+    }
+}
+
 impl<T> PagedResult<T> {
     pub fn from_page<U, F>(page: Page<U>, limit: Option<usize>, map: F) -> Self
     where
@@ -121,6 +166,7 @@ impl<T> PagedResult<T> {
 
 pub fn list_query_from_raw(
     where_clauses: &[String],
+    sort_clauses: &[String],
     limit: Option<usize>,
     cursor: Option<String>,
 ) -> Result<ListQuery, AppError> {
@@ -128,8 +174,13 @@ pub fn list_query_from_raw(
         .iter()
         .map(|clause| parse_where_clause(clause))
         .collect::<Result<Vec<_>, _>>()?;
+    let sorts = sort_clauses
+        .iter()
+        .map(|clause| parse_sort_clause(clause))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(ListQuery {
         filters,
+        sorts,
         limit,
         cursor,
     })
@@ -167,6 +218,33 @@ pub fn validate_filter_clauses(
         .collect()
 }
 
+pub fn parse_sort_clause(clause: &str) -> Result<SortClause, AppError> {
+    let mut parts = clause.trim().splitn(2, char::is_whitespace);
+    let field = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::ParseError("Sort clause requires a field".to_string()))?;
+    let direction = parts
+        .next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::ParseError("Sort clause requires a direction".to_string()))?;
+
+    Ok(SortClause {
+        field: field.to_string(),
+        direction: parse_sort_direction(direction)?,
+    })
+}
+
+pub fn validate_sort_clauses(
+    clauses: &[SortClause],
+    specs: &[SortFieldSpec],
+) -> Result<Vec<ValidatedSortClause>, AppError> {
+    clauses
+        .iter()
+        .map(|clause| validate_sort_clause(clause, specs))
+        .collect()
+}
+
 pub fn render_paged_result<T>(
     tokens: &CommandTokenizer,
     paged: &PagedResult<T>,
@@ -191,10 +269,25 @@ where
     Ok(())
 }
 
-pub fn apply_query_paging<T>(query: QueryOp<T>, list_query: &ListQuery) -> QueryOp<T>
+pub fn apply_query_paging<T>(
+    query: QueryOp<T>,
+    list_query: &ListQuery,
+    sorts: &[ValidatedSortClause],
+) -> QueryOp<T>
 where
     T: hubuum_client::ApiResource,
 {
+    let query = if sorts.is_empty() {
+        query
+    } else {
+        query.sort_by_fields(
+            sorts
+                .iter()
+                .map(|clause| (clause.spec.backend_field, clause.direction.to_api()))
+                .collect::<Vec<_>>(),
+        )
+    };
+
     let query = if let Some(limit) = list_query.limit {
         query.limit(limit)
     } else {
@@ -302,10 +395,26 @@ pub fn completion_operators(profile: FilterOperatorProfile) -> &'static [&'stati
     }
 }
 
+pub const fn completion_sort_directions() -> &'static [&'static str] {
+    &["asc", "desc"]
+}
+
 pub fn apply_cursor_request_paging<T>(
     request: CursorRequest<T>,
     list_query: &ListQuery,
+    sorts: &[ValidatedSortClause],
 ) -> CursorRequest<T> {
+    let request = if sorts.is_empty() {
+        request
+    } else {
+        request.sort_by_fields(
+            sorts
+                .iter()
+                .map(|clause| (clause.spec.backend_field, clause.direction.to_api()))
+                .collect::<Vec<_>>(),
+        )
+    };
+
     let request = if let Some(limit) = list_query.limit {
         request.limit(limit)
     } else {
@@ -329,6 +438,10 @@ pub fn filter_clause(
         operator,
         value: value.into(),
     }
+}
+
+pub fn resolve_sort_field_spec(specs: &[SortFieldSpec], field: &str) -> Option<SortFieldSpec> {
+    specs.iter().copied().find(|spec| spec.public_name == field)
 }
 
 pub fn validated_clause_to_query_filter(clause: &ValidatedFilterClause) -> QueryFilter {
@@ -369,6 +482,19 @@ fn validate_filter_clause(
         operator: clause.operator.clone(),
         value: clause.value.clone(),
         json_path,
+    })
+}
+
+fn validate_sort_clause(
+    clause: &SortClause,
+    specs: &[SortFieldSpec],
+) -> Result<ValidatedSortClause, AppError> {
+    let spec = resolve_sort_field_spec(specs, &clause.field)
+        .ok_or_else(|| AppError::ParseError(format!("Unknown sort field: {}", clause.field)))?;
+
+    Ok(ValidatedSortClause {
+        spec,
+        direction: clause.direction,
     })
 }
 
@@ -516,6 +642,16 @@ fn parse_filter_operator(operator: &str) -> Result<FilterOperator, AppError> {
     }
 }
 
+fn parse_sort_direction(direction: &str) -> Result<SortDirectionArg, AppError> {
+    match direction {
+        "asc" => Ok(SortDirectionArg::Asc),
+        "desc" => Ok(SortDirectionArg::Desc),
+        _ => Err(AppError::ParseError(format!(
+            "Unknown sort direction: {direction}"
+        ))),
+    }
+}
+
 fn append_paging_footer<T>(
     tokens: &CommandTokenizer,
     paged: &PagedResult<T>,
@@ -596,8 +732,8 @@ mod tests {
 
     use super::{
         completion_operators, filter_clause, list_query_from_raw, resolve_filter_field_spec,
-        validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile,
-        PagedResult,
+        validate_filter_clauses, validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile,
+        FilterValueProfile, PagedResult, SortDirectionArg, SortFieldSpec,
     };
     use crate::config::{init_config, AppConfig};
     use crate::models::OutputFormat;
@@ -610,13 +746,38 @@ mod tests {
     fn parses_where_clauses_with_symbols_and_spaces() {
         let query = list_query_from_raw(
             &["name icontains foo bar".to_string(), "id >= 10".to_string()],
+            &["name asc".to_string()],
             Some(10),
             None,
         )
         .expect("query should parse");
 
         assert_eq!(query.filters.len(), 2);
+        assert_eq!(query.sorts.len(), 1);
         assert_eq!(query.limit, Some(10));
+    }
+
+    #[test]
+    fn parses_sort_clauses_in_order() {
+        let query = list_query_from_raw(
+            &[],
+            &["name asc".to_string(), "created_at desc".to_string()],
+            None,
+            None,
+        )
+        .expect("sort query should parse");
+
+        assert_eq!(
+            query
+                .sorts
+                .iter()
+                .map(|clause| (clause.field.as_str(), clause.direction))
+                .collect::<Vec<_>>(),
+            vec![
+                ("name", SortDirectionArg::Asc),
+                ("created_at", SortDirectionArg::Desc),
+            ]
+        );
     }
 
     #[test]
@@ -658,6 +819,21 @@ mod tests {
         .expect_err("invalid boolean operator should fail");
 
         assert!(err.to_string().contains("not supported"));
+    }
+
+    #[test]
+    fn rejects_unknown_sort_fields() {
+        let specs = [SortFieldSpec::new("name", "name")];
+        let err = validate_sort_clauses(
+            &[super::SortClause {
+                field: "unknown".to_string(),
+                direction: SortDirectionArg::Asc,
+            }],
+            &specs,
+        )
+        .expect_err("unknown sort field should fail");
+
+        assert!(err.to_string().contains("Unknown sort field"));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::group_where;
+use crate::autocomplete::{group_sort, group_where};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
@@ -249,6 +249,13 @@ pub struct GroupList {
         autocomplete = "group_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "group_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -260,6 +267,7 @@ impl CliCommand for GroupList {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
             &query.where_clauses,
+            &query.sort_clauses,
             query.limit,
             query.cursor,
             [

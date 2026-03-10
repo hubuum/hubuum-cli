@@ -5,7 +5,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{bool, class_where, classes, namespaces};
+use crate::autocomplete::{bool, class_sort, class_where, classes, namespaces};
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
@@ -291,6 +291,13 @@ pub struct ClassList {
         autocomplete = "class_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "class_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -302,6 +309,7 @@ impl CliCommand for ClassList {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
             &query.where_clauses,
+            &query.sort_clauses,
             query.limit,
             query.cursor,
             [

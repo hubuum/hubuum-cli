@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use crate::autocomplete::import_result_sort;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -137,6 +138,13 @@ impl CliCommand for ImportShow {
 pub struct ImportResults {
     #[option(short = "i", long = "id", help = "Import task ID")]
     pub id: Option<i32>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "import_result_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -153,7 +161,7 @@ impl CliCommand for ImportResults {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = task_id_or_pos(&query, tokens, 0)?;
-        let list_query = build_list_query(&[], query.limit, query.cursor, [])?;
+        let list_query = build_list_query(&[], &query.sort_clauses, query.limit, query.cursor, [])?;
         let results = services.gateway().import_results(
             query
                 .id

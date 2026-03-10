@@ -1,6 +1,8 @@
 use crate::domain::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 use crate::errors::AppError;
-use crate::list_query::{apply_cursor_request_paging, ListQuery, PagedResult};
+use crate::list_query::{
+    apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
+};
 
 use super::HubuumGateway;
 
@@ -23,8 +25,13 @@ impl HubuumGateway {
         input: TaskLookupInput,
         query: &ListQuery,
     ) -> Result<PagedResult<TaskEventRecord>, AppError> {
-        let page =
-            apply_cursor_request_paging(self.client.tasks().events(input.task_id), query).page()?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, TASK_EVENT_SORT_SPECS)?;
+        let page = apply_cursor_request_paging(
+            self.client.tasks().events(input.task_id),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         Ok(PagedResult::from_page(
             page,
             query.limit,
@@ -32,3 +39,11 @@ impl HubuumGateway {
         ))
     }
 }
+
+pub(crate) const TASK_EVENT_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("task_id", "task_id"),
+    SortFieldSpec::new("event_type", "event_type"),
+    SortFieldSpec::new("message", "message"),
+    SortFieldSpec::new("created_at", "created_at"),
+];

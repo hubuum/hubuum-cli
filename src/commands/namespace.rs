@@ -6,7 +6,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{groups, namespace_where, namespaces};
+use crate::autocomplete::{groups, namespace_sort, namespace_where, namespaces};
 use crate::domain::NamespacePermission;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -170,6 +170,13 @@ pub struct NamespaceList {
         autocomplete = "namespace_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "namespace_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -181,6 +188,7 @@ impl CliCommand for NamespaceList {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
             &query.where_clauses,
+            &query.sort_clauses,
             query.limit,
             query.cursor,
             [

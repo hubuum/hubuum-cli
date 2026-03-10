@@ -534,6 +534,25 @@ mod tests {
     }
 
     #[test]
+    fn repeated_sort_option_occurrences_are_preserved_in_order() {
+        let mut sort_opt = opt("sort", None, Some("--sort"), false);
+        sort_opt.nargs = Some(2);
+        let options = vec![sort_opt];
+
+        let tokens = CommandTokenizer::new(
+            "namespace list --sort name asc --sort created_at desc",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("sort"),
+            vec!["name asc".to_string(), "created_at desc".to_string()]
+        );
+    }
+
+    #[test]
     fn fixed_arity_option_accepts_quoted_values_with_spaces() {
         let mut where_opt = opt("where", None, Some("--where"), false);
         where_opt.nargs = Some(3);

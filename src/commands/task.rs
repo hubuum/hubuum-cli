@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use crate::autocomplete::task_event_sort;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -87,6 +88,13 @@ impl CliCommand for TaskShow {
 pub struct TaskEvents {
     #[option(short = "i", long = "id", help = "Task ID")]
     pub id: Option<i32>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "task_event_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -103,7 +111,7 @@ impl CliCommand for TaskEvents {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = task_id_or_pos(&query, tokens, 0)?;
-        let list_query = build_list_query(&[], query.limit, query.cursor, [])?;
+        let list_query = build_list_query(&[], &query.sort_clauses, query.limit, query.cursor, [])?;
         let events = services.gateway().task_events(
             TaskLookupInput {
                 task_id: query

@@ -3,8 +3,9 @@ use hubuum_client::{ClassPatch, ClassPost};
 use crate::domain::{ClassDetails, ClassRecord, ObjectRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+    SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -95,13 +96,18 @@ impl HubuumGateway {
 
     pub fn list_classes(&self, query: &ListQuery) -> Result<PagedResult<ClassRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, CLASS_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, CLASS_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page =
-            apply_query_paging(self.client.classes().find().filters(filters), query).page()?;
+        let page = apply_query_paging(
+            self.client.classes().find().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         Ok(PagedResult::from_page(page, query.limit, ClassRecord::from))
     }
 }
@@ -157,4 +163,14 @@ pub(crate) const CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::Any,
     )
     .json_root(),
+];
+
+pub(crate) const CLASS_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("name", "name"),
+    SortFieldSpec::new("description", "description"),
+    SortFieldSpec::new("namespace", "namespace"),
+    SortFieldSpec::new("validate_schema", "validate_schema"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
 ];

@@ -3,8 +3,8 @@ use hubuum_client::{GroupPatch, GroupPost};
 use crate::domain::{GroupDetails, GroupRecord, UserRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, ListQuery, PagedResult,
+    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -85,13 +85,18 @@ impl HubuumGateway {
 
     pub fn list_groups(&self, query: &ListQuery) -> Result<PagedResult<GroupRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, GROUP_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, GROUP_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page =
-            apply_query_paging(self.client.groups().find().filters(filters), query).page()?;
+        let page = apply_query_paging(
+            self.client.groups().find().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         Ok(PagedResult::from_page(page, query.limit, GroupRecord::from))
     }
 }
@@ -127,4 +132,12 @@ pub(crate) const GROUP_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::DateTime,
     ),
+];
+
+pub(crate) const GROUP_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("groupname", "groupname"),
+    SortFieldSpec::new("description", "description"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
 ];

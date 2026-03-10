@@ -236,11 +236,12 @@ pub fn desired_format(tokens: &CommandTokenizer) -> crate::models::OutputFormat 
 
 pub fn build_list_query(
     where_clauses: &[String],
+    sort_clauses: &[String],
     limit: Option<usize>,
     cursor: Option<String>,
     compatibility_filters: impl IntoIterator<Item = FilterClause>,
 ) -> Result<ListQuery, AppError> {
-    let mut query = list_query_from_raw(where_clauses, limit, cursor)?;
+    let mut query = list_query_from_raw(where_clauses, sort_clauses, limit, cursor)?;
     query.filters.extend(compatibility_filters);
     Ok(query)
 }

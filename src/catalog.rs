@@ -515,6 +515,7 @@ mod tests {
                 .map(|option| option.name.as_str())
                 .collect::<Vec<_>>();
             assert!(option_names.contains(&"where_clauses"));
+            assert!(option_names.contains(&"sort_clauses"));
             assert!(option_names.contains(&"limit"));
             assert!(option_names.contains(&"cursor"));
         }
@@ -533,6 +534,7 @@ mod tests {
                 .map(|option| option.name.as_str())
                 .collect::<Vec<_>>();
             assert!(!option_names.contains(&"where_clauses"));
+            assert!(option_names.contains(&"sort_clauses"));
             assert!(option_names.contains(&"limit"));
             assert!(option_names.contains(&"cursor"));
         }

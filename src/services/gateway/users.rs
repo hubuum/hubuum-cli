@@ -4,8 +4,8 @@ use hubuum_client::{FilterOperator, UserPatch, UserPost};
 use crate::domain::{CreatedUser, UserRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, ListQuery, PagedResult,
+    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -82,12 +82,18 @@ impl HubuumGateway {
 
     pub fn list_users(&self, query: &ListQuery) -> Result<PagedResult<UserRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, USER_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, USER_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(self.client.users().find().filters(filters), query).page()?;
+        let page = apply_query_paging(
+            self.client.users().find().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         Ok(PagedResult::from_page(page, query.limit, UserRecord::from))
     }
 
@@ -142,4 +148,12 @@ pub(crate) const USER_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::DateTime,
     ),
+];
+
+pub(crate) const USER_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("username", "username"),
+    SortFieldSpec::new("email", "email"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
 ];

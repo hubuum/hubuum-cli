@@ -9,8 +9,9 @@ use hubuum_client::{
 use crate::domain::{ReportOutput, ReportTemplateRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
+    SortFieldSpec,
 };
 
 use super::{shared::find_entities_by_ids, HubuumGateway};
@@ -62,12 +63,17 @@ impl HubuumGateway {
         query: &ListQuery,
     ) -> Result<PagedResult<ReportTemplateRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, REPORT_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, REPORT_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page =
-            apply_query_paging(self.client.templates().find().filters(filters), query).page()?;
+        let page = apply_query_paging(
+            self.client.templates().find().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -259,6 +265,16 @@ pub(crate) const REPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::DateTime,
     ),
+];
+
+pub(crate) const REPORT_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("name", "name"),
+    SortFieldSpec::new("description", "description"),
+    SortFieldSpec::new("namespace", "namespace_id"),
+    SortFieldSpec::new("content_type", "content_type"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
 ];
 
 fn validate_report_scope(

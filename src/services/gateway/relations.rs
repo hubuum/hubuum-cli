@@ -5,8 +5,8 @@ use hubuum_client::{ClassRelationPost, ObjectRelationPost};
 use crate::domain::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, ListQuery, PagedResult,
+    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -122,6 +122,7 @@ impl HubuumGateway {
         query: &ListQuery,
     ) -> Result<PagedResult<ResolvedClassRelationRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, RELATION_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, RELATION_SORT_SPECS)?;
         if validated
             .iter()
             .any(|clause| matches!(clause.spec.public_name, "object_from" | "object_to"))
@@ -141,7 +142,7 @@ impl HubuumGateway {
             search = search.add_filter_equals("to_classes", class_to.id());
         }
 
-        let page = apply_query_paging(search, query).page()?;
+        let page = apply_query_paging(search, query, &validated_sorts).page()?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -162,6 +163,7 @@ impl HubuumGateway {
         query: &ListQuery,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, RELATION_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, RELATION_SORT_SPECS)?;
         let class_from_name = relation_filter_value(&validated, "class_from")
             .ok_or_else(|| AppError::MissingOptions(vec!["class_from".to_string()]))?;
         let class_to_name = relation_filter_value(&validated, "class_to")
@@ -201,7 +203,7 @@ impl HubuumGateway {
             search = search.add_filter_equals(target, object_to.id);
         }
 
-        let page = apply_query_paging(search, query).page()?;
+        let page = apply_query_paging(search, query, &validated_sorts).page()?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -258,6 +260,13 @@ pub(crate) const RELATION_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterOperatorProfile::EqualityOnly,
         FilterValueProfile::String,
     ),
+];
+
+pub(crate) const RELATION_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("class_from", "from_classes"),
+    SortFieldSpec::new("class_to", "to_classes"),
+    SortFieldSpec::new("object_from", "from_objects"),
+    SortFieldSpec::new("object_to", "to_objects"),
 ];
 
 fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppError> {

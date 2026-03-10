@@ -13,7 +13,7 @@ use super::{
 };
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{classes, namespaces, object_where, objects_from_class};
+use crate::autocomplete::{classes, namespaces, object_sort, object_where, objects_from_class};
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
@@ -366,6 +366,13 @@ pub struct ObjectList {
         autocomplete = "object_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "object_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -377,6 +384,7 @@ impl CliCommand for ObjectList {
         let query: ObjectList = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
             &query.where_clauses,
+            &query.sort_clauses,
             query.limit,
             query.cursor,
             [

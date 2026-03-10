@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 
-use crate::autocomplete::user_where;
+use crate::autocomplete::{user_sort, user_where};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
@@ -209,6 +209,13 @@ pub struct UserList {
         autocomplete = "user_where"
     )]
     pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "user_sort"
+    )]
+    pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
@@ -220,6 +227,7 @@ impl CliCommand for UserList {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
             &query.where_clauses,
+            &query.sort_clauses,
             query.limit,
             query.cursor,
             [

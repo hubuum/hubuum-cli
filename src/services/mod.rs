@@ -12,6 +12,7 @@ use crate::config::AppConfig;
 
 pub use completion::CompletionContext;
 pub(crate) use gateway::filter_specs_for_command_path;
+pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
     ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
     CreateReportTemplateInput, CreateUserInput, GroupUpdateInput, HubuumGateway,
