@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+extract_version() {
+  awk '
+    $0 == "[package]" { in_package = 1; next }
+    /^\[/ { in_package = 0 }
+    in_package && $1 == "version" {
+      if (match($0, /"([^"]+)"/)) {
+        print substr($0, RSTART + 1, RLENGTH - 2)
+        exit
+      }
+    }
+  '
+}
+
+base_ref=""
+range=""
+
+if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+  base_ref="origin/${GITHUB_BASE_REF}"
+  range="${base_ref}...HEAD"
+elif [[ -n "${GITHUB_EVENT_BEFORE:-}" && "${GITHUB_EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
+  base_ref="${GITHUB_EVENT_BEFORE}"
+  range="${base_ref}...HEAD"
+elif git rev-parse --verify HEAD >/dev/null 2>&1; then
+  base_ref="HEAD"
+  range="HEAD"
+else
+  echo "Skipping version bump checks because there is no base commit to compare against."
+  exit 0
+fi
+
+head_version="$(extract_version < Cargo.toml)"
+base_version="$(git show "${base_ref}:Cargo.toml" | extract_version || true)"
+
+if [[ -z "${base_version}" ]]; then
+  echo "Skipping version bump checks because the base Cargo.toml could not be read."
+  exit 0
+fi
+
+if [[ "${head_version}" == "${base_version}" ]]; then
+  echo "Cargo.toml version unchanged (${head_version}); no release note gating needed."
+  exit 0
+fi
+
+changed_files="$(
+  {
+    git diff --name-only "${range}"
+    git diff --name-only --cached
+    git diff --name-only
+    git ls-files --others --exclude-standard
+  } | awk 'NF { print }' | sort -u
+)"
+
+file_changed() {
+  local path="$1"
+
+  grep -Fxq "${path}" <<<"${changed_files}"
+}
+
+if ! file_changed "CHANGELOG.md"; then
+  echo "Cargo.toml version changed from ${base_version} to ${head_version}, but CHANGELOG.md was not updated." >&2
+  exit 1
+fi
+
+"${REPO_ROOT}/scripts/check-release-readiness.sh"
+
+echo "Version bump checks passed for ${base_version} -> ${head_version}"
