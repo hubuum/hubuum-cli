@@ -70,7 +70,7 @@ impl CliCommand for ObjectNew {
         let namespace = client.namespaces().select_by_name(&new.namespace)?;
         let class = client.classes().select_by_name(&new.class)?;
 
-        let result = client.objects(class.id()).create(ObjectPost {
+        let result = client.objects(class.id()).create_raw(ObjectPost {
             name: new.name.clone(),
             hubuum_class_id: class.id(),
             namespace_id: namespace.id(),
@@ -479,7 +479,7 @@ impl CliCommand for ObjectModify {
             patch.description = Some(description.clone());
         }
 
-        let result = client.objects(class.id()).update(object.id(), patch)?;
+        let result = client.objects(class.id()).update_raw(object.id(), patch)?;
 
         let mut classmap = HashMap::new();
         classmap.insert(class.id(), class.resource().clone());

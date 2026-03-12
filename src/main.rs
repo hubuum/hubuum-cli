@@ -238,7 +238,10 @@ fn main() -> Result<(), AppError> {
         "{}://{}:{}",
         config.server.protocol, config.server.hostname, config.server.port
     ))?;
-    let client = hubuum_client::SyncClient::new(baseurl, config.server.ssl_validation);
+    let client = hubuum_client::SyncClient::new_with_certificate_validation(
+        baseurl,
+        config.server.ssl_validation,
+    );
 
     let client = login(
         client,

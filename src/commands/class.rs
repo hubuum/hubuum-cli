@@ -9,7 +9,7 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{bool, classes, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
+use crate::formatting::{append_json, append_json_message, FormattedClass, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 use crate::tokenizer::CommandTokenizer;
@@ -57,7 +57,7 @@ impl CliCommand for ClassNew {
         let new = &self.new_from_tokens(tokens)?;
         let namespace = client.namespaces().select_by_name(&new.namespace)?;
 
-        let result = client.classes().create(ClassPost {
+        let result = client.classes().create_raw(ClassPost {
             name: new.name.clone(),
             namespace_id: namespace.id(),
             description: new.description.clone(),
@@ -129,7 +129,7 @@ impl CliCommand for ClassInfo {
                 append_line(serde_json::to_string_pretty(&json_class)?)?;
             }
             OutputFormat::Text => {
-                class.format()?;
+                class.resource().format()?;
                 append_key_value("Objects", objects.len(), 14)?;
             }
         }
@@ -224,8 +224,12 @@ impl CliCommand for ClassList {
         let classes = client.classes().filter(&new)?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => classes.format_json_noreturn()?,
-            OutputFormat::Text => classes.format_noreturn()?,
+            OutputFormat::Json => append_json(&classes)?,
+            OutputFormat::Text => classes
+                .iter()
+                .map(FormattedClass::from)
+                .collect::<Vec<_>>()
+                .format_noreturn()?,
         }
 
         Ok(())

@@ -1,9 +1,9 @@
-use hubuum_client::{resources::tabled_display, Class, ClassRelation, Object, ObjectRelation};
+use hubuum_client::{Class, ClassRelation, HubuumDateTime, Object, ObjectRelation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tabled::Tabled;
 
-use super::{append_key_value, OutputFormatter};
+use super::{append_key_value, tabled_display, OutputFormatter};
 use crate::config::get_config;
 use crate::errors::AppError;
 
@@ -16,9 +16,9 @@ pub struct FormattedClassRelation {
     #[tabled(rename = "ToClass")]
     pub to_class: String,
     #[tabled(display = "tabled_display", rename = "Created")]
-    pub created_at: chrono::NaiveDateTime,
+    pub created_at: HubuumDateTime,
     #[tabled(display = "tabled_display", rename = "Updated")]
-    pub updated_at: chrono::NaiveDateTime,
+    pub updated_at: HubuumDateTime,
 }
 
 #[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
@@ -33,9 +33,9 @@ pub struct FormattedObjectRelation {
     #[tabled(rename = "ToObject")]
     pub to_object: String,
     #[tabled(display = "tabled_display", rename = "Created")]
-    pub created_at: chrono::NaiveDateTime,
+    pub created_at: HubuumDateTime,
     #[tabled(display = "tabled_display", rename = "Updated")]
-    pub updated_at: chrono::NaiveDateTime,
+    pub updated_at: HubuumDateTime,
 }
 
 impl FormattedClassRelation {
@@ -64,8 +64,8 @@ impl FormattedClassRelation {
             id: class_relation.id,
             from_class,
             to_class,
-            created_at: class_relation.created_at,
-            updated_at: class_relation.updated_at,
+            created_at: class_relation.created_at.clone(),
+            updated_at: class_relation.updated_at.clone(),
         }
     }
 }
@@ -75,8 +75,8 @@ impl OutputFormatter for FormattedClassRelation {
         let padding = get_config().output.padding;
         append_key_value("ClassFrom", &self.from_class, padding)?;
         append_key_value("ClassTo", &self.to_class, padding)?;
-        append_key_value("Created", self.created_at, padding)?;
-        append_key_value("Updated", self.updated_at, padding)?;
+        append_key_value("Created", &self.created_at, padding)?;
+        append_key_value("Updated", &self.updated_at, padding)?;
         Ok(self.clone())
     }
 }
@@ -140,8 +140,8 @@ impl FormattedObjectRelation {
             to_class,
             from_object,
             to_object,
-            created_at: object_relation.created_at,
-            updated_at: object_relation.updated_at,
+            created_at: object_relation.created_at.clone(),
+            updated_at: object_relation.updated_at.clone(),
         }
     }
 }
@@ -153,8 +153,8 @@ impl OutputFormatter for FormattedObjectRelation {
         append_key_value("ClassTo", &self.to_class, padding)?;
         append_key_value("ObjectFrom", &self.from_object, padding)?;
         append_key_value("ObjectTo", &self.to_object, padding)?;
-        append_key_value("Created", self.created_at, padding)?;
-        append_key_value("Updated", self.updated_at, padding)?;
+        append_key_value("Created", &self.created_at, padding)?;
+        append_key_value("Updated", &self.updated_at, padding)?;
         Ok(self.clone())
     }
 }

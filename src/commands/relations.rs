@@ -566,7 +566,7 @@ fn create_class_relation(
         to_hubuum_class_id: class_to.id,
     };
 
-    let relation = client.class_relation().create(post)?;
+    let relation = client.class_relation().create_raw(post)?;
     let formatted_relation = FormattedClassRelation::new(&relation, class_map);
     formatted_relation.format()?;
     Ok(formatted_relation)
@@ -613,7 +613,7 @@ fn create_object_relation(
     object_map.insert(object_from.id, object_from.clone());
     object_map.insert(object_to.id, object_to.clone());
 
-    let relation = client.object_relation().create(post)?;
+    let relation = client.object_relation().create_raw(post)?;
     let relation =
         FormattedObjectRelation::new(&relation, &class_relation, &object_map, &class_map);
 

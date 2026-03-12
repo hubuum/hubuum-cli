@@ -8,7 +8,9 @@ use super::CliCommand;
 use super::{CliCommandInfo, CliOption};
 
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
+use crate::formatting::{
+    append_json, append_json_message, FormattedGroup, FormattedUser, OutputFormatter,
+};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
@@ -38,7 +40,7 @@ impl CliCommand for GroupNew {
     ) -> Result<(), AppError> {
         let new = self.new_from_tokens(tokens)?;
 
-        let group = client.groups().create(new.into_post())?;
+        let group = client.groups().create_raw(new.into_post())?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => group.format_json_noreturn()?,
@@ -133,11 +135,24 @@ impl CliCommand for GroupInfo {
         match self.desired_format(tokens) {
             OutputFormat::Json => {
                 let mut json_class = serde_json::to_value(group.resource())?;
-                json_class["members"] = serde_json::to_value(group.members()?)?;
+                let members = group
+                    .members()?
+                    .into_iter()
+                    .map(|member| member.resource().clone())
+                    .collect::<Vec<_>>();
+                json_class["members"] = serde_json::to_value(members)?;
 
                 append_line(serde_json::to_string_pretty(&json_class)?)?;
             }
-            OutputFormat::Text => group.format()?.members()?.format_noreturn()?,
+            OutputFormat::Text => {
+                group.resource().format()?;
+                group
+                    .members()?
+                    .into_iter()
+                    .map(|member| FormattedUser::from(member.resource()))
+                    .collect::<Vec<_>>()
+                    .format_noreturn()?;
+            }
         }
 
         Ok(())
@@ -214,8 +229,12 @@ impl CliCommand for GroupList {
         let groups = client.groups().filter(&new)?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => groups.format_json_noreturn()?,
-            OutputFormat::Text => groups.format_noreturn()?,
+            OutputFormat::Json => append_json(&groups)?,
+            OutputFormat::Text => groups
+                .iter()
+                .map(FormattedGroup::from)
+                .collect::<Vec<_>>()
+                .format_noreturn()?,
         }
 
         Ok(())
