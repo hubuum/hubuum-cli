@@ -210,6 +210,7 @@ impl CliCommand for ObjectInfo {
         }
 
         let json_data = object.data.clone().unwrap();
+        append_line("")?;
 
         if let Some(jsonpath_expr) = &query.jsonpath {
             let results: Vec<_> = json_data
@@ -223,7 +224,7 @@ impl CliCommand for ObjectInfo {
             let mut key_values = HashMap::new();
             for result in results {
                 let pretty_path = prettify_slice_path(&result.clone().path());
-                let value = result.val();
+                let value = display_json_value(result.val());
                 key_values.insert(pretty_path, value);
             }
 
@@ -252,7 +253,7 @@ impl CliCommand for ObjectInfo {
                     .map_or(15, |len| len.max(15));
 
                 for (key, value) in sorted_map {
-                    append_key_value(key, value, padding)?;
+                    append_key_value(key, display_json_value(&value), padding)?;
                 }
             } else {
                 add_warning("JSON is not an object")?;
@@ -260,6 +261,34 @@ impl CliCommand for ObjectInfo {
         }
 
         Ok(())
+    }
+}
+
+fn display_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => value.clone(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::display_json_value;
+
+    #[test]
+    fn display_json_value_unquotes_strings() {
+        assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    fn display_json_value_keeps_non_scalars_as_json() {
+        assert_eq!(display_json_value(&json!(["a", "b"])), "[\"a\",\"b\"]");
+        assert_eq!(display_json_value(&json!({"k": "v"})), "{\"k\":\"v\"}");
     }
 }
 

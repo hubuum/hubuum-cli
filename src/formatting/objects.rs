@@ -9,7 +9,7 @@ impl DetailRenderable for ResolvedObjectRecord {
             ("Description", self.description.clone()),
             ("Namespace", self.namespace.clone()),
             ("Class", self.class.clone()),
-            ("Data", self.data_size().to_string()),
+            ("Data", human_readable_bytes(self.data_size())),
             ("Created", self.created_at.to_string()),
             ("Updated", self.updated_at.to_string()),
         ]
@@ -52,6 +52,30 @@ impl ResolvedObjectRecord {
     }
 }
 
+fn human_readable_bytes(size: usize) -> String {
+    if size == 1 {
+        return "1 byte".to_string();
+    }
+    if size < 1024 {
+        return format!("{size} bytes");
+    }
+
+    let units = ["KB", "MB", "GB", "TB"];
+    let mut value = size as f64;
+
+    for unit in units {
+        value /= 1024.0;
+        if value < 1024.0 {
+            if (value.fract() - 0.0).abs() < f64::EPSILON {
+                return format!("{value:.0} {unit}");
+            }
+            return format!("{value:.1} {unit}");
+        }
+    }
+
+    format!("{value:.1} PB")
+}
+
 fn data_preview(data: Option<&serde_json::Value>) -> String {
     match data {
         Some(value) => {
@@ -63,5 +87,24 @@ fn data_preview(data: Option<&serde_json::Value>) -> String {
             }
         }
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::human_readable_bytes;
+
+    #[test]
+    fn human_readable_bytes_formats_small_values() {
+        assert_eq!(human_readable_bytes(0), "0 bytes");
+        assert_eq!(human_readable_bytes(1), "1 byte");
+        assert_eq!(human_readable_bytes(578), "578 bytes");
+    }
+
+    #[test]
+    fn human_readable_bytes_formats_larger_values() {
+        assert_eq!(human_readable_bytes(1024), "1 KB");
+        assert_eq!(human_readable_bytes(1536), "1.5 KB");
+        assert_eq!(human_readable_bytes(2 * 1024 * 1024), "2 MB");
     }
 }
