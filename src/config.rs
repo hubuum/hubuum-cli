@@ -433,10 +433,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         )?
         // 1. Load system-wide config
         .add_source(File::from(system_config).required(false))
-        // 2. Add in settings from the environment (with a prefix of HUBUUM_CLI_)
-        .add_source(Environment::with_prefix("HUBUUM_CLI").separator("__"))
-        // 3. Load user-specific config
-        .add_source(File::from(user_config).required(false));
+        // 2. Load user-specific config
+        .add_source(File::from(user_config).required(false))
+        // 3. Add in settings from the environment (with a prefix of HUBUUM_CLI_)
+        .add_source(Environment::with_prefix("HUBUUM_CLI").separator("__"));
 
     // 4. Load CLI-specified config file, if provided
     if let Some(config_path) = cli_config_path {
@@ -485,16 +485,16 @@ fn resolve_config_source(
             Some(system_path.display().to_string()),
         );
     }
-    if std::env::var_os(descriptor.env_var).is_some() {
-        source = (
-            ConfigSource::Environment,
-            Some(descriptor.env_var.to_string()),
-        );
-    }
     if toml_has_key(user_toml, descriptor.key) {
         source = (
             ConfigSource::UserFile,
             Some(user_path.display().to_string()),
+        );
+    }
+    if std::env::var_os(descriptor.env_var).is_some() {
+        source = (
+            ConfigSource::Environment,
+            Some(descriptor.env_var.to_string()),
         );
     }
     if let (Some(path), true) = (custom_path, toml_has_key(custom_toml, descriptor.key)) {
@@ -810,6 +810,39 @@ mod tests {
             Defaults::REPL_ENTER_FETCHES_NEXT_PAGE
         );
         assert!(cfg.server.password.is_none());
+
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn source_resolution_prefers_env_over_user_file() {
+        clear_env();
+        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+
+        let descriptor = descriptor_for_key("server.hostname").expect("missing descriptor");
+        let user_path = Path::new("/tmp/user.toml");
+        let user_toml: toml::Value = toml::from_str(
+            r#"
+            [server]
+            hostname = "user.example.com"
+            "#,
+        )
+        .expect("valid user toml");
+
+        let (source, detail) = resolve_config_source(
+            descriptor,
+            Path::new("/tmp/system.toml"),
+            None,
+            user_path,
+            Some(&user_toml),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(source, ConfigSource::Environment);
+        assert_eq!(detail.as_deref(), Some("HUBUUM_CLI__SERVER__HOSTNAME"));
 
         clear_env();
     }

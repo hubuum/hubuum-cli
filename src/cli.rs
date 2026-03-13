@@ -2,6 +2,7 @@
 use crate::config::AppConfig;
 use crate::models::Protocol;
 use clap::builder::BoolishValueParser;
+use clap::parser::ValueSource;
 use clap::{value_parser, Arg, ArgMatches, Command};
 use std::path::PathBuf;
 
@@ -119,42 +120,89 @@ pub fn get_cli_config_path(matches: &ArgMatches) -> Option<PathBuf> {
     matches.get_one::<String>("config").map(PathBuf::from)
 }
 
+fn get_command_line_value<'a, T: Clone + Send + Sync + 'static>(
+    matches: &'a ArgMatches,
+    arg: &str,
+) -> Option<&'a T> {
+    (matches.value_source(arg) == Some(ValueSource::CommandLine))
+        .then(|| matches.get_one::<T>(arg))
+        .flatten()
+}
+
 pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
-    if let Some(hostname) = matches.get_one::<String>("hostname") {
+    if let Some(hostname) = get_command_line_value::<String>(matches, "hostname") {
         config.server.hostname = hostname.to_string();
     }
-    if let Some(port) = matches.get_one::<u16>("port") {
+    if let Some(port) = get_command_line_value::<u16>(matches, "port") {
         config.server.port = *port;
     }
-    if let Some(protocol) = matches.get_one::<String>("protocol") {
+    if let Some(protocol) = get_command_line_value::<String>(matches, "protocol") {
         config.server.protocol = match protocol.as_str() {
             "http" => Protocol::Http,
             "https" => Protocol::Https,
             _ => config.server.protocol.clone(),
         };
     }
-    if let Some(ssl_validation) = matches.get_one::<bool>("ssl_validation") {
+    if let Some(ssl_validation) = get_command_line_value::<bool>(matches, "ssl_validation") {
         config.server.ssl_validation = *ssl_validation;
     }
-    if let Some(username) = matches.get_one::<String>("username") {
+    if let Some(username) = get_command_line_value::<String>(matches, "username") {
         config.server.username = username.to_string();
     }
-    if let Some(password) = matches.get_one::<String>("password") {
+    if let Some(password) = get_command_line_value::<String>(matches, "password") {
         config.server.password = Some(password.to_string());
     }
-    if let Some(cache_time) = matches.get_one::<u64>("cache_time") {
+    if let Some(cache_time) = get_command_line_value::<u64>(matches, "cache_time") {
         config.cache.time = *cache_time;
     }
-    if let Some(cache_size) = matches.get_one::<i32>("cache_size") {
+    if let Some(cache_size) = get_command_line_value::<i32>(matches, "cache_size") {
         config.cache.size = *cache_size;
     }
-    if let Some(cache_disable) = matches.get_one::<bool>("cache_disable") {
+    if let Some(cache_disable) = get_command_line_value::<bool>(matches, "cache_disable") {
         config.cache.disable = *cache_disable;
     }
-    if let Some(completion_disable_api) = matches.get_one::<bool>("completion_disable_api") {
+    if let Some(completion_disable_api) =
+        get_command_line_value::<bool>(matches, "completion_disable_api")
+    {
         config.completion.disable_api_related = *completion_disable_api;
     }
-    if let Some(background_poll_interval) = matches.get_one::<u64>("background_poll_interval") {
+    if let Some(background_poll_interval) =
+        get_command_line_value::<u64>(matches, "background_poll_interval")
+    {
         config.background.poll_interval_seconds = *background_poll_interval;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::env;
+
+    #[test]
+    #[serial]
+    fn update_config_from_cli_ignores_env_backed_values() {
+        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(config.server.hostname, AppConfig::default().server.hostname);
+
+        env::remove_var("HUBUUM_CLI__SERVER__HOSTNAME");
+    }
+
+    #[test]
+    fn update_config_from_cli_applies_explicit_flags() {
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--hostname", "cli.example.com"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(config.server.hostname, "cli.example.com");
     }
 }
