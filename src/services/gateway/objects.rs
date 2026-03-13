@@ -226,8 +226,15 @@ pub(crate) const OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::DateTime,
     ),
     FilterFieldSpec::new(
+        "json_data",
+        "json_data",
+        FilterOperatorProfile::Any,
+        FilterValueProfile::Any,
+    )
+    .json_root(),
+    FilterFieldSpec::new(
         "data",
-        "data",
+        "json_data",
         FilterOperatorProfile::Any,
         FilterValueProfile::Any,
     )
@@ -243,3 +250,30 @@ pub(crate) const OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::list_query::resolve_filter_field_spec;
+
+    use super::OBJECT_FILTER_SPECS;
+
+    #[test]
+    fn object_filters_accept_json_data_paths() {
+        let (spec, json_path) = resolve_filter_field_spec(OBJECT_FILTER_SPECS, "json_data.contact")
+            .expect("json_data path should resolve");
+
+        assert_eq!(spec.public_name, "json_data");
+        assert_eq!(spec.backend_field, "json_data");
+        assert_eq!(json_path, vec!["contact"]);
+    }
+
+    #[test]
+    fn object_filters_keep_data_alias_for_json_data_paths() {
+        let (spec, json_path) = resolve_filter_field_spec(OBJECT_FILTER_SPECS, "data.contact")
+            .expect("data alias path should resolve");
+
+        assert_eq!(spec.public_name, "data");
+        assert_eq!(spec.backend_field, "json_data");
+        assert_eq!(json_path, vec!["contact"]);
+    }
+}

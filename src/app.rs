@@ -22,6 +22,7 @@ pub struct AppRuntime {
 #[derive(Debug, Default)]
 pub struct AppSession {
     scope: Vec<String>,
+    next_page_command: Option<String>,
 }
 
 #[derive(Clone)]
@@ -58,6 +59,21 @@ impl SharedSession {
             .expect("session scope lock should not be poisoned");
         guard.scope.pop().is_some()
     }
+
+    pub fn next_page_command(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .expect("session scope lock should not be poisoned")
+            .next_page_command
+            .clone()
+    }
+
+    pub fn set_next_page_command(&self, command: Option<String>) {
+        self.inner
+            .lock()
+            .expect("session scope lock should not be poisoned")
+            .next_page_command = command;
+    }
 }
 
 pub fn init_logging() -> Result<(), AppError> {
@@ -74,6 +90,11 @@ pub fn load_app_config(matches: &clap::ArgMatches) -> Result<Arc<AppConfig>, App
     let cli_config_path = crate::cli::get_cli_config_path(matches);
     let mut config = config::load_config(cli_config_path)?;
     crate::cli::update_config_from_cli(&mut config, matches);
+    config::init_config_state(config::inspect_config_state(
+        &config,
+        crate::cli::get_cli_config_path(matches),
+        matches,
+    ))?;
     config::init_config(config.clone())?;
     Ok(Arc::new(config))
 }
@@ -146,21 +167,30 @@ impl AppRuntime {
     }
 
     pub fn prompt(&self, session: &SharedSession) -> String {
+        let config = crate::config::get_config();
         let base = format!(
             "{}@{}:{}",
-            self.config.server.username, self.config.server.hostname, self.config.server.port
+            config.server.username, config.server.hostname, config.server.port
         );
         let scope = session.scope();
+        let pagination = session.next_page_command().map(|_| {
+            if config.repl.enter_fetches_next_page {
+                " [more:Enter]"
+            } else {
+                " [more]"
+            }
+        });
         let background = self
             .services
             .background()
             .take_prompt_badge()
             .map(|badge| format!("{badge} "))
             .unwrap_or_default();
+        let pagination = pagination.unwrap_or_default();
         if scope.is_empty() {
-            format!("{background}{base} > ")
+            format!("{background}{base}{pagination} > ")
         } else {
-            format!("{background}{base} [{}] > ", scope.join(" "))
+            format!("{background}{base} [{}]{pagination} > ", scope.join(" "))
         }
     }
 }

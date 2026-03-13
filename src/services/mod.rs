@@ -52,9 +52,9 @@ impl AppServices {
     pub fn completion_context(
         self: &Arc<Self>,
         runtime: Handle,
-        config: &AppConfig,
+        _config: &AppConfig,
     ) -> CompletionContext {
-        CompletionContext::new(self.clone(), runtime, config.completion.disable_api_related)
+        CompletionContext::new(self.clone(), runtime)
     }
 
     pub fn invalidate_completion(&self) {

@@ -17,6 +17,7 @@ pub struct OutputSnapshot {
     pub lines: Vec<String>,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
+    pub next_page_command: Option<String>,
 }
 
 impl OutputSnapshot {
@@ -53,6 +54,7 @@ pub struct OutputBuffer {
     filter: Option<(Regex, bool)>,
     warnings: Vec<String>,
     errors: Vec<String>,
+    next_page_command: Option<String>,
 }
 
 impl OutputBuffer {
@@ -79,6 +81,10 @@ impl OutputBuffer {
         Ok(())
     }
 
+    fn set_next_page_command(&mut self, command: String) {
+        self.next_page_command = Some(command);
+    }
+
     fn clear_filter(&mut self) {
         self.filter = None;
     }
@@ -88,6 +94,7 @@ impl OutputBuffer {
         self.warnings.clear();
         self.errors.clear();
         self.filter = None;
+        self.next_page_command = None;
     }
 
     fn take_snapshot(&mut self) -> OutputSnapshot {
@@ -105,6 +112,7 @@ impl OutputBuffer {
             lines,
             warnings: self.warnings.clone(),
             errors: self.errors.clone(),
+            next_page_command: self.next_page_command.clone(),
         };
 
         self.reset();
@@ -208,6 +216,14 @@ pub fn clear_filter() -> Result<(), AppError> {
         .lock()
         .map_err(|_| AppError::LockError)?
         .clear_filter();
+    Ok(())
+}
+
+pub fn set_next_page_command(command: String) -> Result<(), AppError> {
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .set_next_page_command(command);
     Ok(())
 }
 

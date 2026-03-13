@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use tokio::runtime::Handle;
 
+use crate::config::get_config;
 use crate::errors::AppError;
 
 use super::AppServices;
@@ -11,7 +12,6 @@ use super::AppServices;
 pub struct CompletionContext {
     services: Arc<AppServices>,
     runtime: Handle,
-    disable_api_related: bool,
 }
 
 #[derive(Clone, Default)]
@@ -37,16 +37,8 @@ enum CompletionKind {
 }
 
 impl CompletionContext {
-    pub(crate) fn new(
-        services: Arc<AppServices>,
-        runtime: Handle,
-        disable_api_related: bool,
-    ) -> Self {
-        Self {
-            services,
-            runtime,
-            disable_api_related,
-        }
+    pub(crate) fn new(services: Arc<AppServices>, runtime: Handle) -> Self {
+        Self { services, runtime }
     }
 
     pub fn groups(&self, prefix: &str) -> Vec<String> {
@@ -66,7 +58,7 @@ impl CompletionContext {
     }
 
     pub fn objects_from_class(&self, prefix: &str, parts: &[String], source: &str) -> Vec<String> {
-        if self.disable_api_related {
+        if get_config().completion.disable_api_related {
             return Vec::new();
         }
 
@@ -90,7 +82,7 @@ impl CompletionContext {
     }
 
     fn complete(&self, prefix: &str, kind: CompletionKind) -> Vec<String> {
-        if self.disable_api_related {
+        if get_config().completion.disable_api_related {
             return Vec::new();
         }
 

@@ -5,7 +5,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::errors::AppError;
+use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
+use crate::services::filter_specs_for_command_path;
 
 #[derive(Debug, Clone)]
 pub struct OptionSpec {
@@ -226,8 +228,13 @@ impl CommandCatalog {
         if !scope_spec.scopes.is_empty() {
             lines.push(String::new());
             lines.push("Scopes:".to_string());
-            for scope_name in scope_spec.scopes.keys() {
-                lines.push(format!("  {scope_name}"));
+            for (scope_name, nested_scope) in &scope_spec.scopes {
+                let summary = scope_command_summary(nested_scope);
+                if summary.is_empty() {
+                    lines.push(format!("  {scope_name}"));
+                } else {
+                    lines.push(format!("  {scope_name:<16} [{summary}]"));
+                }
             }
         }
 
@@ -249,11 +256,23 @@ impl CommandCatalog {
         if scope.is_empty() {
             lines.push("  Type a scope name to enter it.".to_string());
             lines.push("  Use help <command> or ? <command> for command help.".to_string());
+            lines.push(
+                "  After a paginated list result, use next to fetch the next page.".to_string(),
+            );
+            lines.push(
+                "  If repl.enter_fetches_next_page is enabled, Enter fetches the next page and Ctrl-C clears it.".to_string(),
+            );
             lines.push("  Use exit or Ctrl-D to leave the REPL.".to_string());
         } else {
             lines.push("  Type a nested scope name to descend.".to_string());
             lines.push("  Use .. to leave the current scope.".to_string());
             lines.push("  Use ? for quick help in the current scope.".to_string());
+            lines.push(
+                "  After a paginated list result, use next to fetch the next page.".to_string(),
+            );
+            lines.push(
+                "  If repl.enter_fetches_next_page is enabled, Enter fetches the next page and Ctrl-C clears it.".to_string(),
+            );
             lines.push(
                 "  Use exit to leave the current scope, or Ctrl-D to leave the REPL.".to_string(),
             );
@@ -324,6 +343,16 @@ impl CommandCatalog {
             help.push('\n');
         }
 
+        if let Some(where_help) = render_where_help(command_path) {
+            help.push_str(&where_help);
+            help.push('\n');
+        }
+
+        if let Some(pagination_help) = render_pagination_help(command) {
+            help.push_str(&pagination_help);
+            help.push('\n');
+        }
+
         if let Some(examples) = &command.examples {
             help.push_str("Examples:\n");
             for line in examples.lines() {
@@ -337,6 +366,102 @@ impl CommandCatalog {
 
         Ok(help.trim_end().to_string())
     }
+}
+
+fn scope_command_summary(scope: &ScopeSpec) -> String {
+    scope
+        .commands
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_where_help(command_path: &[String]) -> Option<String> {
+    let specs = filter_specs_for_command_path(command_path)?;
+    let fields = specs
+        .iter()
+        .map(|spec| {
+            if spec.json_root {
+                format!("{}.<path>", spec.public_name)
+            } else {
+                spec.public_name.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut operator_profiles = specs
+        .iter()
+        .map(|spec| spec.operator_profile)
+        .collect::<Vec<_>>();
+    operator_profiles.sort_by_key(operator_profile_rank);
+    operator_profiles.dedup();
+
+    let operators = operator_profiles
+        .into_iter()
+        .flat_map(completion_operators)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut help = String::new();
+    help.push_str("Where:\n");
+    help.push_str("  Syntax: --where 'field operator value'\n");
+    help.push_str("  Repeat --where to combine filters with AND.\n");
+    help.push_str("  Fields: ");
+    help.push_str(&fields);
+    help.push('\n');
+    help.push_str("  Operators: ");
+    help.push_str(&operators);
+    help.push('\n');
+    help.push_str(
+        "  Negation: prefix an operator with not_, such as not_equals or not_icontains.\n",
+    );
+
+    if specs.iter().any(|spec| spec.json_root) {
+        help.push_str(
+            "  JSON paths: use dotted paths, for example json_data.contact equals Entry.\n",
+        );
+    }
+
+    Some(help)
+}
+
+fn operator_profile_rank(profile: &FilterOperatorProfile) -> u8 {
+    match profile {
+        FilterOperatorProfile::EqualityOnly => 0,
+        FilterOperatorProfile::Boolean => 1,
+        FilterOperatorProfile::String => 2,
+        FilterOperatorProfile::NumericOrDate => 3,
+        FilterOperatorProfile::Any => 4,
+    }
+}
+
+fn render_pagination_help(command: &CommandSpec) -> Option<String> {
+    let option_names = command
+        .options
+        .iter()
+        .map(|option| option.name.as_str())
+        .collect::<Vec<_>>();
+
+    if !option_names.contains(&"limit") && !option_names.contains(&"cursor") {
+        return None;
+    }
+
+    let mut help = String::new();
+    help.push_str("Pagination:\n");
+    if option_names.contains(&"limit") {
+        help.push_str("  Use --limit <n> to control page size.\n");
+    }
+    if option_names.contains(&"cursor") {
+        help.push_str("  Use --cursor <token> to continue from a previous page.\n");
+        help.push_str("  In the REPL, type next after a paginated result to reuse the last next-page cursor.\n");
+        help.push_str(
+            "  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page and Ctrl-C clears the pending pagination state.\n",
+        );
+    }
+    Some(help)
 }
 
 impl OptionSpec {
@@ -474,6 +599,39 @@ mod tests {
         };
 
         assert_eq!(option.to_cli_option().nargs, Some(3));
+    }
+
+    #[test]
+    fn root_scope_help_lists_scope_subcommands() {
+        let catalog = crate::commands::build_command_catalog();
+        let help = catalog.render_scope_help(&[]);
+
+        assert!(help.contains("class"));
+        assert!(help.contains("[create, delete, list, modify, show]"));
+        assert!(help.contains("object"));
+        assert!(help.contains("[create, delete, list, modify, show]"));
+        assert!(help.contains("use next to fetch the next page"));
+        assert!(help.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    fn list_command_help_includes_where_guide() {
+        let catalog = crate::commands::build_command_catalog();
+        let help = catalog
+            .render_command_help(&["object".to_string(), "list".to_string()])
+            .expect("help should render");
+
+        assert!(help.contains("Where:"));
+        assert!(help.contains("Syntax: --where 'field operator value'"));
+        assert!(help.contains("Repeat --where to combine filters with AND."));
+        assert!(help.contains("json_data.<path>"));
+        assert!(help.contains("data.<path>"));
+        assert!(help.contains("json_data.contact equals Entry"));
+        assert!(help.contains("Pagination:"));
+        assert!(help.contains("Use --limit <n> to control page size."));
+        assert!(help.contains("Use --cursor <token> to continue from a previous page."));
+        assert!(help.contains("type next"));
+        assert!(help.contains("repl.enter_fetches_next_page"));
     }
 
     #[test]

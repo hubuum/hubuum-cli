@@ -5,6 +5,7 @@ use std::collections::HashSet;
 mod bg;
 mod builder;
 mod class;
+mod config;
 mod group;
 mod help;
 mod imports;

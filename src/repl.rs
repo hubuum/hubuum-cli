@@ -83,7 +83,19 @@ fn run_thread(
 
         match signal {
             Signal::Success(line) => {
-                let result = runtime.block_on(dispatch::execute_line(app.clone(), &session, &line));
+                let effective_line = if line.trim().is_empty()
+                    && crate::config::get_config().repl.enter_fetches_next_page
+                    && session.next_page_command().is_some()
+                {
+                    "next".to_string()
+                } else {
+                    line
+                };
+                let result = runtime.block_on(dispatch::execute_line(
+                    app.clone(),
+                    &session,
+                    &effective_line,
+                ));
                 match result {
                     Ok(outcome) => {
                         let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
@@ -98,7 +110,14 @@ fn run_thread(
                 }
             }
             Signal::CtrlD => break,
-            Signal::CtrlC => continue,
+            Signal::CtrlC => {
+                if crate::config::get_config().repl.enter_fetches_next_page
+                    && session.next_page_command().is_some()
+                {
+                    session.set_next_page_command(None);
+                }
+                continue;
+            }
         }
     }
 
@@ -124,6 +143,7 @@ impl Drop for BackgroundGuard {
 
 fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) {
     dispatch::apply_scope_action(session, &outcome.scope_action);
+    dispatch::apply_output_state(session, &outcome.output);
     if !outcome.output.is_empty() {
         print!("{}", outcome.output.render());
     }

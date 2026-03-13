@@ -7,6 +7,7 @@ use crate::catalog::{CommandContext, CommandInvocation, CommandOutcome, ScopeAct
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, clear_filter, reset_output, set_filter, take_output,
+    OutputSnapshot,
 };
 
 pub async fn execute_line(
@@ -15,10 +16,18 @@ pub async fn execute_line(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let line = process_filter(line)?;
-    let Some(parts) = shlex::split(&line) else {
-        return Err(AppError::ParseError("Parsing input failed".to_string()));
-    };
+    let mut line = process_filter(line)?;
+    let mut parts = shlex::split(&line)
+        .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
+
+    if parts.len() == 1 && parts[0] == "next" {
+        let Some(next_page_command) = session.next_page_command() else {
+            return Ok(CommandOutcome::default());
+        };
+        line = next_page_command;
+        parts = shlex::split(&line)
+            .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
+    }
 
     if parts.is_empty() {
         return Ok(CommandOutcome::default());
@@ -119,6 +128,10 @@ pub fn apply_scope_action(session: &SharedSession, action: &ScopeAction) {
     }
 }
 
+pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
+    session.set_next_page_command(output.next_page_command.clone());
+}
+
 pub fn render_error(err: AppError) -> crate::output::OutputSnapshot {
     reset_output().expect("reset output buffer for errors");
     match err {
@@ -186,7 +199,8 @@ fn process_filter(line: &str) -> Result<String, AppError> {
 mod tests {
     use serial_test::serial;
 
-    use super::{is_help_alias, process_filter};
+    use super::{apply_output_state, is_help_alias, process_filter};
+    use crate::app::SharedSession;
     use crate::output::{append_line, reset_output, take_output};
 
     #[test]
@@ -208,5 +222,24 @@ mod tests {
         assert!(is_help_alias(&["?".to_string(), "class".to_string()]));
         assert!(is_help_alias(&["help".to_string()]));
         assert!(!is_help_alias(&["?".to_string(), "--tree".to_string()]));
+    }
+
+    #[test]
+    fn apply_output_state_tracks_next_page_command() {
+        let session = SharedSession::new();
+        apply_output_state(
+            &session,
+            &crate::output::OutputSnapshot {
+                next_page_command: Some("object list --cursor abc".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            session.next_page_command().as_deref(),
+            Some("object list --cursor abc")
+        );
+
+        apply_output_state(&session, &crate::output::OutputSnapshot::default());
+        assert!(session.next_page_command().is_none());
     }
 }

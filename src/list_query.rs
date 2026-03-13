@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_line, set_next_page_command};
 use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -669,11 +669,15 @@ fn append_paging_footer<T>(
             .unwrap_or_default()
     ))?;
     if let Some(next_cursor) = &paged.next_cursor {
-        append_line(format!("Next cursor: {next_cursor}"))?;
-        append_line(format!(
-            "Use '{}' to fetch the next page.",
-            next_cursor_command(tokens, next_cursor)
-        ))?;
+        let next_command = next_cursor_command(tokens, next_cursor);
+        set_next_page_command(next_command)?;
+        if crate::config::get_config().repl.enter_fetches_next_page {
+            append_line(
+                "Paginated results available. Press Enter for the next page, or Ctrl-C to stop.",
+            )?;
+        } else {
+            append_line("Paginated results available. Type 'next' for the next page.")?;
+        }
     }
     Ok(())
 }
@@ -890,7 +894,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn text_output_appends_next_cursor_footer() {
+    fn text_output_appends_pagination_footer() {
         CONFIG_INIT.call_once(|| {
             let _ = init_config(AppConfig::default());
         });
@@ -911,10 +915,14 @@ mod tests {
         assert!(snapshot
             .lines
             .iter()
-            .any(|line| line.contains("Next cursor: abc123")));
+            .any(|line| line.contains("Paginated results available.")));
         assert!(snapshot
             .lines
             .iter()
-            .any(|line| line.contains("--cursor") && line.contains("abc123")));
+            .any(|line| line.contains("Type 'next' for the next page.")));
+        assert_eq!(
+            snapshot.next_page_command.as_deref(),
+            Some("class list --limit 1 --cursor abc123")
+        );
     }
 }

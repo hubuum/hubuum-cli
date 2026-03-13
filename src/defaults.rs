@@ -12,6 +12,7 @@ impl Defaults {
     pub const CACHE_DISABLE: bool = false;
     pub const COMPLETION_DISABLE_API_RELATED: bool = false;
     pub const BACKGROUND_POLL_INTERVAL_SECONDS: u64 = 2;
+    pub const REPL_ENTER_FETCHES_NEXT_PAGE: bool = false;
     pub const API_VERSION: &'static str = "v1";
     pub const PROTOCOL: Protocol = Protocol::Https;
     pub const OUTPUT_FORMAT: OutputFormat = OutputFormat::Text;

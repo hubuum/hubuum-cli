@@ -75,6 +75,7 @@ fn render_dispatch_result(
 
 fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) {
     dispatch::apply_scope_action(session, &outcome.scope_action);
+    dispatch::apply_output_state(session, &outcome.output);
     render_snapshot(outcome.output);
 }
 
