@@ -175,6 +175,8 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use serial_test::serial;
     use std::env;
@@ -204,5 +206,79 @@ mod tests {
         update_config_from_cli(&mut config, &matches);
 
         assert_eq!(config.server.hostname, "cli.example.com");
+    }
+
+    #[test]
+    fn cli_rejects_invalid_port_type() {
+        let result = build_cli().try_get_matches_from(["hubuum-cli", "--port", "not-a-number"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_updates_typed_values() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--port",
+                "4321",
+                "--ssl-validation",
+                "false",
+                "--cache-time",
+                "99",
+                "--cache-size",
+                "42",
+                "--cache-disable",
+                "true",
+                "--completion-api-disable",
+                "true",
+                "--background-poll-interval",
+                "17",
+            ])
+            .expect("valid CLI args should parse");
+
+        let mut cfg = AppConfig::default();
+        update_config_from_cli(&mut cfg, &matches);
+
+        assert_eq!(cfg.server.port, 4321);
+        assert!(!cfg.server.ssl_validation);
+        assert_eq!(cfg.cache.time, 99);
+        assert_eq!(cfg.cache.size, 42);
+        assert!(cfg.cache.disable);
+        assert!(cfg.completion.disable_api_related);
+        assert_eq!(cfg.background.poll_interval_seconds, 17);
+    }
+
+    #[test]
+    fn cli_accepts_boolish_one_zero_values() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--ssl-validation",
+                "0",
+                "--cache-disable",
+                "1",
+            ])
+            .expect("boolish values should parse");
+
+        let mut cfg = AppConfig::default();
+        update_config_from_cli(&mut cfg, &matches);
+
+        assert!(!cfg.server.ssl_validation);
+        assert!(cfg.cache.disable);
+    }
+
+    #[rstest]
+    #[case(vec!["hubuum-cli", "--ssl-validation", "not-bool"])]
+    #[case(vec!["hubuum-cli", "--protocol", "ftp"])]
+    #[case(vec![
+        "hubuum-cli",
+        "--command",
+        "class list",
+        "--source",
+        "commands.txt",
+    ])]
+    fn cli_rejects_invalid_inputs(#[case] args: Vec<&str>) {
+        let result = build_cli().try_get_matches_from(args);
+        assert!(result.is_err());
     }
 }

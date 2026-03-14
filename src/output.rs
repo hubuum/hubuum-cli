@@ -231,7 +231,34 @@ pub fn set_next_page_command(command: String) -> Result<(), AppError> {
 mod tests {
     use serial_test::serial;
 
-    use super::{append_line, reset_output, set_filter, take_output};
+    use super::{
+        add_error, add_warning, append_line, reset_output, set_filter, take_output, OutputSnapshot,
+    };
+
+    #[test]
+    fn render_returns_empty_string_for_empty_snapshot() {
+        assert_eq!(OutputSnapshot::default().render(), "");
+    }
+
+    #[test]
+    fn render_orders_warnings_then_errors_then_lines() {
+        let rendered = OutputSnapshot {
+            warnings: vec!["warn".to_string()],
+            errors: vec!["err".to_string()],
+            lines: vec!["payload".to_string()],
+            next_page_command: None,
+        }
+        .render();
+
+        let warning_idx = rendered
+            .find("Warning: warn")
+            .expect("warning should render");
+        let error_idx = rendered.find("Error: err").expect("error should render");
+        let line_idx = rendered.find("payload").expect("line should render");
+
+        assert!(warning_idx < error_idx);
+        assert!(error_idx < line_idx);
+    }
 
     #[test]
     #[serial]
@@ -246,5 +273,20 @@ mod tests {
 
         let empty = take_output().expect("buffer should be empty after take");
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn take_output_keeps_warnings_and_errors_when_filter_hides_lines() {
+        reset_output().expect("buffer should reset");
+        add_warning("warn").expect("warning should append");
+        add_error("err").expect("error should append");
+        append_line("alpha").expect("line should append");
+        set_filter("^z".to_string(), false).expect("filter should set");
+
+        let snapshot = take_output().expect("snapshot should be available");
+        assert!(snapshot.lines.is_empty());
+        assert_eq!(snapshot.warnings, vec!["warn".to_string()]);
+        assert_eq!(snapshot.errors, vec!["err".to_string()]);
     }
 }

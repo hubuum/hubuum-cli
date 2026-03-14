@@ -197,11 +197,62 @@ fn process_filter(line: &str) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use serial_test::serial;
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    use super::{apply_output_state, is_help_alias, process_filter};
-    use crate::app::SharedSession;
+    use httpmock::prelude::*;
+    use hubuum_client::{ApiError, Credentials, SyncClient};
+    use rstest::rstest;
+    use serial_test::serial;
+    use tempfile::NamedTempFile;
+    use tokio::runtime::{Handle, Runtime};
+
+    use super::{
+        apply_output_state, execute_line, execute_script, is_help_alias, process_filter,
+        render_error,
+    };
+    use crate::app::{AppRuntime, SharedSession};
+    use crate::catalog::ScopeAction;
+    use crate::commands::build_command_catalog;
+    use crate::config::{init_config, AppConfig};
+    use crate::errors::AppError;
     use crate::output::{append_line, reset_output, take_output};
+    use crate::services::AppServices;
+
+    fn mock_login(server: &MockServer) {
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/v0/auth/login")
+                .json_body_obj(&serde_json::json!({
+                    "username": "tester",
+                    "password": "secret",
+                }));
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body_obj(&serde_json::json!({ "token": "test-token" }));
+        });
+    }
+
+    fn runtime_for_tests(server: &MockServer, handle: Handle) -> Arc<AppRuntime> {
+        let base_url =
+            hubuum_client::BaseUrl::from_str(&server.base_url()).expect("base URL should be valid");
+        let client = SyncClient::new_with_certificate_validation(base_url, true)
+            .login(Credentials::new("tester".to_string(), "secret".to_string()))
+            .expect("login should succeed");
+
+        init_config(AppConfig::default()).expect("config should initialize");
+
+        Arc::new(AppRuntime::new(
+            Arc::new(AppConfig::default()),
+            Arc::new(AppServices::new(
+                Arc::new(client),
+                handle,
+                Duration::from_secs(1),
+            )),
+            Arc::new(build_command_catalog()),
+        ))
+    }
 
     #[test]
     #[serial]
@@ -214,6 +265,41 @@ mod tests {
 
         let snapshot = take_output().expect("snapshot should capture filtered output");
         assert_eq!(snapshot.lines, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn process_filter_supports_inversion() {
+        reset_output().expect("buffer should reset");
+        let line = process_filter("list | !alpha").expect("filter should parse");
+        assert_eq!(line, "list");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture filtered output");
+        assert_eq!(snapshot.lines, vec!["beta".to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn process_filter_clears_previous_filter_on_plain_line() {
+        reset_output().expect("buffer should reset");
+        process_filter("list | alpha").expect("filter should parse");
+        process_filter("list").expect("plain line should clear filter");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture output");
+        assert_eq!(
+            snapshot.lines,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+    }
+
+    #[test]
+    fn process_filter_rejects_invalid_regex() {
+        let err = process_filter("list | [").expect_err("invalid regex should fail");
+        assert!(matches!(err, AppError::RegexError(_)));
     }
 
     #[test]
@@ -241,5 +327,130 @@ mod tests {
 
         apply_output_state(&session, &crate::output::OutputSnapshot::default());
         assert!(session.next_page_command().is_none());
+    }
+
+    #[rstest]
+    #[case(AppError::Quiet, None, None)]
+    #[case(
+        AppError::EntityNotFound("missing".to_string()),
+        Some("missing"),
+        None
+    )]
+    #[case(
+        AppError::ApiError(ApiError::HttpWithBody {
+            status: reqwest::StatusCode::BAD_REQUEST,
+            message: "bad input".to_string(),
+        }),
+        None,
+        Some("API Error: Status 400 Bad Request - bad input")
+    )]
+    #[case(
+        AppError::ParseError("broken".to_string()),
+        None,
+        Some("Error parsing arguments: broken")
+    )]
+    fn render_error_maps_variants_to_snapshot(
+        #[case] err: AppError,
+        #[case] warning: Option<&str>,
+        #[case] error: Option<&str>,
+    ) {
+        let snapshot = render_error(err);
+        assert_eq!(snapshot.warnings.first().map(String::as_str), warning);
+        assert_eq!(snapshot.errors.first().map(String::as_str), error);
+    }
+
+    #[test]
+    fn execute_line_enters_scope_when_given_scope_name() {
+        let test_runtime = Runtime::new().expect("runtime should build");
+        let server = MockServer::start();
+        mock_login(&server);
+        let runtime = runtime_for_tests(&server, test_runtime.handle().clone());
+        test_runtime.block_on(async {
+            let session = SharedSession::new();
+
+            let outcome = execute_line(runtime.clone(), &session, "object")
+                .await
+                .expect("scope entry should succeed");
+
+            assert_eq!(
+                outcome.scope_action,
+                ScopeAction::Enter(vec!["object".to_string()])
+            );
+            assert!(outcome.output.is_empty());
+        });
+    }
+
+    #[test]
+    fn execute_line_renders_help_from_next_page_command() {
+        let test_runtime = Runtime::new().expect("runtime should build");
+        let server = MockServer::start();
+        mock_login(&server);
+        let runtime = runtime_for_tests(&server, test_runtime.handle().clone());
+        test_runtime.block_on(async {
+            let session = SharedSession::new();
+            session.set_next_page_command(Some("help object".to_string()));
+
+            let outcome = execute_line(runtime.clone(), &session, "next")
+                .await
+                .expect("next command should succeed");
+
+            assert!(outcome
+                .output
+                .lines
+                .iter()
+                .any(|line| line.contains("Scope: object")));
+        });
+    }
+
+    #[test]
+    fn execute_line_returns_default_when_next_page_command_is_missing() {
+        let test_runtime = Runtime::new().expect("runtime should build");
+        let server = MockServer::start();
+        mock_login(&server);
+        let runtime = runtime_for_tests(&server, test_runtime.handle().clone());
+        test_runtime.block_on(async {
+            let session = SharedSession::new();
+
+            let outcome = execute_line(runtime.clone(), &session, "next")
+                .await
+                .expect("missing next page command should not fail");
+
+            assert!(outcome.output.is_empty());
+            assert_eq!(outcome.scope_action, ScopeAction::None);
+        });
+    }
+
+    #[test]
+    fn execute_script_runs_help_lines_in_order() {
+        let test_runtime = Runtime::new().expect("runtime should build");
+        let server = MockServer::start();
+        mock_login(&server);
+        let script = NamedTempFile::new().expect("temp script should be created");
+        std::fs::write(script.path(), "help\nhelp object\n").expect("script should be written");
+        let runtime = runtime_for_tests(&server, test_runtime.handle().clone());
+
+        test_runtime.block_on(async {
+            let session = SharedSession::new();
+
+            let outcomes = execute_script(
+                runtime.clone(),
+                &session,
+                script.path().to_str().expect("script path should be utf-8"),
+            )
+            .await
+            .expect("script should execute");
+
+            assert_eq!(outcomes.len(), 2);
+            assert!(outcomes[0]
+                .output
+                .lines
+                .iter()
+                .any(|line| line.contains("Available commands")));
+            assert!(outcomes[1]
+                .output
+                .lines
+                .iter()
+                .any(|line| line.contains("Scope: object")));
+        });
     }
 }

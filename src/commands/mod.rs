@@ -292,3 +292,109 @@ pub fn want_help(tokens: &CommandTokenizer) -> bool {
     let opts = tokens.get_options();
     opts.contains_key("h") || opts.contains_key("help")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::TypeId;
+
+    use super::{
+        standard_options, validate_flag_options, validate_missing_options,
+        validate_not_both_short_and_long_set, validate_unknown_options, CliOption, CommandArgs,
+    };
+    use crate::errors::AppError;
+    use crate::tokenizer::CommandTokenizer;
+
+    #[derive(Default)]
+    struct DummyArgs;
+
+    impl CommandArgs for DummyArgs {
+        fn options() -> Vec<CliOption> {
+            vec![
+                option("name", Some("-n"), Some("--name"), false, true),
+                option("verbose", Some("-v"), Some("--verbose"), true, false),
+            ]
+        }
+
+        fn parse_tokens(_tokens: &CommandTokenizer) -> Result<Self, AppError> {
+            Ok(Self)
+        }
+    }
+
+    fn option(
+        name: &str,
+        short: Option<&str>,
+        long: Option<&str>,
+        flag: bool,
+        required: bool,
+    ) -> CliOption {
+        CliOption {
+            name: name.to_string(),
+            short: short.map(|s| s.to_string()),
+            long: long.map(|l| l.to_string()),
+            flag,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            help: String::new(),
+            field_type: TypeId::of::<String>(),
+            field_type_help: "string".to_string(),
+            required,
+            autocomplete: None,
+        }
+    }
+
+    #[test]
+    fn validate_rejects_unknown_options() {
+        let tokens = CommandTokenizer::new("scope cmd --unknown value", "cmd", &standard_options())
+            .expect("tokenization should succeed");
+
+        let err = validate_unknown_options::<DummyArgs>(&tokens)
+            .expect_err("unknown option should fail validation");
+
+        assert!(matches!(err, AppError::InvalidOption(ref value) if value == "unknown"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_short_and_long_options() {
+        let tokens = CommandTokenizer::new(
+            "scope cmd -n first --name second",
+            "cmd",
+            &DummyArgs::options(),
+        )
+        .expect("tokenization should succeed");
+
+        let err = validate_not_both_short_and_long_set::<DummyArgs>(&tokens)
+            .expect_err("duplicate options should fail validation");
+
+        assert!(
+            matches!(err, AppError::DuplicateOptions(ref value) if value == &vec!["name".to_string()])
+        );
+    }
+
+    #[test]
+    fn validate_rejects_populated_flag_options() {
+        let tokens =
+            CommandTokenizer::new("scope cmd --verbose=true", "cmd", &DummyArgs::options())
+                .expect("tokenization should succeed");
+
+        let err = validate_flag_options::<DummyArgs>(&tokens)
+            .expect_err("populated flags should fail validation");
+
+        assert!(
+            matches!(err, AppError::PopulatedFlagOptions(ref value) if value == &vec!["verbose".to_string()])
+        );
+    }
+
+    #[test]
+    fn validate_rejects_missing_required_options() {
+        let tokens = CommandTokenizer::new("scope cmd", "cmd", &DummyArgs::options())
+            .expect("tokenization should succeed");
+
+        let err = validate_missing_options::<DummyArgs>(&tokens)
+            .expect_err("missing required option should fail validation");
+
+        assert!(
+            matches!(err, AppError::MissingOptions(ref value) if value == &vec!["name".to_string()])
+        );
+    }
+}

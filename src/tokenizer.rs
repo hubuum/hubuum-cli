@@ -311,7 +311,8 @@ impl CommandTokenizer {
                 .trim_end()
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
-            std::fs::read_to_string(stripped)
+            let normalized = normalize_file_uri_path(stripped);
+            std::fs::read_to_string(normalized)
                 .map_err(AppError::IoError)?
                 .trim_end()
                 .to_string()
@@ -370,9 +371,24 @@ fn token_key(token: &str) -> String {
         .to_string()
 }
 
+fn normalize_file_uri_path(stripped: &str) -> &str {
+    if cfg!(windows) && stripped.len() > 3 {
+        let bytes = stripped.as_bytes();
+        if bytes[0] == b'/' && bytes[2] == b':' && bytes[1].is_ascii_alphabetic() {
+            return &stripped[1..];
+        }
+    }
+    stripped
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
+    use std::fs;
+    use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use rstest::rstest;
 
     use super::CommandTokenizer;
     use crate::commands::CliOption;
@@ -392,6 +408,14 @@ mod tests {
             field_type_help: "string".to_string(),
             required: false,
             autocomplete: None,
+        }
+    }
+
+    fn file_uri_from_path(path: &Path) -> String {
+        if cfg!(windows) {
+            format!("file://{}", path.to_string_lossy().replace('\\', "/"))
+        } else {
+            format!("file://{}", path.to_string_lossy())
         }
     }
 
@@ -432,18 +456,115 @@ mod tests {
     }
 
     #[test]
-    fn unknown_option_value_is_preserved_for_validation() {
+    fn parses_inline_value_for_non_flag_option() {
+        let options = vec![opt("name", Some("-n"), Some("--name"), false)];
+
+        let tokens = CommandTokenizer::new("object list --name=item-1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("name"),
+            Some(&"item-1".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_inline_value_for_flag_option_for_validation() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let tokens = CommandTokenizer::new("object list --json=true", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("json"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn accepts_negative_number_as_option_value() {
+        let options = vec![opt("offset", Some("-o"), Some("--offset"), false)];
+
+        let tokens = CommandTokenizer::new("object list --offset -1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("offset"), Some(&"-1".to_string()));
+    }
+
+    #[test]
+    fn reads_file_uri_option_values() {
+        let options = vec![opt("data", Some("-d"), Some("--data"), false)];
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic enough for tests")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("hubuum-cli-tokenizer-{unique_suffix}.txt"));
+        fs::write(&path, "payload from file\n").expect("should write test file");
+
+        let line = format!("object list --data '{}'", file_uri_from_path(&path));
+        let tokens =
+            CommandTokenizer::new(&line, "list", &options).expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("data"),
+            Some(&"payload from file".to_string())
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reads_file_uri_with_triple_slash_style() {
+        let options = vec![opt("data", Some("-d"), Some("--data"), false)];
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic enough for tests")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("hubuum-cli-tokenizer-3s-{unique_suffix}.txt"));
+        fs::write(&path, "payload triple slash\n").expect("should write test file");
+
+        let base = file_uri_from_path(&path);
+        let triple_slash = if cfg!(windows) {
+            base.replacen("file://", "file:///", 1)
+        } else {
+            base.clone()
+        };
+        let line = format!("object list --data '{}'", triple_slash);
+        let tokens =
+            CommandTokenizer::new(&line, "list", &options).expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("data"),
+            Some(&"payload triple slash".to_string())
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[rstest]
+    #[case("object list --json trailing")]
+    #[case("object list --json true")]
+    fn rejects_invalid_free_values_after_options(#[case] input: &str) {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let err = CommandTokenizer::new(input, "list", &options)
+            .expect_err("free value after flag should fail tokenization");
+
+        assert!(matches!(err, AppError::InvalidInput));
+    }
+
+    #[rstest]
+    #[case("object list --unknown --json", "unknown", "")]
+    #[case("object list --unknown whatever --json", "unknown", "whatever")]
+    fn preserves_unknown_option_values(
+        #[case] input: &str,
+        #[case] key: &str,
+        #[case] expected: &str,
+    ) {
         let options = vec![opt("json", Some("-j"), Some("--json"), true)];
 
         let tokens =
-            CommandTokenizer::new("object list --unknown whatever --json", "list", &options)
-                .expect("tokenization should succeed");
+            CommandTokenizer::new(input, "list", &options).expect("tokenization should succeed");
 
-        assert_eq!(
-            tokens.get_options().get("unknown"),
-            Some(&"whatever".to_string())
-        );
-        assert_eq!(tokens.get_options().get("json"), Some(&String::new()));
+        assert_eq!(tokens.get_options().get(key), Some(&expected.to_string()));
     }
 
     #[test]

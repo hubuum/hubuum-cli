@@ -43,19 +43,28 @@ async fn main() -> Result<(), AppError> {
 
     if let Some(command) = matches.get_one::<String>("command") {
         let outcome = dispatch::execute_line(runtime.clone(), &session, command).await;
-        render_dispatch_result(&session, outcome);
+        if !render_dispatch_result(&session, outcome) {
+            std::process::exit(1);
+        }
         return Ok(());
     }
 
     if let Some(filename) = matches.get_one::<String>("source") {
         let outcomes = dispatch::execute_script(runtime.clone(), &session, filename).await;
-        match outcomes {
+        let success = match outcomes {
             Ok(outcomes) => {
                 for outcome in outcomes {
                     render_outcome(&session, outcome);
                 }
+                true
             }
-            Err(err) => render_snapshot(dispatch::render_error(err)),
+            Err(err) => {
+                render_snapshot(dispatch::render_error(err));
+                false
+            }
+        };
+        if !success {
+            std::process::exit(1);
         }
         return Ok(());
     }
@@ -66,10 +75,16 @@ async fn main() -> Result<(), AppError> {
 fn render_dispatch_result(
     session: &SharedSession,
     result: Result<catalog::CommandOutcome, AppError>,
-) {
+) -> bool {
     match result {
-        Ok(outcome) => render_outcome(session, outcome),
-        Err(err) => render_snapshot(dispatch::render_error(err)),
+        Ok(outcome) => {
+            render_outcome(session, outcome);
+            true
+        }
+        Err(err) => {
+            render_snapshot(dispatch::render_error(err));
+            false
+        }
     }
 }
 
