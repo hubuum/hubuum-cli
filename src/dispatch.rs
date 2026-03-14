@@ -349,6 +349,7 @@ mod tests {
         None,
         Some("Error parsing arguments: broken")
     )]
+    #[serial]
     fn render_error_maps_variants_to_snapshot(
         #[case] err: AppError,
         #[case] warning: Option<&str>,

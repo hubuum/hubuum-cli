@@ -391,9 +391,14 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
 }
 
 pub fn reload_runtime_config() -> Result<(), AppError> {
+    let previous_config = get_config();
+    let previous_state = get_config_state();
     let custom = get_config_state().paths.custom.clone();
-    let config = load_config(custom.clone())?;
-    init_config_state(inspect_config_state_without_cli(&config, custom))?;
+    let mut config = load_config(custom.clone())?;
+    preserve_cli_overrides(&previous_config, &previous_state, &mut config);
+    let mut state = inspect_config_state_without_cli(&config, custom);
+    preserve_cli_override_sources(&previous_state, &mut state);
+    init_config_state(state)?;
     init_config(config)?;
     Ok(())
 }
@@ -465,6 +470,65 @@ fn descriptor_for_key(key: &str) -> Result<&'static ConfigKeyDescriptor, AppErro
                 config_key_names().join(", ")
             ))
         })
+}
+
+fn preserve_cli_overrides(
+    previous_config: &AppConfig,
+    previous_state: &ConfigState,
+    reloaded_config: &mut AppConfig,
+) {
+    for entry in previous_state
+        .entries
+        .iter()
+        .filter(|entry| entry.source == ConfigSource::CliOption)
+    {
+        copy_config_value(previous_config, reloaded_config, &entry.key);
+    }
+}
+
+fn preserve_cli_override_sources(previous_state: &ConfigState, reloaded_state: &mut ConfigState) {
+    for previous_entry in previous_state
+        .entries
+        .iter()
+        .filter(|entry| entry.source == ConfigSource::CliOption)
+    {
+        if let Some(entry) = reloaded_state
+            .entries
+            .iter_mut()
+            .find(|entry| entry.key == previous_entry.key)
+        {
+            entry.source = ConfigSource::CliOption;
+            entry.source_detail = previous_entry.source_detail.clone();
+        }
+    }
+}
+
+fn copy_config_value(source: &AppConfig, target: &mut AppConfig, key: &str) {
+    match key {
+        "server.hostname" => target.server.hostname = source.server.hostname.clone(),
+        "server.port" => target.server.port = source.server.port,
+        "server.ssl_validation" => target.server.ssl_validation = source.server.ssl_validation,
+        "server.api_version" => target.server.api_version = source.server.api_version.clone(),
+        "server.username" => target.server.username = source.server.username.clone(),
+        "server.password" => target.server.password = source.server.password.clone(),
+        "server.protocol" => target.server.protocol = source.server.protocol.clone(),
+        "cache.time" => target.cache.time = source.cache.time,
+        "cache.size" => target.cache.size = source.cache.size,
+        "cache.disable" => target.cache.disable = source.cache.disable,
+        "completion.disable_api_related" => {
+            target.completion.disable_api_related = source.completion.disable_api_related
+        }
+        "background.poll_interval_seconds" => {
+            target.background.poll_interval_seconds = source.background.poll_interval_seconds
+        }
+        "repl.enter_fetches_next_page" => {
+            target.repl.enter_fetches_next_page = source.repl.enter_fetches_next_page
+        }
+        "output.format" => target.output.format = source.output.format.clone(),
+        "output.padding" => target.output.padding = source.output.padding,
+        "output.table_style" => target.output.table_style = source.output.table_style.clone(),
+        _ => {}
+    }
 }
 
 struct ConfigSourceResolutionContext<'a> {
@@ -733,9 +797,61 @@ fn write_toml_file(path: &Path, root: &toml::Value) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::{build_cli, update_config_from_cli};
     use crate::models::Protocol;
     use serial_test::serial;
     use std::env;
+    use tempfile::TempDir;
+
+    struct TestEnvGuard {
+        saved: Vec<(&'static str, Option<String>)>,
+        _temp_home: Option<TempDir>,
+    }
+
+    impl TestEnvGuard {
+        fn new() -> Self {
+            Self {
+                saved: Vec::new(),
+                _temp_home: None,
+            }
+        }
+
+        fn set(&mut self, key: &'static str, value: String) {
+            self.saved.push((key, env::var(key).ok()));
+            env::set_var(key, value);
+        }
+
+        fn isolate_config_home() -> Self {
+            let mut guard = Self::new();
+            let temp_home = TempDir::new().expect("temp home should be created");
+            guard.set("HOME", temp_home.path().to_string_lossy().to_string());
+            guard.set(
+                "XDG_CONFIG_HOME",
+                temp_home
+                    .path()
+                    .join("config")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            guard.set(
+                "XDG_DATA_HOME",
+                temp_home.path().join("data").to_string_lossy().to_string(),
+            );
+            guard._temp_home = Some(temp_home);
+            guard
+        }
+    }
+
+    impl Drop for TestEnvGuard {
+        fn drop(&mut self) {
+            while let Some((key, value)) = self.saved.pop() {
+                match value {
+                    Some(value) => env::set_var(key, value),
+                    None => env::remove_var(key),
+                }
+            }
+        }
+    }
 
     /// Helper to clear all HUBUUM_CLI_... vars we use in this test.
     fn clear_env() {
@@ -763,6 +879,7 @@ mod tests {
     #[serial]
     fn env_overrides_entire_config() {
         clear_env();
+        let _guard = TestEnvGuard::isolate_config_home();
         env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
         env::set_var("HUBUUM_CLI__SERVER__PORT", "4321");
         env::set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
@@ -804,6 +921,7 @@ mod tests {
     #[serial]
     fn mixing_env_and_defaults() {
         clear_env();
+        let _guard = TestEnvGuard::isolate_config_home();
         // Only override one value
         env::set_var("HUBUUM_CLI__SERVER__PORT", "5555");
         let cfg = load_config(None).unwrap();
@@ -855,6 +973,60 @@ mod tests {
         assert_eq!(source, ConfigSource::Environment);
         assert_eq!(detail.as_deref(), Some("HUBUUM_CLI__SERVER__HOSTNAME"));
 
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn reload_runtime_config_preserves_cli_overrides_while_applying_persisted_changes() {
+        clear_env();
+        let _guard = TestEnvGuard::isolate_config_home();
+
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--hostname",
+                "localhost",
+                "--port",
+                "7070",
+                "--username",
+                "admin",
+            ])
+            .expect("cli should parse");
+
+        let mut config = load_config(None).expect("config should load");
+        update_config_from_cli(&mut config, &matches);
+        init_config_state(inspect_config_state(&config, None, &matches))
+            .expect("config state should initialize");
+        init_config(config).expect("config should initialize");
+
+        set_persisted_value("repl.enter_fetches_next_page", "true")
+            .expect("persisted value should save");
+        reload_runtime_config().expect("runtime config should reload");
+
+        let reloaded = get_config();
+        assert_eq!(reloaded.server.hostname, "localhost");
+        assert_eq!(reloaded.server.port, 7070);
+        assert_eq!(reloaded.server.username, "admin");
+        assert!(reloaded.repl.enter_fetches_next_page);
+
+        let state = get_config_state();
+        assert_eq!(
+            state.entry("server.username").map(|entry| &entry.source),
+            Some(&ConfigSource::CliOption)
+        );
+        assert_eq!(
+            state
+                .entry("server.port")
+                .and_then(|entry| entry.source_detail.as_deref()),
+            Some("--port")
+        );
+        assert_eq!(
+            state
+                .entry("repl.enter_fetches_next_page")
+                .map(|entry| &entry.source),
+            Some(&ConfigSource::UserFile)
+        );
         clear_env();
     }
 }
