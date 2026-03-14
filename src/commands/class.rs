@@ -1,30 +1,90 @@
-use cli_command_derive::CliCommand;
-use hubuum_client::{
-    Authenticated, Class, ClassPost, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient,
-};
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{bool, classes, namespaces};
+use crate::autocomplete::{bool, class_sort, class_where, classes, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{append_json, append_json_message, FormattedClass, OutputFormatter};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
+use crate::services::{AppServices, ClassUpdateInput, CreateClassInput};
 use crate::tokenizer::CommandTokenizer;
+
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["class"],
+            catalog_command(
+                "create",
+                ClassNew::default(),
+                CommandDocs {
+                    about: Some("Create a new class"),
+                    long_about: Some("Create a new class with the specified properties."),
+                    examples: Some(
+                        r#"-n MyClass -N namespace_1 -d "My class description"
+--name MyClass --namespace namespace_1 --description 'My class' --schema '{\"type\": \"object\"}'"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["class"],
+            catalog_command(
+                "list",
+                ClassList::default(),
+                CommandDocs {
+                    about: Some("List classes"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["class"],
+            catalog_command(
+                "delete",
+                ClassDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a class"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["class"],
+            catalog_command(
+                "show",
+                ClassInfo::default(),
+                CommandDocs {
+                    about: Some("Show class details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["class"],
+            catalog_command(
+                "modify",
+                ClassModify::default(),
+                CommandDocs {
+                    about: Some("Modify a class"),
+                    long_about: Some("Update an existing class by name."),
+                    examples: Some(
+                        r#"modify my-class --rename new-class
+modify --name my-class --description "Updated description" --namespace other-ns"#,
+                    ),
+                },
+            ),
+        );
+}
 
 trait GetClassname {
     fn classname(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Create a new class",
-    long_about = "Create a new class with the specified properties.",
-    examples = r#"-n MyClass -N namespace_1 -d "My class description"
---name MyClass --namespace namespace_1 --description 'My class' --schema '{\"type\": \"object\"}'"#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassNew {
     #[option(short = "n", long = "name", help = "Name of the class")]
     pub name: String,
@@ -49,43 +109,22 @@ pub struct ClassNew {
 }
 
 impl CliCommand for ClassNew {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let namespace = client.namespaces().select_by_name(&new.namespace)?;
-
-        let result = client.classes().create_raw(ClassPost {
-            name: new.name.clone(),
-            namespace_id: namespace.id(),
-            description: new.description.clone(),
-            json_schema: new.json_schema.clone(),
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        let result = services.gateway().create_class(CreateClassInput {
+            name: new.name,
+            namespace: new.namespace,
+            description: new.description,
+            json_schema: new.json_schema,
             validate_schema: new.validate_schema,
         })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => result.format_json_noreturn()?,
             OutputFormat::Text => result.format_noreturn()?,
         }
 
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Class> for &ClassInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        filters
     }
 }
 
@@ -95,7 +134,7 @@ impl GetClassname for &ClassInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassInfo {
     #[option(
         short = "n",
@@ -107,30 +146,20 @@ pub struct ClassInfo {
 }
 
 impl CliCommand for ClassInfo {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let class = client.classes().select_by_name(&query.name.unwrap())?;
+        let details = services
+            .gateway()
+            .class_details(&query.name.clone().unwrap())?;
 
-        // This will hopefully be a head request in the future if we just want a count.
-        let objects = class.objects()?;
-
-        // We should newtype all of this, but oh well.
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => {
-                // We first make a JSON object out of the class, then we append the objects.
-                let mut json_class = serde_json::to_value(class.resource())?;
-                json_class["objects"] = serde_json::to_value(objects)?;
-
-                append_line(serde_json::to_string_pretty(&json_class)?)?;
+                append_line(serde_json::to_string_pretty(&details)?)?;
             }
             OutputFormat::Text => {
-                class.resource().format()?;
-                append_key_value("Objects", objects.len(), 14)?;
+                details.class.format()?;
+                append_key_value("Objects", details.objects.len(), 14)?;
             }
         }
 
@@ -138,7 +167,7 @@ impl CliCommand for ClassInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassDelete {
     #[option(
         short = "n",
@@ -150,22 +179,18 @@ pub struct ClassDelete {
 }
 
 impl CliCommand for ClassDelete {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
         let name = match classname_or_pos(&query, tokens, 0)? {
             Some(name) => name,
             None => return Err(AppError::MissingOptions(vec!["name".to_string()])),
         };
 
-        client.classes().select_by_name(&name)?.delete()?;
+        services.gateway().delete_class(&name)?;
 
         let message = format!("Class '{name}' deleted successfully");
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -180,7 +205,75 @@ impl GetClassname for &ClassDelete {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ClassModify {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the class",
+        autocomplete = "classes"
+    )]
+    pub name: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the class")]
+    pub rename: Option<String>,
+    #[option(
+        short = "N",
+        long = "namespace",
+        help = "Move the class to another namespace",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "New description of the class"
+    )]
+    pub description: Option<String>,
+    #[option(short = "s", long = "schema", help = "JSON schema for the class")]
+    pub json_schema: Option<serde_json::Value>,
+    #[option(
+        short = "v",
+        long = "validate",
+        help = "Set schema validation",
+        autocomplete = "bool"
+    )]
+    pub validate_schema: Option<bool>,
+}
+
+impl GetClassname for &ClassModify {
+    fn classname(&self) -> Option<String> {
+        self.name.clone()
+    }
+}
+
+impl CliCommand for ClassModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.name = classname_or_pos(&query, tokens, 0)?;
+        let name = query
+            .name
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+
+        let updated = services.gateway().update_class(ClassUpdateInput {
+            name,
+            rename: query.rename,
+            namespace: query.namespace,
+            description: query.description,
+            json_schema: query.json_schema,
+            validate_schema: query.validate_schema,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => updated.format_json_noreturn()?,
+            OutputFormat::Text => updated.format_noreturn()?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassList {
     #[option(
         short = "n",
@@ -191,48 +284,45 @@ pub struct ClassList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-}
-
-impl IntoResourceFilter<Class> for &ClassList {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        if let Some(description) = &self.description {
-            filters.push(QueryFilter {
-                key: "description".to_string(),
-                value: description.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
-    }
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "class_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "class_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for ClassList {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?;
-        let classes = client.classes().filter(&new)?;
-
-        match self.desired_format(tokens) {
-            OutputFormat::Json => append_json(&classes)?,
-            OutputFormat::Text => classes
-                .iter()
-                .map(FormattedClass::from)
-                .collect::<Vec<_>>()
-                .format_noreturn()?,
-        }
-
-        Ok(())
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.name.map(|value| contains_clause("name", value)),
+                query
+                    .description
+                    .map(|value| contains_clause("description", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let classes = services.gateway().list_classes(&list_query)?;
+        render_list_page(tokens, &classes)
     }
 }
 

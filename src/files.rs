@@ -24,6 +24,15 @@ pub fn get_system_config_path() -> PathBuf {
     }
 }
 
+pub fn get_user_config_path() -> PathBuf {
+    dirs::config_dir()
+        .map(|mut path| {
+            path.push(".hubuum_cli/config.toml");
+            path
+        })
+        .unwrap_or_else(|| PathBuf::from("config.toml"))
+}
+
 fn ensure_file_exists(file: &str) -> Result<PathBuf, AppError> {
     let fqfile = ensure_root_dir()?.join(file);
     log::trace!("Checking file: {fqfile:?}");

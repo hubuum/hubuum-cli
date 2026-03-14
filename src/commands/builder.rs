@@ -1,74 +1,121 @@
 use std::sync::Arc;
 
-use hubuum_client::{Authenticated, SyncClient};
+use async_trait::async_trait;
 
-use crate::commandlist::CommandList;
-use crate::commands;
+use crate::catalog::{
+    AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
+    CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+};
+use crate::commands::{self, command_options, CliCommand};
+use crate::errors::AppError;
+use crate::output::{reset_output, take_output};
 
-pub fn build_repl_commands(client: Arc<SyncClient<Authenticated>>) -> CommandList {
-    let mut cli = CommandList::new(client);
-
-    add_class_commands(&mut cli);
-    add_namespace_commands(&mut cli);
-    add_user_commands(&mut cli);
-    add_group_commands(&mut cli);
-    add_object_commands(&mut cli);
-    add_relation_commands(&mut cli);
-
-    cli.add_command("help", commands::Help::default());
-
-    cli
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CommandDocs {
+    pub about: Option<&'static str>,
+    pub long_about: Option<&'static str>,
+    pub examples: Option<&'static str>,
 }
 
-fn add_class_commands(cli: &mut CommandList) {
-    cli.add_scope("class")
-        .add_command("create", commands::ClassNew::default())
-        .add_command("list", commands::ClassList::default())
-        .add_command("delete", commands::ClassDelete::default())
-        .add_command("info", commands::ClassInfo::default());
+pub fn build_command_catalog() -> CommandCatalog {
+    let mut builder = CommandCatalogBuilder::new();
+
+    commands::bg::register_commands(&mut builder);
+    commands::class::register_commands(&mut builder);
+    commands::config::register_commands(&mut builder);
+    commands::namespace::register_commands(&mut builder);
+    commands::user::register_commands(&mut builder);
+    commands::group::register_commands(&mut builder);
+    commands::report::register_commands(&mut builder);
+    commands::imports::register_commands(&mut builder);
+    commands::task::register_commands(&mut builder);
+    commands::object::register_commands(&mut builder);
+    commands::relations::register_commands(&mut builder);
+    commands::search::register_commands(&mut builder);
+    commands::help::register_commands(&mut builder);
+
+    builder.build()
 }
 
-fn add_namespace_commands(cli: &mut CommandList) {
-    cli.add_scope("namespace")
-        .add_command("create", commands::NamespaceNew::default())
-        .add_command("list", commands::NamespaceList::default())
-        .add_command("delete", commands::NamespaceDelete::default())
-        .add_command("info", commands::NamespaceInfo::default())
-        .add_scope("permissions")
-        .add_command("list", commands::NamespacePermissions::default())
-        .add_command("set", commands::NamespacePermissionsSet::default());
+pub(crate) fn catalog_command<C>(name: &str, command: C, docs: CommandDocs) -> CommandSpec
+where
+    C: CliCommand + Clone + 'static,
+{
+    let options = command_options::<C>()
+        .into_iter()
+        .map(|option| OptionSpec {
+            name: option.name,
+            short: option.short,
+            long: option.long,
+            help: option.help,
+            field_type_help: option.field_type_help,
+            field_type: option.field_type,
+            required: option.required,
+            flag: option.flag,
+            greedy: option.greedy,
+            nargs: option.nargs,
+            repeatable: option.repeatable,
+            completion: match option.autocomplete {
+                Some(completion) => CompletionSpec::Dynamic(completion),
+                None => CompletionSpec::None,
+            },
+        })
+        .collect();
+
+    CommandSpec {
+        name: name.to_string(),
+        about: docs.about.map(str::to_string),
+        long_about: docs.long_about.map(str::to_string),
+        examples: docs.examples.map(str::to_string),
+        options,
+        handler: Arc::new(CommandHandler {
+            command: Arc::new(command),
+        }) as Arc<dyn AsyncCommandHandler>,
+    }
 }
 
-fn add_user_commands(cli: &mut CommandList) {
-    cli.add_scope("user")
-        .add_command("create", commands::UserNew::default())
-        .add_command("list", commands::UserList::default())
-        .add_command("delete", commands::UserDelete::default())
-        .add_command("info", commands::UserInfo::default());
+struct CommandHandler<C>
+where
+    C: CliCommand + Clone + 'static,
+{
+    command: Arc<C>,
 }
 
-fn add_group_commands(cli: &mut CommandList) {
-    cli.add_scope("group")
-        .add_command("create", commands::GroupNew::default())
-        .add_command("list", commands::GroupList::default())
-        .add_command("add_user", commands::GroupAddUser::default())
-        .add_command("remove_user", commands::GroupRemoveUser::default())
-        .add_command("info", commands::GroupInfo::default());
-}
+#[async_trait]
+impl<C> AsyncCommandHandler for CommandHandler<C>
+where
+    C: CliCommand + Clone + 'static,
+{
+    async fn execute(
+        &self,
+        ctx: CommandContext,
+        invocation: CommandInvocation,
+    ) -> Result<CommandOutcome, AppError> {
+        let command = self.command.clone();
+        let services = ctx.app.services.clone();
+        let raw_line = invocation.raw_line.clone();
 
-fn add_object_commands(cli: &mut CommandList) {
-    cli.add_scope("object")
-        .add_command("create", commands::ObjectNew::default())
-        .add_command("list", commands::ObjectList::default())
-        .add_command("delete", commands::ObjectDelete::default())
-        .add_command("modify", commands::ObjectModify::default())
-        .add_command("info", commands::ObjectInfo::default());
-}
+        tokio::task::spawn_blocking(move || {
+            reset_output()?;
+            let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
+                AppError::CommandExecutionError("Missing command name".to_string())
+            })?;
 
-fn add_relation_commands(cli: &mut CommandList) {
-    cli.add_scope("relation")
-        .add_command("create", commands::RelationNew::default())
-        .add_command("list", commands::RelationList::default())
-        .add_command("delete", commands::RelationDelete::default())
-        .add_command("info", commands::RelationInfo::default());
+            let tokens = crate::tokenizer::CommandTokenizer::new(
+                &raw_line,
+                &cmd_name,
+                &command_options::<C>(),
+            )?;
+
+            command.execute(services.as_ref(), &tokens)?;
+            services.invalidate_completion();
+
+            Ok(CommandOutcome {
+                output: take_output()?,
+                scope_action: ScopeAction::None,
+            })
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
+    }
 }

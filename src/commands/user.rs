@@ -1,27 +1,91 @@
-use cli_command_derive::CliCommand;
-use hubuum_client::{
-    Authenticated, FilterOperator, IntoResourceFilter, QueryFilter, SyncClient, User, UserPost,
-};
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
+use crate::autocomplete::{user_sort, user_where};
+use crate::catalog::CommandCatalogBuilder;
+use crate::domain::CreatedUser;
 use crate::errors::AppError;
-use crate::formatting::{append_json, append_json_message, FormattedUser, OutputFormatter};
+use crate::formatting::{append_json_message, OutputFormatter};
+use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-
+use crate::services::{AppServices, CreateUserInput, UserFilter, UserUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
-use super::CliCommand;
-use super::{CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["user"],
+            catalog_command(
+                "create",
+                UserNew::default(),
+                CommandDocs {
+                    about: Some("Create a user"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "list",
+                UserList::default(),
+                CommandDocs {
+                    about: Some("List users"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "delete",
+                UserDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a user"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "show",
+                UserInfo::default(),
+                CommandDocs {
+                    about: Some("Show user details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "modify",
+                UserModify::default(),
+                CommandDocs {
+                    about: Some("Modify a user"),
+                    long_about: Some("Update an existing user by username."),
+                    examples: Some(
+                        r#"modify alice --rename alice2
+modify --username alice --email alice@example.com"#,
+                    ),
+                },
+            ),
+        );
+}
 
 trait GetUsername {
     fn username(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserNew {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: String,
@@ -29,35 +93,22 @@ pub struct UserNew {
     pub email: Option<String>,
 }
 
-impl UserNew {
-    fn into_post(self) -> UserPost {
-        UserPost {
-            username: self.username.clone(),
-            email: self.email.clone(),
-            password: generate_random_password(20),
-        }
-    }
-}
-
 impl CliCommand for UserNew {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = self.new_from_tokens(tokens)?.into_post();
-        let password = new.password.clone();
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        let password = generate_random_password(20);
+        let created: CreatedUser = services.gateway().create_user(CreateUserInput {
+            username: new.username,
+            email: new.email,
+            password: password.clone(),
+        })?;
 
-        let user = client.users().create_raw(new)?;
-
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => {
-                let mut json = serde_json::to_value(&user)?;
-                json["password"] = serde_json::to_value(password)?;
-                append_line(serde_json::to_string_pretty(&json)?)?;
+                append_line(serde_json::to_string_pretty(&created)?)?;
             }
             OutputFormat::Text => {
-                user.format_noreturn()?;
+                created.user.format_noreturn()?;
                 append_key_value("Password", password, 15)?;
             }
         }
@@ -66,26 +117,10 @@ impl CliCommand for UserNew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserDelete {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
-}
-
-impl IntoResourceFilter<User> for &UserDelete {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-
-        if let Some(username) = &self.username {
-            filters.push(QueryFilter {
-                key: "username".to_string(),
-                value: username.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        filters
-    }
 }
 
 impl GetUsername for &UserDelete {
@@ -95,22 +130,20 @@ impl GetUsername for &UserDelete {
 }
 
 impl CliCommand for UserDelete {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = client.users().filter_expecting_single_result(&query)?;
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        services.gateway().delete_user(&username)?;
 
-        client.users().delete(user.id)?;
+        let message = format!("User '{}' deleted", username);
 
-        let message = format!("User '{}' deleted", user.username);
-
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -119,7 +152,7 @@ impl CliCommand for UserDelete {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserInfo {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
@@ -131,46 +164,6 @@ pub struct UserInfo {
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
-impl IntoResourceFilter<User> for &UserInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-
-        if let Some(username) = &self.username {
-            filters.push(QueryFilter {
-                key: "username".to_string(),
-                value: username.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        if let Some(email) = &self.email {
-            filters.push(QueryFilter {
-                key: "email".to_string(),
-                value: email.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-
-        if let Some(created_at) = &self.created_at {
-            filters.push(QueryFilter {
-                key: "created_at".to_string(),
-                value: created_at.to_string(),
-                operator: FilterOperator::Equals { is_negated: false },
-            });
-        }
-
-        if let Some(updated_at) = &self.updated_at {
-            filters.push(QueryFilter {
-                key: "updated_at".to_string(),
-                value: updated_at.to_string(),
-                operator: FilterOperator::Equals { is_negated: false },
-            });
-        }
-
-        filters
-    }
-}
-
 impl GetUsername for &UserInfo {
     fn username(&self) -> Option<String> {
         self.username.clone()
@@ -178,18 +171,19 @@ impl GetUsername for &UserInfo {
 }
 
 impl CliCommand for UserInfo {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
 
         query.username = username_or_pos(&query, tokens, 0)?;
 
-        let user = client.users().filter_expecting_single_result(&query)?;
+        let user = services.gateway().find_user(UserFilter {
+            username: query.username,
+            email: query.email,
+            created_at: query.created_at,
+            updated_at: query.updated_at,
+        })?;
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => user.format_json_noreturn()?,
             OutputFormat::Text => user.format_noreturn()?,
         }
@@ -198,7 +192,7 @@ impl CliCommand for UserInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserList {
     #[option(short = "u", long = "username", help = "Username of the user")]
     pub username: Option<String>,
@@ -208,24 +202,96 @@ pub struct UserList {
     pub created_at: Option<chrono::NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
     pub updated_at: Option<chrono::NaiveDateTime>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "user_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "user_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for UserList {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let _ = self.new_from_tokens(tokens)?;
-        let users = client.users().find().execute()?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query
+                    .username
+                    .map(|value| contains_clause("username", value)),
+                query.email.map(|value| contains_clause("email", value)),
+                query.created_at.map(|value| {
+                    filter_clause(
+                        "created_at",
+                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        value.to_string(),
+                    )
+                }),
+                query.updated_at.map(|value| {
+                    filter_clause(
+                        "updated_at",
+                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        value.to_string(),
+                    )
+                }),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let users = services.gateway().list_users(&list_query)?;
+        render_list_page(tokens, &users)
+    }
+}
 
-        match self.desired_format(tokens) {
-            OutputFormat::Json => append_json(&users)?,
-            OutputFormat::Text => users
-                .iter()
-                .map(FormattedUser::from)
-                .collect::<Vec<_>>()
-                .format_noreturn()?,
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserModify {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "r", long = "rename", help = "Rename the user")]
+    pub rename: Option<String>,
+    #[option(short = "e", long = "email", help = "Email address for the user")]
+    pub email: Option<String>,
+}
+
+impl GetUsername for &UserModify {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserModify {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let user = services.gateway().update_user(UserUpdateInput {
+            username,
+            rename: query.rename,
+            email: query.email,
+        })?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => user.format_json_noreturn()?,
+            OutputFormat::Text => user.format_noreturn()?,
         }
 
         Ok(())

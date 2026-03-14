@@ -1,33 +1,34 @@
-use hubuum_client::{Authenticated, SyncClient};
 use log::trace;
 use std::any::TypeId;
 use std::collections::HashSet;
 
+mod bg;
 mod builder;
 mod class;
+mod config;
 mod group;
 mod help;
+mod imports;
 mod namespace;
 mod object;
 mod relations;
-mod shared;
+mod report;
+mod search;
+mod task;
 mod user;
 
-use crate::{output::append_line, CommandList};
+pub use builder::build_command_catalog;
 
-pub use builder::build_repl_commands;
-pub use class::*;
-pub use group::*;
-#[allow(unused_imports)]
-pub use help::Help;
-pub use namespace::*;
-pub use object::*;
-pub use relations::*;
-pub use user::*;
+use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
+use crate::{
+    formatting::TableRenderable,
+    list_query::{
+        filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
+        PagedResult,
+    },
+};
 
-use crate::{errors::AppError, tokenizer::CommandTokenizer};
-
-type AutoCompleter = fn(&CommandList, &str, &[String]) -> Vec<String>;
+pub type AutoCompleter = fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -36,6 +37,9 @@ pub struct CliOption {
     pub short: Option<String>,
     pub long: Option<String>,
     pub flag: bool,
+    pub greedy: bool,
+    pub nargs: Option<usize>,
+    pub repeatable: bool,
     pub help: String,
     pub field_type: TypeId,
     pub field_type_help: String,
@@ -53,210 +57,238 @@ impl CliOption {
     }
 }
 
-#[allow(dead_code)]
-pub trait CliCommandInfo {
-    fn options(&self) -> Vec<CliOption>;
-    fn name(&self) -> String;
-    fn about(&self) -> Option<String>;
-    fn long_about(&self) -> Option<String>;
-    fn examples(&self) -> Option<String>;
+pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
+    fn options() -> Vec<CliOption>;
+
+    fn parse_tokens(tokens: &CommandTokenizer) -> Result<Self, AppError>;
 }
 
-pub trait CliCommand: CliCommandInfo {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError>;
+pub trait CliCommand: CommandArgs + Send + Sync {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError>;
+}
 
-    fn validate(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        self.validate_unknown_options(tokens)?;
-        self.validate_not_both_short_and_long_set(tokens)?;
-        self.validate_missing_options(tokens)?;
-        self.validate_flag_options(tokens)?;
-        Ok(())
+pub fn standard_options() -> Vec<CliOption> {
+    vec![
+        CliOption {
+            name: "help".to_string(),
+            short: Some("-h".to_string()),
+            long: Some("--help".to_string()),
+            flag: true,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            help: "Prints help information".to_string(),
+            field_type: TypeId::of::<bool>(),
+            field_type_help: "bool".to_string(),
+            required: false,
+            autocomplete: None,
+        },
+        CliOption {
+            name: "json".to_string(),
+            short: Some("-j".to_string()),
+            long: Some("--json".to_string()),
+            flag: true,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            help: "Output as JSON".to_string(),
+            field_type: TypeId::of::<bool>(),
+            field_type_help: "bool".to_string(),
+            required: false,
+            autocomplete: None,
+        },
+    ]
+}
+
+pub fn command_options<C: CommandArgs>() -> Vec<CliOption> {
+    let mut options = C::options();
+    options.extend(standard_options());
+    options
+}
+
+pub fn validate_command_args<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    validate_unknown_options::<C>(tokens)?;
+    validate_not_both_short_and_long_set::<C>(tokens)?;
+    validate_missing_options::<C>(tokens)?;
+    validate_flag_options::<C>(tokens)?;
+    Ok(())
+}
+
+pub fn validate_unknown_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    let mut known_options = HashSet::new();
+    for opt in command_options::<C>() {
+        if let Some(short) = opt.short_without_dash() {
+            known_options.insert(short);
+        }
+        if let Some(long) = opt.long_without_dashes() {
+            known_options.insert(long);
+        }
     }
 
-    fn validate_unknown_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut known_options = HashSet::new();
-        for opt in self.options() {
-            if let Some(short) = opt.short_without_dash() {
-                known_options.insert(short);
-            }
-            if let Some(long) = opt.long_without_dashes() {
-                known_options.insert(long);
-            }
-        }
+    let mut unknown_options: Vec<String> = tokens
+        .get_options()
+        .keys()
+        .filter(|key| !known_options.contains(*key))
+        .cloned()
+        .collect();
 
-        let mut unknown_options: Vec<String> = tokens
-            .get_options()
-            .keys()
-            .filter(|key| !known_options.contains(*key))
-            .cloned()
-            .collect();
-
-        if unknown_options.is_empty() {
-            return Ok(());
-        }
-
-        unknown_options.sort();
-        Err(AppError::InvalidOption(unknown_options.join(", ")))
+    if unknown_options.is_empty() {
+        return Ok(());
     }
 
-    fn validate_missing_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let tokenpairs = tokens.get_options();
-        let mut missing_options = Vec::new();
+    unknown_options.sort();
+    Err(AppError::InvalidOption(unknown_options.join(", ")))
+}
 
-        // Check if either opt.short or opt.long is a key in tokenpairs
-        for opt in self.options() {
-            if !opt.required {
+pub fn validate_missing_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    let tokenpairs = tokens.get_options();
+    let mut missing_options = Vec::new();
+
+    for opt in command_options::<C>() {
+        if !opt.required {
+            continue;
+        }
+
+        if let Some(short) = &opt.short_without_dash() {
+            if tokenpairs.contains_key(short) {
                 continue;
             }
+            trace!("Short not found: {short}");
+        }
+        if let Some(long) = &opt.long_without_dashes() {
+            if tokenpairs.contains_key(long) {
+                continue;
+            }
+            trace!("Long not found: {long}");
+        }
 
-            if let Some(short) = &opt.short_without_dash() {
-                if tokenpairs.contains_key(short) {
-                    continue;
+        missing_options.push(opt.name.clone());
+    }
+
+    if !missing_options.is_empty() {
+        return Err(AppError::MissingOptions(missing_options));
+    }
+
+    Ok(())
+}
+
+pub fn validate_not_both_short_and_long_set<C: CommandArgs>(
+    tokens: &CommandTokenizer,
+) -> Result<(), AppError> {
+    let tokenpairs = tokens.get_options();
+    let mut duplicate_options = Vec::new();
+
+    for opt in command_options::<C>() {
+        if let Some(short) = opt.short_without_dash() {
+            if let Some(long) = opt.long_without_dashes() {
+                if tokenpairs.contains_key(&short) && tokenpairs.contains_key(&long) {
+                    duplicate_options.push(opt.name.clone());
                 }
-                trace!("Short not found: {short}");
+            }
+        }
+    }
+
+    if !duplicate_options.is_empty() {
+        return Err(AppError::DuplicateOptions(duplicate_options));
+    }
+
+    Ok(())
+}
+
+/// Flag options are not allowed to have values, but are boolean flags. In the tokenizer
+/// they are represented as a key with an empty ("") value. We alert if we find any flag
+/// options with a value.
+pub fn validate_flag_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    let tokenpairs = tokens.get_options();
+    let mut populated_flag_options = Vec::new();
+
+    for opt in command_options::<C>() {
+        if opt.flag {
+            if let Some(short) = &opt.short_without_dash() {
+                if let Some(value) = tokenpairs.get(short) {
+                    if !value.is_empty() {
+                        populated_flag_options.push(short.clone());
+                    }
+                }
             }
             if let Some(long) = &opt.long_without_dashes() {
-                if tokenpairs.contains_key(long) {
-                    continue;
-                }
-                trace!("Long not found: {long}");
-            }
-
-            missing_options.push(opt.name.clone());
-        }
-
-        if !missing_options.is_empty() {
-            return Err(AppError::MissingOptions(missing_options))?;
-        }
-
-        Ok(())
-    }
-
-    fn validate_not_both_short_and_long_set(
-        &self,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let tokenpairs = tokens.get_options();
-        let mut duplicate_options = Vec::new();
-
-        for opt in self.options() {
-            if let Some(short) = opt.short_without_dash() {
-                if let Some(long) = opt.long_without_dashes() {
-                    if tokenpairs.contains_key(&short) && tokenpairs.contains_key(&long) {
-                        duplicate_options.push(opt.name.clone());
+                if let Some(value) = tokenpairs.get(long) {
+                    if !value.is_empty() {
+                        populated_flag_options.push(long.clone());
                     }
                 }
             }
         }
-
-        if !duplicate_options.is_empty() {
-            return Err(AppError::DuplicateOptions(duplicate_options));
-        }
-
-        Ok(())
     }
 
-    /// Flag options are not allowed to have values, but are boolean flags. In the tokenizer
-    /// they are represented as a key with an empty ("") value. We alert if we find any flag
-    /// options with a value.
-    fn validate_flag_options(&self, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let tokenpairs = tokens.get_options();
-        let mut populated_flag_options = Vec::new();
-
-        for opt in self.options() {
-            if opt.flag {
-                if let Some(short) = &opt.short_without_dash() {
-                    if let Some(value) = tokenpairs.get(short) {
-                        if !value.is_empty() {
-                            populated_flag_options.push(short.clone());
-                        }
-                    }
-                }
-                if let Some(long) = &opt.long_without_dashes() {
-                    if let Some(value) = tokenpairs.get(long) {
-                        if !value.is_empty() {
-                            populated_flag_options.push(long.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        if !populated_flag_options.is_empty() {
-            return Err(AppError::PopulatedFlagOptions(populated_flag_options));
-        }
-
-        Ok(())
+    if !populated_flag_options.is_empty() {
+        return Err(AppError::PopulatedFlagOptions(populated_flag_options));
     }
 
-    fn help(&self, command_name: &String, context: &[String]) -> Result<(), AppError> {
-        let mut help = String::new();
-        let fq_name = format!("\n{} {}", context.join(" "), command_name);
-        if let Some(about) = self.about() {
-            help.push_str(&format!("{fq_name} - {about} \n\n"));
-        } else {
-            help.push_str(&format!("{fq_name}\n\n"));
-        }
-        if let Some(long_about) = self.long_about() {
-            help.push_str(&format!("{long_about}\n\n"));
-        }
-        let options = self.options();
-        if !options.is_empty() {
-            help.push_str("Options:\n");
+    Ok(())
+}
 
-            // Find the maximum width for each column
-            let max_short_width = options
-                .iter()
-                .map(|opt| opt.short.as_ref().map_or(0, |s| s.len()))
-                .max()
-                .unwrap_or(0);
-            let max_long_width = options
-                .iter()
-                .map(|opt| opt.long.as_ref().map_or(0, |l| l.len()))
-                .max()
-                .unwrap_or(0);
-            let max_type_width = options
-                .iter()
-                .map(|opt| opt.field_type_help.len())
-                .max()
-                .unwrap_or(0);
-
-            for opt in self.options() {
-                let short = opt
-                    .short
-                    .as_ref()
-                    .map_or(String::new(), |s| format!("{s},"));
-                let long = opt.long.as_ref().map_or(String::new(), |l| format!("{l},"));
-                let flag = if opt.flag { " (flag)" } else { "" };
-
-                help.push_str(&format!(
-                    "  {:<width_short$} {:<width_long$} {:<width_type$} {}{}\n",
-                    short,
-                    long,
-                    format!("<{}>", opt.field_type_help),
-                    opt.help,
-                    flag,
-                    width_short = max_short_width + 3, // +3 for "-x,"
-                    width_long = max_long_width + 4,   // +4 for "--xx,"
-                    width_type = max_type_width + 2    // +2 for "<>"
-                ));
-            }
-            help.push('\n');
-        }
-        if let Some(examples) = self.examples() {
-            help.push_str("Examples:\n");
-
-            for line in examples.lines() {
-                help.push_str(&format!("  {fq_name} {line}\n"));
-            }
-        }
-        for line in help.lines() {
-            append_line(line)?;
-        }
-        Ok(())
+pub fn desired_format(tokens: &CommandTokenizer) -> crate::models::OutputFormat {
+    if want_json(tokens) {
+        crate::models::OutputFormat::Json
+    } else {
+        crate::models::OutputFormat::Text
     }
+}
+
+pub fn build_list_query(
+    where_clauses: &[String],
+    sort_clauses: &[String],
+    limit: Option<usize>,
+    cursor: Option<String>,
+    compatibility_filters: impl IntoIterator<Item = FilterClause>,
+) -> Result<ListQuery, AppError> {
+    let mut query = list_query_from_raw(where_clauses, sort_clauses, limit, cursor)?;
+    query.filters.extend(compatibility_filters);
+    Ok(query)
+}
+
+pub fn render_list_page<T>(
+    tokens: &CommandTokenizer,
+    paged: &PagedResult<T>,
+) -> Result<(), AppError>
+where
+    T: serde::Serialize + Clone + TableRenderable,
+{
+    render_paged_result(tokens, paged, desired_format(tokens))
+}
+
+pub fn contains_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::IContains { is_negated: false },
+        value,
+    )
+}
+
+pub fn equals_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::Equals { is_negated: false },
+        value,
+    )
+}
+
+pub fn lte_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::Lte { is_negated: false },
+        value,
+    )
+}
+
+pub fn want_json(tokens: &CommandTokenizer) -> bool {
+    let opts = tokens.get_options();
+    opts.contains_key("j") || opts.contains_key("json")
+}
+
+#[allow(dead_code)]
+pub fn want_help(tokens: &CommandTokenizer) -> bool {
+    let opts = tokens.get_options();
+    opts.contains_key("h") || opts.contains_key("help")
 }

@@ -5,12 +5,27 @@ use std::collections::HashMap;
 use crate::commands::CliOption;
 use crate::errors::AppError;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionOccurrence {
+    pub key: String,
+    pub value: String,
+}
+
 #[derive(Debug)]
 pub struct CommandTokenizer {
+    raw_tokens: Vec<String>,
     scopes: Vec<String>,
     command: String,
     options: HashMap<String, String>,
+    option_occurrences: Vec<OptionOccurrence>,
     positionals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OptionParseSpec {
+    flag: bool,
+    greedy: bool,
+    nargs: Option<usize>,
 }
 
 impl CommandTokenizer {
@@ -18,9 +33,11 @@ impl CommandTokenizer {
         let tokens = shlex::split(input).ok_or(AppError::InvalidInput)?;
         let option_lookup = Self::build_option_lookup(option_defs);
         let mut tokenizer = CommandTokenizer {
+            raw_tokens: tokens.clone(),
             scopes: Vec::new(),
             command: String::new(),
             options: HashMap::new(),
+            option_occurrences: Vec::new(),
             positionals: Vec::new(),
         };
 
@@ -63,15 +80,20 @@ impl CommandTokenizer {
         Ok(tokenizer)
     }
 
-    fn build_option_lookup(option_defs: &[CliOption]) -> HashMap<String, bool> {
+    fn build_option_lookup(option_defs: &[CliOption]) -> HashMap<String, OptionParseSpec> {
         let mut lookup = HashMap::new();
 
         for opt in option_defs {
+            let spec = OptionParseSpec {
+                flag: opt.flag,
+                greedy: opt.greedy,
+                nargs: opt.nargs,
+            };
             if let Some(short) = opt.short_without_dash() {
-                lookup.insert(short, opt.flag);
+                lookup.insert(short, spec);
             }
             if let Some(long) = opt.long_without_dashes() {
-                lookup.insert(long, opt.flag);
+                lookup.insert(long, spec);
             }
         }
 
@@ -120,17 +142,39 @@ impl CommandTokenizer {
         &mut self,
         tokens: &[String],
         idx: usize,
-        option_lookup: &HashMap<String, bool>,
+        option_lookup: &HashMap<String, OptionParseSpec>,
     ) -> Result<usize, AppError> {
         let token = tokens.get(idx).ok_or(AppError::InvalidInput)?;
         let (key, inline_value) = Self::split_option_token(token)?;
 
+        let parse_spec = option_lookup.get(&key).copied().unwrap_or(OptionParseSpec {
+            flag: false,
+            greedy: false,
+            nargs: None,
+        });
+
         let (value, consumed) = if let Some(value) = inline_value {
-            (value, 1)
+            if let Some(nargs) = parse_spec.nargs {
+                self.consume_fixed_arity_value(tokens, idx, value, nargs, option_lookup)?
+            } else if parse_spec.greedy {
+                self.consume_greedy_value(tokens, idx, value, option_lookup)?
+            } else {
+                (value, 1)
+            }
         } else {
             match option_lookup.get(&key).copied() {
-                Some(true) => (String::new(), 1),
-                Some(false) => {
+                Some(spec) if spec.flag => (String::new(), 1),
+                Some(spec) if spec.nargs.is_some() => self.consume_fixed_arity_value(
+                    tokens,
+                    idx,
+                    String::new(),
+                    spec.nargs.expect("nargs checked above"),
+                    option_lookup,
+                )?,
+                Some(spec) if spec.greedy => {
+                    self.consume_greedy_value(tokens, idx, String::new(), option_lookup)?
+                }
+                Some(_) => {
                     let next = tokens.get(idx + 1).ok_or_else(|| {
                         AppError::ParseError(format!("Option '--{key}' requires a value"))
                     })?;
@@ -159,8 +203,103 @@ impl CommandTokenizer {
 
         self.options
             .insert(key, self.convert_file_and_http_values(&value)?);
+        self.option_occurrences.push(OptionOccurrence {
+            key: token_key(token),
+            value: self.convert_file_and_http_values(&value)?,
+        });
 
         Ok(consumed)
+    }
+
+    fn consume_greedy_value(
+        &self,
+        tokens: &[String],
+        idx: usize,
+        initial: String,
+        option_lookup: &HashMap<String, OptionParseSpec>,
+    ) -> Result<(String, usize), AppError> {
+        let mut values = Vec::new();
+        if !initial.is_empty() {
+            values.push(initial);
+        }
+
+        let mut consumed = 1;
+        while let Some(next) = tokens.get(idx + consumed) {
+            if Self::is_known_option(next, option_lookup) {
+                break;
+            }
+            values.push(next.clone());
+            consumed += 1;
+        }
+
+        if values.is_empty() {
+            let key = tokens
+                .get(idx)
+                .map(|token| {
+                    token
+                        .trim_start_matches('-')
+                        .split('=')
+                        .next()
+                        .unwrap_or(token)
+                })
+                .unwrap_or("option");
+            return Err(AppError::ParseError(format!(
+                "Option '--{key}' requires a value"
+            )));
+        }
+
+        Ok((values.join(" "), consumed))
+    }
+
+    fn consume_fixed_arity_value(
+        &self,
+        tokens: &[String],
+        idx: usize,
+        initial: String,
+        nargs: usize,
+        option_lookup: &HashMap<String, OptionParseSpec>,
+    ) -> Result<(String, usize), AppError> {
+        let mut values = Vec::new();
+        if !initial.is_empty() {
+            values.push(initial);
+        }
+
+        let mut consumed = 1;
+        while values.len() < nargs {
+            let Some(next) = tokens.get(idx + consumed) else {
+                return Err(self.fixed_arity_error(tokens, idx, nargs));
+            };
+
+            if Self::is_known_option(next, option_lookup) {
+                return Err(self.fixed_arity_error(tokens, idx, nargs));
+            }
+
+            values.push(next.clone());
+            consumed += 1;
+        }
+
+        Ok((values.join(" "), consumed))
+    }
+
+    fn fixed_arity_error(&self, tokens: &[String], idx: usize, nargs: usize) -> AppError {
+        let key = tokens
+            .get(idx)
+            .map(|token| {
+                token
+                    .trim_start_matches('-')
+                    .split('=')
+                    .next()
+                    .unwrap_or(token)
+            })
+            .unwrap_or("option");
+        AppError::ParseError(format!("Option '--{key}' requires {nargs} value elements"))
+    }
+
+    fn is_known_option(token: &str, option_lookup: &HashMap<String, OptionParseSpec>) -> bool {
+        let Ok((key, _value)) = Self::split_option_token(token) else {
+            return false;
+        };
+        option_lookup.contains_key(&key)
     }
 
     pub fn convert_file_and_http_values(&self, value: &str) -> Result<String, AppError> {
@@ -200,9 +339,35 @@ impl CommandTokenizer {
         &self.options
     }
 
+    pub fn get_option_occurrences(&self) -> &[OptionOccurrence] {
+        &self.option_occurrences
+    }
+
+    #[cfg(test)]
+    pub fn get_option_values(&self, key: &str) -> Vec<String> {
+        self.option_occurrences
+            .iter()
+            .filter(|occurrence| occurrence.key == key)
+            .map(|occurrence| occurrence.value.clone())
+            .collect()
+    }
+
+    pub fn raw_tokens(&self) -> &[String] {
+        &self.raw_tokens
+    }
+
     pub fn get_positionals(&self) -> &[String] {
         &self.positionals
     }
+}
+
+fn token_key(token: &str) -> String {
+    token
+        .trim_start_matches('-')
+        .split('=')
+        .next()
+        .unwrap_or(token)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -219,6 +384,9 @@ mod tests {
             short: short.map(|s| s.to_string()),
             long: long.map(|l| l.to_string()),
             flag,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
             help: String::new(),
             field_type: TypeId::of::<String>(),
             field_type_help: "string".to_string(),
@@ -276,5 +444,130 @@ mod tests {
             Some(&"whatever".to_string())
         );
         assert_eq!(tokens.get_options().get("json"), Some(&String::new()));
+    }
+
+    #[test]
+    fn repeated_option_occurrences_are_preserved_in_order() {
+        let options = vec![opt("where", None, Some("--where"), false)];
+
+        let tokens = CommandTokenizer::new(
+            "class list --where 'name icontains foo' --where 'description contains bar'",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("where"),
+            vec![
+                "name icontains foo".to_string(),
+                "description contains bar".to_string()
+            ]
+        );
+        assert_eq!(
+            tokens
+                .get_options()
+                .get("where")
+                .expect("last value should be preserved in flat view"),
+            "description contains bar"
+        );
+    }
+
+    #[test]
+    fn fixed_arity_option_consumes_exactly_three_elements() {
+        let mut where_opt = opt("where", None, Some("--where"), false);
+        where_opt.nargs = Some(3);
+        let options = vec![where_opt, opt("limit", None, Some("--limit"), false)];
+
+        let tokens = CommandTokenizer::new(
+            "namespace list --where description icontains foo --limit 10",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("where"),
+            vec!["description icontains foo".to_string()]
+        );
+        assert_eq!(tokens.get_options().get("limit"), Some(&"10".to_string()));
+    }
+
+    #[test]
+    fn fixed_arity_option_requires_exact_value_count() {
+        let mut where_opt = opt("where", None, Some("--where"), false);
+        where_opt.nargs = Some(3);
+        let options = vec![where_opt, opt("json", Some("-j"), Some("--json"), true)];
+
+        let err = CommandTokenizer::new("namespace list --where --json", "list", &options)
+            .expect_err("missing fixed-arity value should fail");
+
+        match err {
+            AppError::ParseError(message) => {
+                assert!(message.contains("--where"));
+                assert!(message.contains("requires 3 value elements"));
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repeated_fixed_arity_options_split_on_next_same_option() {
+        let mut where_opt = opt("where", None, Some("--where"), false);
+        where_opt.nargs = Some(3);
+        let options = vec![where_opt];
+
+        let tokens = CommandTokenizer::new(
+            "namespace list --where name contains foo --where description contains bar",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("where"),
+            vec![
+                "name contains foo".to_string(),
+                "description contains bar".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn repeated_sort_option_occurrences_are_preserved_in_order() {
+        let mut sort_opt = opt("sort", None, Some("--sort"), false);
+        sort_opt.nargs = Some(2);
+        let options = vec![sort_opt];
+
+        let tokens = CommandTokenizer::new(
+            "namespace list --sort name asc --sort created_at desc",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("sort"),
+            vec!["name asc".to_string(), "created_at desc".to_string()]
+        );
+    }
+
+    #[test]
+    fn fixed_arity_option_accepts_quoted_values_with_spaces() {
+        let mut where_opt = opt("where", None, Some("--where"), false);
+        where_opt.nargs = Some(3);
+        let options = vec![where_opt];
+
+        let tokens = CommandTokenizer::new(
+            "namespace list --where description contains 'bar baz'",
+            "list",
+            &options,
+        )
+        .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_option_values("where"),
+            vec!["description contains bar baz".to_string()]
+        );
     }
 }

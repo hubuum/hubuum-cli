@@ -1,8 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, Token, LitStr, Result};
-use syn::{parse_macro_input, DeriveInput, Data, Fields};
 use darling::FromField;
+use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 #[derive(FromField, Default)]
 #[darling(default, attributes(option))]
@@ -12,99 +11,61 @@ struct FieldOpts {
     help: Option<String>,
     required: Option<bool>,
     flag: Option<bool>,
+    greedy: Option<bool>,
+    nargs: Option<usize>,
     autocomplete: Option<syn::Path>,
 }
 
-#[derive(Debug)]
-struct CommandInfo {    
-    about: Option<String>,
-    long_about: Option<String>,
-    examples: Option<String>,
-}
-
-impl Parse for CommandInfo {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut info = CommandInfo {
-            about: None,
-            long_about: None,
-            examples: None,
-        };
-
-        while !input.is_empty() {
-            let ident: syn::Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
-            let value: LitStr = input.parse()?;
-
-            match ident.to_string().as_str() {
-                "about" => info.about = Some(value.value()),
-                "long_about" => info.long_about = Some(value.value()),
-                "examples" => info.examples = Some(value.value()),
-                _ => return Err(input.error("Unknown field in command_info")),
-            }
-
-            if !input.is_empty() {
-                input.parse::<Token![,]>()?;
-            }
-        }
-
-        Ok(info)
-    }
-}
-
-#[proc_macro_derive(CliCommand, attributes(option, command_info))]
-pub fn derive_cli_command(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(CommandArgs, attributes(option))]
+pub fn derive_command_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-
-    let command_info = input.attrs.iter()
-        .find(|attr| attr.path().is_ident("command_info"))
-        .map(|attr| attr.parse_args::<CommandInfo>().expect("Failed to parse command_info"))
-        .unwrap_or_else(|| CommandInfo { about: None, long_about: None, examples: None });
 
     let fields = match input.data {
         Data::Struct(ref data) => {
             match data.fields {
                 Fields::Named(ref fields) => fields,
-                _ => panic!("CliCommand can only be derived for structs with named fields"),
+                _ => panic!("CommandArgs can only be derived for structs with named fields"),
             }
         },
-        _ => panic!("CliCommand can only be derived for structs"),
+        _ => panic!("CommandArgs can only be derived for structs"),
     };
 
-    let mut options: Vec<_> = fields.named.iter().map(|f| {
+    let options: Vec<_> = fields.named.iter().map(|f| {
         let opts = FieldOpts::from_field(f).unwrap_or_default();
         let field_name = f.ident.as_ref().unwrap();
         let field_type = &f.ty;
-        
+
         let short_opt = opts.short.map(|c| quote! { Some(format!("-{}", #c)) }).unwrap_or(quote! { None });
         let long_opt = opts.long.as_ref().map(
             |field_name| quote! { Some(format!("--{}", #field_name)) },
         ).unwrap_or(quote! { None });
         let help = opts.help.as_ref().map(|h| quote! { #h }).unwrap_or(quote! { String::new() });
 
-        let is_optional = match field_type {
-            syn::Type::Path(type_path) => {
-                type_path.path.segments.last()
-                    .map(|seg| seg.ident == "Option")
-                    .unwrap_or(false)
-            },
-            _ => false,
-        };
+        let is_optional = is_outer_type(field_type, "Option");
+        let is_vec = is_outer_type(field_type, "Vec");
 
-        let required = if is_optional {
+        let required = if is_optional || is_vec {
             quote! { false }
         } else {
             opts.required.map(|r| quote! { #r }).unwrap_or(quote! { true })
         };
+        let repeatable = if is_vec {
+            quote! { true }
+        } else {
+            quote! { false }
+        };
 
         let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
+        let greedy = opts.greedy.map(|g| quote! { #g }).unwrap_or(quote! { false });
+        let nargs = opts.nargs.map(|n| quote! { Some(#n) }).unwrap_or(quote! { None });
 
         let autocomplete_fn = opts.autocomplete.as_ref().map(|fn_path| {
-            quote! { Some(#fn_path as fn(&crate::commandlist::CommandList, &str, &[String]) -> Vec<String>) }
+            quote! { Some(#fn_path as fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>) }
         }).unwrap_or(quote! { None });
 
         quote! {
-            CliOption {
+            crate::commands::CliOption {
                 name: stringify!(#field_name).to_string(),
                 short: #short_opt,
                 long: #long_opt,
@@ -113,38 +74,13 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                 field_type: std::any::TypeId::of::<#field_type>(),
                 required: #required,
                 flag: #flag,
+                greedy: #greedy,
+                nargs: #nargs,
+                repeatable: #repeatable,
                 autocomplete: #autocomplete_fn,
             }
         }
     }).collect();
-
-    options.push(quote! {
-        CliOption {
-            name: "help".to_string(),
-            short: Some("-h".to_string()),
-            long: Some("--help".to_string()),
-            help: "Prints help information".to_string(),
-            field_type_help: "bool".to_string(),
-            field_type: std::any::TypeId::of::<bool>(),
-            required: false,
-            flag: true,
-            autocomplete: None,
-        }
-    });
-
-    options.push(quote! {
-        CliOption {
-            name: "json".to_string(),
-            short: Some("-j".to_string()),
-            long: Some("--json".to_string()),
-            help: "Output as JSON".to_string(),
-            field_type_help: "bool".to_string(),
-            field_type: std::any::TypeId::of::<bool>(),
-            required: false,
-            flag: true,
-            autocomplete: None,
-        }
-    });
 
 
     let field_setters: Vec<_> = fields.named.iter().map(|f| {
@@ -153,12 +89,11 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
         let field_type = &f.ty;
 
         // are we an Option<T>?
-        let is_optional = matches!(
-            &f.ty,
-            syn::Type::Path(tp)
-                if tp.path.segments.last().unwrap().ident == "Option"
-        );
+        let is_optional = is_outer_type(field_type, "Option");
+        let is_vec = is_outer_type(field_type, "Vec");
         let is_flag = opts.flag.unwrap_or(false);
+        let inner_vec_type = vec_inner_type(field_type);
+        let inner_option_type = option_inner_type(field_type);
 
         // Use the *stripped* names here, exactly as the tokenizer stores them.
         //   opts.short = Some("f"), opts.long = Some("foo")
@@ -177,12 +112,44 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
                 quote! { key == #long }
             }
             (None, None) => panic!(
-                "CliCommand derive: field `{}` has neither short nor long!",
+                "CommandArgs derive: field `{}` has neither short nor long!",
                 stringify!(#field_name)
             ),
         };
 
-        if is_flag {
+        if is_vec {
+            let inner_type = inner_vec_type.expect("vec type should have inner type");
+            if is_flag {
+                panic!(
+                    "CommandArgs derive: Vec fields cannot be declared as flags: `{}`",
+                    stringify!(#field_name)
+                );
+            }
+
+            let parse_value = quote! {
+                value.parse::<#inner_type>().map_err(|_| crate::errors::AppError::ParseError(
+                    format!(
+                        "Option '{}' has value '{}' (expected type: {})",
+                        key, value,
+                        stringify!(#inner_type).to_lowercase()
+                    )
+                ))?
+            };
+
+            quote! {
+                {
+                    let mut values = Vec::new();
+                    for occurrence in tokens.get_option_occurrences() {
+                        let key = occurrence.key.as_str();
+                        let value = occurrence.value.as_str();
+                        if #matcher {
+                            values.push(#parse_value);
+                        }
+                    }
+                    obj.#field_name = values;
+                }
+            }
+        } else if is_flag {
             // boolean / flag field
             if is_optional {
                 // e.g. Option<bool>
@@ -201,14 +168,15 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
             }
         } else if is_optional {
             // Option<T> with a value
-            quote! {
-                if #matcher {
-                    obj.#field_name = Some(
-                        value.parse().map_err(|_| AppError::ParseError(
-                            format!(
-                                "Option '{}' has value '{}' (expected type: {})",
-                                key, value,
-                                stringify!(#field_type).to_lowercase()
+            let inner_type = inner_option_type.expect("option type should have inner type");
+                quote! {
+                    if #matcher {
+                        obj.#field_name = Some(
+                            value.parse::<#inner_type>().map_err(|_| crate::errors::AppError::ParseError(
+                                format!(
+                                    "Option '{}' has value '{}' (expected type: {})",
+                                    key, value,
+                                stringify!(#inner_type).to_lowercase()
                             )
                         ))?
                     );
@@ -216,12 +184,12 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
             }
         } else {
             // T with a value
-            quote! {
-                if #matcher {
-                    obj.#field_name = value.parse().map_err(|_| AppError::ParseError(
-                        format!(
-                            "Option '{}' has value '{}' (expected type: {})",
-                            key, value,
+                quote! {
+                    if #matcher {
+                        obj.#field_name = value.parse().map_err(|_| crate::errors::AppError::ParseError(
+                            format!(
+                                "Option '{}' has value '{}' (expected type: {})",
+                                key, value,
                             stringify!(#field_type).to_lowercase()
                         )
                     ))?;
@@ -229,41 +197,17 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
             }
         }
     }).collect();
-
-    
-    let cmd_about = prepare_option_string(&command_info.about);
-    let cmd_long_about = prepare_option_string(&command_info.long_about);
-    let cmd_examples = prepare_option_string(&command_info.examples);
-
     let expanded = quote! {
-        impl CliCommandInfo for #name {
-            fn options(&self) -> Vec<CliOption> {
+        impl crate::commands::CommandArgs for #name {
+            fn options() -> Vec<crate::commands::CliOption> {
                 vec![
                     #(#options),*
                 ]
             }
 
-            fn name(&self) -> String {
-                stringify!(#name).to_string()
-            }
-    
-            fn about(&self) -> Option<String> {
-                #cmd_about
-            }
-
-            fn long_about(&self) -> Option<String> {
-                #cmd_long_about
-            }
-
-            fn examples(&self) -> Option<String> {
-                #cmd_examples
-            }
-        }
-
-        impl #name {
-            pub fn new_from_tokens(&self, tokens: &CommandTokenizer) -> Result<Self, AppError> {
+            fn parse_tokens(tokens: &crate::tokenizer::CommandTokenizer) -> Result<Self, crate::errors::AppError> {
                 let mut obj = Self::default();
-                obj.validate(tokens)?;
+                crate::commands::validate_command_args::<Self>(tokens)?;
 
                 for (key, value) in tokens.get_options() {
                     #(#field_setters)*
@@ -271,35 +215,55 @@ pub fn derive_cli_command(input: TokenStream) -> TokenStream {
 
                 Ok(obj)
             }
-
-            pub fn desired_format(&self, tokens: &CommandTokenizer) -> crate::models::OutputFormat {
-                if self.want_json(tokens) {
-                    crate::models::OutputFormat::Json
-                } else {
-                    crate::models::OutputFormat::Text
-                }
-            }
-
-            pub fn want_json(&self, tokens: &CommandTokenizer) -> bool {
-                let opts = tokens.get_options();
-                opts.contains_key("j") || opts.contains_key("json")
-            }
-
-            pub fn want_help(&self, tokens: &CommandTokenizer) -> bool {
-                let opts = tokens.get_options();
-                opts.contains_key("h") || opts.contains_key("help")
-            }
         }
 
+        impl #name {
+            pub fn parse_tokens(tokens: &crate::tokenizer::CommandTokenizer) -> Result<Self, crate::errors::AppError> {
+                <Self as crate::commands::CommandArgs>::parse_tokens(tokens)
+            }
+        }
     };
 
     TokenStream::from(expanded)
 }
 
-// Helper function to prepare Option<String> values
-fn prepare_option_string(opt: &Option<String>) -> proc_macro2::TokenStream {
-    match opt {
-        Some(s) => quote! { Some(#s.to_string()) },
-        None => quote! { None },
+fn is_outer_type(field_type: &syn::Type, expected: &str) -> bool {
+    match field_type {
+        syn::Type::Path(type_path) => type_path
+            .path
+            .segments
+            .last()
+            .map(|seg| seg.ident == expected)
+            .unwrap_or(false),
+        _ => false,
     }
+}
+
+fn option_inner_type(field_type: &syn::Type) -> Option<&syn::Type> {
+    path_inner_type(field_type, "Option")
+}
+
+fn vec_inner_type(field_type: &syn::Type) -> Option<&syn::Type> {
+    path_inner_type(field_type, "Vec")
+}
+
+fn path_inner_type<'a>(field_type: &'a syn::Type, expected: &str) -> Option<&'a syn::Type> {
+    let syn::Type::Path(type_path) = field_type else {
+        return None;
+    };
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != expected {
+        return None;
+    }
+
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    arguments.args.iter().find_map(|arg| {
+        if let syn::GenericArgument::Type(inner_type) = arg {
+            Some(inner_type)
+        } else {
+            None
+        }
+    })
 }

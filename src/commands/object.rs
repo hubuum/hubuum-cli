@@ -1,38 +1,102 @@
 use std::collections::HashMap;
 
-use cli_command_derive::CliCommand;
-
-use hubuum_client::{
-    Authenticated, FilterOperator, IntoResourceFilter, Object, ObjectPatch, ObjectPost,
-    QueryFilter, SyncClient,
-};
+use cli_command_derive::CommandArgs;
 use jqesque::Jqesque;
 use jsonpath_rust::JsonPath;
 
 use serde::{Deserialize, Serialize};
 
-use super::shared::prettify_slice_path;
-use super::{CliCommand, CliCommandInfo, CliOption};
+use super::builder::{catalog_command, CommandDocs};
+use super::{
+    build_list_query, contains_clause, desired_format, equals_clause, render_list_page, want_json,
+    CliCommand,
+};
+use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{classes, namespaces, objects_from_class};
-use crate::commands::shared::find_entities_by_ids;
+use crate::autocomplete::{classes, namespaces, object_sort, object_where, objects_from_class};
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, FormattedObject, OutputFormatter};
+use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
+use crate::services::{AppServices, CreateObjectInput, ObjectUpdateInput};
 use crate::tokenizer::CommandTokenizer;
+
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["object"],
+            catalog_command(
+                "create",
+                ObjectNew::default(),
+                CommandDocs {
+                    about: Some("Create an object"),
+                    long_about: Some(
+                        "Create a new object in a specific class with the specified properties.",
+                    ),
+                    examples: Some(
+                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "list",
+                ObjectList::default(),
+                CommandDocs {
+                    about: Some("List objects"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "delete",
+                ObjectDelete::default(),
+                CommandDocs {
+                    about: Some("Delete an object"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "modify",
+                ObjectModify::default(),
+                CommandDocs {
+                    about: Some("Modify an object"),
+                    long_about: Some(
+                        "Modify an object in a specific class with the specified properties.",
+                    ),
+                    examples: Some(
+                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
+--name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "show",
+                ObjectInfo::default(),
+                CommandDocs {
+                    about: Some("Show object details"),
+                    ..CommandDocs::default()
+                },
+            ),
+        );
+}
 
 trait GetObjectname {
     fn objectname(&self) -> Option<String>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Create a object class",
-    long_about = "Create a new object in a specific class with the specified properties.",
-    examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectNew {
     #[option(short = "n", long = "name", help = "Name of the object")]
     pub name: String,
@@ -61,51 +125,22 @@ pub struct ObjectNew {
 }
 
 impl CliCommand for ObjectNew {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let namespace = client.namespaces().select_by_name(&new.namespace)?;
-        let class = client.classes().select_by_name(&new.class)?;
-
-        let result = client.objects(class.id()).create_raw(ObjectPost {
-            name: new.name.clone(),
-            hubuum_class_id: class.id(),
-            namespace_id: namespace.id(),
-            description: new.description.clone(),
-            data: new.data.clone(),
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        let object = services.gateway().create_object(CreateObjectInput {
+            name: new.name,
+            class_name: new.class,
+            namespace: new.namespace,
+            description: new.description,
+            data: new.data,
         })?;
 
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id(), namespace.resource().clone());
-
-        let object = FormattedObject::new(&result, &classmap, &nsmap);
-
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }
 
         Ok(())
-    }
-}
-
-impl IntoResourceFilter<Object> for &ObjectInfo {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
     }
 }
 
@@ -115,7 +150,7 @@ impl GetObjectname for &ObjectInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectInfo {
     #[option(
         short = "n",
@@ -147,36 +182,19 @@ pub struct ObjectInfo {
 }
 
 impl CliCommand for ObjectInfo {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 0)?;
 
-        let class = client.classes().select_by_name(&query.class)?;
         let object_name = query
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = class.object_by_name(object_name)?;
+        let object = services
+            .gateway()
+            .object_details(&query.class, object_name)?;
 
-        let namespace = client
-            .namespaces()
-            .find()
-            .add_filter_id(object.resource().namespace_id)
-            .execute_expecting_single_result()?;
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id, namespace.clone());
-
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let object = FormattedObject::new(object.resource(), &classmap, &nsmap);
-
-        if self.want_json(tokens) {
+        if want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object)?)?;
             return Ok(());
         }
@@ -192,6 +210,7 @@ impl CliCommand for ObjectInfo {
         }
 
         let json_data = object.data.clone().unwrap();
+        append_line("")?;
 
         if let Some(jsonpath_expr) = &query.jsonpath {
             let results: Vec<_> = json_data
@@ -205,7 +224,7 @@ impl CliCommand for ObjectInfo {
             let mut key_values = HashMap::new();
             for result in results {
                 let pretty_path = prettify_slice_path(&result.clone().path());
-                let value = result.val();
+                let value = display_json_value(result.val());
                 key_values.insert(pretty_path, value);
             }
 
@@ -234,7 +253,7 @@ impl CliCommand for ObjectInfo {
                     .map_or(15, |len| len.max(15));
 
                 for (key, value) in sorted_map {
-                    append_key_value(key, value, padding)?;
+                    append_key_value(key, display_json_value(&value), padding)?;
                 }
             } else {
                 add_warning("JSON is not an object")?;
@@ -245,7 +264,35 @@ impl CliCommand for ObjectInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+fn display_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => value.clone(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::display_json_value;
+
+    #[test]
+    fn display_json_value_unquotes_strings() {
+        assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    fn display_json_value_keeps_non_scalars_as_json() {
+        assert_eq!(display_json_value(&json!(["a", "b"])), "[\"a\",\"b\"]");
+        assert_eq!(display_json_value(&json!({"k": "v"})), "{\"k\":\"v\"}");
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectDelete {
     #[option(
         short = "n",
@@ -264,35 +311,26 @@ pub struct ObjectDelete {
 }
 
 impl CliCommand for ObjectDelete {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let mut query = self.new_from_tokens(tokens)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
         query.name = objectname_or_pos(&query, tokens, 1)?;
 
         let class_name = query
             .class
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let class = client.classes().select_by_name(class_name)?;
-
         let object_name = query
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = class.object_by_name(object_name)?;
-
-        client.objects(class.id()).delete(object.id())?;
+        services.gateway().delete_object(class_name, object_name)?;
 
         let message = format!(
             "Object '{}' in class '{}' deleted successfully",
-            object.resource().name,
-            class.resource().name
+            object_name, class_name
         );
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -325,7 +363,14 @@ where
     Ok(query.objectname().clone())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
+fn prettify_slice_path(path: &str) -> String {
+    path.trim_start_matches('$')
+        .replace("']['", ".")
+        .replace("['", "")
+        .replace("']", "")
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectList {
     #[option(
         short = "c",
@@ -333,7 +378,7 @@ pub struct ObjectList {
         help = "Name of the class",
         autocomplete = "classes"
     )]
-    pub class: String,
+    pub class: Option<String>,
     #[option(
         short = "n",
         long = "name",
@@ -343,70 +388,50 @@ pub struct ObjectList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: Option<String>,
-}
-
-impl IntoResourceFilter<Object> for &ObjectList {
-    fn into_resource_filter(self) -> Vec<QueryFilter> {
-        let mut filters = vec![];
-        if let Some(name) = &self.name {
-            filters.push(QueryFilter {
-                key: "name".to_string(),
-                value: name.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        if let Some(description) = &self.description {
-            filters.push(QueryFilter {
-                key: "description".to_string(),
-                value: description.clone(),
-                operator: FilterOperator::IContains { is_negated: false },
-            });
-        }
-        filters
-    }
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "object_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "object_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
 impl CliCommand for ObjectList {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new: ObjectList = self.new_from_tokens(tokens)?;
-
-        let class = client.classes().select_by_name(&new.class)?;
-
-        let objects = client.objects(class.id()).filter(&new)?;
-
-        if objects.is_empty() {
-            append_line("No objects found")?;
-            return Ok(());
-        }
-
-        let classmap = find_entities_by_ids(&client.classes(), &objects, |o| o.hubuum_class_id)?;
-        let nsmap = find_entities_by_ids(&client.namespaces(), &objects, |o| o.namespace_id)?;
-
-        let objects = objects
-            .iter()
-            .map(|o| FormattedObject::new(o, &classmap, &nsmap))
-            .collect::<Vec<_>>();
-
-        match self.desired_format(tokens) {
-            OutputFormat::Json => objects.format_json_noreturn()?,
-            OutputFormat::Text => objects.format_noreturn()?,
-        }
-
-        Ok(())
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query: ObjectList = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [
+                query.class.map(|value| equals_clause("class", value)),
+                query.name.map(|value| contains_clause("name", value)),
+                query
+                    .description
+                    .map(|value| contains_clause("description", value)),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
+        let objects = services.gateway().list_objects(&list_query)?;
+        render_list_page(tokens, &objects)
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Modify an object",
-    long_about = "Modify an object in a specific class with the specified properties.",
-    examples = r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectModify {
     #[option(
         short = "n",
@@ -445,53 +470,32 @@ pub struct ObjectModify {
 }
 
 impl CliCommand for ObjectModify {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let class = client.classes().select_by_name(&new.class)?;
-        let object = class.object_by_name(&new.name)?;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        let object = services.gateway().object_details(&new.class, &new.name)?;
 
-        let mut patch = ObjectPatch::default();
-
-        if let Some(data) = &new.data.clone() {
+        let data = if let Some(data) = &new.data {
             let jqesque = data.parse::<Jqesque>()?;
             let mut json_data = serde_json::Value::Null;
-            if object.resource().data.is_some() {
-                json_data = object.resource().data.as_ref().unwrap().clone();
+            if let Some(current_data) = object.data.clone() {
+                json_data = current_data;
             }
             jqesque.apply_to(&mut json_data)?;
-            patch.data = Some(json_data);
-        }
-
-        if let Some(namespace) = &new.namespace {
-            let namespace = client.namespaces().select_by_name(namespace)?;
-            patch.namespace_id = Some(namespace.id());
+            Some(json_data)
+        } else {
+            None
         };
+        let object = services.gateway().update_object(ObjectUpdateInput {
+            name: new.name,
+            class_name: new.class,
+            rename: new.rename,
+            namespace: new.namespace,
+            reclass: new.reclass,
+            description: new.description,
+            data,
+        })?;
 
-        if let Some(rename) = &new.rename {
-            patch.name = Some(rename.clone());
-        }
-
-        if let Some(description) = &new.description {
-            patch.description = Some(description.clone());
-        }
-
-        let result = client.objects(class.id()).update_raw(object.id(), patch)?;
-
-        let mut classmap = HashMap::new();
-        classmap.insert(class.id(), class.resource().clone());
-
-        let namespace = client.namespaces().select(result.namespace_id)?;
-
-        let mut nsmap = HashMap::new();
-        nsmap.insert(namespace.id(), namespace.resource().clone());
-
-        let object = FormattedObject::new(&result, &classmap, &nsmap);
-
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }

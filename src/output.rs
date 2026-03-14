@@ -12,21 +12,54 @@ use crate::errors::AppError;
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutputSnapshot {
+    pub lines: Vec<String>,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+    pub next_page_command: Option<String>,
+}
+
+impl OutputSnapshot {
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty() && self.warnings.is_empty() && self.errors.is_empty()
+    }
+
+    pub fn render(&self) -> String {
+        let mut rendered = Vec::new();
+
+        rendered.extend(
+            self.warnings
+                .iter()
+                .map(|warning| format!("Warning: {warning}").yellow().to_string()),
+        );
+        rendered.extend(
+            self.errors
+                .iter()
+                .map(|error| format!("Error: {error}").red().to_string()),
+        );
+        rendered.extend(self.lines.iter().cloned());
+
+        if rendered.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", rendered.join("\n"))
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct OutputBuffer {
     lines: Vec<String>,
     filter: Option<(Regex, bool)>,
     warnings: Vec<String>,
     errors: Vec<String>,
+    next_page_command: Option<String>,
 }
 
 impl OutputBuffer {
     fn new() -> Self {
-        OutputBuffer {
-            lines: Vec::new(),
-            filter: None,
-            warnings: Vec::new(),
-            errors: Vec::new(),
-        }
+        Self::default()
     }
 
     fn add_warning(&mut self, message: String) {
@@ -48,55 +81,45 @@ impl OutputBuffer {
         Ok(())
     }
 
+    fn set_next_page_command(&mut self, command: String) {
+        self.next_page_command = Some(command);
+    }
+
     fn clear_filter(&mut self) {
         self.filter = None;
     }
 
-    fn flush(&mut self) {
-        debug!("Flushing output buffer ({} lines)", self.lines.len());
-
-        for warning in &self.warnings {
-            println!("{}", format!("Warning: {warning}").yellow());
-        }
-        self.warnings.clear();
-
-        for error in &self.errors {
-            println!("{}", format!("Error: {error}").red());
-        }
-        self.errors.clear();
-
-        if let Some((regex, invert)) = &self.filter {
-            debug!("Filtering output buffer with pattern='{regex}', invert={invert}");
-            for line in &self.lines {
-                let matches = regex.is_match(line);
-                if matches != *invert {
-                    println!("{line}");
-                }
-            }
-        } else {
-            for line in &self.lines {
-                println!("{line}");
-            }
-        }
+    fn reset(&mut self) {
         self.lines.clear();
+        self.warnings.clear();
+        self.errors.clear();
+        self.filter = None;
+        self.next_page_command = None;
+    }
+
+    fn take_snapshot(&mut self) -> OutputSnapshot {
+        let lines = if let Some((regex, invert)) = &self.filter {
+            self.lines
+                .iter()
+                .filter(|line| regex.is_match(line) != *invert)
+                .cloned()
+                .collect()
+        } else {
+            self.lines.clone()
+        };
+
+        let snapshot = OutputSnapshot {
+            lines,
+            warnings: self.warnings.clone(),
+            errors: self.errors.clone(),
+            next_page_command: self.next_page_command.clone(),
+        };
+
+        self.reset();
+        snapshot
     }
 }
 
-/// Add a warning message to the output buffer.
-///
-/// This function adds a warning message that will always be displayed when flushing the output.
-///
-/// ## Examples
-///
-/// ```
-/// use crate::output::add_warning;
-///
-/// add_warning("This is a warning message")?;
-/// ```
-///
-/// ## Errors
-///
-///  - OutputError::LockError if the output buffer cannot be locked.
 pub fn add_warning<T: Display>(message: T) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
@@ -105,21 +128,6 @@ pub fn add_warning<T: Display>(message: T) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Add an error message to the output buffer.
-///
-/// This function adds an error message that will always be displayed when flushing the output.
-///
-/// ## Examples
-///
-/// ```
-/// use crate::output::add_error;
-///
-/// add_error("This is an error message")?;
-/// ```
-///
-/// ## Errors
-///
-///  - OutputError::LockError if the output buffer cannot be locked.
 pub fn add_error<T: Display>(message: T) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
@@ -128,21 +136,6 @@ pub fn add_error<T: Display>(message: T) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Append a line to the output buffer.
-///
-/// This function appends the provided line to the output buffer.
-///
-/// ## Examples
-///
-/// ```
-/// use crate::output::append_line;
-///
-/// append_line("Hello, world!")?;
-/// ```
-///
-/// ## Errors
-///
-///  - OutputError::LockError if the output buffer cannot be locked.
 pub fn append_line<T: Display>(line: T) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
@@ -151,22 +144,6 @@ pub fn append_line<T: Display>(line: T) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Append multiple lines to the output buffer.
-///
-/// This function appends each line in the provided slice to the output buffer.
-///
-/// ## Examples
-///
-/// ```
-/// use crate::output::append_lines;
-///
-/// let lines = vec!["Line 1", "Line 2", "Line 3"];
-/// append_lines(&lines)?;
-/// ````
-///
-/// ## Errors
-///
-///  - OutputError::LockError if the output buffer cannot be locked.
 #[allow(dead_code)]
 pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
     let mut buffer = OUTPUT_BUFFER.lock().map_err(|_| AppError::LockError)?;
@@ -176,24 +153,6 @@ pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Append a debug representation of a value to the output buffer.
-///
-/// This function uses the `Debug` trait to format the value, line by line into
-/// the output buffer.
-///
-/// ## Examples
-///
-/// ```
-/// use crate:output::append_debug;
-///
-/// let value = vec![1, 2, 3];
-/// append_debug(value)?;
-/// ````
-///
-/// ## Errors
-///
-///  - OutputError::FormatError if the value cannot be formatted.
-///  - OutputError::LockError if the output buffer cannot be locked.
 #[allow(dead_code)]
 pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
     let mut debug_output = String::new();
@@ -230,47 +189,62 @@ pub fn append_key_value<K: Display, V: Display>(
     append_line(line)
 }
 
-/// Flush the output buffer to stdout.
-///
-/// This function flushes the output buffer to stdout, printing each line in the
-/// buffer. If a filter is set, only lines matching the filter will be printed.
-///
-/// ## Examples
-///
-/// ```
-/// use crate::output::flush_output;
-///
-/// flush_output()?;
-/// ````
-///
-/// ## Errors
-///  - OutputError::LockError if the output buffer cannot be locked.
-pub fn flush_output() -> Result<(), AppError> {
+pub fn reset_output() -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?
-        .flush();
+        .reset();
     Ok(())
 }
 
-/// Set a filter on the output buffer.
-///
-/// This function sets a regular expression filter on the output buffer. By default,
-/// only lines matching the expression will be printed. If the invert flag is set,
-/// lines matching the pattern will be excluded from the output.
+pub fn take_output() -> Result<OutputSnapshot, AppError> {
+    Ok(OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .take_snapshot())
+}
+
 pub fn set_filter(pattern: String, invert: bool) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?
-        .set_filter(pattern, invert)?;
-    Ok(())
+        .set_filter(pattern, invert)
 }
 
-/// Clear the filter on the output buffer.
 pub fn clear_filter() -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?
         .clear_filter();
     Ok(())
+}
+
+pub fn set_next_page_command(command: String) -> Result<(), AppError> {
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .set_next_page_command(command);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+
+    use super::{append_line, reset_output, set_filter, take_output};
+
+    #[test]
+    #[serial]
+    fn take_output_applies_filter_and_resets_buffer() {
+        reset_output().expect("buffer should reset");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+        set_filter("^b".to_string(), false).expect("filter should set");
+
+        let snapshot = take_output().expect("snapshot should be available");
+        assert_eq!(snapshot.lines, vec!["beta".to_string()]);
+
+        let empty = take_output().expect("buffer should be empty after take");
+        assert!(empty.is_empty());
+    }
 }

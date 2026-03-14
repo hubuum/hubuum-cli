@@ -1,160 +1,149 @@
-use hubuum_client::{Class, ClassRelation, HubuumDateTime, Object, ObjectRelation};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tabled::Tabled;
+use crate::domain::{
+    ResolvedClassRelationRecord, ResolvedObjectRelationRecord, ResolvedRelatedClassRecord,
+    ResolvedRelatedObjectRecord,
+};
 
-use super::{append_key_value, tabled_display, OutputFormatter};
-use crate::config::get_config;
-use crate::errors::AppError;
+use super::{DetailRenderable, TableRenderable};
 
-// A wrapper for classrelations that can be outputted where class_ids are replaced with their names
-#[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
-pub struct FormattedClassRelation {
-    pub id: i32,
-    #[tabled(rename = "FromClass")]
-    pub from_class: String,
-    #[tabled(rename = "ToClass")]
-    pub to_class: String,
-    #[tabled(display = "tabled_display", rename = "Created")]
-    pub created_at: HubuumDateTime,
-    #[tabled(display = "tabled_display", rename = "Updated")]
-    pub updated_at: HubuumDateTime,
-}
-
-#[derive(Debug, Tabled, Clone, Serialize, Deserialize)]
-pub struct FormattedObjectRelation {
-    pub id: i32,
-    #[tabled(rename = "FromClass")]
-    pub from_class: String,
-    #[tabled(rename = "ToClass")]
-    pub to_class: String,
-    #[tabled(rename = "FromObject")]
-    pub from_object: String,
-    #[tabled(rename = "ToObject")]
-    pub to_object: String,
-    #[tabled(display = "tabled_display", rename = "Created")]
-    pub created_at: HubuumDateTime,
-    #[tabled(display = "tabled_display", rename = "Updated")]
-    pub updated_at: HubuumDateTime,
-}
-
-impl FormattedClassRelation {
-    pub fn new(class_relation: &ClassRelation, classmap: &HashMap<i32, Class>) -> Self {
-        let from_class = if classmap.get(&class_relation.from_hubuum_class_id).is_some() {
-            classmap
-                .get(&class_relation.from_hubuum_class_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        let to_class = if classmap.get(&class_relation.to_hubuum_class_id).is_some() {
-            classmap
-                .get(&class_relation.to_hubuum_class_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        Self {
-            id: class_relation.id,
-            from_class,
-            to_class,
-            created_at: class_relation.created_at.clone(),
-            updated_at: class_relation.updated_at.clone(),
-        }
+impl DetailRenderable for ResolvedClassRelationRecord {
+    fn detail_rows(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("ClassA", self.class_a.clone()),
+            ("ClassB", self.class_b.clone()),
+            ("Created", self.created_at.to_string()),
+            ("Updated", self.updated_at.to_string()),
+        ]
     }
 }
 
-impl OutputFormatter for FormattedClassRelation {
-    fn format(&self) -> Result<Self, AppError> {
-        let padding = get_config().output.padding;
-        append_key_value("ClassFrom", &self.from_class, padding)?;
-        append_key_value("ClassTo", &self.to_class, padding)?;
-        append_key_value("Created", &self.created_at, padding)?;
-        append_key_value("Updated", &self.updated_at, padding)?;
-        Ok(self.clone())
+impl TableRenderable for ResolvedClassRelationRecord {
+    fn headers() -> Vec<&'static str> {
+        vec!["id", "ClassA", "ClassB", "Created", "Updated"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.id.to_string(),
+            self.class_a.clone(),
+            self.class_b.clone(),
+            self.created_at.to_string(),
+            self.updated_at.to_string(),
+        ]
     }
 }
 
-impl FormattedObjectRelation {
-    pub fn new(
-        object_relation: &ObjectRelation,
-        class_relation: &ClassRelation,
-        objectmap: &HashMap<i32, Object>,
-        classmap: &HashMap<i32, Class>,
-    ) -> Self {
-        let from_class = if classmap.get(&class_relation.from_hubuum_class_id).is_some() {
-            classmap
-                .get(&class_relation.from_hubuum_class_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        let to_class = if classmap.get(&class_relation.to_hubuum_class_id).is_some() {
-            classmap
-                .get(&class_relation.to_hubuum_class_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        let from_object = if objectmap
-            .get(&object_relation.from_hubuum_object_id)
-            .is_some()
-        {
-            objectmap
-                .get(&object_relation.from_hubuum_object_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        let to_object = if objectmap
-            .get(&object_relation.to_hubuum_object_id)
-            .is_some()
-        {
-            objectmap
-                .get(&object_relation.to_hubuum_object_id)
-                .unwrap()
-                .name
-                .clone()
-        } else {
-            "".to_string()
-        };
-
-        Self {
-            id: object_relation.id,
-            from_class,
-            to_class,
-            from_object,
-            to_object,
-            created_at: object_relation.created_at.clone(),
-            updated_at: object_relation.updated_at.clone(),
-        }
+impl DetailRenderable for ResolvedObjectRelationRecord {
+    fn detail_rows(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("ClassA", self.class_a.clone()),
+            ("ClassB", self.class_b.clone()),
+            ("ObjectA", self.object_a.clone()),
+            ("ObjectB", self.object_b.clone()),
+            ("Created", self.created_at.to_string()),
+            ("Updated", self.updated_at.to_string()),
+        ]
     }
 }
 
-impl OutputFormatter for FormattedObjectRelation {
-    fn format(&self) -> Result<Self, AppError> {
-        let padding = get_config().output.padding;
-        append_key_value("ClassFrom", &self.from_class, padding)?;
-        append_key_value("ClassTo", &self.to_class, padding)?;
-        append_key_value("ObjectFrom", &self.from_object, padding)?;
-        append_key_value("ObjectTo", &self.to_object, padding)?;
-        append_key_value("Created", &self.created_at, padding)?;
-        append_key_value("Updated", &self.updated_at, padding)?;
-        Ok(self.clone())
+impl TableRenderable for ResolvedObjectRelationRecord {
+    fn headers() -> Vec<&'static str> {
+        vec![
+            "id", "ClassA", "ClassB", "ObjectA", "ObjectB", "Created", "Updated",
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.id.to_string(),
+            self.class_a.clone(),
+            self.class_b.clone(),
+            self.object_a.clone(),
+            self.object_b.clone(),
+            self.created_at.to_string(),
+            self.updated_at.to_string(),
+        ]
+    }
+}
+
+impl DetailRenderable for ResolvedRelatedClassRecord {
+    fn detail_rows(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("Name", self.name.clone()),
+            ("Description", self.description.clone()),
+            ("Namespace", self.namespace.clone()),
+            ("Depth", self.depth.to_string()),
+            ("Path", self.path.join(" -> ")),
+            ("Created", self.created_at.clone()),
+            ("Updated", self.updated_at.clone()),
+        ]
+    }
+}
+
+impl TableRenderable for ResolvedRelatedClassRecord {
+    fn headers() -> Vec<&'static str> {
+        vec![
+            "id",
+            "Name",
+            "Namespace",
+            "Depth",
+            "Path",
+            "Created",
+            "Updated",
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.id.to_string(),
+            self.name.clone(),
+            self.namespace.clone(),
+            self.depth.to_string(),
+            self.path.join(" -> "),
+            self.created_at.clone(),
+            self.updated_at.clone(),
+        ]
+    }
+}
+
+impl DetailRenderable for ResolvedRelatedObjectRecord {
+    fn detail_rows(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("Name", self.name.clone()),
+            ("Description", self.description.clone()),
+            ("Namespace", self.namespace.clone()),
+            ("Class", self.class.clone()),
+            ("Depth", self.depth.to_string()),
+            ("Path", self.path.join(" -> ")),
+            ("Created", self.created_at.clone()),
+            ("Updated", self.updated_at.clone()),
+        ]
+    }
+}
+
+impl TableRenderable for ResolvedRelatedObjectRecord {
+    fn headers() -> Vec<&'static str> {
+        vec![
+            "id",
+            "Name",
+            "Class",
+            "Namespace",
+            "Depth",
+            "Path",
+            "Created",
+            "Updated",
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.id.to_string(),
+            self.name.clone(),
+            self.class.clone(),
+            self.namespace.clone(),
+            self.depth.to_string(),
+            self.path.join(" -> "),
+            self.created_at.clone(),
+            self.updated_at.clone(),
+        ]
     }
 }

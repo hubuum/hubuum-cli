@@ -1,682 +1,848 @@
-use cli_command_derive::CliCommand;
-
-use hubuum_client::{Authenticated, Class, ClassRelationPost, ObjectRelationPost, SyncClient};
+use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::collections::HashMap;
-use std::vec;
 
-use super::{CliCommand, CliCommandInfo, CliOption};
-use crate::autocomplete::{classes, objects_from_class_from, objects_from_class_to};
-use crate::commands::shared::{
-    find_class_relation, find_object_by_name, find_object_relation, Commafy,
+use super::builder::{catalog_command, CommandDocs};
+use super::{build_list_query, desired_format, lte_clause, render_list_page, CliCommand};
+use crate::autocomplete::{
+    classes, objects_from_class_a, objects_from_class_b, objects_from_root_class,
+    relation_class_direct_sort, relation_class_direct_where, relation_class_graph_where,
+    relation_class_list_sort, relation_class_list_where, relation_object_direct_sort,
+    relation_object_direct_where, relation_object_graph_where, relation_object_sort,
+    relation_object_where,
 };
+use crate::catalog::CommandCatalogBuilder;
+use crate::domain::{ResolvedRelatedClassGraph, ResolvedRelatedObjectGraph};
 use crate::errors::AppError;
-use crate::formatting::{
-    append_json_message, FormattedClassRelation, FormattedObjectRelation, OutputFormatter,
-};
-use crate::models::{OutputFormat, Relation};
+use crate::formatting::{append_json, append_json_message, OutputFormatter};
+use crate::models::OutputFormat;
 use crate::output::append_line;
+use crate::services::{AppServices, RelatedObjectOptions, RelationRoot, RelationTarget};
 use crate::tokenizer::CommandTokenizer;
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Create a relationship",
-    long_about = "Create a new relationship between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
-pub struct RelationNew {
-    #[option(
-        short = "f",
-        long = "class_from",
-        help = "Name of the class the relationship starts from",
-        autocomplete = "classes"
-    )]
-    pub class_from: String,
-    #[option(
-        short = "t",
-        long = "class_to",
-        help = "Name of the class the relationship goes to",
-        autocomplete = "classes"
-    )]
-    pub class_to: String,
-    #[option(
-        short = "F",
-        long = "object_from",
-        help = "Name of the object the relationship starts from",
-        autocomplete = "objects_from_class_from"
-    )]
-    pub object_from: Option<String>,
-    #[option(
-        short = "T",
-        long = "object_to",
-        help = "Name of the object the relationship goes to",
-        autocomplete = "objects_from_class_to"
-    )]
-    pub object_to: Option<String>,
-}
+const DEFAULT_RELATED_OBJECT_MAX_DEPTH: i32 = 2;
+const DEFAULT_RELATED_CLASS_MAX_DEPTH: i32 = 2;
 
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Delete a relationship",
-    long_about = "Delete a new relationship between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
-pub struct RelationDelete {
-    #[option(
-        short = "f",
-        long = "class_from",
-        help = "Name of the class the relationship starts from",
-        autocomplete = "classes"
-    )]
-    pub class_from: String,
-    #[option(
-        short = "t",
-        long = "class_to",
-        help = "Name of the class the relationship goes to",
-        autocomplete = "classes"
-    )]
-    pub class_to: String,
-    #[option(
-        short = "F",
-        long = "object_from",
-        help = "Name of the object the relationship starts from",
-        autocomplete = "objects_from_class_from"
-    )]
-    pub object_from: Option<String>,
-    #[option(
-        short = "T",
-        long = "object_to",
-        help = "Name of the object the relationship goes to",
-        autocomplete = "objects_from_class_to"
-    )]
-    pub object_to: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "List relationships",
-    long_about = "List relationships between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
-pub struct RelationList {
-    #[option(
-        short = "f",
-        long = "class_from",
-        help = "Name of the class the relationship starts from",
-        autocomplete = "classes"
-    )]
-    pub class_from: Option<String>,
-    #[option(
-        short = "t",
-        long = "class_to",
-        help = "Name of the class the relationship goes to",
-        autocomplete = "classes"
-    )]
-    pub class_to: Option<String>,
-    #[option(
-        short = "F",
-        long = "object_from",
-        help = "Name of the object the relationship starts from",
-        autocomplete = "objects_from_class_from"
-    )]
-    pub object_from: Option<String>,
-    #[option(
-        short = "T",
-        long = "object_to",
-        help = "Name of the object the relationship goes to",
-        autocomplete = "objects_from_class_to"
-    )]
-    pub object_to: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, CliCommand, Default)]
-#[command_info(
-    about = "Information about a relationships",
-    long_about = "Show information about relationships between classes or objects.",
-    examples = r#"--class_from FromClass --class_to ToClass
-    --class_from FromClass --class_to ToClass --object_from FromObject --object_to ToObject
-    "#
-)]
-pub struct RelationInfo {
-    #[option(
-        short = "f",
-        long = "class_from",
-        help = "Name of the class the relationship starts from",
-        autocomplete = "classes"
-    )]
-    pub class_from: String,
-    #[option(
-        short = "t",
-        long = "class_to",
-        help = "Name of the class the relationship goes to",
-        autocomplete = "classes"
-    )]
-    pub class_to: String,
-    #[option(
-        short = "F",
-        long = "object_from",
-        help = "Name of the object the relationship starts from",
-        autocomplete = "objects_from_class_from"
-    )]
-    pub object_from: Option<String>,
-    #[option(
-        short = "T",
-        long = "object_to",
-        help = "Name of the object the relationship goes to",
-        autocomplete = "objects_from_class_to"
-    )]
-    pub object_to: Option<String>,
-}
-
-impl CliCommand for RelationNew {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let (class_from, class_to) = (
-            client.classes().select_by_name(&new.class_from)?,
-            client.classes().select_by_name(&new.class_to)?,
+pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "list",
+                RelatedClassList::default(),
+                CommandDocs {
+                    about: Some("List classes related to one root class"),
+                    long_about: Some(
+                        "List classes related to a root class, with traversal filters like depth.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "show",
+                ClassRelationShow::default(),
+                CommandDocs {
+                    about: Some("Show a class relation"),
+                    long_about: Some(
+                        "Show a direct class relation by id, or resolve it from an unordered class pair.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "create",
+                ClassRelationCreate::default(),
+                CommandDocs {
+                    about: Some("Create a class relation"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "delete",
+                ClassRelationDelete::default(),
+                CommandDocs {
+                    about: Some("Delete a class relation"),
+                    long_about: Some(
+                        "Delete a class relation by id, or resolve it from an unordered class pair.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "direct",
+                RelatedClassRelationList::default(),
+                CommandDocs {
+                    about: Some("List direct relations touching one class"),
+                    long_about: Some(
+                        "List the direct class relations that touch a specific root class.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "class"],
+            catalog_command(
+                "graph",
+                RelatedClassGraphCommand::default(),
+                CommandDocs {
+                    about: Some("Show the class neighborhood graph"),
+                    long_about: Some(
+                        "Fetch the connected-class neighborhood graph for a root class.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "list",
+                RelatedObjectList::default(),
+                CommandDocs {
+                    about: Some("List objects related to one root object"),
+                    long_about: Some(
+                        "List objects related to a root object, with traversal filters like depth and ignore-class.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "show",
+                ObjectRelationShowV2::default(),
+                CommandDocs {
+                    about: Some("Show an object relation"),
+                    long_about: Some(
+                        "Show an object relation by id, or resolve it from an unordered object pair.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "create",
+                ObjectRelationCreateV2::default(),
+                CommandDocs {
+                    about: Some("Create an object relation"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "delete",
+                ObjectRelationDeleteV2::default(),
+                CommandDocs {
+                    about: Some("Delete an object relation"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "direct",
+                RelatedRelationList::default(),
+                CommandDocs {
+                    about: Some("List direct relations touching one object"),
+                    long_about: Some(
+                        "List the direct relations that touch a specific root object.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["relation", "object"],
+            catalog_command(
+                "graph",
+                RelatedObjectGraphCommand::default(),
+                CommandDocs {
+                    about: Some("Show the object neighborhood graph"),
+                    long_about: Some(
+                        "Fetch the connected-object neighborhood graph for a root object.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
         );
+}
 
-        let mut class_map = HashMap::new();
-        class_map.insert(class_from.id(), class_from.resource().clone());
-        class_map.insert(class_to.id(), class_to.resource().clone());
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedClassList {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include (defaults to 2)"
+    )]
+    pub max_depth: Option<i32>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_class_list_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "relation_class_list_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
+}
 
-        let rel: Relation = if new.object_from.is_none() && new.object_to.is_none() {
-            create_class_relation(
-                client,
-                class_from.resource(),
-                class_to.resource(),
-                &class_map,
-            )?
-            .into()
-        } else {
-            create_object_relation(client, new, class_from.resource(), class_to.resource())?.into()
+impl CliCommand for RelatedClassList {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            Some(lte_clause(
+                "depth",
+                query
+                    .max_depth
+                    .unwrap_or(DEFAULT_RELATED_CLASS_MAX_DEPTH)
+                    .to_string(),
+            )),
+        )?;
+        let classes = services
+            .gateway()
+            .list_related_classes(&query.root_class, &list_query)?;
+        render_list_page(tokens, &classes)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ClassRelationShow {
+    #[option(long = "id", help = "Class relation id")]
+    pub id: Option<i32>,
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: Option<String>,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: Option<String>,
+}
+
+impl CliCommand for ClassRelationShow {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let relation = match query.id {
+            Some(id) => services.gateway().get_class_relation_by_id(id)?,
+            None => services.gateway().get_class_relation_by_pair(
+                required_option(query.class_a, "class-a")?.as_str(),
+                required_option(query.class_b, "class-b")?.as_str(),
+            )?,
         };
 
-        match self.desired_format(tokens) {
-            OutputFormat::Json => rel.format_json_noreturn()?,
-            OutputFormat::Text => rel.format_noreturn()?,
-        };
+        match desired_format(tokens) {
+            OutputFormat::Json => relation.format_json_noreturn()?,
+            OutputFormat::Text => relation.format_noreturn()?,
+        }
 
         Ok(())
     }
 }
 
-impl CliCommand for RelationDelete {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        let (class_from, class_to) = (
-            client.classes().select_by_name(&new.class_from)?,
-            client.classes().select_by_name(&new.class_to)?,
-        );
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ClassRelationCreate {
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: String,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: String,
+}
 
-        if new.object_from.is_none() && new.object_to.is_none() {
-            delete_class_relation(client, class_from.resource(), class_to.resource())?;
-        } else {
-            delete_object_relation(client, new, class_from.resource(), class_to.resource())?;
+impl CliCommand for ClassRelationCreate {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let relation = services
+            .gateway()
+            .create_class_relation_v2(&query.class_a, &query.class_b)?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => relation.format_json_noreturn()?,
+            OutputFormat::Text => relation.format_noreturn()?,
         }
 
-        let message = match (new.object_from.as_ref(), new.object_to.as_ref()) {
-            (None, None) => format!(
-                "Deleted class relation from '{}' to '{}'",
-                new.class_from, new.class_to
-            ),
-            (Some(from), Some(to)) => format!(
-                "Deleted object relation from '{}' to '{}' in classes '{}' and '{}'",
-                from, to, new.class_from, new.class_to
-            ),
-            (None, Some(_)) => {
-                return Err(AppError::MissingOptions(vec!["object_from".to_string()]))
-            }
-            (Some(_), None) => return Err(AppError::MissingOptions(vec!["object_to".to_string()])),
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ClassRelationDelete {
+    #[option(long = "id", help = "Class relation id")]
+    pub id: Option<i32>,
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: Option<String>,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: Option<String>,
+}
+
+impl CliCommand for ClassRelationDelete {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let message = if let Some(id) = query.id {
+            services.gateway().delete_class_relation_by_id(id)?;
+            format!("Deleted class relation #{id}")
+        } else {
+            let class_a = required_option(query.class_a, "class-a")?;
+            let class_b = required_option(query.class_b, "class-b")?;
+            services
+                .gateway()
+                .delete_class_relation_by_pair(&class_a, &class_b)?;
+            format!("Deleted class relation between '{class_a}' and '{class_b}'")
         };
 
-        match self.desired_format(tokens) {
+        match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedClassRelationList {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_class_direct_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "relation_class_direct_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
+}
+
+impl CliCommand for RelatedClassRelationList {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [],
+        )?;
+        let relations = services
+            .gateway()
+            .list_related_class_relations(&query.root_class, &list_query)?;
+        render_list_page(tokens, &relations)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedClassGraphCommand {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include (defaults to 2)"
+    )]
+    pub max_depth: Option<i32>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_class_graph_where"
+    )]
+    pub where_clauses: Vec<String>,
+}
+
+impl CliCommand for RelatedClassGraphCommand {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let graph = services.gateway().related_class_graph(
+            &query.root_class,
+            &build_list_query(
+                &query.where_clauses,
+                &[],
+                None,
+                None,
+                Some(lte_clause(
+                    "depth",
+                    query
+                        .max_depth
+                        .unwrap_or(DEFAULT_RELATED_CLASS_MAX_DEPTH)
+                        .to_string(),
+                )),
+            )?
+            .filters,
+        )?;
+        render_related_class_graph(tokens, &graph)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectRelationShowV2 {
+    #[option(long = "id", help = "Object relation id")]
+    pub id: Option<i32>,
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: Option<String>,
+    #[option(
+        long = "object-a",
+        help = "First object endpoint",
+        autocomplete = "objects_from_class_a"
+    )]
+    pub object_a: Option<String>,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: Option<String>,
+    #[option(
+        long = "object-b",
+        help = "Second object endpoint",
+        autocomplete = "objects_from_class_b"
+    )]
+    pub object_b: Option<String>,
+}
+
+impl CliCommand for ObjectRelationShowV2 {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let relation = match query.id {
+            Some(id) => services.gateway().get_object_relation_by_id(id)?,
+            None => services.gateway().get_object_relation_v2(
+                &exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
+                    .ok_or_else(|| {
+                        AppError::MissingOptions(vec![
+                            "class-a".to_string(),
+                            "object-a".to_string(),
+                            "class-b".to_string(),
+                            "object-b".to_string(),
+                        ])
+                    })?,
+            )?,
         };
 
-        Ok(())
-    }
-}
-
-impl CliCommand for RelationList {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-
-        let mut query = client.class_relation().find();
-
-        let mut swapped = false;
-        let mut from_class = None;
-        let mut to_class = None;
-
-        if let (Some(class_from_name), Some(class_to_name)) = (&new.class_from, &new.class_to) {
-            from_class = Some(client.classes().select_by_name(class_from_name)?);
-            to_class = Some(client.classes().select_by_name(class_to_name)?);
-
-            let from = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve source class".to_string())
-            })?;
-            let to = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
-            })?;
-
-            if from > to {
-                swapped = true;
-                (from_class, to_class) = (to_class.clone(), from_class.clone())
-            }
-
-            let from_id = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve source class".to_string())
-            })?;
-            let to_id = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
-            })?;
-
-            query = query
-                .add_filter_equals("from_classes", from_id)
-                .add_filter_equals("to_classes", to_id);
-        } else if let Some(class_from_name) = &new.class_from {
-            from_class = Some(client.classes().select_by_name(class_from_name)?);
-            let from_id = from_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve source class".to_string())
-            })?;
-            query = query.add_filter_equals("from_classes", from_id);
-        } else if let Some(class_to_name) = &new.class_to {
-            to_class = Some(client.classes().select_by_name(class_to_name)?);
-            let to_id = to_class.as_ref().map(|class| class.id()).ok_or_else(|| {
-                AppError::CommandExecutionError("Unable to resolve destination class".to_string())
-            })?;
-            query = query.add_filter_equals("to_classes", to_id);
-        }
-
-        let class_relations = query.execute()?;
-
-        if class_relations.is_empty() {
-            match self.desired_format(tokens) {
-                OutputFormat::Json => append_line(serde_json::to_string(&json!([]))?)?,
-                OutputFormat::Text => append_line("No relations found")?,
-            }
-            return Ok(());
-        }
-
-        let mut class_ids = vec![];
-        for relation in &class_relations {
-            class_ids.push(relation.from_hubuum_class_id);
-            class_ids.push(relation.to_hubuum_class_id);
-        }
-
-        // Here we should filter out already known IDs...
-        let class_ids_joined = class_ids.into_iter().commafy_unique();
-
-        let classes = client
-            .classes()
-            .find()
-            .add_filter_id(class_ids_joined)
-            .execute()?;
-
-        let mut class_map = HashMap::new();
-        for class in &classes {
-            class_map.insert(class.id, class.clone());
-        }
-
-        if class_relations.len() > 1 || (new.class_from.is_none() || new.class_to.is_none()) {
-            let class_relations_formatted = class_relations
-                .iter()
-                .map(|r| FormattedClassRelation::new(r, &class_map))
-                .collect::<Vec<_>>();
-
-            match self.desired_format(tokens) {
-                OutputFormat::Json => class_relations_formatted.format_json_noreturn()?,
-                OutputFormat::Text => class_relations_formatted.format_noreturn()?,
-            }
-            return Ok(());
-        }
-
-        if to_class.is_none() {
-            if swapped {
-                to_class = Some(
-                    client
-                        .classes()
-                        .select(class_relations[0].from_hubuum_class_id)?,
-                )
-            } else {
-                to_class = Some(
-                    client
-                        .classes()
-                        .select(class_relations[0].to_hubuum_class_id)?,
-                )
-            }
-        }
-
-        if from_class.is_none() {
-            if swapped {
-                from_class = Some(
-                    client
-                        .classes()
-                        .select(class_relations[0].to_hubuum_class_id)?,
-                )
-            } else {
-                from_class = Some(
-                    client
-                        .classes()
-                        .select(class_relations[0].from_hubuum_class_id)?,
-                )
-            }
-        }
-
-        let mut query = client
-            .object_relation()
-            .find()
-            .add_filter_equals("class_relation", class_relations[0].id);
-
-        let from_class_ref = from_class.as_ref().ok_or_else(|| {
-            AppError::CommandExecutionError("Unable to resolve source class".to_string())
-        })?;
-        let to_class_ref = to_class.as_ref().ok_or_else(|| {
-            AppError::CommandExecutionError("Unable to resolve destination class".to_string())
-        })?;
-
-        if let Some(object_from_name) = &new.object_from {
-            let object_from = find_object_by_name(client, from_class_ref.id(), object_from_name)?;
-            let target = if swapped {
-                "from_objects"
-            } else {
-                "to_objects"
-            };
-
-            query = query.add_filter_equals(target, object_from.id);
-        }
-
-        if let Some(object_to_name) = &new.object_to {
-            let object_to = find_object_by_name(client, to_class_ref.id(), object_to_name)?;
-
-            let target = if swapped {
-                "to_objects"
-            } else {
-                "from_objects"
-            };
-
-            query = query.add_filter_equals(target, object_to.id);
-        }
-
-        let object_relations = query.execute()?;
-
-        if object_relations.is_empty() {
-            append_line("No relations found")?;
-            return Ok(());
-        }
-
-        // We don't know what classes each object is in, so we ask both classes for their objects
-        // constrained to the IDs we have...
-        let object_ids_joined = object_relations
-            .iter()
-            .flat_map(|r| {
-                [
-                    r.from_hubuum_object_id.to_string(),
-                    r.to_hubuum_object_id.to_string(),
-                ]
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let mut object_map = HashMap::new();
-
-        let class_from_objects = client
-            .objects(from_class_ref.id())
-            .find()
-            .add_filter_equals("id", &object_ids_joined)
-            .execute()?;
-        for object in class_from_objects {
-            object_map.insert(object.id, object.clone());
-        }
-
-        let class_to_objects = client
-            .objects(to_class_ref.id())
-            .find()
-            .add_filter_equals("id", &object_ids_joined)
-            .execute()?;
-
-        for object in class_to_objects {
-            object_map.insert(object.id, object.clone());
-        }
-
-        let mut class_relation_corrected = class_relations[0].clone();
-        if swapped {
-            std::mem::swap(
-                &mut class_relation_corrected.from_hubuum_class_id,
-                &mut class_relation_corrected.to_hubuum_class_id,
-            );
-        }
-
-        /*
-        let formatted_class_relation =
-            FormattedClassRelation::new(&class_relation_corrected, &class_map);
-        formatted_class_relation.format(15)?;
-        */
-
-        let formatted_object_relations = object_relations
-            .iter()
-            .map(|r| {
-                FormattedObjectRelation::new(r, &class_relation_corrected, &object_map, &class_map)
-            })
-            .collect::<Vec<_>>();
-
-        match self.desired_format(tokens) {
-            OutputFormat::Json => formatted_object_relations.format_json_noreturn()?,
-            OutputFormat::Text => formatted_object_relations.format_noreturn()?,
+        match desired_format(tokens) {
+            OutputFormat::Json => relation.format_json_noreturn()?,
+            OutputFormat::Text => relation.format_noreturn()?,
         }
 
         Ok(())
     }
 }
 
-impl CliCommand for RelationInfo {
-    fn execute(
-        &self,
-        client: &SyncClient<Authenticated>,
-        tokens: &CommandTokenizer,
-    ) -> Result<(), AppError> {
-        let new = &self.new_from_tokens(tokens)?;
-        if new.object_from.is_none() && new.object_to.is_none() {
-            let (class_from, class_to) = (
-                client.classes().select_by_name(&new.class_from)?,
-                client.classes().select_by_name(&new.class_to)?,
-            );
-            let mut classmap = HashMap::new();
-            classmap.insert(class_from.id(), class_from.resource().clone());
-            classmap.insert(class_to.id(), class_to.resource().clone());
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectRelationCreateV2 {
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: String,
+    #[option(
+        long = "object-a",
+        help = "First object endpoint",
+        autocomplete = "objects_from_class_a"
+    )]
+    pub object_a: String,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: String,
+    #[option(
+        long = "object-b",
+        help = "Second object endpoint",
+        autocomplete = "objects_from_class_b"
+    )]
+    pub object_b: String,
+}
 
-            let rel = find_class_relation(client, class_from.id(), class_to.id())?;
-            let rel = FormattedClassRelation::new(&rel, &classmap);
+impl CliCommand for ObjectRelationCreateV2 {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let relation = services
+            .gateway()
+            .create_object_relation_v2(&RelationTarget {
+                class_a: query.class_a,
+                class_b: query.class_b,
+                object_a: Some(query.object_a),
+                object_b: Some(query.object_b),
+            })?;
 
-            match self.desired_format(tokens) {
-                OutputFormat::Json => rel.format_json_noreturn()?,
-                OutputFormat::Text => rel.format_noreturn()?,
-            }
+        match desired_format(tokens) {
+            OutputFormat::Json => relation.format_json_noreturn()?,
+            OutputFormat::Text => relation.format_noreturn()?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectRelationDeleteV2 {
+    #[option(long = "id", help = "Object relation id")]
+    pub id: Option<i32>,
+    #[option(
+        long = "class-a",
+        help = "First class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_a: Option<String>,
+    #[option(
+        long = "object-a",
+        help = "First object endpoint",
+        autocomplete = "objects_from_class_a"
+    )]
+    pub object_a: Option<String>,
+    #[option(
+        long = "class-b",
+        help = "Second class endpoint",
+        autocomplete = "classes"
+    )]
+    pub class_b: Option<String>,
+    #[option(
+        long = "object-b",
+        help = "Second object endpoint",
+        autocomplete = "objects_from_class_b"
+    )]
+    pub object_b: Option<String>,
+}
+
+impl CliCommand for ObjectRelationDeleteV2 {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let message = if let Some(id) = query.id {
+            services.gateway().delete_object_relation_by_id(id)?;
+            format!("Deleted object relation #{id}")
         } else {
-            let (class_from, class_to) = (
-                client.classes().select_by_name(&new.class_from)?,
-                client.classes().select_by_name(&new.class_to)?,
-            );
-            let object_from_name = new
-                .object_from
-                .as_ref()
-                .ok_or_else(|| AppError::MissingOptions(vec!["object_from".to_string()]))?;
-            let object_to_name = new
-                .object_to
-                .as_ref()
-                .ok_or_else(|| AppError::MissingOptions(vec!["object_to".to_string()]))?;
-            let object_from = find_object_by_name(client, class_from.id(), object_from_name)?;
-            let object_to = find_object_by_name(client, class_to.id(), object_to_name)?;
+            let target =
+                exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
+                    .ok_or_else(|| {
+                        AppError::MissingOptions(vec![
+                            "class-a".to_string(),
+                            "object-a".to_string(),
+                            "class-b".to_string(),
+                            "object-b".to_string(),
+                        ])
+                    })?;
+            services.gateway().delete_object_relation_v2(&target)?;
+            format!(
+                "Deleted object relation between '{}:{}' and '{}:{}'",
+                target.class_a,
+                target.object_a.clone().unwrap_or_default(),
+                target.class_b,
+                target.object_b.clone().unwrap_or_default()
+            )
+        };
 
-            let mut objectmap = HashMap::new();
-            objectmap.insert(object_from.id, object_from.clone());
-            objectmap.insert(object_to.id, object_to.clone());
-
-            let mut classmap = HashMap::new();
-            classmap.insert(class_from.id(), class_from.resource().clone());
-            classmap.insert(class_to.id(), class_to.resource().clone());
-
-            let class_relation = find_class_relation(client, class_from.id(), class_to.id())?;
-            let object_relation =
-                find_object_relation(client, &class_relation, &object_from, &object_to)?;
-            let object_relation = FormattedObjectRelation::new(
-                &object_relation,
-                &class_relation,
-                &objectmap,
-                &classmap,
-            );
-
-            match self.desired_format(tokens) {
-                OutputFormat::Json => object_relation.format_json_noreturn()?,
-                OutputFormat::Text => object_relation.format_noreturn()?,
-            }
+        match desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
         }
+
         Ok(())
     }
 }
 
-fn create_class_relation(
-    client: &SyncClient<Authenticated>,
-    class_from: &Class,
-    class_to: &Class,
-    class_map: &HashMap<i32, Class>,
-) -> Result<FormattedClassRelation, AppError> {
-    let post = ClassRelationPost {
-        from_hubuum_class_id: class_from.id,
-        to_hubuum_class_id: class_to.id,
-    };
-
-    let relation = client.class_relation().create_raw(post)?;
-    let formatted_relation = FormattedClassRelation::new(&relation, class_map);
-    formatted_relation.format()?;
-    Ok(formatted_relation)
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedRelationList {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "root-object",
+        help = "Root object",
+        autocomplete = "objects_from_root_class"
+    )]
+    pub root_object: String,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_object_direct_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "relation_object_direct_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
 }
 
-fn create_object_relation(
-    client: &SyncClient<Authenticated>,
-    new: &RelationNew,
-    class_from: &Class,
-    class_to: &Class,
-) -> Result<FormattedObjectRelation, AppError> {
-    let (object_from, object_to) = validate_object_names(new)?;
-    let class_relation = find_class_relation(client, class_from.id, class_to.id)?;
-    let object_from = find_object_by_name(client, class_from.id, &object_from)?;
-    let object_to = find_object_by_name(client, class_to.id, &object_to)?;
-
-    let post = ObjectRelationPost {
-        class_relation_id: class_relation.id,
-        from_hubuum_object_id: object_from.id,
-        to_hubuum_object_id: object_to.id,
-    };
-
-    let from_class = client
-        .classes()
-        .find()
-        .add_filter_id(class_relation.from_hubuum_class_id)
-        .execute_expecting_single_result()?;
-    let to_class = client
-        .classes()
-        .find()
-        .add_filter_id(class_relation.to_hubuum_class_id)
-        .execute_expecting_single_result()?;
-
-    let mut object_map = HashMap::new();
-    let mut class_map = HashMap::new();
-    let mut nsmap = HashMap::new();
-
-    class_map.insert(from_class.id, from_class.clone());
-    class_map.insert(to_class.id, to_class.clone());
-
-    nsmap.insert(from_class.namespace.id, from_class.namespace.clone());
-    nsmap.insert(to_class.namespace.id, to_class.namespace.clone());
-
-    object_map.insert(object_from.id, object_from.clone());
-    object_map.insert(object_to.id, object_to.clone());
-
-    let relation = client.object_relation().create_raw(post)?;
-    let relation =
-        FormattedObjectRelation::new(&relation, &class_relation, &object_map, &class_map);
-
-    Ok(relation)
+impl CliCommand for RelatedRelationList {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            [],
+        )?;
+        let relations = services.gateway().list_related_object_relations(
+            &RelationRoot {
+                root_class: query.root_class,
+                root_object: query.root_object,
+            },
+            &list_query,
+        )?;
+        render_list_page(tokens, &relations)
+    }
 }
 
-fn delete_class_relation(
-    client: &SyncClient<Authenticated>,
-    class_from: &Class,
-    class_to: &Class,
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedObjectList {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "root-object",
+        help = "Root object",
+        autocomplete = "objects_from_root_class"
+    )]
+    pub root_object: String,
+    #[option(
+        long = "ignore-class",
+        help = "Exclude returned objects in this class",
+        autocomplete = "classes"
+    )]
+    pub ignore_class: Vec<String>,
+    #[option(
+        long = "include-self-class",
+        help = "Include returned objects in the same class as the root object",
+        flag = "true"
+    )]
+    pub include_self_class: Option<bool>,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include (defaults to 2)"
+    )]
+    pub max_depth: Option<i32>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_object_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Sort clause: 'field asc|desc'",
+        nargs = 2,
+        autocomplete = "relation_object_sort"
+    )]
+    pub sort_clauses: Vec<String>,
+    #[option(long = "limit", help = "Maximum number of results to return")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next result page")]
+    pub cursor: Option<String>,
+}
+
+impl CliCommand for RelatedObjectList {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            Some(lte_clause(
+                "depth",
+                query
+                    .max_depth
+                    .unwrap_or(DEFAULT_RELATED_OBJECT_MAX_DEPTH)
+                    .to_string(),
+            )),
+        )?;
+        let objects = services.gateway().list_related_objects(
+            &RelationRoot {
+                root_class: query.root_class,
+                root_object: query.root_object,
+            },
+            &RelatedObjectOptions {
+                ignore_classes: query.ignore_class,
+                include_self_class: query.include_self_class.unwrap_or(false),
+            },
+            &list_query,
+        )?;
+        render_list_page(tokens, &objects)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct RelatedObjectGraphCommand {
+    #[option(long = "root-class", help = "Root class", autocomplete = "classes")]
+    pub root_class: String,
+    #[option(
+        long = "root-object",
+        help = "Root object",
+        autocomplete = "objects_from_root_class"
+    )]
+    pub root_object: String,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include (defaults to 2)"
+    )]
+    pub max_depth: Option<i32>,
+    #[option(
+        long = "where",
+        help = "Filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "relation_object_graph_where"
+    )]
+    pub where_clauses: Vec<String>,
+}
+
+impl CliCommand for RelatedObjectGraphCommand {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let graph = services.gateway().related_object_graph(
+            &RelationRoot {
+                root_class: query.root_class,
+                root_object: query.root_object,
+            },
+            &build_list_query(
+                &query.where_clauses,
+                &[],
+                None,
+                None,
+                Some(lte_clause(
+                    "depth",
+                    query
+                        .max_depth
+                        .unwrap_or(DEFAULT_RELATED_OBJECT_MAX_DEPTH)
+                        .to_string(),
+                )),
+            )?
+            .filters,
+        )?;
+        render_related_object_graph(tokens, &graph)
+    }
+}
+
+fn required_option(value: Option<String>, name: &str) -> Result<String, AppError> {
+    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
+}
+
+fn exact_object_target(
+    class_a: Option<String>,
+    object_a: Option<String>,
+    class_b: Option<String>,
+    object_b: Option<String>,
+) -> Result<Option<RelationTarget>, AppError> {
+    match (class_a, object_a, class_b, object_b) {
+        (None, None, None, None) => Ok(None),
+        (Some(class_a), Some(object_a), Some(class_b), Some(object_b)) => {
+            Ok(Some(RelationTarget {
+                class_a,
+                class_b,
+                object_a: Some(object_a),
+                object_b: Some(object_b),
+            }))
+        }
+        _ => Err(AppError::MissingOptions(vec![
+            "class-a".to_string(),
+            "object-a".to_string(),
+            "class-b".to_string(),
+            "object-b".to_string(),
+        ])),
+    }
+}
+
+fn render_related_object_graph(
+    tokens: &CommandTokenizer,
+    graph: &ResolvedRelatedObjectGraph,
 ) -> Result<(), AppError> {
-    let relation = find_class_relation(client, class_from.id, class_to.id)?;
-    client.class_relation().delete(relation.id)?;
-    append_line("Deleted class relation")?;
+    match desired_format(tokens) {
+        OutputFormat::Json => append_json(graph)?,
+        OutputFormat::Text => {
+            append_line("Objects")?;
+            graph.objects.format_noreturn()?;
+            append_line("")?;
+            append_line("Relations")?;
+            graph.relations.format_noreturn()?;
+        }
+    }
     Ok(())
 }
 
-fn delete_object_relation(
-    client: &SyncClient<Authenticated>,
-    new: &RelationDelete,
-    class_from: &Class,
-    class_to: &Class,
+fn render_related_class_graph(
+    tokens: &CommandTokenizer,
+    graph: &ResolvedRelatedClassGraph,
 ) -> Result<(), AppError> {
-    let (object_from, object_to) = validate_object_names(new)?;
-    let class_relation = find_class_relation(client, class_from.id, class_to.id)?;
-    let object_from = find_object_by_name(client, class_from.id, &object_from)?;
-    let object_to = find_object_by_name(client, class_to.id, &object_to)?;
-    let relation = find_object_relation(client, &class_relation, &object_from, &object_to)?;
-    client.object_relation().delete(relation.id)?;
-    append_line(format!(
-        "Deleted object relation ({} <> {})",
-        object_from.name, object_to.name
-    ))?;
+    match desired_format(tokens) {
+        OutputFormat::Json => append_json(graph)?,
+        OutputFormat::Text => {
+            append_line("Classes")?;
+            graph.classes.format_noreturn()?;
+            append_line("")?;
+            append_line("Relations")?;
+            graph.relations.format_noreturn()?;
+        }
+    }
     Ok(())
-}
-
-fn validate_object_names<T: HasObjectNames>(new: &T) -> Result<(String, String), AppError> {
-    match (new.object_from(), new.object_to()) {
-        (Some(from), Some(to)) => Ok((from.to_string(), to.to_string())),
-        (None, _) => Err(AppError::MissingOptions(vec!["object_from".to_string()])),
-        (_, None) => Err(AppError::MissingOptions(vec!["object_to".to_string()])),
-    }
-}
-
-trait HasObjectNames {
-    fn object_from(&self) -> &Option<String>;
-    fn object_to(&self) -> &Option<String>;
-}
-
-impl HasObjectNames for RelationNew {
-    fn object_from(&self) -> &Option<String> {
-        &self.object_from
-    }
-    fn object_to(&self) -> &Option<String> {
-        &self.object_to
-    }
-}
-
-impl HasObjectNames for RelationDelete {
-    fn object_from(&self) -> &Option<String> {
-        &self.object_from
-    }
-    fn object_to(&self) -> &Option<String> {
-        &self.object_to
-    }
 }

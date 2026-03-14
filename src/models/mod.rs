@@ -1,4 +1,6 @@
-pub mod internal;
+pub mod auth;
+pub mod output;
 pub mod responses;
 
-pub use internal::{OutputFormat, Protocol, Relation, TokenEntry};
+pub use auth::TokenEntry;
+pub use output::{OutputFormat, Protocol, TableStyle};
