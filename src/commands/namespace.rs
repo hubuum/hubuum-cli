@@ -9,9 +9,12 @@ use super::{CliCommandInfo, CliOption};
 
 use crate::autocomplete::{groups, namespaces};
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, FormattedGroupPermissions, OutputFormatter};
+use crate::formatting::{
+    append_json, append_json_message, FormattedGroupPermissions, FormattedNamespace,
+    OutputFormatter,
+};
 use crate::models::OutputFormat;
-use crate::output::{append_json, append_line};
+use crate::output::append_line;
 use crate::tokenizer::CommandTokenizer;
 
 trait GetNamespace {
@@ -62,7 +65,7 @@ impl CliCommand for NamespaceNew {
 
         let post = new.into_post(group.id);
 
-        let namespace = client.namespaces().create(post)?;
+        let namespace = client.namespaces().create_raw(post)?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => namespace.format_json_noreturn()?,
@@ -116,8 +119,12 @@ impl CliCommand for NamespaceList {
         let namespaces = search.execute()?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => namespaces.format_json_noreturn()?,
-            OutputFormat::Text => namespaces.format_noreturn()?,
+            OutputFormat::Json => append_json(&namespaces)?,
+            OutputFormat::Text => namespaces
+                .iter()
+                .map(FormattedNamespace::from)
+                .collect::<Vec<_>>()
+                .format_noreturn()?,
         }
 
         Ok(())
@@ -160,8 +167,8 @@ impl CliCommand for NamespaceInfo {
             .select_by_name(new.name.as_ref().unwrap())?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn()?,
+            OutputFormat::Json => namespace.resource().format_json_noreturn()?,
+            OutputFormat::Text => namespace.resource().format_noreturn()?,
         }
 
         Ok(())

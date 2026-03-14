@@ -1,7 +1,3 @@
-use hubuum_client::{
-    client::{sync::GetID, sync::Handle},
-    ApiResource,
-};
 use serde::Serialize;
 use std::fmt::Display;
 use tabled::{Table, Tabled};
@@ -17,9 +13,30 @@ mod object;
 mod relations;
 mod user;
 
+pub use class::FormattedClass;
+pub use group::FormattedGroup;
 pub use namespace::FormattedGroupPermissions;
+pub use namespace::FormattedNamespace;
 pub use object::FormattedObject;
 pub use relations::{FormattedClassRelation, FormattedObjectRelation};
+pub use user::FormattedUser;
+
+pub(crate) fn tabled_display<T>(value: &T) -> String
+where
+    T: Display,
+{
+    value.to_string()
+}
+
+pub(crate) fn tabled_display_option<T>(value: &Option<T>) -> String
+where
+    T: Display,
+{
+    value
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<none>".to_string())
+}
 
 pub trait OutputFormatter: Sized + Serialize + Clone {
     fn format(&self) -> Result<Self, AppError>;
@@ -69,16 +86,6 @@ where
     fn format_json_noreturn(&self) -> Result<(), AppError> {
         append_json(self)?;
         Ok(())
-    }
-}
-
-impl<T> OutputFormatter for Handle<T>
-where
-    T: OutputFormatter + Clone + Serialize + Tabled + Display + Default + GetID + ApiResource,
-{
-    fn format(&self) -> Result<Self, AppError> {
-        self.resource().format()?;
-        Ok(self.clone())
     }
 }
 

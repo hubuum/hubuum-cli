@@ -8,7 +8,7 @@ use rand::distr::Alphanumeric;
 use rand::{rng, Rng};
 
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
+use crate::formatting::{append_json, append_json_message, FormattedUser, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 
@@ -48,7 +48,7 @@ impl CliCommand for UserNew {
         let new = self.new_from_tokens(tokens)?.into_post();
         let password = new.password.clone();
 
-        let user = client.users().create(new)?;
+        let user = client.users().create_raw(new)?;
 
         match self.desired_format(tokens) {
             OutputFormat::Json => {
@@ -220,8 +220,12 @@ impl CliCommand for UserList {
         let users = client.users().find().execute()?;
 
         match self.desired_format(tokens) {
-            OutputFormat::Json => users.format_json_noreturn()?,
-            OutputFormat::Text => users.format_noreturn()?,
+            OutputFormat::Json => append_json(&users)?,
+            OutputFormat::Text => users
+                .iter()
+                .map(FormattedUser::from)
+                .collect::<Vec<_>>()
+                .format_noreturn()?,
         }
 
         Ok(())

@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
+use hubuum_client::HubuumDateTime;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use hubuum_client::{
-    resources::{tabled_display, tabled_display_option},
-    Class, Namespace, Object,
-};
+use hubuum_client::{Class, Namespace, Object};
 
-use super::{append_key_value, OutputFormatter};
+use super::{append_key_value, tabled_display, tabled_display_option, OutputFormatter};
 use crate::config::get_config;
 use crate::errors::AppError;
 
@@ -27,9 +25,9 @@ pub struct FormattedObject {
     #[tabled(display = "tabled_display_option", rename = "Data")]
     pub data: Option<serde_json::Value>,
     #[tabled(display = "tabled_display", rename = "Created")]
-    pub created_at: chrono::NaiveDateTime,
+    pub created_at: HubuumDateTime,
     #[tabled(display = "tabled_display", rename = "Updated")]
-    pub updated_at: chrono::NaiveDateTime,
+    pub updated_at: HubuumDateTime,
 }
 
 impl FormattedObject {
@@ -57,8 +55,8 @@ impl FormattedObject {
             namespace,
             class,
             data: object.data.clone(),
-            created_at: object.created_at,
-            updated_at: object.updated_at,
+            created_at: object.created_at.clone(),
+            updated_at: object.updated_at.clone(),
         }
     }
 }
@@ -80,8 +78,8 @@ impl OutputFormatter for FormattedObject {
         };
 
         append_key_value("Data", size, padding)?;
-        append_key_value("Created", self.created_at, padding)?;
-        append_key_value("Updated", self.updated_at, padding)?;
+        append_key_value("Created", &self.created_at, padding)?;
+        append_key_value("Updated", &self.updated_at, padding)?;
         Ok(self.clone())
     }
 }

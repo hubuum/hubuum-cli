@@ -98,16 +98,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
-name = "api_resource_derive"
-version = "0.1.0"
-source = "git+https://github.com/hubuum/hubuum-client-rust#56d23230daa99e7d018b33a73bab779a6922c7f7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "arraydeque"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -823,12 +813,13 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.1.0"
-source = "git+https://github.com/hubuum/hubuum-client-rust#56d23230daa99e7d018b33a73bab779a6922c7f7"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc87a18f0b9a66ddff1e16af3876a5f7e49c5c132130805a0d4fbcc637fcd1ca"
 dependencies = [
- "api_resource_derive",
  "async-trait",
  "chrono",
+ "hubuum_client_derive",
  "log",
  "percent-encoding",
  "reqwest",
@@ -836,9 +827,19 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "strum",
- "tabled",
  "thiserror 2.0.12",
  "url",
+]
+
+[[package]]
+name = "hubuum_client_derive"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fe6c72dc5dfe98ebc3369b376ab8dd4b9a487658a63291bc5645aaa0c550df"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -1,18 +1,41 @@
-use hubuum_client::{GroupPermissionsResult, Namespace};
+use hubuum_client::{GroupPermissionsResult, HubuumDateTime, Namespace};
 use serde::Serialize;
 use tabled::Tabled;
 
-use super::{append_key_value, OutputFormatter};
+use super::{append_key_value, tabled_display, OutputFormatter};
 use crate::config::get_config;
 use crate::errors::AppError;
+
+#[derive(Debug, Clone, Serialize, Tabled)]
+pub struct FormattedNamespace {
+    #[tabled(rename = "Name")]
+    pub name: String,
+    #[tabled(rename = "Description")]
+    pub description: String,
+    #[tabled(display = "tabled_display", rename = "Created")]
+    pub created_at: HubuumDateTime,
+    #[tabled(display = "tabled_display", rename = "Updated")]
+    pub updated_at: HubuumDateTime,
+}
+
+impl From<&Namespace> for FormattedNamespace {
+    fn from(namespace: &Namespace) -> Self {
+        Self {
+            name: namespace.name.clone(),
+            description: namespace.description.clone(),
+            created_at: namespace.created_at.clone(),
+            updated_at: namespace.updated_at.clone(),
+        }
+    }
+}
 
 impl OutputFormatter for Namespace {
     fn format(&self) -> Result<Self, AppError> {
         let padding = get_config().output.padding;
         append_key_value("Name", &self.name, padding)?;
         append_key_value("Description", &self.description, padding)?;
-        append_key_value("Created", self.created_at, padding)?;
-        append_key_value("Updated", self.updated_at, padding)?;
+        append_key_value("Created", &self.created_at, padding)?;
+        append_key_value("Updated", &self.updated_at, padding)?;
         Ok(self.clone())
     }
 }
