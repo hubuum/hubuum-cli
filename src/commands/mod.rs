@@ -13,6 +13,7 @@ mod namespace;
 mod object;
 mod relations;
 mod report;
+mod search;
 mod task;
 mod user;
 

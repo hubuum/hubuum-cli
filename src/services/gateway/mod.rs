@@ -5,6 +5,7 @@ mod namespaces;
 mod objects;
 mod relations;
 mod reports;
+mod search;
 mod shared;
 mod tasks;
 mod users;
@@ -22,6 +23,7 @@ pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectUpdateInput};
 pub use relations::RelationTarget;
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
+pub use search::{SearchInput, SearchKind};
 pub use tasks::TaskLookupInput;
 pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 

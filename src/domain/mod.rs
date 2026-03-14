@@ -25,6 +25,7 @@ mod namespaces;
 mod objects;
 mod relations;
 mod reports;
+mod search;
 mod tasks;
 mod users;
 
@@ -38,5 +39,9 @@ pub use namespaces::{
 pub use objects::{ObjectRecord, ResolvedObjectRecord};
 pub use relations::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord};
 pub use reports::{ReportOutput, ReportTemplateRecord};
+pub use search::{
+    SearchBatchRecord, SearchCursorSet, SearchResponseRecord, SearchResultsRecord,
+    SearchStreamEvent,
+};
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};

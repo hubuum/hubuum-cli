@@ -74,7 +74,7 @@ where
 
 pub fn append_json<T>(value: &T) -> Result<(), AppError>
 where
-    T: Serialize,
+    T: Serialize + ?Sized,
 {
     append_line(serde_json::to_string_pretty(value)?)?;
     Ok(())

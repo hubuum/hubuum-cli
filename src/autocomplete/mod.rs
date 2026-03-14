@@ -17,7 +17,7 @@ pub use groups::groups;
 pub use namespaces::namespaces;
 pub use objects::{objects_from_class, objects_from_class_from, objects_from_class_to};
 pub use reports::{report_missing_data_policies, report_scope_kinds, report_templates};
-pub use shared::{bool, config_keys};
+pub use shared::{bool, config_keys, search_kinds};
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{
     class_sort, group_sort, import_result_sort, namespace_sort, object_sort, relation_sort,
