@@ -55,8 +55,36 @@ pub fn object_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
     complete_for_path(ctx, &["object", "list"], prefix)
 }
 
-pub fn relation_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "list"], prefix)
+pub fn relation_class_list_sort(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "class", "list"], prefix)
+}
+
+pub fn relation_class_direct_sort(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "class", "direct"], prefix)
+}
+
+pub fn relation_object_sort(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "object", "list"], prefix)
+}
+
+pub fn relation_object_direct_sort(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "object", "direct"], prefix)
 }
 
 pub fn report_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {

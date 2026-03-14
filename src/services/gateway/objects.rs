@@ -45,6 +45,24 @@ impl HubuumGateway {
             .collect())
     }
 
+    pub fn list_object_names_for_class_prefix(
+        &self,
+        class_name: &str,
+        prefix: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let class = self.client.classes().select_by_name(class_name)?;
+        Ok(self
+            .client
+            .objects(class.id())
+            .find()
+            .add_filter_startswith("name", prefix)
+            .limit(100)
+            .execute()?
+            .into_iter()
+            .map(|object| object.name)
+            .collect())
+    }
+
     pub fn create_object(
         &self,
         input: CreateObjectInput,

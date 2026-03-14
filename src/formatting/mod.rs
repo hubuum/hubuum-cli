@@ -10,4 +10,6 @@ mod reports;
 mod tasks;
 mod users;
 
-pub use core::{append_json, append_json_message, DetailRenderable, OutputFormatter, TableRenderable};
+pub use core::{
+    append_json, append_json_message, DetailRenderable, OutputFormatter, TableRenderable,
+};

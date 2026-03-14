@@ -37,11 +37,14 @@ pub use namespaces::{
     NamespaceRecord,
 };
 pub use objects::{ObjectRecord, ResolvedObjectRecord};
-pub use relations::{ResolvedClassRelationRecord, ResolvedObjectRelationRecord};
+pub use relations::{
+    ResolvedClassRelationRecord, ResolvedObjectRelationRecord, ResolvedRelatedClassGraph,
+    ResolvedRelatedClassRecord, ResolvedRelatedObjectGraph, ResolvedRelatedObjectRecord,
+};
 pub use reports::{ReportOutput, ReportTemplateRecord};
 pub use search::{
-    SearchBatchRecord, SearchCursorSet, SearchResponseRecord, SearchResultsRecord,
-    SearchStreamEvent,
+    SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,
+    SearchResultsRecord, SearchStreamEvent,
 };
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};

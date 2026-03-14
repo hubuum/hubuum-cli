@@ -16,9 +16,9 @@ pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
     ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
     CreateReportTemplateInput, CreateUserInput, GroupUpdateInput, HubuumGateway,
-    NamespaceUpdateInput, ObjectUpdateInput, RelationTarget, RunReportInput, SearchInput,
-    SearchKind, SubmitImportInput, TaskLookupInput, UpdateReportTemplateInput, UserFilter,
-    UserUpdateInput,
+    NamespaceUpdateInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RunReportInput, SearchInput, SearchKind, SubmitImportInput, TaskLookupInput,
+    UpdateReportTemplateInput, UserFilter, UserUpdateInput,
 };
 
 #[derive(Clone)]

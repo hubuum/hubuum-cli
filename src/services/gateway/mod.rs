@@ -21,7 +21,7 @@ pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
 pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectUpdateInput};
-pub use relations::RelationTarget;
+pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget};
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
 pub use tasks::TaskLookupInput;
@@ -54,8 +54,35 @@ pub(crate) fn filter_specs_for_command_path(
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_FILTER_SPECS)
         }
-        [scope, command] if scope == "relation" && command == "list" => {
-            Some(relations::RELATION_FILTER_SPECS)
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "class" && command == "list" =>
+        {
+            Some(relations::RELATED_CLASS_FILTER_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "class" && command == "direct" =>
+        {
+            Some(relations::CLASS_RELATION_FILTER_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "class" && command == "graph" =>
+        {
+            Some(relations::RELATED_CLASS_FILTER_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "object" && command == "list" =>
+        {
+            Some(relations::RELATED_OBJECT_FILTER_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "object" && command == "direct" =>
+        {
+            Some(relations::OBJECT_RELATION_FILTER_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "object" && command == "graph" =>
+        {
+            Some(relations::RELATED_OBJECT_FILTER_SPECS)
         }
         [scope, command] if scope == "report" && command == "list" => {
             Some(reports::REPORT_FILTER_SPECS)
@@ -79,8 +106,25 @@ pub(crate) fn sort_specs_for_command_path(
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_SORT_SPECS)
         }
-        [scope, command] if scope == "relation" && command == "list" => {
-            Some(relations::RELATION_SORT_SPECS)
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "class" && command == "list" =>
+        {
+            Some(relations::RELATED_CLASS_SORT_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "class" && command == "direct" =>
+        {
+            Some(relations::CLASS_RELATION_SORT_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "object" && command == "list" =>
+        {
+            Some(relations::RELATED_OBJECT_SORT_SPECS)
+        }
+        [scope, subtype, command]
+            if scope == "relation" && subtype == "object" && command == "direct" =>
+        {
+            Some(relations::OBJECT_RELATION_SORT_SPECS)
         }
         [scope, command] if scope == "report" && command == "list" => {
             Some(reports::REPORT_SORT_SPECS)

@@ -61,8 +61,52 @@ pub fn object_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
     complete_for_path(ctx, &["object", "list"], prefix)
 }
 
-pub fn relation_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "list"], prefix)
+pub fn relation_class_list_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "class", "list"], prefix)
+}
+
+pub fn relation_class_direct_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "class", "direct"], prefix)
+}
+
+pub fn relation_class_graph_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "class", "graph"], prefix)
+}
+
+pub fn relation_object_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "object", "list"], prefix)
+}
+
+pub fn relation_object_direct_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "object", "direct"], prefix)
+}
+
+pub fn relation_object_graph_where(
+    ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_for_path(ctx, &["relation", "object", "graph"], prefix)
 }
 
 pub fn report_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -175,8 +219,10 @@ fn complete_value(
 
     let values = match spec.public_name {
         "namespace" => values(ctx.namespaces(prefix)),
-        "class" | "class_from" | "class_to" => values(ctx.classes(prefix)),
-        "object_from" | "object_to" => Vec::new(),
+        "class" | "class_a" | "class_b" | "root_class" | "related_class" => {
+            values(ctx.classes(prefix))
+        }
+        "object_a" | "object_b" => Vec::new(),
         _ if spec.value_profile == FilterValueProfile::Boolean => values(
             ["true".to_string(), "false".to_string()]
                 .into_iter()

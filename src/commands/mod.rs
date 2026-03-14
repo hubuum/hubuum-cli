@@ -274,6 +274,14 @@ pub fn equals_clause(field: impl Into<String>, value: impl Into<String>) -> Filt
     )
 }
 
+pub fn lte_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
+    filter_clause(
+        field,
+        hubuum_client::FilterOperator::Lte { is_negated: false },
+        value,
+    )
+}
+
 pub fn want_json(tokens: &CommandTokenizer) -> bool {
     let opts = tokens.get_options();
     opts.contains_key("j") || opts.contains_key("json")

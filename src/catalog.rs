@@ -370,8 +370,9 @@ impl CommandCatalog {
 
 fn scope_command_summary(scope: &ScopeSpec) -> String {
     scope
-        .commands
+        .scopes
         .keys()
+        .chain(scope.commands.keys())
         .cloned()
         .collect::<Vec<_>>()
         .join(", ")
@@ -610,8 +611,21 @@ mod tests {
         assert!(help.contains("[create, delete, list, modify, show]"));
         assert!(help.contains("object"));
         assert!(help.contains("[create, delete, list, modify, show]"));
+        assert!(help.contains("relation"));
+        assert!(help.contains("[class, object]"));
         assert!(help.contains("use next to fetch the next page"));
         assert!(help.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    fn nested_scope_help_lists_generated_children() {
+        let catalog = crate::commands::build_command_catalog();
+        let help = catalog.render_scope_help(&["relation".to_string()]);
+
+        assert!(help.contains("class"));
+        assert!(help.contains("object"));
+        assert!(help.contains("[create, delete, direct, graph, list, show]"));
+        assert!(help.contains("[create, delete, direct, graph, list, show]"));
     }
 
     #[test]
@@ -652,18 +666,24 @@ mod tests {
         let catalog = crate::commands::build_command_catalog();
 
         for path in [
-            ["class", "list"],
-            ["group", "list"],
-            ["namespace", "list"],
-            ["object", "list"],
-            ["user", "list"],
-            ["report", "list"],
-            ["relation", "list"],
+            vec!["class", "list"],
+            vec!["group", "list"],
+            vec!["namespace", "list"],
+            vec!["object", "list"],
+            vec!["user", "list"],
+            vec!["report", "list"],
+            vec!["relation", "class", "list"],
+            vec!["relation", "class", "direct"],
+            vec!["relation", "object", "list"],
+            vec!["relation", "object", "direct"],
         ] {
             let resolved = catalog
                 .resolve_command(
                     &[],
-                    &path.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
+                    &path
+                        .into_iter()
+                        .map(|part| part.to_string())
+                        .collect::<Vec<_>>(),
                 )
                 .expect("list command should resolve");
             let option_names = resolved

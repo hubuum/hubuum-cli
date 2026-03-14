@@ -21,7 +21,7 @@ anyhow = "1"
 dirs = "6"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = "0.0.1"
+hubuum_client = "0.0.2"
 rpassword = "7"
 rand = "0"
 jqesque = "0.0.3"

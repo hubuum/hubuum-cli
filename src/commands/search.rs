@@ -48,16 +48,25 @@ pub struct SearchCommand {
         autocomplete = "search_kinds"
     )]
     pub kinds: Vec<SearchKind>,
-    #[option(long = "limit-per-kind", help = "Maximum results to return for each kind")]
+    #[option(
+        long = "limit-per-kind",
+        help = "Maximum results to return for each kind"
+    )]
     pub limit_per_kind: Option<usize>,
     #[option(
         long = "cursor-namespaces",
         help = "Cursor for the next namespace result page"
     )]
     pub cursor_namespaces: Option<String>,
-    #[option(long = "cursor-classes", help = "Cursor for the next class result page")]
+    #[option(
+        long = "cursor-classes",
+        help = "Cursor for the next class result page"
+    )]
     pub cursor_classes: Option<String>,
-    #[option(long = "cursor-objects", help = "Cursor for the next object result page")]
+    #[option(
+        long = "cursor-objects",
+        help = "Cursor for the next object result page"
+    )]
     pub cursor_objects: Option<String>,
     #[option(
         long = "search-class-schema",
@@ -71,7 +80,11 @@ pub struct SearchCommand {
         flag = "true"
     )]
     pub search_object_data: Option<bool>,
-    #[option(long = "stream", help = "Use the streaming SSE endpoint", flag = "true")]
+    #[option(
+        long = "stream",
+        help = "Use the streaming SSE endpoint",
+        flag = "true"
+    )]
     pub stream: Option<bool>,
 }
 
@@ -270,7 +283,9 @@ fn apply_next_page_state(
     }
 
     if crate::config::get_config().repl.enter_fetches_next_page {
-        append_line("Paginated results available. Press Enter for the next page, or Ctrl-C to stop.")?;
+        append_line(
+            "Paginated results available. Press Enter for the next page, or Ctrl-C to stop.",
+        )?;
     } else {
         append_line("Paginated results available. Type 'next' for the next page.")?;
     }
@@ -376,7 +391,10 @@ mod tests {
             },
         );
 
-        assert_eq!(command, "search server --kind class --cursor-classes 'next cursor'");
+        assert_eq!(
+            command,
+            "search server --kind class --cursor-classes 'next cursor'"
+        );
     }
 
     #[test]
@@ -389,6 +407,9 @@ mod tests {
         .expect("tokenization should succeed");
 
         let parsed = SearchCommand::parse_tokens(&tokens).expect("parse should succeed");
-        assert_eq!(parsed.kinds, vec![SearchKind::Namespace, SearchKind::Object]);
+        assert_eq!(
+            parsed.kinds,
+            vec![SearchKind::Namespace, SearchKind::Object]
+        );
     }
 }

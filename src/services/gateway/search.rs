@@ -1,16 +1,12 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
 
-use hubuum_client::{ApiError, Class, Namespace, Object};
-use reqwest::blocking::Response;
-use reqwest::StatusCode;
+use hubuum_client::{Class, Namespace, Object, UnifiedSearchBatchResponse, UnifiedSearchKind};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
-use crate::config::get_config;
 use crate::domain::{
-    ClassRecord, NamespaceRecord, ResolvedObjectRecord, SearchBatchRecord, SearchCursorSet,
-    SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
+    ClassRecord, NamespaceRecord, ResolvedObjectRecord, SearchBatchRecord, SearchErrorEvent,
+    SearchQueryEvent, SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
 };
 use crate::errors::AppError;
 
@@ -36,149 +32,104 @@ pub struct SearchInput {
     pub search_object_data: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct RawSearchResponse {
-    query: String,
-    results: RawSearchResults,
-    next: SearchCursorSet,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawSearchResults {
-    namespaces: Vec<Namespace>,
-    classes: Vec<Class>,
-    objects: Vec<Object>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawSearchBatch {
-    kind: String,
-    namespaces: Vec<Namespace>,
-    classes: Vec<Class>,
-    objects: Vec<Object>,
-    next: Option<String>,
-}
-
-#[derive(Debug)]
-struct RawSseEvent {
-    event: String,
-    data: String,
-}
-
 impl HubuumGateway {
     pub fn search(&self, input: &SearchInput) -> Result<SearchResponseRecord, AppError> {
-        let response = self.search_request("search", input)?;
-        let raw: RawSearchResponse = response
-            .json()
-            .map_err(|error| AppError::HttpError(error.to_string()))?;
+        let raw = self.build_search_request(input).execute()?;
         Ok(SearchResponseRecord {
             query: raw.query,
             results: self.map_search_results(raw.results)?,
-            next: raw.next,
+            next: raw.next.into(),
         })
     }
 
     pub fn search_stream(&self, input: &SearchInput) -> Result<Vec<SearchStreamEvent>, AppError> {
-        let response = self.search_request("search/stream", input)?;
-        let events = parse_sse_events(response)?;
         let mut mapped = Vec::new();
 
-        for event in events {
-            match event.event.as_str() {
-                "started" => mapped.push(SearchStreamEvent::Started(serde_json::from_str(
-                    &event.data,
-                )?)),
-                "done" => mapped.push(SearchStreamEvent::Done(serde_json::from_str(&event.data)?)),
-                "error" => {
-                    mapped.push(SearchStreamEvent::Error(serde_json::from_str(&event.data)?))
+        for event in self.build_search_request(input).stream()? {
+            match event {
+                hubuum_client::UnifiedSearchEvent::Started(payload) => {
+                    mapped.push(SearchStreamEvent::Started(SearchQueryEvent {
+                        query: payload.query,
+                    }))
                 }
-                "batch" => {
-                    let raw_batch: RawSearchBatch = serde_json::from_str(&event.data)?;
-                    mapped.push(SearchStreamEvent::Batch(self.map_search_batch(raw_batch)?));
+                hubuum_client::UnifiedSearchEvent::Batch(batch) => {
+                    mapped.push(SearchStreamEvent::Batch(self.map_search_batch(batch)?))
                 }
-                _ => {}
+                hubuum_client::UnifiedSearchEvent::Done(payload) => {
+                    mapped.push(SearchStreamEvent::Done(SearchQueryEvent {
+                        query: payload.query,
+                    }))
+                }
+                hubuum_client::UnifiedSearchEvent::Error(payload) => {
+                    mapped.push(SearchStreamEvent::Error(SearchErrorEvent {
+                        message: payload.message,
+                    }))
+                }
             }
         }
 
         Ok(mapped)
     }
 
-    fn search_request(
+    fn build_search_request(
         &self,
-        path_suffix: &str,
         input: &SearchInput,
-    ) -> Result<Response, AppError> {
-        let config = get_config();
-        let base_url = format!(
-            "{}://{}:{}/api/v1/{path_suffix}",
-            config.server.protocol, config.server.hostname, config.server.port
-        );
-        let mut url =
-            reqwest::Url::parse(&base_url).map_err(|error| AppError::HttpError(error.to_string()))?;
+    ) -> hubuum_client::client::sync::UnifiedSearchRequest {
+        let mut request = self.client.search(input.query.clone());
 
-        let mut query = vec![("q", input.query.clone())];
         if !input.kinds.is_empty() {
-            query.push((
-                "kinds",
-                input
-                    .kinds
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ));
+            request = request.kinds(input.kinds.iter().copied().map(Into::into));
         }
         if let Some(limit) = input.limit_per_kind {
-            query.push(("limit_per_kind", limit.to_string()));
+            request = request.limit_per_kind(limit);
         }
         if let Some(cursor) = &input.cursor_namespaces {
-            query.push(("cursor_namespaces", cursor.clone()));
+            request = request.cursor_namespaces(cursor.clone());
         }
         if let Some(cursor) = &input.cursor_classes {
-            query.push(("cursor_classes", cursor.clone()));
+            request = request.cursor_classes(cursor.clone());
         }
         if let Some(cursor) = &input.cursor_objects {
-            query.push(("cursor_objects", cursor.clone()));
+            request = request.cursor_objects(cursor.clone());
         }
         if input.search_class_schema {
-            query.push(("search_class_schema", "true".to_string()));
+            request = request.search_class_schema(true);
         }
         if input.search_object_data {
-            query.push(("search_object_data", "true".to_string()));
+            request = request.search_object_data(true);
         }
 
-        {
-            let mut pairs = url.query_pairs_mut();
-            for (key, value) in &query {
-                pairs.append_pair(key, value);
-            }
-        }
-
-        let response = self
-            .client
-            .http_client
-            .get(url)
-            .bearer_auth(self.client.get_token())
-            .send()
-            .map_err(|error| AppError::HttpError(error.to_string()))?;
-
-        ensure_success(response)
+        request
     }
 
-    fn map_search_results(&self, raw: RawSearchResults) -> Result<SearchResultsRecord, AppError> {
+    fn map_search_results(
+        &self,
+        raw: hubuum_client::UnifiedSearchResults,
+    ) -> Result<SearchResultsRecord, AppError> {
         let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.namespaces)?;
         Ok(SearchResultsRecord {
-            namespaces: raw.namespaces.into_iter().map(NamespaceRecord::from).collect(),
+            namespaces: raw
+                .namespaces
+                .into_iter()
+                .map(NamespaceRecord::from)
+                .collect(),
             classes: raw.classes.into_iter().map(ClassRecord::from).collect(),
             objects,
         })
     }
 
-    fn map_search_batch(&self, raw: RawSearchBatch) -> Result<SearchBatchRecord, AppError> {
+    fn map_search_batch(
+        &self,
+        raw: UnifiedSearchBatchResponse,
+    ) -> Result<SearchBatchRecord, AppError> {
         let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.namespaces)?;
         Ok(SearchBatchRecord {
             kind: raw.kind,
-            namespaces: raw.namespaces.into_iter().map(NamespaceRecord::from).collect(),
+            namespaces: raw
+                .namespaces
+                .into_iter()
+                .map(NamespaceRecord::from)
+                .collect(),
             classes: raw.classes.into_iter().map(ClassRecord::from).collect(),
             objects,
             next: raw.next,
@@ -209,9 +160,11 @@ impl HubuumGateway {
             .filter(|object| !class_map.contains_key(&object.hubuum_class_id))
             .count();
         if missing_class_ids > 0 {
-            class_map.extend(find_entities_by_ids(&self.client.classes(), objects.iter(), |object| {
-                object.hubuum_class_id
-            })?);
+            class_map.extend(find_entities_by_ids(
+                &self.client.classes(),
+                objects.iter(),
+                |object| object.hubuum_class_id,
+            )?);
         }
 
         let missing_namespace_ids = objects
@@ -233,121 +186,45 @@ impl HubuumGateway {
     }
 }
 
-fn ensure_success(response: Response) -> Result<Response, AppError> {
-    let status = response.status();
-    if status.is_success() {
-        return Ok(response);
-    }
-
-    let body = response
-        .text()
-        .map_err(|error| AppError::HttpError(error.to_string()))?;
-    let message = parse_error_message(status, &body);
-    Err(AppError::ApiError(ApiError::HttpWithBody { status, message }))
-}
-
-fn parse_error_message(status: StatusCode, body: &str) -> String {
-    #[derive(Deserialize)]
-    struct ApiErrorBody {
-        message: Option<String>,
-        error: Option<String>,
-        detail: Option<String>,
-    }
-
-    if let Ok(parsed) = serde_json::from_str::<ApiErrorBody>(body) {
-        if let Some(message) = parsed.message.or(parsed.error).or(parsed.detail) {
-            return message;
+impl From<SearchKind> for UnifiedSearchKind {
+    fn from(value: SearchKind) -> Self {
+        match value {
+            SearchKind::Namespace => UnifiedSearchKind::Namespace,
+            SearchKind::Class => UnifiedSearchKind::Class,
+            SearchKind::Object => UnifiedSearchKind::Object,
         }
-    }
-
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        status.to_string()
-    } else {
-        trimmed.to_string()
     }
 }
 
-fn parse_sse_events(response: Response) -> Result<Vec<RawSseEvent>, AppError> {
-    parse_sse_reader(BufReader::new(response))
-}
-
-fn parse_sse_reader<R>(reader: R) -> Result<Vec<RawSseEvent>, AppError>
-where
-    R: BufRead + Read,
-{
-    let mut events = Vec::new();
-    let mut event_name: Option<String> = None;
-    let mut data_lines = Vec::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let line = line.trim_end_matches('\r');
-
-        if line.is_empty() {
-            flush_sse_event(&mut events, &mut event_name, &mut data_lines);
-            continue;
-        }
-
-        if let Some(value) = line.strip_prefix("event:") {
-            event_name = Some(value.trim().to_string());
-            continue;
-        }
-
-        if let Some(value) = line.strip_prefix("data:") {
-            data_lines.push(value.trim_start().to_string());
+impl From<hubuum_client::UnifiedSearchNext> for crate::domain::SearchCursorSet {
+    fn from(value: hubuum_client::UnifiedSearchNext) -> Self {
+        Self {
+            namespaces: value.namespaces,
+            classes: value.classes,
+            objects: value.objects,
         }
     }
-
-    flush_sse_event(&mut events, &mut event_name, &mut data_lines);
-    Ok(events)
-}
-
-fn flush_sse_event(
-    events: &mut Vec<RawSseEvent>,
-    event_name: &mut Option<String>,
-    data_lines: &mut Vec<String>,
-) {
-    let Some(event) = event_name.take() else {
-        data_lines.clear();
-        return;
-    };
-
-    events.push(RawSseEvent {
-        event,
-        data: data_lines.join("\n"),
-    });
-    data_lines.clear();
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use hubuum_client::UnifiedSearchKind;
 
-    use super::{parse_error_message, parse_sse_reader};
-    use reqwest::StatusCode;
-
-    #[test]
-    fn parse_sse_reader_collects_named_events() {
-        let input = Cursor::new(
-            "event: started\ndata: {\"query\":\"server\"}\n\n\
-             event: batch\ndata: {\"kind\":\"classes\"}\n\n\
-             event: done\ndata: {\"query\":\"server\"}\n\n",
-        );
-
-        let events = parse_sse_reader(input).expect("SSE parsing should succeed");
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].event, "started");
-        assert_eq!(events[1].event, "batch");
-        assert_eq!(events[2].event, "done");
-    }
+    use super::SearchKind;
 
     #[test]
-    fn parse_error_message_prefers_structured_message() {
-        let message = parse_error_message(
-            StatusCode::BAD_REQUEST,
-            r#"{"message":"q must not be empty"}"#,
+    fn search_kind_maps_to_client_search_kind() {
+        assert_eq!(
+            UnifiedSearchKind::from(SearchKind::Namespace),
+            UnifiedSearchKind::Namespace
         );
-        assert_eq!(message, "q must not be empty");
+        assert_eq!(
+            UnifiedSearchKind::from(SearchKind::Class),
+            UnifiedSearchKind::Class
+        );
+        assert_eq!(
+            UnifiedSearchKind::from(SearchKind::Object),
+            UnifiedSearchKind::Object
+        );
     }
 }

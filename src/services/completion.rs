@@ -70,15 +70,29 @@ impl CompletionContext {
             return Vec::new();
         };
 
-        let fetched = self
-            .runtime
+        if prefix.is_empty() {
+            let fetched = self
+                .runtime
+                .block_on(
+                    self.services
+                        .completion_store()
+                        .load_objects_for_class(self.services.gateway(), class_name),
+                )
+                .unwrap_or_default();
+            return filter_prefix(&fetched, prefix);
+        }
+
+        self.runtime
             .block_on(
                 self.services
                     .completion_store()
-                    .load_objects_for_class(self.services.gateway(), class_name),
+                    .query_objects_for_class_prefix(
+                        self.services.gateway(),
+                        class_name,
+                        prefix.to_string(),
+                    ),
             )
-            .unwrap_or_default();
-        filter_prefix(&fetched, prefix)
+            .unwrap_or_default()
     }
 
     fn complete(&self, prefix: &str, kind: CompletionKind) -> Vec<String> {
@@ -161,6 +175,19 @@ impl CompletionStore {
         }
 
         Ok(fetched)
+    }
+
+    async fn query_objects_for_class_prefix(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+        class_name: String,
+        prefix: String,
+    ) -> Result<Vec<String>, AppError> {
+        tokio::task::spawn_blocking(move || {
+            gateway.list_object_names_for_class_prefix(&class_name, &prefix)
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
     }
 
     fn cached(&self, kind: CompletionKind) -> Option<Vec<String>> {

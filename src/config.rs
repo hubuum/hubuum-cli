@@ -333,20 +333,20 @@ fn inspect_config_state_inner(
     let system_toml = read_toml_file(&system);
     let user_toml = read_toml_file(&user);
     let custom_toml = custom.as_ref().and_then(|path| read_toml_file(path));
+    let resolution_context = ConfigSourceResolutionContext {
+        system_path: &system,
+        system_toml: system_toml.as_ref(),
+        user_path: &user,
+        user_toml: user_toml.as_ref(),
+        custom_path: custom.as_deref(),
+        custom_toml: custom_toml.as_ref(),
+        matches,
+    };
 
     let entries = CONFIG_KEYS
         .iter()
         .map(|descriptor| {
-            let (source, source_detail) = resolve_config_source(
-                descriptor,
-                &system,
-                system_toml.as_ref(),
-                &user,
-                user_toml.as_ref(),
-                custom.as_deref(),
-                custom_toml.as_ref(),
-                matches,
-            );
+            let (source, source_detail) = resolve_config_source(descriptor, &resolution_context);
             ConfigEntry {
                 key: descriptor.key.to_string(),
                 value: display_config_value(
@@ -467,28 +467,32 @@ fn descriptor_for_key(key: &str) -> Result<&'static ConfigKeyDescriptor, AppErro
         })
 }
 
+struct ConfigSourceResolutionContext<'a> {
+    system_path: &'a Path,
+    system_toml: Option<&'a toml::Value>,
+    user_path: &'a Path,
+    user_toml: Option<&'a toml::Value>,
+    custom_path: Option<&'a Path>,
+    custom_toml: Option<&'a toml::Value>,
+    matches: Option<&'a ArgMatches>,
+}
+
 fn resolve_config_source(
     descriptor: &ConfigKeyDescriptor,
-    system_path: &Path,
-    system_toml: Option<&toml::Value>,
-    user_path: &Path,
-    user_toml: Option<&toml::Value>,
-    custom_path: Option<&Path>,
-    custom_toml: Option<&toml::Value>,
-    matches: Option<&ArgMatches>,
+    context: &ConfigSourceResolutionContext<'_>,
 ) -> (ConfigSource, Option<String>) {
     let mut source = (ConfigSource::Default, None);
 
-    if toml_has_key(system_toml, descriptor.key) {
+    if toml_has_key(context.system_toml, descriptor.key) {
         source = (
             ConfigSource::SystemFile,
-            Some(system_path.display().to_string()),
+            Some(context.system_path.display().to_string()),
         );
     }
-    if toml_has_key(user_toml, descriptor.key) {
+    if toml_has_key(context.user_toml, descriptor.key) {
         source = (
             ConfigSource::UserFile,
-            Some(user_path.display().to_string()),
+            Some(context.user_path.display().to_string()),
         );
     }
     if std::env::var_os(descriptor.env_var).is_some() {
@@ -497,11 +501,18 @@ fn resolve_config_source(
             Some(descriptor.env_var.to_string()),
         );
     }
-    if let (Some(path), true) = (custom_path, toml_has_key(custom_toml, descriptor.key)) {
+    if let (Some(path), true) = (
+        context.custom_path,
+        toml_has_key(context.custom_toml, descriptor.key),
+    ) {
         source = (ConfigSource::CustomFile, Some(path.display().to_string()));
     }
     if let Some(arg) = descriptor.cli_arg {
-        if matches.and_then(|matches| matches.value_source(arg)) == Some(ValueSource::CommandLine) {
+        if context
+            .matches
+            .and_then(|matches| matches.value_source(arg))
+            == Some(ValueSource::CommandLine)
+        {
             source = (
                 ConfigSource::CliOption,
                 cli_flag_name(arg).map(str::to_string),
@@ -830,16 +841,16 @@ mod tests {
         )
         .expect("valid user toml");
 
-        let (source, detail) = resolve_config_source(
-            descriptor,
-            Path::new("/tmp/system.toml"),
-            None,
+        let context = ConfigSourceResolutionContext {
+            system_path: Path::new("/tmp/system.toml"),
+            system_toml: None,
             user_path,
-            Some(&user_toml),
-            None,
-            None,
-            None,
-        );
+            user_toml: Some(&user_toml),
+            custom_path: None,
+            custom_toml: None,
+            matches: None,
+        };
+        let (source, detail) = resolve_config_source(descriptor, &context);
 
         assert_eq!(source, ConfigSource::Environment);
         assert_eq!(detail.as_deref(), Some("HUBUUM_CLI__SERVER__HOSTNAME"));
