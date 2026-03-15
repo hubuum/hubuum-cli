@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Using `show` on an object or class now displays the object's or class's relations. Defaults
+  to depth 2 and ignoring self-class relations. This behavior can be configured with the
+  `--max-depth` and `--include-self-class` flags.
 - Redesigned relationship commands around rooted `relation class` and `relation object`
   workflows that use the newer related-resource endpoints.
 - Added class relation traversal support (`list`, `direct`, and `graph`) to match the newer
