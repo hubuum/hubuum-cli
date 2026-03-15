@@ -15,7 +15,10 @@ impl Defaults {
     pub const REPL_ENTER_FETCHES_NEXT_PAGE: bool = false;
     pub const API_VERSION: &'static str = "v1";
     pub const PROTOCOL: Protocol = Protocol::Https;
+    pub const RELATIONS_IGNORE_SAME_CLASS: bool = true;
+    pub const RELATIONS_MAX_DEPTH: i32 = 2;
     pub const OUTPUT_FORMAT: OutputFormat = OutputFormat::Text;
     pub const OUTPUT_PADDING: i8 = 15;
     pub const OUTPUT_TABLE_STYLE: TableStyle = TableStyle::Rounded;
+    pub const OUTPUT_OBJECT_SHOW_DATA: bool = false;
 }

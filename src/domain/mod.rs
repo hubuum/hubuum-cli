@@ -29,17 +29,19 @@ mod search;
 mod tasks;
 mod users;
 
-pub use classes::{ClassDetails, ClassRecord};
+pub use classes::{ClassRecord, ClassShowRecord};
 pub use groups::{GroupDetails, GroupRecord};
 pub use imports::ImportResultRecord;
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
     NamespaceRecord,
 };
-pub use objects::{ObjectRecord, ResolvedObjectRecord};
+pub use objects::{ObjectRecord, ObjectShowRecord, ResolvedObjectRecord};
 pub use relations::{
-    ResolvedClassRelationRecord, ResolvedObjectRelationRecord, ResolvedRelatedClassGraph,
-    ResolvedRelatedClassRecord, ResolvedRelatedObjectGraph, ResolvedRelatedObjectRecord,
+    build_related_class_tree, build_related_object_tree, RelatedClassTreeNode,
+    RelatedObjectTreeNode, ResolvedClassRelationRecord, ResolvedObjectRelationRecord,
+    ResolvedRelatedClassGraph, ResolvedRelatedClassRecord, ResolvedRelatedObjectGraph,
+    ResolvedRelatedObjectRecord,
 };
 pub use reports::{ReportOutput, ReportTemplateRecord};
 pub use search::{

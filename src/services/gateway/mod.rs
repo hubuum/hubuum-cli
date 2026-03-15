@@ -21,7 +21,7 @@ pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
 pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectUpdateInput};
-pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget};
+pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
 pub use tasks::TaskLookupInput;

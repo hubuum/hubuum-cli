@@ -101,6 +101,30 @@ pub fn build_cli() -> Command {
                 .help("Set the background task poll interval in seconds"),
         )
         .arg(
+            Arg::new("relations_ignore_same_class")
+                .long("relations-ignore-same-class")
+                .value_name("BOOL")
+                .value_parser(BoolishValueParser::new())
+                .env("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS")
+                .help("Set whether same-class relations are ignored by default"),
+        )
+        .arg(
+            Arg::new("relations_max_depth")
+                .long("relations-max-depth")
+                .value_name("DEPTH")
+                .value_parser(value_parser!(i32))
+                .env("HUBUUM_CLI__RELATIONS__MAX_DEPTH")
+                .help("Set the default relation traversal depth"),
+        )
+        .arg(
+            Arg::new("output_object_show_data")
+                .long("output-object-show-data")
+                .value_name("BOOL")
+                .value_parser(BoolishValueParser::new())
+                .env("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA")
+                .help("Set whether object show expands object data by default"),
+        )
+        .arg(
             Arg::new("command")
                 .long("command")
                 .value_name("COMMAND")
@@ -171,6 +195,19 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     {
         config.background.poll_interval_seconds = *background_poll_interval;
     }
+    if let Some(ignore_same_class) =
+        get_command_line_value::<bool>(matches, "relations_ignore_same_class")
+    {
+        config.relations.ignore_same_class = *ignore_same_class;
+    }
+    if let Some(max_depth) = get_command_line_value::<i32>(matches, "relations_max_depth") {
+        config.relations.max_depth = *max_depth;
+    }
+    if let Some(object_show_data) =
+        get_command_line_value::<bool>(matches, "output_object_show_data")
+    {
+        config.output.object_show_data = *object_show_data;
+    }
 }
 
 #[cfg(test)]
@@ -204,5 +241,26 @@ mod tests {
         update_config_from_cli(&mut config, &matches);
 
         assert_eq!(config.server.hostname, "cli.example.com");
+    }
+
+    #[test]
+    fn update_config_from_cli_applies_relation_and_output_flags() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--relations-ignore-same-class",
+                "false",
+                "--relations-max-depth",
+                "5",
+                "--output-object-show-data",
+                "true",
+            ])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert!(!config.relations.ignore_same_class);
+        assert_eq!(config.relations.max_depth, 5);
+        assert!(config.output.object_show_data);
     }
 }

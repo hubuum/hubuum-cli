@@ -32,6 +32,12 @@ pub struct RelatedObjectOptions {
     pub include_self_class: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RelationTraversalOptions {
+    pub include_self_class: bool,
+    pub max_depth: i32,
+}
+
 impl HubuumGateway {
     pub fn list_related_classes(
         &self,

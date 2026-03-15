@@ -84,6 +84,7 @@ pub struct AppConfig {
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
+    pub relations: RelationsConfig,
     pub output: OutputConfig,
 }
 
@@ -122,10 +123,17 @@ pub struct ReplConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RelationsConfig {
+    pub ignore_same_class: bool,
+    pub max_depth: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub padding: i8,
     pub table_style: TableStyle,
+    pub object_show_data: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -243,6 +251,20 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "relations.ignore_same_class",
+        cli_arg: Some("relations_ignore_same_class"),
+        env_var: "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "relations.max_depth",
+        cli_arg: Some("relations_max_depth"),
+        env_var: "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
+        value_kind: ConfigValueKind::I32,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.format",
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__FORMAT",
@@ -261,6 +283,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
         value_kind: ConfigValueKind::TableStyle,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_show_data",
+        cli_arg: Some("output_object_show_data"),
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
+        value_kind: ConfigValueKind::Bool,
         sensitive: false,
     },
 ];
@@ -291,10 +320,15 @@ impl Default for AppConfig {
             repl: ReplConfig {
                 enter_fetches_next_page: Defaults::REPL_ENTER_FETCHES_NEXT_PAGE,
             },
+            relations: RelationsConfig {
+                ignore_same_class: Defaults::RELATIONS_IGNORE_SAME_CLASS,
+                max_depth: Defaults::RELATIONS_MAX_DEPTH,
+            },
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
+                object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
             },
         }
     }
@@ -431,7 +465,13 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
             "repl.enter_fetches_next_page",
             Defaults::REPL_ENTER_FETCHES_NEXT_PAGE,
         )?
+        .set_default(
+            "relations.ignore_same_class",
+            Defaults::RELATIONS_IGNORE_SAME_CLASS,
+        )?
+        .set_default("relations.max_depth", Defaults::RELATIONS_MAX_DEPTH)?
         // 1. Load system-wide config
+        .set_default("output.object_show_data", Defaults::OUTPUT_OBJECT_SHOW_DATA)?
         .add_source(File::from(system_config).required(false))
         // 2. Load user-specific config
         .add_source(File::from(user_config).required(false))
@@ -536,6 +576,9 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "cache_disable" => Some("--cache-disable"),
         "completion_disable_api" => Some("--completion-api-disable"),
         "background_poll_interval" => Some("--background-poll-interval"),
+        "relations_ignore_same_class" => Some("--relations-ignore-same-class"),
+        "relations_max_depth" => Some("--relations-max-depth"),
+        "output_object_show_data" => Some("--output-object-show-data"),
         _ => None,
     }
 }
@@ -559,9 +602,12 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
             ConfigValueRef::U64(config.background.poll_interval_seconds)
         }
         "repl.enter_fetches_next_page" => ConfigValueRef::Bool(config.repl.enter_fetches_next_page),
+        "relations.ignore_same_class" => ConfigValueRef::Bool(config.relations.ignore_same_class),
+        "relations.max_depth" => ConfigValueRef::I32(config.relations.max_depth),
         "output.format" => ConfigValueRef::OutputFormat(&config.output.format),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
+        "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
         _ => ConfigValueRef::String(""),
     }
 }
@@ -753,7 +799,10 @@ mod tests {
             "HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED",
             "HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS",
             "HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE",
+            "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
+            "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
+            "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
         ] {
             env::remove_var(var);
         }
@@ -778,6 +827,9 @@ mod tests {
         env::set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
         env::set_var("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS", "7");
         env::set_var("HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE", "true");
+        env::set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
+        env::set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
+        env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
 
         // 2. load and assert
         let cfg = load_config(None).expect("failed to load config from env");
@@ -797,6 +849,9 @@ mod tests {
         assert!(cfg.completion.disable_api_related);
         assert_eq!(cfg.background.poll_interval_seconds, 7);
         assert!(cfg.repl.enter_fetches_next_page);
+        assert!(!cfg.relations.ignore_same_class);
+        assert_eq!(cfg.relations.max_depth, 4);
+        assert!(cfg.output.object_show_data);
         clear_env();
     }
 
@@ -804,23 +859,33 @@ mod tests {
     #[serial]
     fn mixing_env_and_defaults() {
         clear_env();
+        let baseline = load_config(None).unwrap();
         // Only override one value
         env::set_var("HUBUUM_CLI__SERVER__PORT", "5555");
         let cfg = load_config(None).unwrap();
 
-        // port should be env value, everything else falls back to Default::default()
+        // port should be env value, everything else should match the non-env baseline
         assert_eq!(cfg.server.port, 5555);
-        assert_eq!(cfg.server.hostname, Defaults::SERVER_HOSTNAME);
-        assert_eq!(cfg.cache.disable, Defaults::CACHE_DISABLE);
+        assert_eq!(cfg.server.hostname, baseline.server.hostname);
+        assert_eq!(cfg.cache.disable, baseline.cache.disable);
         assert_eq!(
             cfg.background.poll_interval_seconds,
-            Defaults::BACKGROUND_POLL_INTERVAL_SECONDS
+            baseline.background.poll_interval_seconds
         );
         assert_eq!(
             cfg.repl.enter_fetches_next_page,
-            Defaults::REPL_ENTER_FETCHES_NEXT_PAGE
+            baseline.repl.enter_fetches_next_page
         );
-        assert!(cfg.server.password.is_none());
+        assert_eq!(
+            cfg.relations.ignore_same_class,
+            baseline.relations.ignore_same_class
+        );
+        assert_eq!(cfg.relations.max_depth, baseline.relations.max_depth);
+        assert_eq!(
+            cfg.output.object_show_data,
+            baseline.output.object_show_data
+        );
+        assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();
     }
