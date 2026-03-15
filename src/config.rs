@@ -2,6 +2,7 @@ use clap::{parser::ValueSource, ArgMatches};
 use config::{Config, ConfigError, Environment, File};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -84,6 +85,7 @@ pub struct AppConfig {
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
+    pub relations: RelationsConfig,
     pub output: OutputConfig,
 }
 
@@ -122,10 +124,17 @@ pub struct ReplConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RelationsConfig {
+    pub ignore_same_class: bool,
+    pub max_depth: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub padding: i8,
     pub table_style: TableStyle,
+    pub object_show_data: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -243,6 +252,20 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "relations.ignore_same_class",
+        cli_arg: Some("relations_ignore_same_class"),
+        env_var: "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "relations.max_depth",
+        cli_arg: Some("relations_max_depth"),
+        env_var: "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
+        value_kind: ConfigValueKind::I32,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.format",
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__FORMAT",
@@ -261,6 +284,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
         value_kind: ConfigValueKind::TableStyle,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_show_data",
+        cli_arg: Some("output_object_show_data"),
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
+        value_kind: ConfigValueKind::Bool,
         sensitive: false,
     },
 ];
@@ -291,10 +321,15 @@ impl Default for AppConfig {
             repl: ReplConfig {
                 enter_fetches_next_page: Defaults::REPL_ENTER_FETCHES_NEXT_PAGE,
             },
+            relations: RelationsConfig {
+                ignore_same_class: Defaults::RELATIONS_IGNORE_SAME_CLASS,
+                max_depth: Defaults::RELATIONS_MAX_DEPTH,
+            },
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
+                object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
             },
         }
     }
@@ -318,12 +353,13 @@ pub fn inspect_config_state(
     cli_config_path: Option<PathBuf>,
     matches: &ArgMatches,
 ) -> ConfigState {
-    inspect_config_state_inner(config, cli_config_path, Some(matches))
+    inspect_config_state_inner(config, cli_config_path, None, Some(matches))
 }
 
 fn inspect_config_state_inner(
     config: &AppConfig,
     cli_config_path: Option<PathBuf>,
+    runtime_cli_args: Option<&HashSet<String>>,
     matches: Option<&ArgMatches>,
 ) -> ConfigState {
     let system = get_system_config_path();
@@ -340,6 +376,7 @@ fn inspect_config_state_inner(
         user_toml: user_toml.as_ref(),
         custom_path: custom.as_deref(),
         custom_toml: custom_toml.as_ref(),
+        runtime_cli_args,
         matches,
     };
 
@@ -391,11 +428,69 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
 }
 
 pub fn reload_runtime_config() -> Result<(), AppError> {
-    let custom = get_config_state().paths.custom.clone();
-    let config = load_config(custom.clone())?;
-    init_config_state(inspect_config_state_without_cli(&config, custom))?;
+    let previous_state = get_config_state();
+    let custom = previous_state.paths.custom.clone();
+    let runtime_cli_keys: Vec<String> = previous_state
+        .entries
+        .iter()
+        .filter(|entry| entry.source == ConfigSource::CliOption)
+        .map(|entry| entry.key.clone())
+        .collect();
+
+    let mut config = load_config(custom.clone())?;
+    if !runtime_cli_keys.is_empty() {
+        let previous_config = get_config();
+        apply_runtime_overrides(&mut config, &previous_config, &runtime_cli_keys);
+    }
+
+    let runtime_cli_args: HashSet<String> = runtime_cli_keys
+        .iter()
+        .filter_map(|key| {
+            descriptor_for_key(key)
+                .ok()
+                .and_then(|descriptor| descriptor.cli_arg)
+        })
+        .map(str::to_string)
+        .collect();
+
+    let state = if runtime_cli_args.is_empty() {
+        inspect_config_state_without_cli(&config, custom)
+    } else {
+        inspect_config_state_with_runtime_cli(&config, custom, &runtime_cli_args)
+    };
+    init_config_state(state)?;
     init_config(config)?;
     Ok(())
+}
+
+fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[String]) {
+    for key in keys {
+        match key.as_str() {
+            "server.hostname" => target.server.hostname = source.server.hostname.clone(),
+            "server.port" => target.server.port = source.server.port,
+            "server.ssl_validation" => target.server.ssl_validation = source.server.ssl_validation,
+            "server.username" => target.server.username = source.server.username.clone(),
+            "server.password" => target.server.password = source.server.password.clone(),
+            "server.protocol" => target.server.protocol = source.server.protocol.clone(),
+            "cache.time" => target.cache.time = source.cache.time,
+            "cache.size" => target.cache.size = source.cache.size,
+            "cache.disable" => target.cache.disable = source.cache.disable,
+            "completion.disable_api_related" => {
+                target.completion.disable_api_related = source.completion.disable_api_related;
+            }
+            "background.poll_interval_seconds" => {
+                target.background.poll_interval_seconds = source.background.poll_interval_seconds;
+            }
+            "relations.ignore_same_class" => {
+                target.relations.ignore_same_class = source.relations.ignore_same_class;
+            }
+            "relations.max_depth" => target.relations.max_depth = source.relations.max_depth,
+            "output.object_show_data" => {
+                target.output.object_show_data = source.output.object_show_data;
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, ConfigError> {
@@ -431,7 +526,13 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
             "repl.enter_fetches_next_page",
             Defaults::REPL_ENTER_FETCHES_NEXT_PAGE,
         )?
+        .set_default(
+            "relations.ignore_same_class",
+            Defaults::RELATIONS_IGNORE_SAME_CLASS,
+        )?
+        .set_default("relations.max_depth", Defaults::RELATIONS_MAX_DEPTH)?
         // 1. Load system-wide config
+        .set_default("output.object_show_data", Defaults::OUTPUT_OBJECT_SHOW_DATA)?
         .add_source(File::from(system_config).required(false))
         // 2. Load user-specific config
         .add_source(File::from(user_config).required(false))
@@ -452,7 +553,15 @@ pub fn inspect_config_state_without_cli(
     config: &AppConfig,
     cli_config_path: Option<PathBuf>,
 ) -> ConfigState {
-    inspect_config_state_inner(config, cli_config_path, None)
+    inspect_config_state_inner(config, cli_config_path, None, None)
+}
+
+fn inspect_config_state_with_runtime_cli(
+    config: &AppConfig,
+    cli_config_path: Option<PathBuf>,
+    runtime_cli_args: &HashSet<String>,
+) -> ConfigState {
+    inspect_config_state_inner(config, cli_config_path, Some(runtime_cli_args), None)
 }
 
 fn descriptor_for_key(key: &str) -> Result<&'static ConfigKeyDescriptor, AppError> {
@@ -474,6 +583,7 @@ struct ConfigSourceResolutionContext<'a> {
     user_toml: Option<&'a toml::Value>,
     custom_path: Option<&'a Path>,
     custom_toml: Option<&'a toml::Value>,
+    runtime_cli_args: Option<&'a HashSet<String>>,
     matches: Option<&'a ArgMatches>,
 }
 
@@ -509,6 +619,15 @@ fn resolve_config_source(
     }
     if let Some(arg) = descriptor.cli_arg {
         if context
+            .runtime_cli_args
+            .is_some_and(|runtime_cli_args| runtime_cli_args.contains(arg))
+        {
+            source = (
+                ConfigSource::CliOption,
+                cli_flag_name(arg).map(str::to_string),
+            );
+        }
+        if context
             .matches
             .and_then(|matches| matches.value_source(arg))
             == Some(ValueSource::CommandLine)
@@ -536,6 +655,9 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "cache_disable" => Some("--cache-disable"),
         "completion_disable_api" => Some("--completion-api-disable"),
         "background_poll_interval" => Some("--background-poll-interval"),
+        "relations_ignore_same_class" => Some("--relations-ignore-same-class"),
+        "relations_max_depth" => Some("--relations-max-depth"),
+        "output_object_show_data" => Some("--output-object-show-data"),
         _ => None,
     }
 }
@@ -559,9 +681,12 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
             ConfigValueRef::U64(config.background.poll_interval_seconds)
         }
         "repl.enter_fetches_next_page" => ConfigValueRef::Bool(config.repl.enter_fetches_next_page),
+        "relations.ignore_same_class" => ConfigValueRef::Bool(config.relations.ignore_same_class),
+        "relations.max_depth" => ConfigValueRef::I32(config.relations.max_depth),
         "output.format" => ConfigValueRef::OutputFormat(&config.output.format),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
+        "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
         _ => ConfigValueRef::String(""),
     }
 }
@@ -733,9 +858,11 @@ fn write_toml_file(path: &Path, root: &toml::Value) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli;
     use crate::models::Protocol;
     use serial_test::serial;
     use std::env;
+    use std::fs;
 
     /// Helper to clear all HUBUUM_CLI_... vars we use in this test.
     fn clear_env() {
@@ -753,7 +880,10 @@ mod tests {
             "HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED",
             "HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS",
             "HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE",
+            "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
+            "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
+            "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
         ] {
             env::remove_var(var);
         }
@@ -778,6 +908,9 @@ mod tests {
         env::set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
         env::set_var("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS", "7");
         env::set_var("HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE", "true");
+        env::set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
+        env::set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
+        env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
 
         // 2. load and assert
         let cfg = load_config(None).expect("failed to load config from env");
@@ -797,6 +930,9 @@ mod tests {
         assert!(cfg.completion.disable_api_related);
         assert_eq!(cfg.background.poll_interval_seconds, 7);
         assert!(cfg.repl.enter_fetches_next_page);
+        assert!(!cfg.relations.ignore_same_class);
+        assert_eq!(cfg.relations.max_depth, 4);
+        assert!(cfg.output.object_show_data);
         clear_env();
     }
 
@@ -804,23 +940,33 @@ mod tests {
     #[serial]
     fn mixing_env_and_defaults() {
         clear_env();
+        let baseline = load_config(None).unwrap();
         // Only override one value
         env::set_var("HUBUUM_CLI__SERVER__PORT", "5555");
         let cfg = load_config(None).unwrap();
 
-        // port should be env value, everything else falls back to Default::default()
+        // port should be env value, everything else should match the non-env baseline
         assert_eq!(cfg.server.port, 5555);
-        assert_eq!(cfg.server.hostname, Defaults::SERVER_HOSTNAME);
-        assert_eq!(cfg.cache.disable, Defaults::CACHE_DISABLE);
+        assert_eq!(cfg.server.hostname, baseline.server.hostname);
+        assert_eq!(cfg.cache.disable, baseline.cache.disable);
         assert_eq!(
             cfg.background.poll_interval_seconds,
-            Defaults::BACKGROUND_POLL_INTERVAL_SECONDS
+            baseline.background.poll_interval_seconds
         );
         assert_eq!(
             cfg.repl.enter_fetches_next_page,
-            Defaults::REPL_ENTER_FETCHES_NEXT_PAGE
+            baseline.repl.enter_fetches_next_page
         );
-        assert!(cfg.server.password.is_none());
+        assert_eq!(
+            cfg.relations.ignore_same_class,
+            baseline.relations.ignore_same_class
+        );
+        assert_eq!(cfg.relations.max_depth, baseline.relations.max_depth);
+        assert_eq!(
+            cfg.output.object_show_data,
+            baseline.output.object_show_data
+        );
+        assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();
     }
@@ -848,6 +994,7 @@ mod tests {
             user_toml: Some(&user_toml),
             custom_path: None,
             custom_toml: None,
+            runtime_cli_args: None,
             matches: None,
         };
         let (source, detail) = resolve_config_source(descriptor, &context);
@@ -855,6 +1002,85 @@ mod tests {
         assert_eq!(source, ConfigSource::Environment);
         assert_eq!(detail.as_deref(), Some("HUBUUM_CLI__SERVER__HOSTNAME"));
 
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn reload_runtime_config_keeps_startup_cli_overrides() {
+        clear_env();
+
+        let pid = std::process::id();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let config_path = std::env::temp_dir().join(format!("hubuum-cli-{pid}-{unique}.toml"));
+
+        fs::write(
+            &config_path,
+            r#"
+[server]
+port = 8080
+username = "default_user"
+protocol = "https"
+
+[output]
+object_show_data = false
+"#,
+        )
+        .expect("should write test config file");
+
+        let matches = cli::build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--config",
+                config_path.to_str().expect("path should be valid utf8"),
+                "--port",
+                "7070",
+                "--username",
+                "admin",
+                "--protocol",
+                "http",
+            ])
+            .expect("cli should parse");
+
+        let mut initial = load_config(Some(config_path.clone())).expect("config should load");
+        crate::cli::update_config_from_cli(&mut initial, &matches);
+        init_config(initial.clone()).expect("should initialize config");
+        init_config_state(inspect_config_state(
+            &initial,
+            Some(config_path.clone()),
+            &matches,
+        ))
+        .expect("should initialize config state");
+
+        reload_runtime_config().expect("reload should work");
+
+        let cfg = get_config();
+        assert_eq!(cfg.server.port, 7070);
+        assert_eq!(cfg.server.username, "admin");
+        assert_eq!(cfg.server.protocol, Protocol::Http);
+
+        let state = get_config_state();
+        assert_eq!(
+            state.entry("server.port").map(|entry| entry.source.clone()),
+            Some(ConfigSource::CliOption)
+        );
+        assert_eq!(
+            state
+                .entry("server.username")
+                .map(|entry| entry.source.clone()),
+            Some(ConfigSource::CliOption)
+        );
+        assert_eq!(
+            state
+                .entry("server.protocol")
+                .map(|entry| entry.source.clone()),
+            Some(ConfigSource::CliOption)
+        );
+
+        let _ = fs::remove_file(config_path);
         clear_env();
     }
 }

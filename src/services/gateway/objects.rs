@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use hubuum_client::{ObjectPatch, ObjectPost};
 
-use crate::domain::ResolvedObjectRecord;
+use crate::domain::{build_related_object_tree, ObjectShowRecord, ResolvedObjectRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -10,7 +10,7 @@ use crate::list_query::{
     SortFieldSpec,
 };
 
-use super::{shared::find_entities_by_ids, HubuumGateway};
+use super::{shared::find_entities_by_ids, HubuumGateway, RelationTraversalOptions};
 
 #[derive(Debug, Clone)]
 pub struct CreateObjectInput {
@@ -104,6 +104,58 @@ impl HubuumGateway {
             &classmap,
             &namespacemap,
         ))
+    }
+
+    pub fn object_show_details(
+        &self,
+        class_name: &str,
+        object_name: &str,
+        options: &RelationTraversalOptions,
+    ) -> Result<ObjectShowRecord, AppError> {
+        let class = self.client.classes().select_by_name(class_name)?;
+        let object = class.object_by_name(object_name)?;
+        let namespace = self
+            .client
+            .namespaces()
+            .select(object.resource().namespace_id)?;
+
+        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
+        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
+        let object_record = ResolvedObjectRecord::new(object.resource(), &classmap, &namespacemap);
+        let related_graph = object
+            .related_graph()
+            .add_filter(
+                "depth",
+                hubuum_client::FilterOperator::Lte { is_negated: false },
+                options.max_depth,
+            )
+            .fetch()?;
+        let graph_class_map = self.class_map_from_ids(
+            related_graph
+                .objects
+                .iter()
+                .map(|related_object| related_object.hubuum_class_id)
+                .collect::<Vec<_>>(),
+        )?;
+        let graph_namespace_map = self.namespace_map_from_ids(
+            related_graph
+                .objects
+                .iter()
+                .map(|related_object| related_object.namespace_id)
+                .collect::<Vec<_>>(),
+        )?;
+
+        Ok(ObjectShowRecord {
+            object: object_record,
+            related_objects: build_related_object_tree(
+                &related_graph.objects,
+                &graph_class_map,
+                &graph_namespace_map,
+                object.id(),
+                class.id(),
+                !options.include_self_class,
+            ),
+        })
     }
 
     pub fn delete_object(&self, class_name: &str, object_name: &str) -> Result<(), AppError> {

@@ -11,14 +11,19 @@ use super::{
     build_list_query, contains_clause, desired_format, equals_clause, render_list_page, want_json,
     CliCommand,
 };
-use crate::catalog::CommandCatalogBuilder;
-
 use crate::autocomplete::{classes, namespaces, object_sort, object_where, objects_from_class};
+use crate::catalog::CommandCatalogBuilder;
+use crate::config::get_config;
+use crate::domain::ObjectShowRecord;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
+use crate::formatting::{
+    append_json_message, render_related_object_tree_with_key, OutputFormatter,
+};
 use crate::models::OutputFormat;
 use crate::output::{add_warning, append_key_value, append_line};
-use crate::services::{AppServices, CreateObjectInput, ObjectUpdateInput};
+use crate::services::{
+    AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
+};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -179,6 +184,17 @@ pub struct ObjectInfo {
         help = "Path to display within the data, implies -d"
     )]
     pub jsonpath: Option<String>,
+    #[option(
+        long = "include-self-class",
+        help = "Include returned relations in the same class as the root object",
+        flag = "true"
+    )]
+    pub include_self_class: Option<bool>,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include in related object output"
+    )]
+    pub max_depth: Option<i32>,
 }
 
 impl CliCommand for ObjectInfo {
@@ -190,78 +206,111 @@ impl CliCommand for ObjectInfo {
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        let object = services
-            .gateway()
-            .object_details(&query.class, object_name)?;
+        let config = get_config();
+        let object = services.gateway().object_show_details(
+            &query.class,
+            object_name,
+            &RelationTraversalOptions {
+                include_self_class: query
+                    .include_self_class
+                    .unwrap_or(!config.relations.ignore_same_class),
+                max_depth: query.max_depth.unwrap_or(config.relations.max_depth),
+            },
+        )?;
 
         if want_json(tokens) {
             append_line(serde_json::to_string_pretty(&object)?)?;
             return Ok(());
         }
 
-        object.format()?;
+        render_object_show_text(&object)?;
 
-        if query.jsonpath.is_none() && query.data.is_none() {
+        let show_data = should_render_object_data(
+            query.data,
+            query.jsonpath.as_deref(),
+            config.output.object_show_data,
+        );
+        if !show_data {
             return Ok(());
         }
 
-        if object.data.is_none() {
-            return Ok(());
-        }
-
-        let json_data = object.data.clone().unwrap();
         append_line("")?;
+        render_object_data(object.object.data.as_ref(), query.jsonpath.as_deref())
+    }
+}
 
-        if let Some(jsonpath_expr) = &query.jsonpath {
-            let results: Vec<_> = json_data
-                .query_with_path(jsonpath_expr)
-                .map_err(|e| AppError::JsonPathError(e.to_string()))?;
-            if results.is_empty() {
-                add_warning("JSONPath did not match any data")?;
-                return Ok(());
-            }
+fn render_object_show_text(object: &ObjectShowRecord) -> Result<(), AppError> {
+    object.object.format()?;
+    let relation_padding = get_config().output.padding.saturating_sub(1);
+    render_related_object_tree_with_key("Relations", &object.related_objects, relation_padding)
+}
 
-            let mut key_values = HashMap::new();
-            for result in results {
-                let pretty_path = prettify_slice_path(&result.clone().path());
-                let value = display_json_value(result.val());
-                key_values.insert(pretty_path, value);
-            }
+fn render_object_data(
+    json_data: Option<&serde_json::Value>,
+    jsonpath: Option<&str>,
+) -> Result<(), AppError> {
+    let Some(json_data) = json_data else {
+        return Ok(());
+    };
 
-            let padding = key_values
-                .keys()
-                .map(|k| k.len())
-                .max()
-                .map_or(14, |len| len.max(14));
-
-            for (key, value) in key_values {
-                append_key_value(key, value, padding)?;
-            }
-        } else {
-            let flattener = smooth_json::Flattener {
-                ..Default::default()
-            };
-
-            let v = flattener.flatten(&json_data);
-
-            if let serde_json::Value::Object(map) = v {
-                let sorted_map: std::collections::BTreeMap<_, _> = map.into_iter().collect();
-                let padding = sorted_map
-                    .keys()
-                    .map(|k| k.len())
-                    .max()
-                    .map_or(15, |len| len.max(15));
-
-                for (key, value) in sorted_map {
-                    append_key_value(key, display_json_value(&value), padding)?;
-                }
-            } else {
-                add_warning("JSON is not an object")?;
-            }
+    if let Some(jsonpath_expr) = jsonpath {
+        let results: Vec<_> = json_data
+            .query_with_path(jsonpath_expr)
+            .map_err(|e| AppError::JsonPathError(e.to_string()))?;
+        if results.is_empty() {
+            add_warning("JSONPath did not match any data")?;
+            return Ok(());
         }
 
-        Ok(())
+        let mut key_values = HashMap::new();
+        for result in results {
+            let pretty_path = prettify_slice_path(&result.clone().path());
+            let value = display_json_value(result.val());
+            key_values.insert(pretty_path, value);
+        }
+
+        let padding = key_values
+            .keys()
+            .map(|k| k.len())
+            .max()
+            .map_or(14, |len| len.max(14));
+
+        for (key, value) in key_values {
+            append_key_value(key, value, padding)?;
+        }
+        return Ok(());
     }
+
+    let flattener = smooth_json::Flattener {
+        ..Default::default()
+    };
+
+    let v = flattener.flatten(json_data);
+
+    if let serde_json::Value::Object(map) = v {
+        let sorted_map: std::collections::BTreeMap<_, _> = map.into_iter().collect();
+        let padding = sorted_map
+            .keys()
+            .map(|k| k.len())
+            .max()
+            .map_or(15, |len| len.max(15));
+
+        for (key, value) in sorted_map {
+            append_key_value(key, display_json_value(&value), padding)?;
+        }
+    } else {
+        add_warning("JSON is not an object")?;
+    }
+
+    Ok(())
+}
+
+fn should_render_object_data(
+    show_data_flag: Option<bool>,
+    jsonpath: Option<&str>,
+    config_default: bool,
+) -> bool {
+    jsonpath.is_some() || show_data_flag.unwrap_or(config_default)
 }
 
 fn display_json_value(value: &serde_json::Value) -> String {
@@ -277,8 +326,12 @@ fn display_json_value(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use serial_test::serial;
 
     use super::display_json_value;
+    use super::{render_object_data, render_object_show_text, should_render_object_data};
+    use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
+    use crate::output::{append_line, reset_output, take_output};
 
     #[test]
     fn display_json_value_unquotes_strings() {
@@ -289,6 +342,69 @@ mod tests {
     fn display_json_value_keeps_non_scalars_as_json() {
         assert_eq!(display_json_value(&json!(["a", "b"])), "[\"a\",\"b\"]");
         assert_eq!(display_json_value(&json!({"k": "v"})), "{\"k\":\"v\"}");
+    }
+
+    #[test]
+    fn should_render_object_data_uses_config_unless_flag_or_path_overrides() {
+        assert!(!should_render_object_data(None, None, false));
+        assert!(should_render_object_data(None, None, true));
+        assert!(should_render_object_data(Some(true), None, false));
+        assert!(should_render_object_data(None, Some("$.hello"), false));
+    }
+
+    #[test]
+    #[serial]
+    fn object_show_renders_relations_before_data() {
+        reset_output().expect("output should reset");
+        let object = ObjectShowRecord {
+            object: ResolvedObjectRecord {
+                id: 1,
+                name: "Entry".to_string(),
+                description: String::new(),
+                namespace: "default".to_string(),
+                class: "Contacts".to_string(),
+                data: Some(json!({"email": "a@example.com"})),
+                created_at: "2024-01-01 00:00:00".to_string(),
+                updated_at: "2024-01-01 00:00:00".to_string(),
+            },
+            related_objects: vec![RelatedObjectTreeNode {
+                id: 2,
+                class: "Jacks".to_string(),
+                name: "BL14=521.A7-UD7056".to_string(),
+                namespace: "default".to_string(),
+                depth: 1,
+                children: vec![RelatedObjectTreeNode {
+                    id: 3,
+                    class: "Rooms".to_string(),
+                    name: "B701".to_string(),
+                    namespace: "default".to_string(),
+                    depth: 2,
+                    children: vec![],
+                }],
+            }],
+        };
+
+        render_object_show_text(&object).expect("show text should render");
+        append_line("").expect("separator should render");
+        render_object_data(object.object.data.as_ref(), None).expect("data should render");
+
+        let snapshot = take_output().expect("snapshot should exist");
+        let relations_index = snapshot
+            .lines
+            .iter()
+            .position(|line| line.starts_with("Relations"))
+            .expect("relations line should exist");
+        let data_index = snapshot
+            .lines
+            .iter()
+            .position(|line| line.starts_with("email"))
+            .expect("data line should exist");
+
+        assert!(relations_index < data_index);
+        assert!(snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Jacks/BL14=521.A7-UD7056 → Rooms/B701")));
     }
 }
 

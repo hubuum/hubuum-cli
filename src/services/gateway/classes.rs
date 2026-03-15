@@ -1,6 +1,6 @@
 use hubuum_client::{ClassPatch, ClassPost};
 
-use crate::domain::{ClassDetails, ClassRecord, ObjectRecord};
+use crate::domain::{build_related_class_tree, ClassRecord, ClassShowRecord, ObjectRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -8,7 +8,7 @@ use crate::list_query::{
     SortFieldSpec,
 };
 
-use super::HubuumGateway;
+use super::{HubuumGateway, RelationTraversalOptions};
 
 #[derive(Debug, Clone)]
 pub struct CreateClassInput {
@@ -53,17 +53,42 @@ impl HubuumGateway {
         Ok(ClassRecord::from(class))
     }
 
-    pub fn class_details(&self, name: &str) -> Result<ClassDetails, AppError> {
+    pub fn class_show_details(
+        &self,
+        name: &str,
+        options: &RelationTraversalOptions,
+    ) -> Result<ClassShowRecord, AppError> {
         let class = self.client.classes().select_by_name(name)?;
         let objects = class
             .objects()?
             .into_iter()
             .map(|object| ObjectRecord::from(object.resource()))
             .collect();
+        let related_graph = class
+            .related_graph()
+            .add_filter(
+                "depth",
+                hubuum_client::FilterOperator::Lte { is_negated: false },
+                options.max_depth,
+            )
+            .fetch()?;
+        let namespace_map = self.namespace_map_from_ids(
+            related_graph
+                .classes
+                .iter()
+                .map(|related_class| related_class.namespace_id)
+                .collect::<Vec<_>>(),
+        )?;
 
-        Ok(ClassDetails {
+        Ok(ClassShowRecord {
             class: ClassRecord::from(class.resource()),
             objects,
+            related_classes: build_related_class_tree(
+                &related_graph.classes,
+                &namespace_map,
+                class.id(),
+                !options.include_self_class,
+            ),
         })
     }
 

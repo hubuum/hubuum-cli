@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use hubuum_client::{Class, Namespace, Object};
 use serde::{Deserialize, Serialize};
 
+use super::RelatedObjectTreeNode;
+
 transparent_record!(ObjectRecord, Object);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,4 +46,11 @@ impl ResolvedObjectRecord {
             updated_at: object.updated_at.to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectShowRecord {
+    #[serde(flatten)]
+    pub object: ResolvedObjectRecord,
+    pub related_objects: Vec<RelatedObjectTreeNode>,
 }

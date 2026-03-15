@@ -17,8 +17,8 @@ pub use gateway::{
     ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
     CreateReportTemplateInput, CreateUserInput, GroupUpdateInput, HubuumGateway,
     NamespaceUpdateInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RunReportInput, SearchInput, SearchKind, SubmitImportInput, TaskLookupInput,
-    UpdateReportTemplateInput, UserFilter, UserUpdateInput,
+    RelationTraversalOptions, RunReportInput, SearchInput, SearchKind, SubmitImportInput,
+    TaskLookupInput, UpdateReportTemplateInput, UserFilter, UserUpdateInput,
 };
 
 #[derive(Clone)]

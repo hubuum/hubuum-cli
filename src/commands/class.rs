@@ -6,11 +6,13 @@ use super::{build_list_query, contains_clause, desired_format, render_list_page,
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::autocomplete::{bool, class_sort, class_where, classes, namespaces};
+use crate::config::get_config;
+use crate::domain::ClassShowRecord;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
+use crate::formatting::{append_json_message, render_related_class_tree_with_key, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, ClassUpdateInput, CreateClassInput};
+use crate::services::{AppServices, ClassUpdateInput, CreateClassInput, RelationTraversalOptions};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -143,28 +145,53 @@ pub struct ClassInfo {
         autocomplete = "classes"
     )]
     pub name: Option<String>,
+    #[option(
+        long = "include-self-class",
+        help = "Include returned relations in the same class as the root class",
+        flag = "true"
+    )]
+    pub include_self_class: Option<bool>,
+    #[option(
+        long = "max-depth",
+        help = "Maximum traversal depth to include in related class output"
+    )]
+    pub max_depth: Option<i32>,
 }
 
 impl CliCommand for ClassInfo {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = classname_or_pos(&query, tokens, 0)?;
-        let details = services
-            .gateway()
-            .class_details(&query.name.clone().unwrap())?;
+        let config = get_config();
+        let details = services.gateway().class_show_details(
+            &query.name.clone().unwrap(),
+            &RelationTraversalOptions {
+                include_self_class: query
+                    .include_self_class
+                    .unwrap_or(!config.relations.ignore_same_class),
+                max_depth: query.max_depth.unwrap_or(config.relations.max_depth),
+            },
+        )?;
 
         match desired_format(tokens) {
             OutputFormat::Json => {
                 append_line(serde_json::to_string_pretty(&details)?)?;
             }
             OutputFormat::Text => {
-                details.class.format()?;
-                append_key_value("Objects", details.objects.len(), 14)?;
+                render_class_show_text(&details)?;
             }
         }
 
         Ok(())
     }
+}
+
+fn render_class_show_text(details: &ClassShowRecord) -> Result<(), AppError> {
+    details.class.format()?;
+    let relation_padding = get_config().output.padding.saturating_sub(1);
+    render_related_class_tree_with_key("Relations", &details.related_classes, relation_padding)?;
+    append_key_value("Objects", details.objects.len(), 14)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -342,4 +369,65 @@ where
         return Ok(pos0.cloned());
     };
     Ok(query.classname().clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+
+    use super::render_class_show_text;
+    use crate::domain::{ClassRecord, ClassShowRecord, RelatedClassTreeNode};
+    use crate::output::{reset_output, take_output};
+
+    #[test]
+    #[serial]
+    fn class_show_renders_relations_before_object_summary() {
+        reset_output().expect("output should reset");
+        let details = ClassShowRecord {
+            class: ClassRecord(
+                serde_json::from_value(serde_json::json!({
+                    "id": 1,
+                    "name": "Jacks",
+                    "description": "",
+                    "namespace": {
+                        "id": 1,
+                        "name": "default",
+                        "description": "",
+                        "created_at": "2024-01-01T00:00:00Z",
+                        "updated_at": "2024-01-01T00:00:00Z"
+                    },
+                    "json_schema": {},
+                    "validate_schema": false,
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-01T00:00:00Z"
+                }))
+                .expect("class fixture should deserialize"),
+            ),
+            objects: vec![],
+            related_classes: vec![RelatedClassTreeNode {
+                id: 2,
+                name: "Rooms".to_string(),
+                namespace: "default".to_string(),
+                depth: 1,
+                children: vec![],
+            }],
+        };
+
+        render_class_show_text(&details).expect("class show text should render");
+
+        let snapshot = take_output().expect("snapshot should exist");
+        let relations_index = snapshot
+            .lines
+            .iter()
+            .position(|line| line.starts_with("Relations"))
+            .expect("relations line should exist");
+        let objects_index = snapshot
+            .lines
+            .iter()
+            .position(|line| line.starts_with("Objects"))
+            .expect("object summary should exist");
+
+        assert!(relations_index < objects_index);
+        assert!(snapshot.lines.iter().any(|line| line.contains("Rooms")));
+    }
 }
