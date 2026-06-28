@@ -116,13 +116,18 @@ impl HubuumGateway {
             AppError::ParseError(format!("Invalid content type: {}", input.content_type))
         })?;
 
-        let template = self.client.templates().create_raw(ReportTemplatePost {
-            namespace_id: namespace.id(),
-            name: input.name,
-            description: input.description,
-            content_type,
-            template: input.template,
-        })?;
+        let template = self
+            .client
+            .templates()
+            .create()
+            .params(ReportTemplatePost {
+                namespace_id: namespace.id(),
+                name: input.name,
+                description: input.description,
+                content_type,
+                template: input.template,
+            })
+            .send()?;
 
         let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
         Ok(ReportTemplateRecord::new(&template, &namespacemap))
@@ -134,19 +139,21 @@ impl HubuumGateway {
     ) -> Result<ReportTemplateRecord, AppError> {
         let template = self.client.templates().select_by_name(&input.name)?;
         let namespace_id = match input.namespace {
-            Some(namespace) => self.client.namespaces().select_by_name(&namespace)?.id(),
-            None => template.resource().namespace_id,
+            Some(namespace) => Some(self.client.namespaces().select_by_name(&namespace)?.id()),
+            None => None,
         };
 
-        let updated = self.client.templates().update_raw(
-            template.id(),
-            ReportTemplatePatch {
-                namespace_id: Some(namespace_id),
+        let updated = self
+            .client
+            .templates()
+            .update(template.id())
+            .params(ReportTemplatePatch {
+                namespace_id,
                 name: input.rename,
                 description: input.description,
                 template: input.template,
-            },
-        )?;
+            })
+            .send()?;
 
         let namespace = self.client.namespaces().select(updated.namespace_id)?;
         let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
@@ -215,9 +222,13 @@ impl HubuumGateway {
                 kind: scope_kind,
                 object_id,
             },
+            include: None,
+            relation_context: None,
         };
 
-        Ok(ReportOutput::from(self.client.reports().run(request)?))
+        Ok(ReportOutput::from(
+            self.client.reports().run(request).send()?,
+        ))
     }
 }
 
