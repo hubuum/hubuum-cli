@@ -1,5 +1,4 @@
 use chrono::NaiveDateTime;
-use hubuum_client::{FilterOperator, UserPatch, UserPost};
 
 use crate::domain::{CreatedUser, UserRecord};
 use crate::errors::AppError;
@@ -34,11 +33,15 @@ pub struct UserUpdateInput {
 
 impl HubuumGateway {
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
-        let user = self.client.users().create_raw(UserPost {
-            username: input.username,
-            email: input.email,
-            password: input.password.clone(),
-        })?;
+        // Create user with name/email/password
+        let user = self.client.users().create()
+            .params(hubuum_client::UserPost {
+                name: input.username.clone(),
+                password: input.password.clone(),
+                email: input.email.clone(),
+                proper_name: None,
+            })
+            .send()?;
 
         Ok(CreatedUser {
             user: UserRecord::from(user),
@@ -47,36 +50,20 @@ impl HubuumGateway {
     }
 
     pub fn find_user(&self, filter: UserFilter) -> Result<UserRecord, AppError> {
-        let mut search = self.client.users().find();
+        let mut search = self.client.users().query();
         if let Some(username) = filter.username {
-            search = search.add_filter(
-                "username",
-                FilterOperator::IContains { is_negated: false },
-                username,
-            );
+            search = search.add_filter_equals("name", username);
         }
         if let Some(email) = filter.email {
-            search = search.add_filter(
-                "email",
-                FilterOperator::IContains { is_negated: false },
-                email,
-            );
+            search = search.add_filter_equals("email", email);
         }
         if let Some(created_at) = filter.created_at {
-            search = search.add_filter(
-                "created_at",
-                FilterOperator::Equals { is_negated: false },
-                created_at.to_string(),
-            );
+            search = search.add_filter_equals("created_at", created_at.to_string());
         }
         if let Some(updated_at) = filter.updated_at {
-            search = search.add_filter(
-                "updated_at",
-                FilterOperator::Equals { is_negated: false },
-                updated_at.to_string(),
-            );
+            search = search.add_filter_equals("updated_at", updated_at.to_string());
         }
-        let user = search.execute_expecting_single_result()?;
+        let user = search.one()?;
         Ok(UserRecord::from(user))
     }
 
@@ -88,12 +75,12 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(
-            self.client.users().find().filters(filters),
-            query,
-            &validated_sorts,
-        )
-        .page()?;
+        let mut query_op = self.client.users().query();
+        for filter in filters {
+            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+        }
+
+        let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
         Ok(PagedResult::from_page(page, query.limit, UserRecord::from))
     }
 
@@ -104,14 +91,13 @@ impl HubuumGateway {
     }
 
     pub fn update_user(&self, input: UserUpdateInput) -> Result<UserRecord, AppError> {
-        let user = self.client.users().select_by_name(&input.username)?;
-        let updated = self.client.users().update_raw(
-            user.id(),
-            UserPatch {
-                username: input.rename,
+        let handle = self.client.users().select_by_name(&input.username)?;
+        let updated = self.client.users().update(handle.id())
+            .params(hubuum_client::UserPatch {
                 email: input.email,
-            },
-        )?;
+                proper_name: None,
+            })
+            .send()?;
 
         Ok(UserRecord::from(updated))
     }

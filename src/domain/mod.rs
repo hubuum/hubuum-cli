@@ -30,7 +30,7 @@ mod tasks;
 mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
-pub use groups::{GroupDetails, GroupRecord};
+pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use imports::ImportResultRecord;
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,

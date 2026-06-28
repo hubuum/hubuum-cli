@@ -6,7 +6,7 @@ impl DetailRenderable for UserRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
         let user = &self.0;
         vec![
-            ("Username", user.username.clone()),
+            ("Name", user.name.clone()),
             (
                 "Email",
                 user.email.clone().unwrap_or_else(|| "<none>".to_string()),
@@ -19,14 +19,14 @@ impl DetailRenderable for UserRecord {
 
 impl TableRenderable for UserRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["id", "Username", "Email", "Created", "Updated"]
+        vec!["id", "Name", "Email", "Created", "Updated"]
     }
 
     fn row(&self) -> Vec<String> {
         let user = &self.0;
         vec![
             user.id.to_string(),
-            user.username.clone(),
+            user.name.clone(),
             user.email.clone().unwrap_or_default(),
             user.created_at.to_string(),
             user.updated_at.to_string(),

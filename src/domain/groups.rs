@@ -1,12 +1,11 @@
-use hubuum_client::Group;
+use hubuum_client::{Group, PrincipalMember};
 use serde::{Deserialize, Serialize};
 
-use super::UserRecord;
-
 transparent_record!(GroupRecord, Group);
+transparent_record!(PrincipalMemberRecord, PrincipalMember);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupDetails {
     pub group: GroupRecord,
-    pub members: Vec<UserRecord>,
+    pub members: Vec<PrincipalMemberRecord>,
 }
