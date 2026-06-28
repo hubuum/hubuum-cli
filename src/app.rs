@@ -132,7 +132,7 @@ fn authenticate(
     let token = files::get_token_from_tokenfile(hostname, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");
-        if let Ok(client) = client.clone().login_with_token(Token { token }) {
+        if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
             return Ok(client);
         }
     }
