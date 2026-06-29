@@ -58,10 +58,7 @@ impl HubuumGateway {
                     .collect();
                 TaskOutput::ImportResults(results)
             }
-            TaskKind::RemoteCall => {
-                // hubuum_client 0.0.3 does not provide a way to fetch RemoteCall results from a task
-                TaskOutput::None
-            }
+            // RemoteCall results are not fetchable in 0.0.3; see Task 3.4
             _ => TaskOutput::None,
         })
     }
