@@ -26,12 +26,13 @@ mod objects;
 mod relations;
 mod reports;
 mod search;
+mod task_output;
 mod tasks;
 mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
-pub use imports::ImportResultRecord;
+pub use imports::{ImportResultRecord, RemoteCallRecord};
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
     NamespaceRecord,
@@ -48,5 +49,6 @@ pub use search::{
     SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,
     SearchResultsRecord, SearchStreamEvent,
 };
+pub use task_output::TaskOutput;
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};

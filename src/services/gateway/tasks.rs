@@ -1,4 +1,6 @@
-use crate::domain::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
+use hubuum_client::TaskKind;
+
+use crate::domain::{ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
@@ -37,6 +39,31 @@ impl HubuumGateway {
             query.limit,
             TaskEventRecord::from,
         ))
+    }
+
+    pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
+        let task = self.client.tasks().get(task_id)?;
+        Ok(match task.kind {
+            TaskKind::Report => {
+                TaskOutput::Report(self.client.reports().output(task_id)?.into())
+            }
+            TaskKind::Import => {
+                let results: Vec<ImportResultRecord> = self
+                    .client
+                    .imports()
+                    .results(task_id)
+                    .list()?
+                    .into_iter()
+                    .map(ImportResultRecord::from)
+                    .collect();
+                TaskOutput::ImportResults(results)
+            }
+            TaskKind::RemoteCall => {
+                // hubuum_client 0.0.3 does not provide a way to fetch RemoteCall results from a task
+                TaskOutput::None
+            }
+            _ => TaskOutput::None,
+        })
     }
 }
 
