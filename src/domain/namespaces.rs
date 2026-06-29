@@ -48,40 +48,6 @@ impl NamespacePermission {
     pub fn api_name(self) -> String {
         self.to_string()
     }
-
-    pub fn to_client(self) -> hubuum_client::Permissions {
-        match self {
-            Self::ReadCollection => hubuum_client::Permissions::ReadCollection,
-            Self::UpdateCollection => hubuum_client::Permissions::UpdateCollection,
-            Self::DeleteCollection => hubuum_client::Permissions::DeleteCollection,
-            Self::DelegateCollection => hubuum_client::Permissions::DelegateCollection,
-            Self::CreateClass => hubuum_client::Permissions::CreateClass,
-            Self::ReadClass => hubuum_client::Permissions::ReadClass,
-            Self::UpdateClass => hubuum_client::Permissions::UpdateClass,
-            Self::DeleteClass => hubuum_client::Permissions::DeleteClass,
-            Self::CreateObject => hubuum_client::Permissions::CreateObject,
-            Self::ReadObject => hubuum_client::Permissions::ReadObject,
-            Self::UpdateObject => hubuum_client::Permissions::UpdateObject,
-            Self::DeleteObject => hubuum_client::Permissions::DeleteObject,
-            Self::CreateClassRelation => hubuum_client::Permissions::CreateClassRelation,
-            Self::ReadClassRelation => hubuum_client::Permissions::ReadClassRelation,
-            Self::UpdateClassRelation => hubuum_client::Permissions::UpdateClassRelation,
-            Self::DeleteClassRelation => hubuum_client::Permissions::DeleteClassRelation,
-            Self::CreateObjectRelation => hubuum_client::Permissions::CreateObjectRelation,
-            Self::ReadObjectRelation => hubuum_client::Permissions::ReadObjectRelation,
-            Self::UpdateObjectRelation => hubuum_client::Permissions::UpdateObjectRelation,
-            Self::DeleteObjectRelation => hubuum_client::Permissions::DeleteObjectRelation,
-            Self::ReadTemplate => hubuum_client::Permissions::ReadTemplate,
-            Self::CreateTemplate => hubuum_client::Permissions::CreateTemplate,
-            Self::UpdateTemplate => hubuum_client::Permissions::UpdateTemplate,
-            Self::DeleteTemplate => hubuum_client::Permissions::DeleteTemplate,
-            Self::ReadRemoteTarget => hubuum_client::Permissions::ReadRemoteTarget,
-            Self::CreateRemoteTarget => hubuum_client::Permissions::CreateRemoteTarget,
-            Self::UpdateRemoteTarget => hubuum_client::Permissions::UpdateRemoteTarget,
-            Self::DeleteRemoteTarget => hubuum_client::Permissions::DeleteRemoteTarget,
-            Self::ExecuteRemoteTarget => hubuum_client::Permissions::ExecuteRemoteTarget,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
