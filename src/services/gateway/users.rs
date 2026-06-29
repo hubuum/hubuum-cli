@@ -91,6 +91,15 @@ impl HubuumGateway {
     }
 
     pub fn update_user(&self, input: UserUpdateInput) -> Result<UserRecord, AppError> {
+        // The 0.0.3 principal model does not expose username renaming via the user
+        // update body (`UserPatch` excludes `name`; renaming lives on the principal).
+        // Reject `--rename` explicitly rather than silently ignoring it.
+        if input.rename.is_some() {
+            return Err(AppError::CommandExecutionError(
+                "renaming a user is not supported by the server in this version".into(),
+            ));
+        }
+
         let handle = self.client.users().select_by_name(&input.username)?;
         let updated = self.client.users().update(handle.id())
             .params(hubuum_client::UserPatch {
