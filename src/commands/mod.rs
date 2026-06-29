@@ -15,6 +15,7 @@ mod relations;
 mod report;
 mod search;
 mod task;
+mod task_submit;
 mod user;
 
 pub use builder::build_command_catalog;

@@ -21,6 +21,13 @@ pub use gateway::{
     TaskLookupInput, UpdateReportTemplateInput, UserFilter, UserUpdateInput,
 };
 
+#[derive(Debug, Clone)]
+pub struct WaitTaskInput {
+    pub task_id: i32,
+    pub timeout_secs: Option<u64>,
+    pub poll_interval_secs: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct AppServices {
     gateway: Arc<HubuumGateway>,

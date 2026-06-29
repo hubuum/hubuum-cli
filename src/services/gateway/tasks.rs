@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use hubuum_client::TaskKind;
 
 use crate::domain::{ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord};
@@ -5,6 +7,7 @@ use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
 };
+use crate::services::WaitTaskInput;
 
 use super::HubuumGateway;
 
@@ -61,6 +64,15 @@ impl HubuumGateway {
             // RemoteCall results are not fetchable in 0.0.3; see Task 3.4
             _ => TaskOutput::None,
         })
+    }
+
+    pub fn wait_task(&self, input: WaitTaskInput) -> Result<TaskRecord, AppError> {
+        let mut op = self.client.tasks().wait(input.task_id);
+        if let Some(p) = input.poll_interval_secs {
+            op = op.poll_interval(Duration::from_secs(p));
+        }
+        op = op.timeout(input.timeout_secs.map(Duration::from_secs));
+        Ok(TaskRecord(op.send()?))
     }
 }
 
