@@ -24,7 +24,7 @@ pub use objects::{CreateObjectInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
-pub use tasks::TaskLookupInput;
+pub use tasks::{ListTasksInput, TaskLookupInput};
 pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
