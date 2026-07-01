@@ -6,7 +6,7 @@ use hubuum_client::{
     ReportScope, ReportScopeKind, ReportTemplatePatch, ReportTemplatePost,
 };
 
-use crate::domain::{ReportOutput, ReportTemplateRecord, TaskRecord};
+use crate::domain::{ReportTemplateRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -225,13 +225,6 @@ impl HubuumGateway {
             include: None,
             relation_context: None,
         })
-    }
-
-    pub fn run_report(&self, input: RunReportInput) -> Result<ReportOutput, AppError> {
-        let request = self.build_report_request(input)?;
-        Ok(ReportOutput::from(
-            self.client.reports().run(request).send()?,
-        ))
     }
 
     pub fn submit_report(&self, input: RunReportInput) -> Result<TaskRecord, AppError> {
