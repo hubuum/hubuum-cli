@@ -9,6 +9,7 @@ mod config;
 mod group;
 mod help;
 mod imports;
+mod jobs;
 mod namespace;
 mod object;
 mod relations;
