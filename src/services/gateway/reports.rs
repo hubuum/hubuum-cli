@@ -6,7 +6,7 @@ use hubuum_client::{
     ReportScope, ReportScopeKind, ReportTemplatePatch, ReportTemplatePost,
 };
 
-use crate::domain::{ReportOutput, ReportTemplateRecord};
+use crate::domain::{ReportOutput, ReportTemplateRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -166,7 +166,7 @@ impl HubuumGateway {
         Ok(())
     }
 
-    pub fn run_report(&self, input: RunReportInput) -> Result<ReportOutput, AppError> {
+    fn build_report_request(&self, input: RunReportInput) -> Result<ReportRequest, AppError> {
         let scope_kind = ReportScopeKind::from_str(&input.scope_kind).map_err(|_| {
             AppError::ParseError(format!("Invalid report scope: {}", input.scope_kind))
         })?;
@@ -203,7 +203,7 @@ impl HubuumGateway {
             None => None,
         };
 
-        let request = ReportRequest {
+        Ok(ReportRequest {
             limits: if input.max_items.is_some() || input.max_output_bytes.is_some() {
                 Some(ReportLimits {
                     max_items: input.max_items,
@@ -224,11 +224,19 @@ impl HubuumGateway {
             },
             include: None,
             relation_context: None,
-        };
+        })
+    }
 
+    pub fn run_report(&self, input: RunReportInput) -> Result<ReportOutput, AppError> {
+        let request = self.build_report_request(input)?;
         Ok(ReportOutput::from(
             self.client.reports().run(request).send()?,
         ))
+    }
+
+    pub fn submit_report(&self, input: RunReportInput) -> Result<TaskRecord, AppError> {
+        let request = self.build_report_request(input)?;
+        Ok(TaskRecord(self.client.reports().submit(request).send()?))
     }
 }
 
