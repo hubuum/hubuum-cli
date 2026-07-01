@@ -136,6 +136,14 @@ fn parse_task_status(s: &str) -> Result<TaskStatus, AppError> {
     }
 }
 
+pub(crate) const TASK_EVENT_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("task_id", "task_id"),
+    SortFieldSpec::new("event_type", "event_type"),
+    SortFieldSpec::new("message", "message"),
+    SortFieldSpec::new("created_at", "created_at"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,11 +228,3 @@ mod tests {
         assert!(parse_task_status("").is_err());
     }
 }
-
-pub(crate) const TASK_EVENT_SORT_SPECS: &[SortFieldSpec] = &[
-    SortFieldSpec::new("id", "id"),
-    SortFieldSpec::new("task_id", "task_id"),
-    SortFieldSpec::new("event_type", "event_type"),
-    SortFieldSpec::new("message", "message"),
-    SortFieldSpec::new("created_at", "created_at"),
-];
