@@ -12,9 +12,15 @@ use crate::services::{AppServices, TaskLookupInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    // `bg` is a true alias of `jobs`: both prefixes reuse the same command structs.
+    register_group(builder, "jobs");
+    register_group(builder, "bg");
+}
+
+fn register_group(builder: &mut CommandCatalogBuilder, prefix: &'static str) {
     builder
         .add_command(
-            &["jobs"],
+            &[prefix],
             catalog_command(
                 "list",
                 JobsList::default(),
@@ -25,7 +31,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["jobs"],
+            &[prefix],
             catalog_command(
                 "show",
                 JobsShow::default(),
@@ -36,7 +42,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["jobs"],
+            &[prefix],
             catalog_command(
                 "output",
                 JobsOutput::default(),
@@ -47,7 +53,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["jobs"],
+            &[prefix],
             catalog_command(
                 "watch",
                 JobsWatch::default(),
@@ -58,7 +64,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["jobs"],
+            &[prefix],
             catalog_command(
                 "forget",
                 JobsForget::default(),
@@ -168,9 +174,7 @@ impl CliCommand for JobsOutput {
         let job = services
             .background()
             .job(local_id)
-            .ok_or_else(|| {
-                AppError::CommandExecutionError(format!("no background job {local_id}"))
-            })?;
+            .ok_or_else(|| AppError::EntityNotFound(format!("background job {local_id}")))?;
         let output = services.gateway().task_output(job.task_id)?;
         match desired_format(tokens) {
             OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
