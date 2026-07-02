@@ -13,6 +13,7 @@ mod me;
 mod namespace;
 mod object;
 mod relations;
+mod remote_target;
 mod report;
 mod search;
 mod service_account;

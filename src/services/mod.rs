@@ -15,10 +15,11 @@ pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
     ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
-    CreateReportTemplateInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
-    HubuumGateway, ListTasksInput, NamespaceUpdateInput, NewTokenInput, ObjectUpdateInput,
-    RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions, RunReportInput,
-    SearchInput, SearchKind, SubmitImportInput, TaskLookupInput, UpdateReportTemplateInput,
+    CreateRemoteTargetInput, CreateReportTemplateInput, CreateServiceAccountInput, CreateUserInput,
+    GroupUpdateInput, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NamespaceUpdateInput,
+    NewTokenInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions, RemoteAuthConfigInput, RunReportInput, SearchInput, SearchKind,
+    SubmitImportInput, TaskLookupInput, UpdateRemoteTargetInput, UpdateReportTemplateInput,
     UserFilter, UserUpdateInput,
 };
 

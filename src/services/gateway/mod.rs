@@ -5,6 +5,7 @@ mod imports;
 mod namespaces;
 mod objects;
 mod relations;
+mod remote_targets;
 mod reports;
 mod search;
 mod service_accounts;
@@ -24,6 +25,10 @@ pub use imports::SubmitImportInput;
 pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
+pub use remote_targets::{
+    CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
+    UpdateRemoteTargetInput,
+};
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
@@ -90,6 +95,9 @@ pub(crate) fn filter_specs_for_command_path(
         [scope, command] if scope == "report" && command == "list" => {
             Some(reports::REPORT_FILTER_SPECS)
         }
+        [scope, command] if scope == "remote-target" && command == "list" => {
+            Some(remote_targets::REMOTE_TARGET_FILTER_SPECS)
+        }
         [scope, command] if scope == "user" && command == "list" => Some(users::USER_FILTER_SPECS),
         _ => None,
     }
@@ -131,6 +139,9 @@ pub(crate) fn sort_specs_for_command_path(
         }
         [scope, command] if scope == "report" && command == "list" => {
             Some(reports::REPORT_SORT_SPECS)
+        }
+        [scope, command] if scope == "remote-target" && command == "list" => {
+            Some(remote_targets::REMOTE_TARGET_SORT_SPECS)
         }
         [scope, command] if scope == "user" && command == "list" => Some(users::USER_SORT_SPECS),
         [scope, command] if scope == "task" && command == "events" => {

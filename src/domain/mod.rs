@@ -25,6 +25,7 @@ mod imports;
 mod namespaces;
 mod objects;
 mod relations;
+mod remote_targets;
 mod reports;
 mod search;
 mod task_output;
@@ -48,6 +49,7 @@ pub use relations::{
     ResolvedRelatedClassGraph, ResolvedRelatedClassRecord, ResolvedRelatedObjectGraph,
     ResolvedRelatedObjectRecord,
 };
+pub use remote_targets::RemoteTargetRecord;
 pub use reports::{ReportOutput, ReportTemplateRecord};
 pub use search::{
     SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,

@@ -31,6 +31,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::task::register_commands(&mut builder);
     commands::object::register_commands(&mut builder);
     commands::relations::register_commands(&mut builder);
+    commands::remote_target::register_commands(&mut builder);
     commands::search::register_commands(&mut builder);
     commands::service_account::register_commands(&mut builder);
     commands::me::register_commands(&mut builder);
