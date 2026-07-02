@@ -110,6 +110,23 @@ set --name my-namespace --group readers --ReadCollection --ReadClass --ReadObjec
                     ),
                 },
             ),
+        )
+        .add_command(
+            &["namespace"],
+            catalog_command(
+                "principal-permissions",
+                NamespacePrincipalPermissions::default(),
+                CommandDocs {
+                    about: Some("List principal permissions for a namespace"),
+                    long_about: Some(
+                        "Show namespace permissions for a given principal. Pass the namespace as the first positional argument or with --name, and the principal ID with --principal-id.",
+                    ),
+                    examples: Some(
+                        r#"principal-permissions my-namespace --principal-id 123
+principal-permissions --name my-namespace --principal-id 123"#,
+                    ),
+                },
+            ),
         );
 }
 
@@ -676,6 +693,68 @@ impl CliCommand for NamespacePermissionsSet {
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct NamespacePrincipalPermissions {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the namespace",
+        autocomplete = "namespaces"
+    )]
+    pub name: Option<String>,
+
+    #[option(
+        short = "p",
+        long = "principal-id",
+        help = "ID of the principal"
+    )]
+    pub principal_id: i32,
+}
+
+impl GetNamespace for &NamespacePrincipalPermissions {
+    fn namespace(&self) -> Option<String> {
+        self.name.clone()
+    }
+}
+
+impl CliCommand for NamespacePrincipalPermissions {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut new = Self::parse_tokens(tokens)?;
+
+        new.name = namespace_or_pos(&new, tokens, 0)?;
+
+        let name = match &new.name {
+            Some(name) => name,
+            None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
+        };
+
+        let permissions = services
+            .gateway()
+            .principal_namespace_permissions(name, new.principal_id)?;
+
+        let empty_message = format!(
+            "No permissions found for principal {} in namespace '{}'",
+            new.principal_id, name
+        );
+
+        match (desired_format(tokens), permissions.is_empty()) {
+            (OutputFormat::Json, true) => append_json_message(&empty_message)?,
+            (OutputFormat::Json, false) => append_json(&permissions)?,
+            (OutputFormat::Text, true) => append_line(empty_message)?,
+            (OutputFormat::Text, false) => {
+                use crate::domain::GroupPermissionsSummary;
+                let summary: Vec<GroupPermissionsSummary> = permissions
+                    .into_iter()
+                    .map(|p| GroupPermissionsSummary::from(p.0))
+                    .collect();
+                summary.format_noreturn()?;
+            }
         }
 
         Ok(())

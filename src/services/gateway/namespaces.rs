@@ -141,6 +141,19 @@ impl HubuumGateway {
         )?;
         Ok(())
     }
+
+    pub fn principal_namespace_permissions(
+        &self,
+        namespace: &str,
+        principal_id: i32,
+    ) -> Result<Vec<GroupPermissionsRecord>, AppError> {
+        let ns = self.client.namespaces().select_by_name(namespace)?;
+        Ok(ns
+            .principal_permissions(principal_id)?
+            .into_iter()
+            .map(GroupPermissionsRecord::from)
+            .collect())
+    }
 }
 
 pub(crate) const NAMESPACE_FILTER_SPECS: &[FilterFieldSpec] = &[
