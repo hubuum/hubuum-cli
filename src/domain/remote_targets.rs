@@ -1,5 +1,8 @@
 use crate::formatting::DetailRenderable;
 
+// Auth secrets are write-only on the wire (server never returns them), so a
+// fetched RemoteTarget carries no real secret values. Text output redacts
+// defensively anyway for defense-in-depth and clearer UX.
 transparent_record!(RemoteTargetRecord, hubuum_client::RemoteTarget);
 
 impl DetailRenderable for RemoteTargetRecord {
@@ -34,7 +37,19 @@ impl DetailRenderable for RemoteTargetRecord {
             rows.push(("Body template", body.clone()));
         }
 
-        rows.push(("Auth config", format!("{:?}", self.0.auth_config)));
+        let auth_display = match &self.0.auth_config {
+            hubuum_client::RemoteAuthConfig::None => "None".to_string(),
+            hubuum_client::RemoteAuthConfig::BearerSecret { .. } => {
+                "Bearer <redacted>".to_string()
+            }
+            hubuum_client::RemoteAuthConfig::BasicSecret { username, .. } => {
+                format!("Basic username={username}, secret <redacted>")
+            }
+            hubuum_client::RemoteAuthConfig::ApiKeySecret { header, .. } => {
+                format!("ApiKey header={header}, secret <redacted>")
+            }
+        };
+        rows.push(("Auth config", auth_display));
         rows.push(("Created at", self.0.created_at.to_string()));
         rows.push(("Updated at", self.0.updated_at.to_string()));
 
