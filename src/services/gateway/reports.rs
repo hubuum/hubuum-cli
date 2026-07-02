@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use hubuum_client::{
-    ReportContentType, ReportLimits, ReportMissingDataPolicy, ReportOutputRequest, ReportRequest,
+    ReportContentType, ReportInclude, ReportIncludeRelatedObject, ReportLimits,
+    ReportMissingDataPolicy, ReportOutputRequest, ReportRelationContext, ReportRequest,
     ReportScope, ReportScopeKind, ReportTemplatePatch, ReportTemplatePost,
 };
 
@@ -44,6 +45,66 @@ pub struct RunReportInput {
     pub missing_data_policy: Option<String>,
     pub max_items: Option<u64>,
     pub max_output_bytes: Option<u64>,
+    pub relation_depth: Option<i32>,
+    pub include_related: Vec<String>,
+}
+
+/// Parse a single --include-related spec into (key, ReportIncludeRelatedObject).
+///
+/// Format: `<key>:<class_id>[:<max_depth>]`
+/// - `<key>`: arbitrary string (map key for the related object set)
+/// - `<class_id>`: integer class ID
+/// - `<max_depth>`: optional integer for max traversal depth
+///
+/// Examples:
+/// - `servers:42` → key="servers", class_id=42, max_depth=None
+/// - `servers:42:3` → key="servers", class_id=42, max_depth=Some(3)
+fn parse_include_related_spec(spec: &str) -> Result<(String, ReportIncludeRelatedObject), AppError> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() < 2 {
+        return Err(AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': expected '<key>:<class_id>[:<max_depth>]'",
+            spec
+        )));
+    }
+
+    let key = parts[0].to_string();
+    if key.is_empty() {
+        return Err(AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': key cannot be empty",
+            spec
+        )));
+    }
+
+    let class_id = parts[1].parse::<i32>().map_err(|_| {
+        AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': class_id must be an integer",
+            spec
+        ))
+    })?;
+
+    let max_depth = if parts.len() >= 3 {
+        Some(parts[2].parse::<i32>().map_err(|_| {
+            AppError::ParseError(format!(
+                "Invalid --include-related spec '{}': max_depth must be an integer",
+                spec
+            ))
+        })?)
+    } else {
+        None
+    };
+
+    Ok((
+        key,
+        ReportIncludeRelatedObject {
+            class_id,
+            class_relation_id: None,
+            direction: None,
+            limit: None,
+            max_depth,
+            sort: None,
+        },
+    ))
 }
 
 impl HubuumGateway {
@@ -203,6 +264,23 @@ impl HubuumGateway {
             None => None,
         };
 
+        let relation_context = input
+            .relation_depth
+            .map(|depth| ReportRelationContext { depth: Some(depth) });
+
+        let include = if !input.include_related.is_empty() {
+            let mut related_objects = HashMap::new();
+            for spec in &input.include_related {
+                let (key, obj) = parse_include_related_spec(spec)?;
+                related_objects.insert(key, obj);
+            }
+            Some(ReportInclude {
+                related_objects: Some(related_objects),
+            })
+        } else {
+            None
+        };
+
         Ok(ReportRequest {
             limits: if input.max_items.is_some() || input.max_output_bytes.is_some() {
                 Some(ReportLimits {
@@ -222,8 +300,8 @@ impl HubuumGateway {
                 kind: scope_kind,
                 object_id,
             },
-            include: None,
-            relation_context: None,
+            include,
+            relation_context,
         })
     }
 
@@ -326,4 +404,52 @@ fn validate_report_scope(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_include_related_spec_valid() {
+        // Test basic format: key:class_id
+        let (key, obj) = parse_include_related_spec("servers:42").unwrap();
+        assert_eq!(key, "servers");
+        assert_eq!(obj.class_id, 42);
+        assert_eq!(obj.max_depth, None);
+        assert_eq!(obj.class_relation_id, None);
+        assert_eq!(obj.direction, None);
+        assert_eq!(obj.limit, None);
+        assert_eq!(obj.sort, None);
+
+        // Test with max_depth: key:class_id:max_depth
+        let (key, obj) = parse_include_related_spec("servers:42:3").unwrap();
+        assert_eq!(key, "servers");
+        assert_eq!(obj.class_id, 42);
+        assert_eq!(obj.max_depth, Some(3));
+
+        // Test with complex key
+        let (key, obj) = parse_include_related_spec("my_servers:100:5").unwrap();
+        assert_eq!(key, "my_servers");
+        assert_eq!(obj.class_id, 100);
+        assert_eq!(obj.max_depth, Some(5));
+    }
+
+    #[test]
+    fn test_parse_include_related_spec_invalid() {
+        // Missing class_id
+        assert!(parse_include_related_spec("servers").is_err());
+
+        // Empty key
+        assert!(parse_include_related_spec(":42").is_err());
+
+        // Non-integer class_id
+        assert!(parse_include_related_spec("servers:foo").is_err());
+
+        // Non-integer max_depth
+        assert!(parse_include_related_spec("servers:42:bar").is_err());
+
+        // Empty string
+        assert!(parse_include_related_spec("").is_err());
+    }
 }

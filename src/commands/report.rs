@@ -368,6 +368,16 @@ pub struct ReportRun {
         help = "Maximum output size in bytes"
     )]
     pub max_output_bytes: Option<u64>,
+    #[option(
+        long = "relation-depth",
+        help = "Relation context depth for traversal"
+    )]
+    pub relation_depth: Option<i32>,
+    #[option(
+        long = "include-related",
+        help = "Include related objects: '<key>:<class_id>[:<max_depth>]' (repeatable)"
+    )]
+    pub include_related: Vec<String>,
     #[option(long = "wait", flag, help = "Wait for task completion")]
     pub wait: bool,
     #[option(long = "timeout", help = "Timeout in seconds when waiting")]
@@ -389,6 +399,8 @@ impl CliCommand for ReportRun {
             missing_data_policy: query.missing_data_policy,
             max_items: query.max_items,
             max_output_bytes: query.max_output_bytes,
+            relation_depth: query.relation_depth,
+            include_related: query.include_related,
         };
         let task = services.gateway().submit_report(input)?;
         run_task_backed(services, tokens, format!("report {}", task.0.id), opts, task)
