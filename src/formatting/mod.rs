@@ -2,6 +2,7 @@ mod background;
 mod classes;
 mod core;
 mod groups;
+mod identity;
 mod imports;
 mod namespaces;
 mod objects;

@@ -20,6 +20,7 @@ macro_rules! transparent_record {
 
 mod classes;
 mod groups;
+mod identity;
 mod imports;
 mod namespaces;
 mod objects;
@@ -32,6 +33,7 @@ mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
+pub use identity::{MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord};
 pub use imports::ImportResultRecord;
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,

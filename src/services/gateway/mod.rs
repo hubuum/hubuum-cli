@@ -1,5 +1,6 @@
 mod classes;
 mod groups;
+mod identity;
 mod imports;
 mod namespaces;
 mod objects;
