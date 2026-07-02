@@ -4,3 +4,4 @@ transparent_record!(
     PrincipalPermissionsRecord,
     hubuum_client::PrincipalNamespacePermissions
 );
+transparent_record!(ServiceAccountRecord, hubuum_client::ServiceAccount);

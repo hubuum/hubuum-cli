@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
+use std::str::FromStr;
 
-use crate::domain::{CreatedUser, UserRecord};
+use crate::domain::{CreatedUser, PrincipalTokenRecord, UserRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -29,6 +30,14 @@ pub struct UserUpdateInput {
     pub username: String,
     pub rename: Option<String>,
     pub email: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTokenInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub expires_at: Option<String>,
+    pub scopes: Vec<String>,
 }
 
 impl HubuumGateway {
@@ -109,6 +118,67 @@ impl HubuumGateway {
             .send()?;
 
         Ok(UserRecord::from(updated))
+    }
+
+    pub fn user_tokens(&self, username: &str) -> Result<Vec<PrincipalTokenRecord>, AppError> {
+        let handle = self.client.users().select_by_name(username)?;
+        let tokens = handle.tokens()?;
+        Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
+    }
+
+    pub fn user_token_create(
+        &self,
+        username: &str,
+        input: NewTokenInput,
+    ) -> Result<String, AppError> {
+        let handle = self.client.users().select_by_name(username)?;
+        let mut req = hubuum_client::NewTokenRequest::new();
+
+        if let Some(n) = input.name {
+            req = req.name(n);
+        }
+        if let Some(d) = input.description {
+            req = req.description(d);
+        }
+        if let Some(exp) = input.expires_at {
+            return Err(AppError::CommandExecutionError(
+                format!("expires_at parsing not yet implemented; got '{}'", exp),
+            ));
+        }
+        if !input.scopes.is_empty() {
+            let scopes: Result<Vec<_>, _> = input
+                .scopes
+                .iter()
+                .map(|s| {
+                    hubuum_client::Permissions::from_str(s).map_err(|_| {
+                        AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
+                    })
+                })
+                .collect();
+            req = req.scopes(scopes?);
+        }
+
+        Ok(handle.tokens_create(req)?)
+    }
+
+    pub fn user_token_revoke(
+        &self,
+        username: &str,
+        token_id: i32,
+    ) -> Result<(), AppError> {
+        let handle = self.client.users().select_by_name(username)?;
+        handle.token_revoke(token_id)?;
+        Ok(())
+    }
+
+    pub fn set_user_password(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), AppError> {
+        let handle = self.client.users().select_by_name(username)?;
+        handle.set_password(password)?;
+        Ok(())
     }
 }
 

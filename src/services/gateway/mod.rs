@@ -7,6 +7,7 @@ mod objects;
 mod relations;
 mod reports;
 mod search;
+mod service_accounts;
 mod shared;
 mod tasks;
 mod users;
@@ -25,8 +26,9 @@ pub use objects::{CreateObjectInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
+pub use service_accounts::CreateServiceAccountInput;
 pub use tasks::{ListTasksInput, TaskLookupInput};
-pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
+pub use users::{CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
 pub struct HubuumGateway {

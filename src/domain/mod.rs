@@ -33,7 +33,9 @@ mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
-pub use identity::{MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord};
+pub use identity::{
+    MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,
+};
 pub use imports::ImportResultRecord;
 pub use namespaces::{
     GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,

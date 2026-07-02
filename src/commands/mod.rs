@@ -15,6 +15,7 @@ mod object;
 mod relations;
 mod report;
 mod search;
+mod service_account;
 mod task;
 mod task_submit;
 mod user;
