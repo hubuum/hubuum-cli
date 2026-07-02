@@ -335,6 +335,11 @@ pub struct ServiceAccountTokenCreate {
         nargs = 1
     )]
     pub scopes: Vec<String>,
+    #[option(
+        long = "expires-at",
+        help = "Token expiration, RFC3339 (e.g. 2026-12-31T23:59:59Z)"
+    )]
+    pub expires_at: Option<String>,
 }
 
 impl GetName for &ServiceAccountTokenCreate {
@@ -358,7 +363,7 @@ impl CliCommand for ServiceAccountTokenCreate {
             NewTokenInput {
                 name: query.token_name,
                 description: query.description,
-                expires_at: None,
+                expires_at: query.expires_at,
                 scopes: query.scopes,
             },
         )?;

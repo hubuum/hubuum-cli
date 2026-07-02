@@ -102,11 +102,15 @@ impl HubuumGateway {
         if let Some(d) = input.description {
             req = req.description(d);
         }
-        if let Some(exp) = input.expires_at {
-            return Err(AppError::CommandExecutionError(format!(
-                "expires_at parsing not yet implemented; got '{}'",
-                exp
-            )));
+        if let Some(exp_str) = input.expires_at.as_deref() {
+            let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
+                .map_err(|e| {
+                    AppError::CommandExecutionError(format!(
+                        "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
+                    ))
+                })?
+                .with_timezone(&chrono::Utc);
+            req = req.expires_at(hubuum_client::HubuumDateTime(dt));
         }
         if !input.scopes.is_empty() {
             let scopes: Result<Vec<_>, _> = input
