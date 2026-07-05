@@ -59,3 +59,59 @@ fn direct_command_errors_exit_nonzero() {
         .failure()
         .stdout(predicate::str::contains("Command not found"));
 }
+
+#[test]
+fn offline_config_show_supports_semantic_output_formats() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["config", "show", "--output", "csv"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("key,value,source,detail"))
+        .stdout(predicate::str::contains("output.format"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["config", "show", "--output", "jsonl"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"key\":\"output.format\""));
+}
+
+#[test]
+fn offline_config_show_supports_semantic_pipeline_projection() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            "config show | F output | P key value | S key | L 1",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("key"))
+        .stdout(predicate::str::contains("output."));
+}
+
+#[test]
+fn dense_table_style_uses_compact_field_separators() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--table-style",
+            "dense",
+            "--color",
+            "never",
+            "--command",
+            "config show | P key value | L 1",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(" | "))
+        .stdout(predicate::str::contains("key"))
+        .stdout(predicate::str::contains("value"));
+}
+
+#[test]
+fn json_alias_conflicts_with_non_json_output() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["config", "show", "--json", "--output", "csv"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("--json conflicts"));
+}

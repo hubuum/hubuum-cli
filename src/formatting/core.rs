@@ -1,18 +1,6 @@
-use std::fmt::Display;
-
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS,
-    presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
-    ColumnConstraint, ContentArrangement, Table, Width,
-};
 use serde::Serialize;
 
-use crate::{
-    config::get_config,
-    errors::AppError,
-    models::{EmptyResult, TableStyle, TableWidth, TableWrap},
-    output::append_line,
-};
+use crate::{errors::AppError, output::set_semantic_output};
 
 pub trait OutputFormatter: Sized + Serialize + Clone {
     fn format(&self) -> Result<Self, AppError>;
@@ -42,10 +30,16 @@ where
     T: DetailRenderable + Serialize + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        let padding = get_config().output.padding;
+        let mut object = serde_json::Map::new();
+        let mut columns = Vec::new();
         for (key, value) in self.detail_rows() {
-            append_key_value(key, value, padding)?;
+            columns.push(key.to_string());
+            object.insert(key.to_string(), serde_json::Value::String(value));
         }
+        set_semantic_output(hubuum_filter::OutputEnvelope::detail(
+            serde_json::Value::Object(object),
+            columns,
+        ))?;
         Ok(self.clone())
     }
 }
@@ -55,17 +49,21 @@ where
     T: TableRenderable + Serialize + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        if self.is_empty() {
-            if get_config().output.empty_result == EmptyResult::Message {
-                append_line("No results.")?;
-            }
-            return Ok(self.clone());
-        }
-
-        for line in render_table(self)?.lines() {
-            append_line(line)?;
-        }
-
+        let columns = T::headers()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let rows = self
+            .iter()
+            .map(|row| {
+                let mut object = serde_json::Map::new();
+                for (column, value) in columns.iter().zip(row.row()) {
+                    object.insert(column.clone(), serde_json::Value::String(value));
+                }
+                serde_json::Value::Object(object)
+            })
+            .collect::<Vec<_>>();
+        set_semantic_output(hubuum_filter::OutputEnvelope::rows(rows, columns))?;
         Ok(self.clone())
     }
 }
@@ -75,7 +73,7 @@ where
     V: Serialize,
 {
     let message = serde_json::json!({ "message": value });
-    append_line(serde_json::to_string_pretty(&message)?)?;
+    set_semantic_output(hubuum_filter::OutputEnvelope::message(message))?;
     Ok(())
 }
 
@@ -83,105 +81,11 @@ pub fn append_json<T>(value: &T) -> Result<(), AppError>
 where
     T: Serialize + ?Sized,
 {
-    append_line(serde_json::to_string_pretty(value)?)?;
+    set_semantic_output(hubuum_filter::OutputEnvelope::detail(
+        serde_json::to_value(value)?,
+        Vec::new(),
+    ))?;
     Ok(())
-}
-
-pub fn append_key_value<K, V>(key: K, value: V, padding: i8) -> Result<(), AppError>
-where
-    K: Display,
-    V: Display,
-{
-    append_line(pad_key_value(key, value, padding))
-}
-
-fn pad_key_value<K, V>(key: K, value: V, padding: i8) -> String
-where
-    K: Display,
-    V: Display,
-{
-    let padding = padding as usize;
-    format!("{key:<padding$}: {value}")
-}
-
-fn render_table<T>(rows: &[T]) -> Result<String, AppError>
-where
-    T: TableRenderable,
-{
-    let config = get_config();
-    let mut table = Table::new();
-    table.set_header(T::headers());
-
-    apply_table_style(&mut table, &config.output.table_style);
-    apply_table_layout(
-        &mut table,
-        &config.output.table_width,
-        &config.output.table_wrap,
-        T::headers().len(),
-    );
-
-    for row in rows {
-        table.add_row(row.row());
-    }
-
-    Ok(table.to_string())
-}
-
-fn apply_table_style(table: &mut Table, style: &TableStyle) {
-    match style {
-        TableStyle::Ascii => {
-            table.load_preset(ASCII_FULL);
-        }
-        TableStyle::Compact => {
-            table.load_preset(UTF8_HORIZONTAL_ONLY);
-        }
-        TableStyle::Markdown => {
-            table.load_preset(ASCII_MARKDOWN);
-        }
-        TableStyle::Plain => {
-            table.load_preset(NOTHING);
-        }
-        TableStyle::Rounded => {
-            table.load_preset(UTF8_FULL);
-            table.apply_modifier(UTF8_ROUND_CORNERS);
-        }
-    }
-}
-
-fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, columns: usize) {
-    let arrangement = match wrap {
-        TableWrap::Never => ContentArrangement::Disabled,
-        TableWrap::Auto | TableWrap::Fixed(_) => match width {
-            TableWidth::Full => ContentArrangement::DynamicFullWidth,
-            TableWidth::Auto | TableWidth::Fixed(_) => ContentArrangement::Dynamic,
-        },
-    };
-    table.set_content_arrangement(arrangement);
-
-    match width {
-        TableWidth::Auto => {}
-        TableWidth::Full => {
-            if let Some(width) = terminal_width() {
-                table.set_width(width);
-            }
-        }
-        TableWidth::Fixed(width) => {
-            table.set_width(*width);
-        }
-    }
-
-    if let TableWrap::Fixed(width) = wrap {
-        table.set_constraints(std::iter::repeat_n(
-            ColumnConstraint::UpperBoundary(Width::Fixed(*width)),
-            columns,
-        ));
-    }
-}
-
-fn terminal_width() -> Option<u16> {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use crate::models::{
-    EmptyResult, OutputColor, OutputFormat, Protocol, TableStyle, TableWidth, TableWrap,
+    EmptyResult, OutputColor, OutputFormat, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
 };
 
 pub struct Defaults;
@@ -25,6 +25,7 @@ impl Defaults {
     pub const OUTPUT_TABLE_STYLE: TableStyle = TableStyle::Rounded;
     pub const OUTPUT_TABLE_WIDTH: TableWidth = TableWidth::Auto;
     pub const OUTPUT_TABLE_WRAP: TableWrap = TableWrap::Auto;
+    pub const OUTPUT_TABLE_BANDS: TableBands = TableBands::Auto;
     pub const OUTPUT_EMPTY_RESULT: EmptyResult = EmptyResult::Message;
     pub const OUTPUT_OBJECT_SHOW_DATA: bool = false;
 }

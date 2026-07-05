@@ -109,6 +109,21 @@ pub fn standard_options() -> Vec<CliOption> {
             required: false,
             autocomplete: None,
         },
+        CliOption {
+            name: "output".to_string(),
+            short: Some("-o".to_string()),
+            long: Some("--output".to_string()),
+            flag: false,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            value_source: false,
+            help: "Output format: text, json, jsonl, csv, or tsv".to_string(),
+            field_type: TypeId::of::<String>(),
+            field_type_help: "string".to_string(),
+            required: false,
+            autocomplete: None,
+        },
     ]
 }
 
@@ -123,6 +138,7 @@ pub fn validate_command_args<C: CommandArgs>(tokens: &CommandTokenizer) -> Resul
     validate_not_both_short_and_long_set::<C>(tokens)?;
     validate_missing_options::<C>(tokens)?;
     validate_flag_options::<C>(tokens)?;
+    validate_output_options(tokens)?;
     Ok(())
 }
 
@@ -241,7 +257,7 @@ pub fn validate_flag_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Resul
 }
 
 pub fn desired_format(tokens: &CommandTokenizer) -> crate::models::OutputFormat {
-    if want_json(tokens) {
+    if want_json(tokens) || output_format_name(tokens).as_deref() == Some("json") {
         crate::models::OutputFormat::Json
     } else {
         crate::models::OutputFormat::Text
@@ -297,6 +313,44 @@ pub fn lte_clause(field: impl Into<String>, value: impl Into<String>) -> FilterC
 pub fn want_json(tokens: &CommandTokenizer) -> bool {
     let opts = tokens.get_options();
     opts.contains_key("j") || opts.contains_key("json")
+}
+
+pub fn output_format_name(tokens: &CommandTokenizer) -> Option<String> {
+    let opts = tokens.get_options();
+    opts.get("o")
+        .or_else(|| opts.get("output"))
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+}
+
+pub fn render_format(tokens: &CommandTokenizer) -> Result<crate::output::RenderFormat, AppError> {
+    if want_json(tokens) {
+        return Ok(crate::output::RenderFormat::Json);
+    }
+
+    match output_format_name(tokens).as_deref() {
+        Some("text") | None => Ok(crate::output::RenderFormat::Text),
+        Some("json") => Ok(crate::output::RenderFormat::Json),
+        Some("jsonl") => Ok(crate::output::RenderFormat::Jsonl),
+        Some("csv") => Ok(crate::output::RenderFormat::Csv),
+        Some("tsv") => Ok(crate::output::RenderFormat::Tsv),
+        Some(other) => Err(AppError::ParseError(format!(
+            "Unknown output format: {other}. Use text, json, jsonl, csv, or tsv."
+        ))),
+    }
+}
+
+fn validate_output_options(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    if want_json(tokens) {
+        if let Some(format) = output_format_name(tokens) {
+            if format != "json" {
+                return Err(AppError::ParseError(
+                    "--json conflicts with --output values other than json".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[allow(dead_code)]

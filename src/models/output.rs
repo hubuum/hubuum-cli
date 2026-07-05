@@ -82,6 +82,7 @@ impl From<OutputColor> for Value {
 pub enum TableStyle {
     Ascii,
     Compact,
+    Dense,
     Markdown,
     Plain,
     #[default]
@@ -95,11 +96,12 @@ impl FromStr for TableStyle {
         match s.to_lowercase().as_str() {
             "ascii" => Ok(TableStyle::Ascii),
             "compact" => Ok(TableStyle::Compact),
+            "dense" => Ok(TableStyle::Dense),
             "markdown" => Ok(TableStyle::Markdown),
             "plain" => Ok(TableStyle::Plain),
             "rounded" => Ok(TableStyle::Rounded),
             _ => Err(format!(
-                "Invalid table style: {s}. Use ascii, compact, markdown, plain, or rounded."
+                "Invalid table style: {s}. Use ascii, compact, dense, markdown, plain, or rounded."
             )),
         }
     }
@@ -236,6 +238,37 @@ impl FromStr for EmptyResult {
 
 impl From<EmptyResult> for Value {
     fn from(val: EmptyResult) -> Self {
+        Value::new(None, val.to_string())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum TableBands {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl FromStr for TableBands {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(TableBands::Auto),
+            "always" => Ok(TableBands::Always),
+            "never" => Ok(TableBands::Never),
+            _ => Err(format!(
+                "Invalid table bands mode: {s}. Use auto, always, or never."
+            )),
+        }
+    }
+}
+
+impl From<TableBands> for Value {
+    fn from(val: TableBands) -> Self {
         Value::new(None, val.to_string())
     }
 }

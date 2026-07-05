@@ -8,7 +8,8 @@ use crate::catalog::{
 };
 use crate::errors::AppError;
 use crate::output::{
-    add_error, add_warning, append_line, reset_output, set_pipeline, take_output, OutputSnapshot,
+    add_error, add_warning, append_line, reset_output, set_pipeline, set_render_format,
+    take_output, OutputSnapshot,
 };
 
 pub async fn execute_line(
@@ -83,6 +84,7 @@ pub async fn execute_line(
         .map(|option| option.to_cli_option())
         .collect::<Vec<_>>();
     let tokens = crate::tokenizer::CommandTokenizer::new(&line, &cmd_name, &option_defs)?;
+    set_render_format(crate::commands::render_format(&tokens)?)?;
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
@@ -165,10 +167,12 @@ pub fn execute_offline_line(
     if command_path_is(&parts, &["config", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(crate::commands::render_format(&tokens)?)?;
         crate::commands::config::render_config_show(&tokens)?;
     } else if command_path_is(&parts, &["config", "paths"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(crate::commands::render_format(&tokens)?)?;
         crate::commands::config::render_config_paths(&tokens)?;
     } else {
         return Err(AppError::CommandNotFound(parts.join(" ")));

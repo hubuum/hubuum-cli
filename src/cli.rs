@@ -1,6 +1,6 @@
 // src/cli.rs
 use crate::config::AppConfig;
-use crate::models::{EmptyResult, Protocol, TableStyle, TableWidth, TableWrap};
+use crate::models::{EmptyResult, Protocol, TableBands, TableStyle, TableWidth, TableWrap};
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
 use clap::{value_parser, Arg, ArgMatches, Command};
@@ -141,9 +141,9 @@ pub fn build_cli() -> Command {
             Arg::new("table_style")
                 .long("table-style")
                 .value_name("STYLE")
-                .value_parser(["ascii", "compact", "markdown", "plain", "rounded"])
+                .value_parser(["ascii", "compact", "dense", "markdown", "plain", "rounded"])
                 .env("HUBUUM_CLI__OUTPUT__TABLE_STYLE")
-                .help("Set table borders (ascii, compact, markdown, plain, rounded)"),
+                .help("Set table borders (ascii, compact, dense, markdown, plain, rounded)"),
         )
         .arg(
             Arg::new("table_width")
@@ -158,6 +158,14 @@ pub fn build_cli() -> Command {
                 .value_name("WIDTH")
                 .env("HUBUUM_CLI__OUTPUT__TABLE_WRAP")
                 .help("Set table cell wrapping (auto, never, or a number)"),
+        )
+        .arg(
+            Arg::new("table_bands")
+                .long("table-bands")
+                .value_name("WHEN")
+                .value_parser(["auto", "always", "never"])
+                .env("HUBUUM_CLI__OUTPUT__TABLE_BANDS")
+                .help("Set dense table row bands (auto, always, never)"),
         )
         .arg(
             Arg::new("empty_result")
@@ -323,6 +331,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--table-style"
             | "--table-width"
             | "--table-wrap"
+            | "--table-bands"
             | "--empty-result"
     )
 }
@@ -438,6 +447,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(table_wrap) = get_command_line_value::<String>(matches, "table_wrap") {
         config.output.table_wrap = table_wrap.parse().unwrap_or(TableWrap::Auto);
     }
+    if let Some(table_bands) = get_command_line_value::<String>(matches, "table_bands") {
+        config.output.table_bands = table_bands.parse().unwrap_or(TableBands::Auto);
+    }
     if let Some(empty_result) = get_command_line_value::<String>(matches, "empty_result") {
         config.output.empty_result = empty_result.parse().unwrap_or(EmptyResult::Message);
     }
@@ -519,6 +531,8 @@ mod tests {
                 "100",
                 "--table-wrap",
                 "never",
+                "--table-bands",
+                "always",
                 "--empty-result",
                 "silent",
             ])
@@ -529,6 +543,7 @@ mod tests {
         assert_eq!(config.output.table_style, TableStyle::Plain);
         assert_eq!(config.output.table_width, TableWidth::Fixed(100));
         assert_eq!(config.output.table_wrap, TableWrap::Never);
+        assert_eq!(config.output.table_bands, TableBands::Always);
         assert_eq!(config.output.empty_result, EmptyResult::Silent);
     }
 

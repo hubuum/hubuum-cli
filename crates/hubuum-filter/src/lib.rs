@@ -1,4 +1,7 @@
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use std::cmp::Ordering;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,6 +26,82 @@ pub enum PipeStage {
     SortLines { descending: bool },
     Columns(Vec<String>),
     SortColumn { column: String, descending: bool },
+    Value(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OutputShape {
+    Empty,
+    Lines,
+    Rows,
+    Detail,
+    Message,
+    Values,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutputEnvelope {
+    pub shape: OutputShape,
+    pub value: Value,
+    pub columns: Vec<String>,
+}
+
+impl OutputEnvelope {
+    pub fn empty() -> Self {
+        Self {
+            shape: OutputShape::Empty,
+            value: Value::Array(Vec::new()),
+            columns: Vec::new(),
+        }
+    }
+
+    pub fn lines(lines: Vec<String>) -> Self {
+        Self {
+            shape: OutputShape::Lines,
+            value: Value::Array(lines.into_iter().map(Value::String).collect()),
+            columns: Vec::new(),
+        }
+    }
+
+    pub fn rows(rows: Vec<Value>, columns: Vec<String>) -> Self {
+        Self {
+            shape: OutputShape::Rows,
+            value: Value::Array(rows),
+            columns,
+        }
+    }
+
+    pub fn detail(value: Value, columns: Vec<String>) -> Self {
+        Self {
+            shape: OutputShape::Detail,
+            value,
+            columns,
+        }
+    }
+
+    pub fn message(value: Value) -> Self {
+        Self {
+            shape: OutputShape::Message,
+            value,
+            columns: Vec::new(),
+        }
+    }
+
+    pub fn values(values: Vec<Value>) -> Self {
+        Self {
+            shape: OutputShape::Values,
+            value: Value::Array(values),
+            columns: vec!["value".to_string()],
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match &self.value {
+            Value::Array(items) => items.is_empty(),
+            Value::Null => true,
+            _ => false,
+        }
+    }
 }
 
 impl PipeStage {
@@ -66,10 +145,372 @@ impl PipeStage {
                 }
                 Ok(sorted)
             }
-            Self::Columns(_) | Self::SortColumn { .. } => Err(PipelineError::Pipe(
-                "Pipe stage requires structured table output".to_string(),
-            )),
+            Self::Columns(_) | Self::SortColumn { .. } | Self::Value(_) => Err(
+                PipelineError::Pipe("Pipe stage requires structured table output".to_string()),
+            ),
         }
+    }
+}
+
+pub fn apply_pipeline(
+    envelope: OutputEnvelope,
+    stages: &[PipeStage],
+) -> Result<OutputEnvelope, PipelineError> {
+    let mut envelope = envelope;
+    for stage in stages {
+        envelope = apply_semantic_stage(envelope, stage)?;
+    }
+    Ok(envelope)
+}
+
+fn apply_semantic_stage(
+    envelope: OutputEnvelope,
+    stage: &PipeStage,
+) -> Result<OutputEnvelope, PipelineError> {
+    if envelope.shape == OutputShape::Lines {
+        let lines = envelope
+            .value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        return Ok(OutputEnvelope::lines(stage.apply(lines)?));
+    }
+
+    match stage {
+        PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false),
+        PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true),
+        PipeStage::Head(count) => limit_envelope(envelope, *count, false),
+        PipeStage::Tail(count) => limit_envelope(envelope, *count, true),
+        PipeStage::Count => count_envelope(envelope),
+        PipeStage::SortLines { descending } => sort_envelope(envelope, None, *descending),
+        PipeStage::Columns(columns) => project_envelope(envelope, columns),
+        PipeStage::SortColumn { column, descending } => {
+            sort_envelope(envelope, Some(column), *descending)
+        }
+        PipeStage::Value(selector) => value_envelope(envelope, selector),
+    }
+}
+
+fn filter_envelope(
+    envelope: OutputEnvelope,
+    expression: &str,
+    invert: bool,
+) -> Result<OutputEnvelope, PipelineError> {
+    let filter = SemanticFilter::parse(expression)?;
+    let keep = |value: &Value| filter.matches(value).map(|matched| matched != invert);
+
+    match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => {
+            let rows = array_values(&envelope.value)?
+                .into_iter()
+                .filter_map(|value| match keep(&value) {
+                    Ok(true) => Some(Ok(value)),
+                    Ok(false) => None,
+                    Err(err) => Some(Err(err)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OutputEnvelope {
+                value: Value::Array(rows),
+                ..envelope
+            })
+        }
+        OutputShape::Detail | OutputShape::Message => {
+            if keep(&envelope.value)? {
+                Ok(envelope)
+            } else {
+                Ok(OutputEnvelope::empty())
+            }
+        }
+        OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
+    }
+}
+
+fn limit_envelope(
+    envelope: OutputEnvelope,
+    count: usize,
+    from_end: bool,
+) -> Result<OutputEnvelope, PipelineError> {
+    match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => {
+            let values = array_values(&envelope.value)?;
+            let values = if from_end {
+                let keep_from = values.len().saturating_sub(count);
+                values.into_iter().skip(keep_from).collect()
+            } else {
+                values.into_iter().take(count).collect()
+            };
+            Ok(OutputEnvelope {
+                value: Value::Array(values),
+                ..envelope
+            })
+        }
+        OutputShape::Detail | OutputShape::Message => Ok(envelope),
+        OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("line output is handled before semantic limiting"),
+    }
+}
+
+fn count_envelope(envelope: OutputEnvelope) -> Result<OutputEnvelope, PipelineError> {
+    let count = match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => array_values(&envelope.value)?.len(),
+        OutputShape::Detail | OutputShape::Message => usize::from(!envelope.is_empty()),
+        OutputShape::Empty => 0,
+        OutputShape::Lines => unreachable!("line output is handled before semantic counting"),
+    };
+    Ok(OutputEnvelope::values(vec![Value::Number(count.into())]))
+}
+
+fn sort_envelope(
+    envelope: OutputEnvelope,
+    selector: Option<&str>,
+    descending: bool,
+) -> Result<OutputEnvelope, PipelineError> {
+    match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => {
+            let mut values = array_values(&envelope.value)?;
+            values.sort_by(|left, right| compare_selected(left, right, selector));
+            if descending {
+                values.reverse();
+            }
+            Ok(OutputEnvelope {
+                value: Value::Array(values),
+                ..envelope
+            })
+        }
+        OutputShape::Detail | OutputShape::Message | OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("line output is handled before semantic sorting"),
+    }
+}
+
+fn project_envelope(
+    envelope: OutputEnvelope,
+    columns: &[String],
+) -> Result<OutputEnvelope, PipelineError> {
+    match envelope.shape {
+        OutputShape::Rows => {
+            let rows = array_values(&envelope.value)?
+                .into_iter()
+                .map(|row| project_value(&row, columns))
+                .collect::<Vec<_>>();
+            Ok(OutputEnvelope::rows(rows, columns.to_vec()))
+        }
+        OutputShape::Detail | OutputShape::Message => Ok(OutputEnvelope::detail(
+            project_value(&envelope.value, columns),
+            columns.to_vec(),
+        )),
+        OutputShape::Values | OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("line output is handled before semantic projection"),
+    }
+}
+
+fn value_envelope(
+    envelope: OutputEnvelope,
+    selector: &str,
+) -> Result<OutputEnvelope, PipelineError> {
+    let values = match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => array_values(&envelope.value)?
+            .iter()
+            .flat_map(|row| select_values(row, selector))
+            .cloned()
+            .collect(),
+        OutputShape::Detail | OutputShape::Message => select_values(&envelope.value, selector)
+            .into_iter()
+            .cloned()
+            .collect(),
+        OutputShape::Empty => Vec::new(),
+        OutputShape::Lines => {
+            unreachable!("line output is handled before semantic value extraction")
+        }
+    };
+    Ok(OutputEnvelope::values(values))
+}
+
+#[derive(Debug)]
+enum SemanticFilter {
+    Quick(Regex),
+    PathExists(String),
+    PathEquals(String, String),
+    PathContains(String, Regex),
+}
+
+impl SemanticFilter {
+    fn parse(expression: &str) -> Result<Self, PipelineError> {
+        let parts = shlex::split(expression).unwrap_or_else(|| {
+            expression
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+
+        if parts.len() >= 2 && parts[1] == "exists" {
+            return Ok(Self::PathExists(parts[0].clone()));
+        }
+        if parts.len() >= 3 && matches!(parts[1].as_str(), "equals" | "=" | "==") {
+            return Ok(Self::PathEquals(parts[0].clone(), parts[2..].join(" ")));
+        }
+        if parts.len() >= 3 && matches!(parts[1].as_str(), "contains" | "~") {
+            return Ok(Self::PathContains(
+                parts[0].clone(),
+                Regex::new(&parts[2..].join(" "))?,
+            ));
+        }
+
+        Ok(Self::Quick(Regex::new(expression)?))
+    }
+
+    fn matches(&self, value: &Value) -> Result<bool, PipelineError> {
+        match self {
+            Self::Quick(regex) => Ok(scalar_descendants(value).any(|text| regex.is_match(&text))),
+            Self::PathExists(path) => Ok(!select_values(value, path).is_empty()),
+            Self::PathEquals(path, expected) => Ok(select_values(value, path)
+                .into_iter()
+                .any(|value| scalar_text(value).is_some_and(|actual| actual == *expected))),
+            Self::PathContains(path, regex) => Ok(select_values(value, path)
+                .into_iter()
+                .any(|value| scalar_text(value).is_some_and(|actual| regex.is_match(&actual)))),
+        }
+    }
+}
+
+fn array_values(value: &Value) -> Result<Vec<Value>, PipelineError> {
+    value.as_array().cloned().ok_or_else(|| {
+        PipelineError::Pipe("Pipe stage expected an array-shaped semantic value".to_string())
+    })
+}
+
+fn project_value(value: &Value, columns: &[String]) -> Value {
+    let mut object = Map::new();
+    for column in columns {
+        let selected = select_values(value, column);
+        let projected = match selected.as_slice() {
+            [] => Value::Null,
+            [single] => (*single).clone(),
+            many => Value::Array(many.iter().map(|value| (*value).clone()).collect()),
+        };
+        object.insert(column.clone(), projected);
+    }
+    Value::Object(object)
+}
+
+fn compare_selected(left: &Value, right: &Value, selector: Option<&str>) -> Ordering {
+    let left = selector
+        .and_then(|selector| select_values(left, selector).first().copied())
+        .unwrap_or(left);
+    let right = selector
+        .and_then(|selector| select_values(right, selector).first().copied())
+        .unwrap_or(right);
+    compare_values(left, right)
+}
+
+fn compare_values(left: &Value, right: &Value) -> Ordering {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => left
+            .as_f64()
+            .partial_cmp(&right.as_f64())
+            .unwrap_or(Ordering::Equal),
+        (Value::String(left), Value::String(right)) => left.cmp(right),
+        (Value::Bool(left), Value::Bool(right)) => left.cmp(right),
+        _ => scalar_text(left).cmp(&scalar_text(right)),
+    }
+}
+
+fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
+    let mut current = vec![value];
+    for token in selector_tokens(selector) {
+        let mut next = Vec::new();
+        for value in current {
+            match token {
+                SelectorToken::Field(field) => {
+                    if let Value::Object(object) = value {
+                        if let Some(value) = object.get(field) {
+                            next.push(value);
+                        }
+                    }
+                }
+                SelectorToken::Index(index) => {
+                    if let Value::Array(array) = value {
+                        if let Some(value) = array.get(index) {
+                            next.push(value);
+                        }
+                    }
+                }
+                SelectorToken::All => {
+                    if let Value::Array(array) = value {
+                        next.extend(array);
+                    }
+                }
+            }
+        }
+        current = next;
+        if current.is_empty() {
+            break;
+        }
+    }
+    current
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelectorToken<'a> {
+    Field(&'a str),
+    Index(usize),
+    All,
+}
+
+fn selector_tokens(selector: &str) -> Vec<SelectorToken<'_>> {
+    let mut tokens = Vec::new();
+    for part in selector.split('.') {
+        if part.is_empty() {
+            continue;
+        }
+
+        let mut rest = part;
+        if let Some(bracket) = rest.find('[') {
+            let field = &rest[..bracket];
+            if !field.is_empty() {
+                tokens.push(SelectorToken::Field(field));
+            }
+            rest = &rest[bracket..];
+        } else {
+            tokens.push(SelectorToken::Field(rest));
+            continue;
+        }
+
+        while let Some(inner) = rest.strip_prefix('[') {
+            let Some(end) = inner.find(']') else {
+                break;
+            };
+            let index = &inner[..end];
+            if index == "*" {
+                tokens.push(SelectorToken::All);
+            } else if let Ok(index) = index.parse::<usize>() {
+                tokens.push(SelectorToken::Index(index));
+            }
+            rest = &inner[end + 1..];
+        }
+    }
+    tokens
+}
+
+fn scalar_descendants(value: &Value) -> Box<dyn Iterator<Item = String> + '_> {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            Box::new(scalar_text(value).into_iter())
+        }
+        Value::Array(values) => Box::new(values.iter().flat_map(scalar_descendants)),
+        Value::Object(object) => Box::new(object.values().flat_map(scalar_descendants)),
+    }
+}
+
+fn scalar_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => Some("null".to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::String(value) => Some(value.clone()),
+        Value::Array(_) | Value::Object(_) => None,
     }
 }
 
@@ -143,6 +584,7 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
         }
         "columns" | "P" => parse_columns_stage(&parts),
         "sort" | "S" => parse_sort_stage(&parts),
+        "VALUE" | "VAL" => pattern_stage(parts[0].as_str(), &parts, PipeStage::Value),
         _ => parse_legacy_stage(stage),
     }
 }
@@ -267,7 +709,8 @@ fn require_arg_count(name: &str, parts: &[String], expected: usize) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{split_pipeline, PipeStage};
+    use super::{apply_pipeline, split_pipeline, OutputEnvelope, PipeStage};
+    use serde_json::json;
 
     #[test]
     fn legacy_regex_pipe_still_parses() {
@@ -375,5 +818,57 @@ mod tests {
                 "team owner".to_string(),
             ])]
         );
+    }
+
+    #[test]
+    fn semantic_pipeline_filters_projects_sorts_and_limits_rows() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "beta", "json_data": {"contact": "ops"}, "age": 2}),
+                json!({"name": "alpha", "json_data": {"contact": "noc"}, "age": 3}),
+                json!({"name": "retired", "json_data": {"contact": "old"}, "age": 1}),
+            ],
+            vec!["name".to_string(), "json_data.contact".to_string()],
+        );
+        let stages = vec![
+            PipeStage::Reject("name equals retired".to_string()),
+            PipeStage::SortColumn {
+                column: "name".to_string(),
+                descending: false,
+            },
+            PipeStage::Columns(vec!["name".to_string(), "json_data.contact".to_string()]),
+            PipeStage::Head(1),
+        ];
+
+        let transformed = apply_pipeline(envelope, &stages).expect("semantic pipeline");
+        assert_eq!(
+            transformed.value,
+            json!([{"name": "alpha", "json_data.contact": "noc"}])
+        );
+        assert_eq!(
+            transformed.columns,
+            vec!["name".to_string(), "json_data.contact".to_string()]
+        );
+    }
+
+    #[test]
+    fn semantic_value_extracts_nested_values_and_count_counts_rows() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha", "json_data": {"contacts": [{"email": "a@example.com"}]}}),
+                json!({"name": "beta", "json_data": {"contacts": [{"email": "b@example.com"}]}}),
+            ],
+            vec!["name".to_string()],
+        );
+
+        let values = apply_pipeline(
+            envelope.clone(),
+            &[PipeStage::Value("json_data.contacts[0].email".to_string())],
+        )
+        .expect("value pipeline");
+        assert_eq!(values.value, json!(["a@example.com", "b@example.com"]));
+
+        let count = apply_pipeline(envelope, &[PipeStage::Count]).expect("count pipeline");
+        assert_eq!(count.value, json!([2]));
     }
 }

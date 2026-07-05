@@ -1,18 +1,16 @@
 # Output Pipeline Direction
 
-This CLI should move toward a semantic output pipeline:
+This CLI uses a semantic output pipeline for shared formatter output:
 
 ```text
 command result
   -> intermediate JSON value
   -> optional pipe/DSL transforms
-  -> final renderer: table, text, json, markdown, values
+  -> final renderer: table, text, json, jsonl, csv, tsv
 ```
 
-The current `crates/hubuum-filter` implementation is transitional. It gives the
-REPL and one-shot commands a stable pipe grammar now, but most stages still
-operate on rendered lines. New behavior should avoid making rendered text the
-long-term extension point.
+`crates/hubuum-filter` owns pipe parsing and semantic transforms. The CLI owns
+terminal rendering, config, command dispatch, and REPL behavior.
 
 ## User Model
 
@@ -49,19 +47,19 @@ object list --class Hosts | contact
 - Transforming verbs should be explicit about shape changes.
 - Table formatting should be a renderer concern, not a pipe parser concern.
 
-## Implementation Sketch
+## Implementation Notes
 
-Introduce a semantic output value, likely based on `serde_json::Value`, with
-small wrappers for row sets, detail documents, warnings, errors, and pagination
-metadata. Existing formatters can first populate this value, then renderers can
-turn it into text, tables, JSON, or value lists.
+The semantic output value is based on `serde_json::Value`, with wrappers for
+row sets, detail documents, messages, lines, values, visible columns, warnings,
+errors, and pagination metadata. Shared formatters populate this value first;
+renderers turn it into text, tables, JSON, JSONL, CSV, or TSV after pipeline
+transforms have run.
 
 `hubuum-filter` should stay CLI-agnostic enough that it can become an
 independent crate later. Keep command catalog, authentication, Hubuum client
 types, terminal rendering, and REPL concerns outside that crate.
 
-Once commands produce semantic output snapshots, pipe stages can evolve from
-line transforms into data transforms:
+Pipe stages now run on semantic data when commands use shared formatters:
 
 - `F field=value`, regex, existence, and comparison filters
 - `P field other.nested[]` projections
@@ -73,12 +71,11 @@ This also gives table rendering more control: projection changes visible
 columns before rendering, sorting works on values rather than glyphs, and JSON
 output can show the transformed payload without re-parsing terminal text.
 
-## Transitional Boundaries
+## Remaining Transitional Boundaries
 
-Until the semantic layer exists:
-
-- Keep rendered-line stages useful and conservative: `grep`, `reject`, `head`,
-  `tail`, `sort line`, and `count`.
-- Parse structured stages such as `P` and column `S` so user syntax can settle.
-- Return a clear error when a structured stage is applied to rendered text.
-- Do not add complex behavior that depends on parsing table glyph output.
+- Some command-specific branches still append direct rendered lines. Those
+  branches continue to support conservative line stages: `grep`, `reject`,
+  `head`, `tail`, `sort line`, and `count`.
+- New command output should use shared semantic emitters rather than
+  `append_line` for normal result data.
+- Do not add behavior that depends on parsing table glyph output.

@@ -10,6 +10,7 @@ pub enum ThemeRole {
     Muted,
     Prompt,
     Heading,
+    TableBand,
 }
 
 pub fn color_choice() -> ColorChoice {
@@ -45,5 +46,6 @@ fn role_style(role: ThemeRole) -> Style {
         ThemeRole::Heading => Style::new()
             .bold()
             .fg_color(Some(Color::Ansi(AnsiColor::Green))),
+        ThemeRole::TableBand => Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
     }
 }

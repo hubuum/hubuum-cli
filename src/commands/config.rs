@@ -11,7 +11,7 @@ use crate::config::{
 };
 use crate::errors::AppError;
 use crate::models::OutputFormat;
-use crate::output::{append_key_value, append_line};
+use crate::output::{append_key_value, append_line, set_semantic_output};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -229,28 +229,49 @@ fn render_single_entry(entry: &ConfigEntry, format: OutputFormat) -> Result<(), 
     match format {
         OutputFormat::Json => append_line(serde_json::to_string_pretty(entry)?)?,
         OutputFormat::Text => {
-            append_key_value("Key", &entry.key, 12)?;
-            append_key_value("Value", &entry.value, 12)?;
-            append_key_value("Source", format_source(entry), 12)?;
+            let mut object = serde_json::Map::new();
+            object.insert(
+                "key".to_string(),
+                serde_json::Value::String(entry.key.clone()),
+            );
+            object.insert(
+                "value".to_string(),
+                serde_json::Value::String(entry.value.clone()),
+            );
+            object.insert(
+                "source".to_string(),
+                serde_json::Value::String(format_source(entry)),
+            );
+            set_semantic_output(hubuum_filter::OutputEnvelope::detail(
+                serde_json::Value::Object(object),
+                vec!["key".to_string(), "value".to_string(), "source".to_string()],
+            ))?;
         }
     }
     Ok(())
 }
 
 fn render_config_entries(entries: &[ConfigEntry]) -> Result<(), AppError> {
-    append_line(format!(
-        "{:<34} {:<20} {:<14} {}",
-        "Key", "Value", "Source", "Detail"
+    let rows = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "key": entry.key,
+                "value": entry.value,
+                "source": format_source_kind(entry),
+                "detail": entry.source_detail.as_deref().unwrap_or(""),
+            })
+        })
+        .collect::<Vec<_>>();
+    set_semantic_output(hubuum_filter::OutputEnvelope::rows(
+        rows,
+        vec![
+            "key".to_string(),
+            "value".to_string(),
+            "source".to_string(),
+            "detail".to_string(),
+        ],
     ))?;
-    for entry in entries {
-        append_line(format!(
-            "{:<34} {:<20} {:<14} {}",
-            entry.key,
-            entry.value,
-            format_source_kind(entry),
-            entry.source_detail.as_deref().unwrap_or("")
-        ))?;
-    }
     Ok(())
 }
 

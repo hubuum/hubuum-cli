@@ -10,7 +10,7 @@ use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
-    EmptyResult, OutputColor, OutputFormat, Protocol, TableStyle, TableWidth, TableWrap,
+    EmptyResult, OutputColor, OutputFormat, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
 };
 
 static CONFIG: Lazy<RwLock<AppConfig>> = Lazy::new(|| RwLock::new(AppConfig::default()));
@@ -139,6 +139,7 @@ pub struct OutputConfig {
     pub table_style: TableStyle,
     pub table_width: TableWidth,
     pub table_wrap: TableWrap,
+    pub table_bands: TableBands,
     pub empty_result: EmptyResult,
     pub object_show_data: bool,
 }
@@ -157,6 +158,7 @@ enum ConfigValueKind {
     TableStyle,
     TableWidth,
     TableWrap,
+    TableBands,
     EmptyResult,
 }
 
@@ -318,6 +320,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.table_bands",
+        cli_arg: Some("table_bands"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
+        value_kind: ConfigValueKind::TableBands,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.empty_result",
         cli_arg: Some("empty_result"),
         env_var: "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
@@ -370,6 +379,7 @@ impl Default for AppConfig {
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
                 table_width: Defaults::OUTPUT_TABLE_WIDTH,
                 table_wrap: Defaults::OUTPUT_TABLE_WRAP,
+                table_bands: Defaults::OUTPUT_TABLE_BANDS,
                 empty_result: Defaults::OUTPUT_EMPTY_RESULT,
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
             },
@@ -534,6 +544,7 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
             "output.table_wrap" => target.output.table_wrap = source.output.table_wrap.clone(),
+            "output.table_bands" => target.output.table_bands = source.output.table_bands,
             "output.empty_result" => target.output.empty_result = source.output.empty_result,
             _ => {}
         }
@@ -558,6 +569,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
             Defaults::OUTPUT_TABLE_WIDTH.to_string(),
         )?
         .set_default("output.table_wrap", Defaults::OUTPUT_TABLE_WRAP.to_string())?
+        .set_default(
+            "output.table_bands",
+            Defaults::OUTPUT_TABLE_BANDS.to_string(),
+        )?
         .set_default(
             "output.empty_result",
             Defaults::OUTPUT_EMPTY_RESULT.to_string(),
@@ -717,6 +732,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "table_style" => Some("--table-style"),
         "table_width" => Some("--table-width"),
         "table_wrap" => Some("--table-wrap"),
+        "table_bands" => Some("--table-bands"),
         "empty_result" => Some("--empty-result"),
         "output_object_show_data" => Some("--output-object-show-data"),
         _ => None,
@@ -750,6 +766,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
         "output.table_width" => ConfigValueRef::TableWidth(&config.output.table_width),
         "output.table_wrap" => ConfigValueRef::TableWrap(&config.output.table_wrap),
+        "output.table_bands" => ConfigValueRef::TableBands(&config.output.table_bands),
         "output.empty_result" => ConfigValueRef::EmptyResult(&config.output.empty_result),
         "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
         _ => ConfigValueRef::String(""),
@@ -770,6 +787,7 @@ enum ConfigValueRef<'a> {
     TableStyle(&'a TableStyle),
     TableWidth(&'a TableWidth),
     TableWrap(&'a TableWrap),
+    TableBands(&'a TableBands),
     EmptyResult(&'a EmptyResult),
 }
 
@@ -801,6 +819,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::TableStyle(value) => value.to_string(),
         ConfigValueRef::TableWidth(value) => value.to_string(),
         ConfigValueRef::TableWrap(value) => value.to_string(),
+        ConfigValueRef::TableBands(value) => value.to_string(),
         ConfigValueRef::EmptyResult(value) => value.to_string(),
     }
 }
@@ -866,6 +885,12 @@ fn parse_config_value(
         ConfigValueKind::TableWrap => toml::Value::String(
             value
                 .parse::<TableWrap>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::TableBands => toml::Value::String(
+            value
+                .parse::<TableBands>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
@@ -956,7 +981,7 @@ fn write_toml_file(path: &Path, root: &toml::Value) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::cli;
-    use crate::models::{EmptyResult, Protocol, TableStyle, TableWidth, TableWrap};
+    use crate::models::{EmptyResult, Protocol, TableBands, TableStyle, TableWidth, TableWrap};
     use serial_test::serial;
     use std::env;
     use std::fs;
@@ -983,6 +1008,7 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
             "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
             "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
+            "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
             "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
         ] {
@@ -1015,6 +1041,7 @@ mod tests {
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_STYLE", "plain");
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_WIDTH", "100");
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_WRAP", "never");
+        env::set_var("HUBUUM_CLI__OUTPUT__TABLE_BANDS", "always");
         env::set_var("HUBUUM_CLI__OUTPUT__EMPTY_RESULT", "silent");
         env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
 
@@ -1042,6 +1069,7 @@ mod tests {
         assert_eq!(cfg.output.table_style, TableStyle::Plain);
         assert_eq!(cfg.output.table_width, TableWidth::Fixed(100));
         assert_eq!(cfg.output.table_wrap, TableWrap::Never);
+        assert_eq!(cfg.output.table_bands, TableBands::Always);
         assert_eq!(cfg.output.empty_result, EmptyResult::Silent);
         assert!(cfg.output.object_show_data);
         clear_env();
@@ -1081,6 +1109,7 @@ mod tests {
         assert_eq!(cfg.output.table_style, baseline.output.table_style);
         assert_eq!(cfg.output.table_width, baseline.output.table_width);
         assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
+        assert_eq!(cfg.output.table_bands, baseline.output.table_bands);
         assert_eq!(cfg.output.empty_result, baseline.output.empty_result);
         assert_eq!(cfg.server.password, baseline.server.password);
 
