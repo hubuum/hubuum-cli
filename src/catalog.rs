@@ -616,7 +616,7 @@ fn render_shell_topic_help() -> String {
     line!(paint(ThemeRole::Heading, "Pagination:"));
     line!("  After a paginated list result, type next to fetch the next page.");
     line!("  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.");
-    line!("  Ctrl-C clears pending pagination state.");
+    line!("  Esc or Ctrl-C clears pending pagination state.");
     line!("");
     line!(paint(ThemeRole::Heading, "Pipes:"));
     line!("  Append | stages after commands to filter or reshape output before rendering.");
@@ -712,7 +712,11 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
         ));
         help.push_str(&paint(
             ThemeRole::Muted,
-            "  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page and Ctrl-C clears the pending pagination state.\n",
+            "  Esc or Ctrl-C clears the pending pagination state.\n",
+        ));
+        help.push_str(&paint(
+            ThemeRole::Muted,
+            "  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.\n",
         ));
     }
     Some(help)

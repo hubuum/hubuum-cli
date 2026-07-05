@@ -284,10 +284,12 @@ fn apply_next_page_state(
 
     if crate::config::get_config().repl.enter_fetches_next_page {
         append_line(
-            "Paginated results available. Press Enter for the next page, or Ctrl-C to stop.",
+            "Paginated results available. Press Enter for the next page, or Esc/Ctrl-C to stop.",
         )?;
     } else {
-        append_line("Paginated results available. Type 'next' for the next page.")?;
+        append_line(
+            "Paginated results available. Type 'next' for the next page, or Esc/Ctrl-C to stop.",
+        )?;
     }
 
     Ok(())

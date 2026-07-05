@@ -2,10 +2,12 @@ use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crossterm::event::{Event, KeyEvent};
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Completer, Emacs, FileBackedHistory, KeyCode,
-    KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
-    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion,
+    default_emacs_keybindings, ColumnarMenu, Completer, EditMode, Emacs, FileBackedHistory,
+    KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
+    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, ReedlineRawEvent, Signal,
+    Span, Suggestion,
 };
 
 use crate::app::{AppRuntime, SharedSession};
@@ -14,6 +16,8 @@ use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::dispatch;
 use crate::errors::AppError;
 use crate::files::get_history_file;
+
+const CANCEL_PAGINATION_HOST_COMMAND: &str = "__hubuum_cancel_pagination__";
 
 pub async fn run(app: Arc<AppRuntime>, session: SharedSession) -> Result<(), AppError> {
     let runtime = tokio::runtime::Handle::current();
@@ -61,7 +65,10 @@ fn run_thread(
         KeyCode::BackTab,
         ReedlineEvent::MenuPrevious,
     );
-    let edit_mode = Box::new(Emacs::new(keybindings));
+    let edit_mode = Box::new(PaginationEditMode {
+        inner: Emacs::new(keybindings),
+        session: session.clone(),
+    });
 
     let mut editor = Reedline::create()
         .with_history(history)
@@ -84,6 +91,11 @@ fn run_thread(
 
         match signal {
             Signal::Success(line) => {
+                if line == CANCEL_PAGINATION_HOST_COMMAND {
+                    clear_pending_pagination(&session);
+                    continue;
+                }
+
                 let effective_line = if line.trim().is_empty()
                     && crate::config::get_config().repl.enter_fetches_next_page
                     && session.next_page_command().is_some()
@@ -113,11 +125,7 @@ fn run_thread(
             }
             Signal::CtrlD => break,
             Signal::CtrlC => {
-                if crate::config::get_config().repl.enter_fetches_next_page
-                    && session.next_page_command().is_some()
-                {
-                    session.set_next_page_command(None);
-                }
+                clear_pending_pagination(&session);
                 continue;
             }
         }
@@ -126,8 +134,45 @@ fn run_thread(
     Ok(())
 }
 
+fn clear_pending_pagination(session: &SharedSession) {
+    if session.next_page_command().is_some() {
+        session.set_next_page_command(None);
+    }
+}
+
 struct BackgroundGuard {
     manager: crate::background::BackgroundManager,
+}
+
+struct PaginationEditMode {
+    inner: Emacs,
+    session: SharedSession,
+}
+
+impl EditMode for PaginationEditMode {
+    fn parse_event(&mut self, event: ReedlineRawEvent) -> ReedlineEvent {
+        let event = Event::from(event);
+        if matches!(
+            event,
+            Event::Key(KeyEvent {
+                code: KeyCode::Esc,
+                modifiers: KeyModifiers::NONE,
+                ..
+            })
+        ) && self.session.next_page_command().is_some()
+        {
+            return ReedlineEvent::ExecuteHostCommand(CANCEL_PAGINATION_HOST_COMMAND.to_string());
+        }
+
+        match ReedlineRawEvent::try_from(event) {
+            Ok(event) => self.inner.parse_event(event),
+            Err(()) => ReedlineEvent::None,
+        }
+    }
+
+    fn edit_mode(&self) -> PromptEditMode {
+        self.inner.edit_mode()
+    }
 }
 
 impl BackgroundGuard {
@@ -859,13 +904,37 @@ fn clause_active_token_offset(clause: &str, ends_with_space: bool) -> usize {
 mod tests {
     use std::any::TypeId;
 
+    use crossterm::event::{
+        Event as CrosstermEvent, KeyCode as CrosstermKeyCode, KeyEvent as CrosstermKeyEvent,
+        KeyModifiers as CrosstermKeyModifiers,
+    };
+    use reedline::{default_emacs_keybindings, EditMode, Emacs, ReedlineEvent, ReedlineRawEvent};
+
+    use crate::app::SharedSession;
     use crate::catalog::{CompletionSpec, OptionSpec};
 
     use super::{
         clause_active_token_offset, completion_context_parts, is_completing_option_value,
         option_suggestion, projection_pipe_context, quoted_where_context, safe_prefix_end,
-        schema_paths, where_suggestion,
+        schema_paths, where_suggestion, PaginationEditMode, CANCEL_PAGINATION_HOST_COMMAND,
     };
+
+    #[test]
+    fn esc_cancels_only_when_pagination_is_pending() {
+        let session = SharedSession::new();
+        let mut edit_mode = PaginationEditMode {
+            inner: Emacs::new(default_emacs_keybindings()),
+            session: session.clone(),
+        };
+
+        assert_eq!(edit_mode.parse_event(esc_event()), ReedlineEvent::Esc);
+
+        session.set_next_page_command(Some("next --cursor abc".to_string()));
+        assert_eq!(
+            edit_mode.parse_event(esc_event()),
+            ReedlineEvent::ExecuteHostCommand(CANCEL_PAGINATION_HOST_COMMAND.to_string())
+        );
+    }
 
     #[test]
     fn completion_context_uses_parent_path_for_partial_word() {
@@ -1067,5 +1136,13 @@ mod tests {
             value_source: false,
             completion: CompletionSpec::None,
         }
+    }
+
+    fn esc_event() -> ReedlineRawEvent {
+        ReedlineRawEvent::try_from(CrosstermEvent::Key(CrosstermKeyEvent::new(
+            CrosstermKeyCode::Esc,
+            CrosstermKeyModifiers::NONE,
+        )))
+        .expect("press events should be accepted")
     }
 }

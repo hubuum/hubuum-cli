@@ -175,9 +175,9 @@ impl AppRuntime {
         let scope = session.scope();
         let pagination = session.next_page_command().map(|_| {
             if config.repl.enter_fetches_next_page {
-                " [more:Enter]"
+                " [more:Enter Esc:cancel]"
             } else {
-                " [more]"
+                " [more Esc:cancel]"
             }
         });
         let status = self

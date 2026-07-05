@@ -677,10 +677,12 @@ pub(crate) fn append_paging_footer<T>(
         set_next_page_command(next_command)?;
         if crate::config::get_config().repl.enter_fetches_next_page {
             append_line(
-                "Paginated results available. Press Enter for the next page, or Ctrl-C to stop.",
+                "Paginated results available. Press Enter for the next page, or Esc/Ctrl-C to stop.",
             )?;
         } else {
-            append_line("Paginated results available. Type 'next' for the next page.")?;
+            append_line(
+                "Paginated results available. Type 'next' for the next page, or Esc/Ctrl-C to stop.",
+            )?;
         }
     }
     Ok(())
@@ -924,7 +926,7 @@ mod tests {
         assert!(snapshot
             .lines
             .iter()
-            .any(|line| line.contains("Type 'next' for the next page.")));
+            .any(|line| line.contains("Type 'next' for the next page")));
         assert_eq!(
             snapshot.next_page_command.as_deref(),
             Some("class list --limit 1 --cursor abc123")
