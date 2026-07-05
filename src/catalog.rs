@@ -267,32 +267,7 @@ impl CommandCatalog {
         lines.extend(render_pipe_help_lines());
 
         lines.push(String::new());
-        lines.push(paint(ThemeRole::Heading, "Shell:"));
-        if scope.is_empty() {
-            lines.push("  Type a scope name to enter it.".to_string());
-            lines.push("  Use help <command> or ? <command> for command help.".to_string());
-            lines.push("  Use help pipe for detailed output pipeline help.".to_string());
-            lines.push(
-                "  After a paginated list result, use next to fetch the next page.".to_string(),
-            );
-            lines.push(
-                "  If repl.enter_fetches_next_page is enabled, Enter fetches the next page and Ctrl-C clears it.".to_string(),
-            );
-            lines.push("  Use exit or Ctrl-D to leave the REPL.".to_string());
-        } else {
-            lines.push("  Type a nested scope name to descend.".to_string());
-            lines.push("  Use .. to leave the current scope.".to_string());
-            lines.push("  Use ? for quick help in the current scope.".to_string());
-            lines.push(
-                "  After a paginated list result, use next to fetch the next page.".to_string(),
-            );
-            lines.push(
-                "  If repl.enter_fetches_next_page is enabled, Enter fetches the next page and Ctrl-C clears it.".to_string(),
-            );
-            lines.push(
-                "  Use exit to leave the current scope, or Ctrl-D to leave the REPL.".to_string(),
-            );
-        }
+        lines.extend(render_shell_help_lines());
 
         lines.join("\n")
     }
@@ -402,6 +377,10 @@ impl CommandCatalog {
     pub fn render_pipe_topic_help(&self) -> String {
         render_pipe_topic_help()
     }
+
+    pub fn render_shell_topic_help(&self) -> String {
+        render_shell_topic_help()
+    }
 }
 
 fn scope_command_summary(scope: &ScopeSpec) -> String {
@@ -473,15 +452,15 @@ fn render_pipe_help() -> String {
 fn render_pipe_help_lines() -> Vec<String> {
     vec![
         paint(ThemeRole::Heading, "Pipe:"),
-        "  Append | stages after any command to filter or reshape output before rendering."
+        "  Use help pipe for output pipeline syntax, filters, projections, sorting, and examples."
             .to_string(),
-        "  Common stages: F/grep <expr>, R/reject <expr>, L/head <n>, T/tail <n>, C/count."
-            .to_string(),
-        "  Structured stages: P/columns <fields>, S/sort <field|!field>, VALUE/VAL <path>."
-            .to_string(),
-        "  Use help pipe for full pipeline syntax and examples.".to_string(),
-        "  Examples: object list --class Hosts | F 'json_data.contact equals Entry' | P name json_data.contact".to_string(),
-        "            config show | F output | P key value | S key | L 5".to_string(),
+    ]
+}
+
+fn render_shell_help_lines() -> Vec<String> {
+    vec![
+        paint(ThemeRole::Heading, "Shell:"),
+        "  Use help shell for REPL navigation, pagination, and exit commands.".to_string(),
     ]
 }
 
@@ -604,6 +583,44 @@ fn render_pipe_topic_help() -> String {
     line!("  CSV, TSV, JSON, and JSONL keep semantic field names for stable machine output.");
     line!("  Quote patterns containing spaces or shell-sensitive characters.");
     line!("  Pipe splitting is quote-aware, so quoted | characters stay inside command values.");
+
+    lines.join("\n")
+}
+
+fn render_shell_topic_help() -> String {
+    let mut lines = Vec::new();
+    macro_rules! line {
+        ($value:expr) => {
+            lines.push($value.to_string());
+        };
+    }
+
+    line!(paint(ThemeRole::Heading, "Shell"));
+    line!("The REPL shell keeps a current scope, command history, and next-page state.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Navigation:"));
+    line!("  Type a scope name to enter it, for example object or namespace.");
+    line!("  Type a nested scope name to descend further.");
+    line!("  Use .. to leave the current scope.");
+    line!("  Use exit to leave the current scope, or exit at root to leave the REPL.");
+    line!("  Use Ctrl-D to leave the REPL.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Help:"));
+    line!("  help");
+    line!("  help <scope>");
+    line!("  help <command>");
+    line!("  ? <command>");
+    line!("  help pipe");
+    line!("  help shell");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Pagination:"));
+    line!("  After a paginated list result, type next to fetch the next page.");
+    line!("  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.");
+    line!("  Ctrl-C clears pending pagination state.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Pipes:"));
+    line!("  Append | stages after commands to filter or reshape output before rendering.");
+    line!("  Use help pipe for pipeline syntax and examples.");
 
     lines.join("\n")
 }
@@ -856,9 +873,11 @@ mod tests {
         assert!(help.contains("relation"));
         assert!(help.contains("class, object"));
         assert!(help.contains("Pipe:"));
-        assert!(help.contains("F/grep <expr>"));
-        assert!(help.contains("use next to fetch the next page"));
-        assert!(help.contains("repl.enter_fetches_next_page"));
+        assert!(help.contains("Use help pipe"));
+        assert!(!help.contains("Examples: object list --class Hosts"));
+        assert!(help.contains("Shell:"));
+        assert!(help.contains("Use help shell"));
+        assert!(!help.contains("repl.enter_fetches_next_page"));
     }
 
     #[test]
@@ -910,6 +929,17 @@ mod tests {
     }
 
     #[test]
+    fn shell_topic_help_explains_repl_navigation_and_pagination() {
+        let catalog = CommandCatalogBuilder::new().build();
+        let help = catalog.render_shell_topic_help();
+
+        assert!(help.contains("Type a scope name"));
+        assert!(help.contains("next to fetch the next page"));
+        assert!(help.contains("repl.enter_fetches_next_page"));
+        assert!(help.contains("help pipe"));
+    }
+
+    #[test]
     fn nested_scope_help_lists_generated_children() {
         let catalog = crate::commands::build_command_catalog();
         let help = catalog.render_scope_help(&["relation".to_string()]);
@@ -938,7 +968,8 @@ mod tests {
         assert!(help.contains("type next"));
         assert!(help.contains("repl.enter_fetches_next_page"));
         assert!(help.contains("Pipe:"));
-        assert!(help.contains("VALUE/VAL <path>"));
+        assert!(help.contains("Use help pipe"));
+        assert!(!help.contains("VALUE/VAL <path>"));
     }
 
     #[test]
