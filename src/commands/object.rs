@@ -28,6 +28,8 @@ use crate::services::{
 };
 
 const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
+const AUTO_OBJECT_DATA_TARGET_WIDTH: usize = 100;
+const AUTO_OBJECT_DATA_MAX_COLUMN_WIDTH: usize = 24;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -431,12 +433,41 @@ mod tests {
         ];
 
         assert_eq!(
-            bounded_auto_data_columns(keys),
+            bounded_auto_data_columns(
+                keys,
+                &PagedResult {
+                    items: vec![
+                        test_object(
+                            1,
+                            json!({
+                                "contact": "Entry",
+                                "cpu_cpuinfo": "8 x Intel(R) Core(TM) i3-10100 CPU @ 3.60GHz",
+                                "date": 1643704976,
+                                "ip": "129.240.222.98",
+                                "ipv4": "129.240.222.98",
+                            }),
+                        ),
+                        test_object(
+                            2,
+                            json!({
+                                "contact": "Entry",
+                                "cpu_cpuinfo": "8 x Apple M2",
+                                "date": 1694599127,
+                                "ip": "129.240.222.51",
+                                "ipv4": "129.240.222.51",
+                            }),
+                        ),
+                    ],
+                    next_cursor: None,
+                    limit: None,
+                    returned_count: 2,
+                },
+            ),
             vec![
                 "contact".to_string(),
-                "cpu_cpuinfo".to_string(),
                 "date".to_string(),
                 "ip".to_string(),
+                "ipv4".to_string(),
             ]
         );
     }
@@ -705,14 +736,13 @@ struct ObjectListColumns {
 
 impl ObjectListColumns {
     fn display_columns(&self) -> Vec<String> {
-        let mut columns = vec![
-            "id".to_string(),
-            "Name".to_string(),
-            "Description".to_string(),
-            "Namespace".to_string(),
-        ];
+        let mut columns = vec!["id".to_string(), "Name".to_string()];
         if !self.compact_base {
-            columns.push("Class".to_string());
+            columns.extend([
+                "Description".to_string(),
+                "Namespace".to_string(),
+                "Class".to_string(),
+            ]);
         }
         if self.data_keys.is_empty() {
             columns.push("Data".to_string());
@@ -783,13 +813,80 @@ fn auto_object_data_columns(
     } else {
         schema_keys
     };
-    Ok(bounded_auto_data_columns(keys))
+    Ok(bounded_auto_data_columns(keys, objects))
 }
 
-fn bounded_auto_data_columns(keys: Vec<String>) -> Vec<String> {
-    keys.into_iter()
-        .take(AUTO_OBJECT_DATA_COLUMN_LIMIT)
-        .collect()
+fn bounded_auto_data_columns(
+    keys: Vec<String>,
+    objects: &PagedResult<ResolvedObjectRecord>,
+) -> Vec<String> {
+    let target_width = auto_object_data_target_width();
+    let mut selected = Vec::new();
+    let mut estimated_width = auto_base_width(objects);
+
+    for key in keys {
+        if selected.len() >= AUTO_OBJECT_DATA_COLUMN_LIMIT {
+            break;
+        }
+
+        let width = data_column_width(&key, objects);
+        if width > AUTO_OBJECT_DATA_MAX_COLUMN_WIDTH {
+            continue;
+        }
+
+        let next_width = estimated_width + 3 + width;
+        if next_width > target_width && !selected.is_empty() {
+            continue;
+        }
+
+        selected.push(key);
+        estimated_width = next_width;
+    }
+
+    selected
+}
+
+fn auto_object_data_target_width() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|width| *width >= 60)
+        .unwrap_or(AUTO_OBJECT_DATA_TARGET_WIDTH)
+}
+
+fn auto_base_width(objects: &PagedResult<ResolvedObjectRecord>) -> usize {
+    let id_width = objects
+        .items
+        .iter()
+        .map(|object| object.id.to_string().len())
+        .chain(std::iter::once("id".len()))
+        .max()
+        .unwrap_or("id".len());
+    let name_width = objects
+        .items
+        .iter()
+        .map(|object| object.name.len())
+        .chain(std::iter::once("Name".len()))
+        .max()
+        .unwrap_or("Name".len());
+    id_width + 3 + name_width
+}
+
+fn data_column_width(key: &str, objects: &PagedResult<ResolvedObjectRecord>) -> usize {
+    objects
+        .items
+        .iter()
+        .filter_map(|object| {
+            object
+                .data
+                .as_ref()
+                .and_then(serde_json::Value::as_object)
+                .and_then(|data| data.get(key))
+        })
+        .map(|value| data_preview(Some(value)).len())
+        .chain(std::iter::once(object_data_column_label(key).len()))
+        .max()
+        .unwrap_or_else(|| object_data_column_label(key).len())
 }
 
 fn explicit_data_columns(value: &str) -> Vec<String> {
