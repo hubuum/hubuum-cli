@@ -19,8 +19,6 @@ use super::HubuumGateway;
 
 #[derive(Debug, Clone, Default)]
 pub struct AuditListInput {
-    pub entity_type: Option<String>,
-    pub entity_id: Option<i32>,
     pub action: Option<String>,
     pub actor_kind: Option<String>,
     pub actor_user_id: Option<i32>,
@@ -83,13 +81,6 @@ impl HubuumGateway {
         scope: AuditScope,
         input: AuditListInput,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
-        if input.entity_type.is_some() || input.entity_id.is_some() {
-            return Err(AppError::InvalidOption(
-                "entity-type/entity-id filters are not exposed by the official hubuum_client yet"
-                    .to_string(),
-            ));
-        }
-
         let request = match scope {
             AuditScope::Global => self.client.events(),
             AuditScope::Namespace(id) => self.client.namespace_events(id),
@@ -106,6 +97,42 @@ impl HubuumGateway {
 
         let request = apply_audit_input(request, &input)?;
         page_to_json(request.page()?, input.limit)
+    }
+
+    pub fn audit_event_by_id(&self, id: i64) -> Result<JsonRecord, AppError> {
+        const PAGE_LIMIT: usize = 100;
+        const MAX_PAGES: usize = 100;
+
+        let mut cursor = None;
+        for _ in 0..MAX_PAGES {
+            let page = self.audit_events(
+                AuditScope::Global,
+                AuditListInput {
+                    limit: Some(PAGE_LIMIT),
+                    sort: Some("-occurred_at".to_string()),
+                    cursor: cursor.clone(),
+                    ..AuditListInput::default()
+                },
+            )?;
+
+            if let Some(record) = page
+                .items
+                .into_iter()
+                .find(|record| json_record_event_id(record) == Some(id))
+            {
+                return Ok(record);
+            }
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        Err(AppError::EntityNotFound(format!(
+            "audit event {id} not found in the first {} visible events",
+            PAGE_LIMIT * MAX_PAGES
+        )))
     }
 
     pub fn history(
@@ -303,6 +330,14 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect()
     }
+}
+
+fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
+    record
+        .value
+        .get("id")
+        .or_else(|| record.value.get("event_id"))
+        .and_then(serde_json::Value::as_i64)
 }
 
 fn apply_audit_input(

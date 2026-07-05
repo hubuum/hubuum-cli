@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, render_list_page, CliCommand};
-use crate::autocomplete::{audit_resources, event_actions, event_entity_types};
+use crate::autocomplete::{audit_resources, event_actions};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -31,8 +31,25 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 "show",
                 AuditShow::default(),
                 CommandDocs {
+                    about: Some("Show a single audit event by id"),
+                    long_about: Some(
+                        "Looks for a visible audit event by id. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
+                    ),
+                    examples: Some("12345\n--id 12345"),
+                },
+            ),
+        )
+        .add_command(
+            &["audit"],
+            catalog_command(
+                "resource",
+                AuditResource::default(),
+                CommandDocs {
                     about: Some("Show audit events for a resource"),
-                    ..CommandDocs::default()
+                    long_about: Some(
+                        "Lists audit events scoped to a resource such as a namespace, class, object, user, group, template, or remote target.",
+                    ),
+                    examples: Some("--resource namespace --id 12\n--resource object --class-id 7 --id 42"),
                 },
             ),
         );
@@ -40,14 +57,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditList {
-    #[option(
-        long = "entity-type",
-        help = "Entity type filter",
-        autocomplete = "event_entity_types"
-    )]
-    pub entity_type: Option<String>,
-    #[option(long = "entity-id", help = "Entity ID filter")]
-    pub entity_id: Option<i32>,
     #[option(
         long = "action",
         help = "Action filter",
@@ -85,8 +94,6 @@ impl CliCommand for AuditList {
 impl From<AuditList> for AuditListInput {
     fn from(value: AuditList) -> Self {
         Self {
-            entity_type: value.entity_type,
-            entity_id: value.entity_id,
             action: value.action,
             actor_kind: value.actor_kind,
             actor_user_id: value.actor_user_id,
@@ -102,6 +109,30 @@ impl From<AuditList> for AuditListInput {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditShow {
+    #[option(long = "id", help = "Audit event ID")]
+    pub id: Option<i64>,
+}
+
+impl CliCommand for AuditShow {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        if query.id.is_none() {
+            query.id = positional_i64(tokens, 0, "id")?;
+        }
+        let event = services
+            .gateway()
+            .audit_event_by_id(required_i64(query.id, "id")?)?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&event)?)?,
+            OutputFormat::Text => event.format_noreturn()?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct AuditResource {
     #[option(
         long = "resource",
         help = "Resource: namespace,class,object,user,group,template,remote-target",
@@ -128,7 +159,7 @@ pub struct AuditShow {
     pub cursor: Option<String>,
 }
 
-impl CliCommand for AuditShow {
+impl CliCommand for AuditResource {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let scope = match query.resource.as_str() {
@@ -164,4 +195,24 @@ impl CliCommand for AuditShow {
         }
         Ok(())
     }
+}
+
+fn positional_i64(
+    tokens: &CommandTokenizer,
+    pos: usize,
+    name: &str,
+) -> Result<Option<i64>, AppError> {
+    tokens
+        .get_positionals()
+        .get(pos)
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .map_err(|_| AppError::ParseError(format!("{name} must be an integer")))
+        })
+        .transpose()
+}
+
+fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
+    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
 }

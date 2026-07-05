@@ -862,6 +862,26 @@ mod tests {
     }
 
     #[test]
+    fn audit_help_exposes_working_commands_and_hides_unsupported_filters() {
+        let catalog = crate::commands::build_command_catalog();
+        let scope_help = catalog.render_scope_help(&["audit".to_string()]);
+        let list_help = catalog
+            .render_command_help(&["audit".to_string(), "list".to_string()])
+            .expect("audit list help should render");
+        let show_help = catalog
+            .render_command_help(&["audit".to_string(), "show".to_string()])
+            .expect("audit show help should render");
+
+        assert!(scope_help.contains("list"));
+        assert!(scope_help.contains("show"));
+        assert!(scope_help.contains("resource"));
+        assert!(!list_help.contains("--entity-type"));
+        assert!(!list_help.contains("--entity-id"));
+        assert!(show_help.contains("Show a single audit event by id"));
+        assert!(show_help.contains("--id"));
+    }
+
+    #[test]
     fn scope_summary_uses_one_line_when_terminal_is_wide_enough() {
         let lines = super::render_scope_summary_at_width(
             "namespace",
