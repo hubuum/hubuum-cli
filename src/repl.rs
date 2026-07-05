@@ -304,7 +304,7 @@ impl Completer for ReplCompleter {
                         if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
                             return completion(&self.completion, "", &parts)
                                 .into_iter()
-                                .map(|value| suggestion(value, pos, pos, None))
+                                .map(|value| dynamic_value_suggestion(value, pos, pos))
                                 .collect();
                         }
                     }
@@ -319,7 +319,7 @@ impl Completer for ReplCompleter {
                             if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
                                 return completion(&self.completion, word, &parts)
                                     .into_iter()
-                                    .map(|value| suggestion(value, start, pos, None))
+                                    .map(|value| dynamic_value_suggestion(value, start, pos))
                                     .collect();
                             }
                         }
@@ -729,6 +729,11 @@ fn is_completing_option_value(parts: &[String], ends_with_space: bool) -> bool {
 
 fn suggestion(value: String, start: usize, end: usize, description: Option<String>) -> Suggestion {
     suggestion_with_whitespace(value, start, end, description, true)
+}
+
+fn dynamic_value_suggestion(value: String, start: usize, end: usize) -> Suggestion {
+    let append_whitespace = !value.ends_with(std::path::MAIN_SEPARATOR);
+    suggestion_with_whitespace(value, start, end, None, append_whitespace)
 }
 
 fn suggestion_with_whitespace(

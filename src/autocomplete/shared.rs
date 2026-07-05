@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use crate::config::{config_key_names, config_value_candidates};
 use crate::services::CompletionContext;
 
@@ -11,6 +13,10 @@ pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -
         .filter(|kind| kind.starts_with(prefix))
         .map(str::to_string)
         .collect()
+}
+
+pub fn file_paths(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    file_path_candidates(prefix)
 }
 
 const OBJECT_LIST_CLASS_COLUMNS_PREFIX: &str = "output.object_list_class_columns.";
@@ -95,6 +101,122 @@ pub fn object_data_columns(
         .filter(|value| value.starts_with(prefix))
         .map(str::to_string)
         .collect()
+}
+
+fn file_path_candidates(prefix: &str) -> Vec<String> {
+    let (typed_prefix, lookup_prefix) = normalize_path_prefix(prefix);
+    let lookup_path = Path::new(&lookup_prefix);
+    let ends_with_separator = lookup_prefix.ends_with(std::path::MAIN_SEPARATOR);
+    let (lookup_dir, typed_dir, active_prefix) = if ends_with_separator {
+        (
+            lookup_path.to_path_buf(),
+            typed_prefix.clone(),
+            String::new(),
+        )
+    } else {
+        let lookup_dir = lookup_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let typed_dir = path_parent_text(&typed_prefix);
+        let active_prefix = lookup_path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        (lookup_dir, typed_dir, active_prefix)
+    };
+
+    let Ok(entries) = std::fs::read_dir(&lookup_dir) else {
+        return Vec::new();
+    };
+
+    let include_hidden = active_prefix.starts_with('.');
+    let mut suggestions = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !include_hidden && name.starts_with('.') {
+                return None;
+            }
+            if !name.starts_with(&active_prefix) {
+                return None;
+            }
+
+            let is_dir = entry
+                .file_type()
+                .map(|file_type| file_type.is_dir())
+                .unwrap_or(false);
+            let mut value = format!("{typed_dir}{name}");
+            if is_dir {
+                value.push(std::path::MAIN_SEPARATOR);
+            }
+            Some(shell_escape_path(&value))
+        })
+        .collect::<Vec<_>>();
+
+    suggestions.sort_by_key(|value| (completion_is_file(value), value.clone()));
+    suggestions
+}
+
+fn normalize_path_prefix(prefix: &str) -> (String, String) {
+    let unescaped = shlex::split(prefix)
+        .and_then(|parts| (parts.len() == 1).then(|| parts[0].clone()))
+        .unwrap_or_else(|| prefix.replace("\\ ", " "));
+
+    if let Some(rest) = unescaped.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return (
+                format!("~/{rest}"),
+                Path::new(&home).join(rest).to_string_lossy().to_string(),
+            );
+        }
+    }
+
+    (unescaped.clone(), unescaped)
+}
+
+fn path_parent_text(path: &str) -> String {
+    path.rsplit_once(std::path::MAIN_SEPARATOR)
+        .map(|(parent, _)| format!("{parent}{}", std::path::MAIN_SEPARATOR))
+        .unwrap_or_default()
+}
+
+fn completion_is_file(value: &str) -> bool {
+    !value.ends_with(std::path::MAIN_SEPARATOR)
+}
+
+fn shell_escape_path(path: &str) -> String {
+    let mut escaped = String::with_capacity(path.len());
+    for ch in path.chars() {
+        if matches!(
+            ch,
+            ' ' | '\t'
+                | '\n'
+                | '\\'
+                | '\''
+                | '"'
+                | '$'
+                | '&'
+                | ';'
+                | '|'
+                | '<'
+                | '>'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '*'
+                | '?'
+                | '!'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 fn config_key_from_parts(parts: &[String]) -> Option<&str> {
@@ -186,7 +308,7 @@ fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Ve
 mod tests {
     use super::{
         comma_completion_prefix, config_key_from_parts, config_value_candidates_for_parts,
-        schema_paths,
+        file_path_candidates, schema_paths,
     };
 
     #[test]
@@ -237,6 +359,36 @@ mod tests {
         assert_eq!(comma_completion_prefix("Name,co"), ("Name,", "co"));
         assert_eq!(comma_completion_prefix("co"), ("", "co"));
         assert_eq!(comma_completion_prefix("Name,"), ("Name,", ""));
+    }
+
+    #[test]
+    fn file_path_candidates_include_matching_files_and_directories() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let nested_dir = dir.path().join("imports");
+        std::fs::create_dir(&nested_dir).expect("nested dir should be created");
+        std::fs::write(dir.path().join("import.json"), "{}").expect("file should be written");
+
+        let prefix = dir.path().join("imp").to_string_lossy().to_string();
+        let suggestions = file_path_candidates(&prefix);
+
+        assert!(suggestions.iter().any(|value| value.ends_with("imports/")));
+        assert!(suggestions
+            .iter()
+            .any(|value| value.ends_with("import.json")));
+    }
+
+    #[test]
+    fn file_path_candidates_escape_spaces() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        std::fs::write(dir.path().join("import payload.json"), "{}")
+            .expect("file should be written");
+
+        let prefix = dir.path().join("import").to_string_lossy().to_string();
+        let suggestions = file_path_candidates(&prefix);
+
+        assert!(suggestions
+            .iter()
+            .any(|value| value.ends_with("import\\ payload.json")));
     }
 
     #[test]
