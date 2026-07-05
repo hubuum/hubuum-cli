@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use hubuum_client::{TaskKind, TaskStatus};
 
-use crate::domain::{ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord};
+use crate::domain::{
+    ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord,
+};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
@@ -55,9 +57,7 @@ impl HubuumGateway {
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
         let task = self.client.tasks().get(task_id)?;
         Ok(match task.kind {
-            TaskKind::Report => {
-                TaskOutput::Report(self.client.reports().output(task_id)?.into())
-            }
+            TaskKind::Report => TaskOutput::Report(self.client.reports().output(task_id)?.into()),
             TaskKind::Import => {
                 let results: Vec<ImportResultRecord> = self
                     .client
@@ -98,11 +98,7 @@ impl HubuumGateway {
             q = q.cursor(c);
         }
         let page = q.page()?;
-        Ok(PagedResult::from_page(
-            page,
-            input.limit,
-            TaskRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, input.limit, TaskRecord::from))
     }
 }
 
@@ -153,10 +149,7 @@ mod tests {
         assert!(matches!(parse_task_kind("import"), Ok(TaskKind::Import)));
         assert!(matches!(parse_task_kind("report"), Ok(TaskKind::Report)));
         assert!(matches!(parse_task_kind("export"), Ok(TaskKind::Export)));
-        assert!(matches!(
-            parse_task_kind("reindex"),
-            Ok(TaskKind::Reindex)
-        ));
+        assert!(matches!(parse_task_kind("reindex"), Ok(TaskKind::Reindex)));
         assert!(matches!(
             parse_task_kind("remotecall"),
             Ok(TaskKind::RemoteCall)

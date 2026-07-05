@@ -196,7 +196,10 @@ impl AppRuntime {
         if scope.is_empty() {
             format!("{status}{background}{base}{pagination} > ")
         } else {
-            format!("{status}{background}{base} [{}]{pagination} > ", scope.join(" "))
+            format!(
+                "{status}{background}{base} [{}]{pagination} > ",
+                scope.join(" ")
+            )
         }
     }
 }

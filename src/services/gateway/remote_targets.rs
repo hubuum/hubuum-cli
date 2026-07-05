@@ -104,7 +104,9 @@ fn parse_auth_config(input: RemoteAuthConfigInput) -> RemoteAuthConfig {
     }
 }
 
-fn build_invocation_subject(input: &InvokeRemoteTargetInput) -> Result<RemoteInvocationSubject, AppError> {
+fn build_invocation_subject(
+    input: &InvokeRemoteTargetInput,
+) -> Result<RemoteInvocationSubject, AppError> {
     match input.subject_kind.to_lowercase().as_str() {
         "namespace" => {
             let namespace_id = input.namespace_id.ok_or_else(|| {
@@ -173,7 +175,12 @@ impl HubuumGateway {
             timeout_ms: input.timeout_ms,
         };
 
-        let target = self.client.remote_targets().create().params(new_target).send()?;
+        let target = self
+            .client
+            .remote_targets()
+            .create()
+            .params(new_target)
+            .send()?;
         Ok(RemoteTargetRecord::from(target))
     }
 
@@ -239,7 +246,12 @@ impl HubuumGateway {
             timeout_ms: input.timeout_ms,
         };
 
-        let updated = self.client.remote_targets().update(target.id()).params(update).send()?;
+        let updated = self
+            .client
+            .remote_targets()
+            .update(target.id())
+            .params(update)
+            .send()?;
         Ok(RemoteTargetRecord::from(updated))
     }
 

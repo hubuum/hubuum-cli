@@ -368,10 +368,7 @@ pub struct ReportRun {
         help = "Maximum output size in bytes"
     )]
     pub max_output_bytes: Option<u64>,
-    #[option(
-        long = "relation-depth",
-        help = "Relation context depth for traversal"
-    )]
+    #[option(long = "relation-depth", help = "Relation context depth for traversal")]
     pub relation_depth: Option<i32>,
     #[option(
         long = "include-related",
@@ -403,7 +400,13 @@ impl CliCommand for ReportRun {
             include_related: query.include_related,
         };
         let task = services.gateway().submit_report(input)?;
-        run_task_backed(services, tokens, format!("report {}", task.0.id), opts, task)
+        run_task_backed(
+            services,
+            tokens,
+            format!("report {}", task.0.id),
+            opts,
+            task,
+        )
     }
 }
 

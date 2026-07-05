@@ -19,6 +19,7 @@ struct CompletionSnapshot {
     groups: Option<Vec<String>>,
     classes: Option<Vec<String>>,
     namespaces: Option<Vec<String>>,
+    event_sinks: Option<Vec<String>>,
     report_templates: Option<Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
 }
@@ -33,6 +34,7 @@ enum CompletionKind {
     Groups,
     Classes,
     Namespaces,
+    EventSinks,
     ReportTemplates,
 }
 
@@ -51,6 +53,10 @@ impl CompletionContext {
 
     pub fn namespaces(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::Namespaces)
+    }
+
+    pub fn event_sinks(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::EventSinks)
     }
 
     pub fn report_templates(&self, prefix: &str) -> Vec<String> {
@@ -133,6 +139,7 @@ impl CompletionStore {
                 CompletionKind::Groups => gateway.list_group_names(),
                 CompletionKind::Classes => gateway.list_class_names(),
                 CompletionKind::Namespaces => gateway.list_namespace_names(),
+                CompletionKind::EventSinks => gateway.list_event_sink_names(),
                 CompletionKind::ReportTemplates => gateway.list_report_template_names(),
             }
         })
@@ -144,6 +151,7 @@ impl CompletionStore {
                 CompletionKind::Groups => snapshot.groups = Some(fetched.clone()),
                 CompletionKind::Classes => snapshot.classes = Some(fetched.clone()),
                 CompletionKind::Namespaces => snapshot.namespaces = Some(fetched.clone()),
+                CompletionKind::EventSinks => snapshot.event_sinks = Some(fetched.clone()),
                 CompletionKind::ReportTemplates => {
                     snapshot.report_templates = Some(fetched.clone())
                 }
@@ -199,6 +207,7 @@ impl CompletionStore {
             CompletionKind::Groups => snapshot.groups.clone(),
             CompletionKind::Classes => snapshot.classes.clone(),
             CompletionKind::Namespaces => snapshot.namespaces.clone(),
+            CompletionKind::EventSinks => snapshot.event_sinks.clone(),
             CompletionKind::ReportTemplates => snapshot.report_templates.clone(),
         }
     }

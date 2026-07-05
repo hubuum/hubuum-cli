@@ -82,7 +82,13 @@ impl CliCommand for ImportSubmit {
             request_json,
             idempotency_key: query.idempotency_key,
         })?;
-        run_task_backed(services, tokens, format!("import {}", task.0.id), opts, task)
+        run_task_backed(
+            services,
+            tokens,
+            format!("import {}", task.0.id),
+            opts,
+            task,
+        )
     }
 }
 

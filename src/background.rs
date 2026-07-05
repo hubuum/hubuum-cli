@@ -598,15 +598,10 @@ mod tests {
                 inner: Arc::new(Mutex::new(state)),
                 runtime: Handle::current(),
                 poll_interval: Duration::from_millis(10),
-                fetch_task: Arc::new(|_| {
-                    Err(AppError::CommandExecutionError("test".to_string()))
-                }),
+                fetch_task: Arc::new(|_| Err(AppError::CommandExecutionError("test".to_string()))),
             };
 
-            assert_eq!(
-                manager.prompt_status(),
-                Some("[jobs 1▸ 1✗]".to_string())
-            );
+            assert_eq!(manager.prompt_status(), Some("[jobs 1▸ 1✗]".to_string()));
         });
     }
 }

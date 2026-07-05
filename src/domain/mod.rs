@@ -19,6 +19,7 @@ macro_rules! transparent_record {
 }
 
 mod classes;
+mod events;
 mod groups;
 mod identity;
 mod imports;
@@ -33,6 +34,7 @@ mod tasks;
 mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
+pub use events::JsonRecord;
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
     MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,

@@ -70,10 +70,7 @@ impl HubuumGateway {
         Ok(())
     }
 
-    pub fn disable_service_account(
-        &self,
-        name: &str,
-    ) -> Result<ServiceAccountRecord, AppError> {
+    pub fn disable_service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
         let handle = self.client.service_accounts().select_by_name(name)?;
         let disabled = handle.disable()?;
         Ok(ServiceAccountRecord::from(disabled))
@@ -128,11 +125,7 @@ impl HubuumGateway {
         Ok(handle.tokens_create(req)?)
     }
 
-    pub fn service_account_token_revoke(
-        &self,
-        name: &str,
-        token_id: i32,
-    ) -> Result<(), AppError> {
+    pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
         let handle = self.client.service_accounts().select_by_name(name)?;
         handle.token_revoke(token_id)?;
         Ok(())

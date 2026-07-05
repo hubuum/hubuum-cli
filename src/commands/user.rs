@@ -538,10 +538,7 @@ impl CliCommand for UserTokenRevoke {
             .gateway()
             .user_token_revoke(&username, query.token_id)?;
 
-        let message = format!(
-            "Token {} revoked for user '{}'",
-            query.token_id, username
-        );
+        let message = format!("Token {} revoked for user '{}'", query.token_id, username);
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,

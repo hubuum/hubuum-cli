@@ -2,11 +2,16 @@ use log::trace;
 use std::any::TypeId;
 use std::collections::HashSet;
 
+mod audit;
 mod builder;
 mod class;
 mod config;
+mod event_delivery;
+mod event_sink;
+mod event_subscription;
 mod group;
 mod help;
+mod history;
 mod imports;
 mod jobs;
 mod me;

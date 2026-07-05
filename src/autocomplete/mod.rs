@@ -1,4 +1,5 @@
 mod classes;
+mod events;
 mod filters;
 mod groups;
 mod namespaces;
@@ -8,6 +9,9 @@ mod shared;
 mod sorts;
 
 pub use classes::classes;
+pub use events::{
+    audit_resources, event_actions, event_entity_types, event_sink_kinds, event_sinks,
+};
 pub(crate) use filters::complete_where_clause;
 pub use filters::{
     class_where, group_where, namespace_where, object_where, relation_class_direct_where,

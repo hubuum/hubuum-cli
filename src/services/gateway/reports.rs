@@ -4,7 +4,7 @@ use std::str::FromStr;
 use hubuum_client::{
     ReportContentType, ReportInclude, ReportIncludeRelatedObject, ReportLimits,
     ReportMissingDataPolicy, ReportOutputRequest, ReportRelationContext, ReportRequest,
-    ReportScope, ReportScopeKind, ReportTemplatePatch, ReportTemplatePost,
+    ReportScope, ReportScopeKind, ReportTemplateKind, ReportTemplatePatch, ReportTemplatePost,
 };
 
 use crate::domain::{ReportTemplateRecord, TaskRecord};
@@ -59,7 +59,9 @@ pub struct RunReportInput {
 /// Examples:
 /// - `servers:42` → key="servers", class_id=42, max_depth=None
 /// - `servers:42:3` → key="servers", class_id=42, max_depth=Some(3)
-fn parse_include_related_spec(spec: &str) -> Result<(String, ReportIncludeRelatedObject), AppError> {
+fn parse_include_related_spec(
+    spec: &str,
+) -> Result<(String, ReportIncludeRelatedObject), AppError> {
     let parts: Vec<&str> = spec.split(':').collect();
     if parts.len() < 2 {
         return Err(AppError::ParseError(format!(
@@ -187,6 +189,14 @@ impl HubuumGateway {
                 description: input.description,
                 content_type,
                 template: input.template,
+                kind: ReportTemplateKind::Report,
+                scope_kind: None,
+                class_id: None,
+                default_query: None,
+                include: None,
+                relation_context: None,
+                default_missing_data_policy: None,
+                default_limits: None,
             })
             .send()?;
 
@@ -213,6 +223,14 @@ impl HubuumGateway {
                 name: input.rename,
                 description: input.description,
                 template: input.template,
+                kind: None,
+                scope_kind: None,
+                class_id: None,
+                default_query: None,
+                include: None,
+                relation_context: None,
+                default_missing_data_policy: None,
+                default_limits: None,
             })
             .send()?;
 

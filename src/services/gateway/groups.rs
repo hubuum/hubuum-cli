@@ -33,7 +33,10 @@ impl HubuumGateway {
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
-        let group = self.client.groups().create()
+        let group = self
+            .client
+            .groups()
+            .create()
             .params(hubuum_client::GroupPost {
                 groupname: input.groupname,
                 description: input.description,
@@ -72,7 +75,10 @@ impl HubuumGateway {
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
         let handle = self.client.groups().select_by_name(&input.groupname)?;
-        let updated = self.client.groups().update(handle.id())
+        let updated = self
+            .client
+            .groups()
+            .update(handle.id())
             .params(hubuum_client::GroupPatch {
                 groupname: input.rename,
                 description: input.description,

@@ -122,11 +122,13 @@ impl CliCommand for ServiceAccountCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
 
-        let sa = services.gateway().create_service_account(CreateServiceAccountInput {
-            name: query.name,
-            description: query.description,
-            owner_group_id: query.owner_group_id,
-        })?;
+        let sa = services
+            .gateway()
+            .create_service_account(CreateServiceAccountInput {
+                name: query.name,
+                description: query.description,
+                owner_group_id: query.owner_group_id,
+            })?;
 
         match desired_format(tokens) {
             OutputFormat::Json => sa.format_json_noreturn()?,
@@ -143,11 +145,7 @@ pub struct ServiceAccountList {
     pub name: Option<String>,
     #[option(short = "d", long = "description", help = "Description filter")]
     pub description: Option<String>,
-    #[option(
-        long = "where",
-        help = "Filter clause: 'field op value'",
-        nargs = 3
-    )]
+    #[option(long = "where", help = "Filter clause: 'field op value'", nargs = 3)]
     pub where_clauses: Vec<String>,
     #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
     pub sort_clauses: Vec<String>,

@@ -709,11 +709,7 @@ pub struct NamespacePrincipalPermissions {
     )]
     pub name: Option<String>,
 
-    #[option(
-        short = "p",
-        long = "principal-id",
-        help = "ID of the principal"
-    )]
+    #[option(short = "p", long = "principal-id", help = "ID of the principal")]
     pub principal_id: i32,
 }
 

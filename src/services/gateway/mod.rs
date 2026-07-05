@@ -1,4 +1,5 @@
 mod classes;
+mod events;
 mod groups;
 mod identity;
 mod imports;
@@ -20,6 +21,7 @@ use hubuum_client::{Authenticated, SyncClient};
 use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
 pub use classes::{ClassUpdateInput, CreateClassInput};
+pub use events::{AuditListInput, AuditScope, HistoryInput, HistoryScope};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
 pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};

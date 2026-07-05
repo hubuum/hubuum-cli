@@ -43,7 +43,10 @@ pub struct NewTokenInput {
 impl HubuumGateway {
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
         // Create user with name/email/password
-        let user = self.client.users().create()
+        let user = self
+            .client
+            .users()
+            .create()
             .params(hubuum_client::UserPost {
                 name: input.username.clone(),
                 password: input.password.clone(),
@@ -110,7 +113,10 @@ impl HubuumGateway {
         }
 
         let handle = self.client.users().select_by_name(&input.username)?;
-        let updated = self.client.users().update(handle.id())
+        let updated = self
+            .client
+            .users()
+            .update(handle.id())
             .params(hubuum_client::UserPatch {
                 email: input.email,
                 proper_name: None,
@@ -166,21 +172,13 @@ impl HubuumGateway {
         Ok(handle.tokens_create(req)?)
     }
 
-    pub fn user_token_revoke(
-        &self,
-        username: &str,
-        token_id: i32,
-    ) -> Result<(), AppError> {
+    pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {
         let handle = self.client.users().select_by_name(username)?;
         handle.token_revoke(token_id)?;
         Ok(())
     }
 
-    pub fn set_user_password(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<(), AppError> {
+    pub fn set_user_password(&self, username: &str, password: &str) -> Result<(), AppError> {
         let handle = self.client.users().select_by_name(username)?;
         handle.set_password(password)?;
         Ok(())

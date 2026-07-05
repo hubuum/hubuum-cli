@@ -2,14 +2,14 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
+use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::{append_line};
+use crate::output::append_line;
 use crate::services::{
     AppServices, CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,
@@ -151,20 +151,22 @@ impl CliCommand for RemoteTargetCreate {
             .map(|s| s.trim().to_string())
             .collect();
 
-        let target = services.gateway().create_remote_target(CreateRemoteTargetInput {
-            namespace_id: new.namespace_id,
-            name: new.name,
-            description: new.description,
-            method: new.method,
-            url_template: new.url_template,
-            allowed_subject_types: subject_types,
-            auth_config,
-            body_template: new.body_template,
-            class_id: new.class_id,
-            enabled: new.enabled,
-            headers_template: headers,
-            timeout_ms: new.timeout_ms,
-        })?;
+        let target = services
+            .gateway()
+            .create_remote_target(CreateRemoteTargetInput {
+                namespace_id: new.namespace_id,
+                name: new.name,
+                description: new.description,
+                method: new.method,
+                url_template: new.url_template,
+                allowed_subject_types: subject_types,
+                auth_config,
+                body_template: new.body_template,
+                class_id: new.class_id,
+                enabled: new.enabled,
+                headers_template: headers,
+                timeout_ms: new.timeout_ms,
+            })?;
 
         match desired_format(tokens) {
             OutputFormat::Json => target.format_json_noreturn()?,
@@ -177,17 +179,9 @@ impl CliCommand for RemoteTargetCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RemoteTargetList {
-    #[option(
-        long = "where",
-        help = "Filter clause: 'field op value'",
-        nargs = 3
-    )]
+    #[option(long = "where", help = "Filter clause: 'field op value'", nargs = 3)]
     pub where_clauses: Vec<String>,
-    #[option(
-        long = "sort",
-        help = "Sort clause: 'field asc|desc'",
-        nargs = 2
-    )]
+    #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
     pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
@@ -228,7 +222,9 @@ impl CliCommand for RemoteTargetShow {
             }
         }
 
-        let target = services.gateway().remote_target(new.name.as_ref().unwrap())?;
+        let target = services
+            .gateway()
+            .remote_target(new.name.as_ref().unwrap())?;
 
         match desired_format(tokens) {
             OutputFormat::Json => target.format_json_noreturn()?,
@@ -319,28 +315,27 @@ impl CliCommand for RemoteTargetUpdate {
             .transpose()
             .map_err(|e| AppError::ParseError(format!("Invalid headers JSON: {}", e)))?;
 
-        let subject_types = query.allowed_subject_types.map(|types| {
-            types
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect()
-        });
+        let subject_types = query
+            .allowed_subject_types
+            .map(|types| types.split(',').map(|s| s.trim().to_string()).collect());
 
-        let target = services.gateway().update_remote_target(UpdateRemoteTargetInput {
-            name,
-            rename: query.rename,
-            description: query.description,
-            namespace_id: query.namespace_id,
-            method: query.method,
-            url_template: query.url_template,
-            allowed_subject_types: subject_types,
-            auth_config,
-            body_template: query.body_template,
-            class_id: query.class_id,
-            enabled: query.enabled,
-            headers_template: headers,
-            timeout_ms: query.timeout_ms,
-        })?;
+        let target = services
+            .gateway()
+            .update_remote_target(UpdateRemoteTargetInput {
+                name,
+                rename: query.rename,
+                description: query.description,
+                namespace_id: query.namespace_id,
+                method: query.method,
+                url_template: query.url_template,
+                allowed_subject_types: subject_types,
+                auth_config,
+                body_template: query.body_template,
+                class_id: query.class_id,
+                enabled: query.enabled,
+                headers_template: headers,
+                timeout_ms: query.timeout_ms,
+            })?;
 
         match desired_format(tokens) {
             OutputFormat::Json => target.format_json_noreturn()?,
@@ -473,27 +468,25 @@ fn parse_auth_config(
         None => Ok(None),
         Some("none") => Ok(Some(RemoteAuthConfigInput::None)),
         Some("bearer") => {
-            let secret = auth_secret.ok_or_else(|| {
-                AppError::MissingOptions(vec!["auth-secret".to_string()])
-            })?;
+            let secret = auth_secret
+                .ok_or_else(|| AppError::MissingOptions(vec!["auth-secret".to_string()]))?;
             Ok(Some(RemoteAuthConfigInput::BearerSecret { secret }))
         }
         Some("basic") => {
-            let username = auth_username.ok_or_else(|| {
-                AppError::MissingOptions(vec!["auth-username".to_string()])
-            })?;
-            let secret = auth_secret.ok_or_else(|| {
-                AppError::MissingOptions(vec!["auth-secret".to_string()])
-            })?;
-            Ok(Some(RemoteAuthConfigInput::BasicSecret { username, secret }))
+            let username = auth_username
+                .ok_or_else(|| AppError::MissingOptions(vec!["auth-username".to_string()]))?;
+            let secret = auth_secret
+                .ok_or_else(|| AppError::MissingOptions(vec!["auth-secret".to_string()]))?;
+            Ok(Some(RemoteAuthConfigInput::BasicSecret {
+                username,
+                secret,
+            }))
         }
         Some("apikey") => {
-            let header = auth_header.ok_or_else(|| {
-                AppError::MissingOptions(vec!["auth-header".to_string()])
-            })?;
-            let secret = auth_secret.ok_or_else(|| {
-                AppError::MissingOptions(vec!["auth-secret".to_string()])
-            })?;
+            let header = auth_header
+                .ok_or_else(|| AppError::MissingOptions(vec!["auth-header".to_string()]))?;
+            let secret = auth_secret
+                .ok_or_else(|| AppError::MissingOptions(vec!["auth-secret".to_string()]))?;
             Ok(Some(RemoteAuthConfigInput::ApiKeySecret { header, secret }))
         }
         Some(other) => Err(AppError::ParseError(format!(

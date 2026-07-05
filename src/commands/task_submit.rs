@@ -1,4 +1,4 @@
-use crate::commands::{desired_format};
+use crate::commands::desired_format;
 use crate::domain::TaskRecord;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
