@@ -25,6 +25,13 @@ fn direct_help_and_config_paths_do_not_require_login() {
         .stdout(predicate::str::contains("Available commands"));
 
     cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "pipe"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("grep <field> <regex>"))
+        .stdout(predicate::str::contains("P os_version 26"));
+
+    cargo_bin_cmd!("hubuum-cli")
         .args(["config", "paths"])
         .assert()
         .success()

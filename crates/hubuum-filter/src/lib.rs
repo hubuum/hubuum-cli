@@ -352,6 +352,8 @@ enum SemanticFilter {
     PathExists(String),
     PathEquals(String, String),
     PathContains(String, Regex),
+    PathNotEquals(String, String),
+    PathNotContains(String, Regex),
 }
 
 #[derive(Debug, Default)]
@@ -375,10 +377,34 @@ impl SemanticFilter {
         if parts.len() >= 3 && matches!(parts[1].as_str(), "equals" | "=" | "==") {
             return Ok(Self::PathEquals(parts[0].clone(), parts[2..].join(" ")));
         }
-        if parts.len() >= 3 && matches!(parts[1].as_str(), "contains" | "~") {
+        if parts.len() >= 3 && matches!(parts[1].as_str(), "!=" | "<>") {
+            return Ok(Self::PathNotEquals(parts[0].clone(), parts[2..].join(" ")));
+        }
+        if parts.len() >= 4
+            && parts[1] == "not"
+            && matches!(parts[2].as_str(), "equals" | "=" | "==")
+        {
+            return Ok(Self::PathNotEquals(parts[0].clone(), parts[3..].join(" ")));
+        }
+        if parts.len() >= 3 && matches!(parts[1].as_str(), "contains" | "~" | "matches" | "match") {
             return Ok(Self::PathContains(
                 parts[0].clone(),
                 Regex::new(&parts[2..].join(" "))?,
+            ));
+        }
+        if parts.len() >= 3 && matches!(parts[1].as_str(), "!~") {
+            return Ok(Self::PathNotContains(
+                parts[0].clone(),
+                Regex::new(&parts[2..].join(" "))?,
+            ));
+        }
+        if parts.len() >= 4
+            && parts[1] == "not"
+            && matches!(parts[2].as_str(), "contains" | "~" | "matches" | "match")
+        {
+            return Ok(Self::PathNotContains(
+                parts[0].clone(),
+                Regex::new(&parts[3..].join(" "))?,
             ));
         }
 
@@ -410,6 +436,26 @@ impl SemanticFilter {
                 matched: select_values(value, path)
                     .into_iter()
                     .any(|value| scalar_text(value).is_some_and(|actual| regex.is_match(&actual))),
+                hits: Vec::new(),
+            }),
+            Self::PathNotEquals(path, expected) => Ok(FilterMatch {
+                matched: {
+                    let values = select_values(value, path);
+                    !values.is_empty()
+                        && values.into_iter().all(|value| {
+                            scalar_text(value).is_none_or(|actual| actual != *expected)
+                        })
+                },
+                hits: Vec::new(),
+            }),
+            Self::PathNotContains(path, regex) => Ok(FilterMatch {
+                matched: {
+                    let values = select_values(value, path);
+                    !values.is_empty()
+                        && values.into_iter().all(|value| {
+                            scalar_text(value).is_none_or(|actual| !regex.is_match(&actual))
+                        })
+                },
                 hits: Vec::new(),
             }),
         }
@@ -760,8 +806,8 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     }
 
     match parts[0].as_str() {
-        "grep" | "F" => pattern_stage(parts[0].as_str(), &parts, PipeStage::Grep),
-        "reject" => pattern_stage("reject", &parts, PipeStage::Reject),
+        "grep" | "F" => parse_filter_stage(parts[0].as_str(), &parts, PipeStage::Grep),
+        "reject" => parse_filter_stage("reject", &parts, PipeStage::Reject),
         "head" | "L" => count_stage(parts[0].as_str(), &parts, PipeStage::Head),
         "tail" => count_stage("tail", &parts, PipeStage::Tail),
         "count" | "C" => {
@@ -773,6 +819,28 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
         "VALUE" | "VAL" => pattern_stage(parts[0].as_str(), &parts, PipeStage::Value),
         _ => parse_legacy_stage(stage),
     }
+}
+
+fn parse_filter_stage(
+    name: &str,
+    parts: &[String],
+    build: fn(String) -> PipeStage,
+) -> Result<PipeStage, PipelineError> {
+    if parts.len() < 2 {
+        return Err(PipelineError::Pipe(format!(
+            "Pipe stage '{name}' expects at least one argument"
+        )));
+    }
+
+    if parts.len() == 2 {
+        return Ok(build(parts[1].clone()));
+    }
+
+    Ok(build(format!(
+        "{} contains {}",
+        parts[1],
+        parts[2..].join(" ")
+    )))
 }
 
 fn parse_legacy_stage(stage: &str) -> Result<PipeStage, PipelineError> {
@@ -994,6 +1062,20 @@ mod tests {
     }
 
     #[test]
+    fn field_specific_grep_aliases_parse_as_contains_predicates() {
+        let (_command, stages) =
+            split_pipeline("object list | grep os_version '^26' | reject Name test")
+                .expect("pipeline");
+        assert_eq!(
+            stages,
+            vec![
+                PipeStage::Grep("os_version contains ^26".to_string()),
+                PipeStage::Reject("Name contains test".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn projection_preserves_quoted_terms_with_spaces() {
         let (_command, stages) =
             split_pipeline("object list | P name 'team owner'").expect("pipeline");
@@ -1112,6 +1194,73 @@ mod tests {
                 "os_version".to_string(),
                 "Match".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn semantic_field_grep_alias_filters_only_that_field() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha-26", "os_version": "9.8"}),
+                json!({"name": "beta", "os_version": "26.5"}),
+            ],
+            vec!["name".to_string(), "os_version".to_string()],
+        );
+
+        let transformed = apply_pipeline(
+            envelope,
+            &[PipeStage::Grep("os_version contains ^26".to_string())],
+        )
+        .expect("grep");
+
+        assert_eq!(
+            transformed.value,
+            json!([{"name": "beta", "os_version": "26.5"}])
+        );
+    }
+
+    #[test]
+    fn semantic_field_reject_alias_filters_only_that_field() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha-26", "os_version": "9.8"}),
+                json!({"name": "beta", "os_version": "26.5"}),
+            ],
+            vec!["name".to_string(), "os_version".to_string()],
+        );
+
+        let transformed = apply_pipeline(
+            envelope,
+            &[PipeStage::Reject("os_version contains ^26".to_string())],
+        )
+        .expect("reject");
+
+        assert_eq!(
+            transformed.value,
+            json!([{"name": "alpha-26", "os_version": "9.8"}])
+        );
+    }
+
+    #[test]
+    fn semantic_not_contains_requires_existing_field() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha", "os_version": "9.8"}),
+                json!({"name": "beta", "os_version": "26.5"}),
+                json!({"name": "gamma"}),
+            ],
+            vec!["name".to_string(), "os_version".to_string()],
+        );
+
+        let transformed = apply_pipeline(
+            envelope,
+            &[PipeStage::Grep("os_version not contains ^9".to_string())],
+        )
+        .expect("grep");
+
+        assert_eq!(
+            transformed.value,
+            json!([{"name": "beta", "os_version": "26.5"}])
         );
     }
 }

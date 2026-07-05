@@ -263,6 +263,7 @@ impl CommandCatalog {
         if scope.is_empty() {
             lines.push("  Type a scope name to enter it.".to_string());
             lines.push("  Use help <command> or ? <command> for command help.".to_string());
+            lines.push("  Use help pipe for detailed output pipeline help.".to_string());
             lines.push(
                 "  After a paginated list result, use next to fetch the next page.".to_string(),
             );
@@ -389,6 +390,10 @@ impl CommandCatalog {
 
         Ok(help.trim_end().to_string())
     }
+
+    pub fn render_pipe_topic_help(&self) -> String {
+        render_pipe_topic_help()
+    }
 }
 
 fn scope_command_summary(scope: &ScopeSpec) -> String {
@@ -457,9 +462,133 @@ fn render_pipe_help_lines() -> Vec<String> {
             .to_string(),
         "  Structured stages: P/columns <fields>, S/sort <field|!field>, VALUE/VAL <path>."
             .to_string(),
+        "  Use help pipe for full pipeline syntax and examples.".to_string(),
         "  Examples: object list --class Hosts | F 'json_data.contact equals Entry' | P name json_data.contact".to_string(),
         "            config show | F output | P key value | S key | L 5".to_string(),
     ]
+}
+
+fn render_pipe_topic_help() -> String {
+    let mut lines = Vec::new();
+    macro_rules! line {
+        ($value:expr) => {
+            lines.push($value.to_string());
+        };
+    }
+
+    line!(paint(ThemeRole::Heading, "Pipe"));
+    line!("Append pipe stages after a command to transform the command's semantic JSON output before it is rendered as a table, JSON, CSV, TSV, or plain text.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Mental Model:"));
+    line!("  command | stage | stage | stage");
+    line!("  The command runs first and produces rows, details, values, or lines.");
+    line!("  Each stage receives the previous stage's output.");
+    line!("  For normal table output, stages run before rendering, so hidden JSON can still be selected explicitly.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Quick Filters:"));
+    line!("  | pattern");
+    line!("  | grep pattern");
+    line!("  | F pattern");
+    line!("  | grep <field> <regex>");
+    line!("  | F <field> <regex>");
+    line!("");
+    line!("  Keeps rows matching the regex pattern. For structured rows, quick filters search JSON keys plus the currently displayed/projected values. They add a Match column so you can see why a row survived.");
+    line!("  With a field argument, grep only checks that field and does not add a Match column.");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | 26");
+    line!("    object list --class Hosts | F '^web-'");
+    line!("    object list --class Hosts | grep os_version '^26'");
+    line!(
+        "    object list --class Hosts | grep data.network.interfaces[*].ipv4 '^129\\\\.240\\\\.'"
+    );
+    line!("    object list --class Hosts | P Name os_version | 26");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Field Predicates:"));
+    line!("  | <field> exists");
+    line!("  | <field> equals <value>");
+    line!("  | <field> contains <regex>");
+    line!("  | <field> matches <regex>");
+    line!("  | <field> != <value>");
+    line!("  | <field> not contains <regex>");
+    line!("  | <field> !~ <regex>");
+    line!("");
+    line!("  Matches one field/path precisely. Use dotted selectors for nested JSON and [*] for array items.");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | os_version contains 26");
+    line!("    object list --class Hosts | os_version not contains '^9'");
+    line!("    object list --class Hosts | data.network.interfaces[*].ipv4 contains '^129\\\\.240\\\\.'");
+    line!("    config show | key contains '^output\\\\.'");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Rejecting Rows:"));
+    line!("  | reject <expr>");
+    line!("  | reject <field> <regex>");
+    line!("  | !<regex>");
+    line!("");
+    line!("  Removes rows matching the expression.");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | reject os_version contains 9");
+    line!("    object list --class Hosts | reject os_version '^9'");
+    line!("    object list --class Hosts | !retired");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Projection:"));
+    line!("  | P <field> [field...]");
+    line!("  | columns <field> [field...]");
+    line!("");
+    line!("  Chooses which fields to show. This is not a filter. Every argument after P is a column selector.");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | P Name os_version");
+    line!("    object list --class Hosts | P Name data.network.interfaces[*].ipv4");
+    line!("    object list --class Hosts | P os_version 26");
+    line!("      Shows columns named os_version and 26. If no field named 26 exists, that column is null.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Sorting And Limits:"));
+    line!("  | S <field>");
+    line!("  | S !<field>");
+    line!("  | sort <field> asc|desc");
+    line!("  | L <n>");
+    line!("  | head <n>");
+    line!("  | tail <n>");
+    line!("  | C");
+    line!("  | count");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | S os_version desc | L 10");
+    line!("    object list --class Hosts | os_version contains 26 | C");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Value Extraction:"));
+    line!("  | VALUE <path>");
+    line!("  | VAL <path>");
+    line!("");
+    line!("  Extracts values from rows and returns a value list.");
+    line!("");
+    line!("  Examples:");
+    line!("    object list --class Hosts | VAL data.network.interfaces[*].ipv4");
+    line!("    config show | VALUE key | C");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Common Recipes:"));
+    line!("  Filter by a precise field:");
+    line!("    object list --class Hosts --where json_data.hardware.cpu.summary startswith 8 | os_version contains 26");
+    line!("");
+    line!("  Project first, then quick-filter displayed values:");
+    line!("    object list --class Hosts | P Name os_version | 26");
+    line!("");
+    line!("  Show the fields that caused a quick-filter hit:");
+    line!("    object list --class Hosts | 26");
+    line!("");
+    line!("  Pick columns, sort, and limit:");
+    line!("    object list --class Hosts | P Name os_version data.network.interfaces[*].ipv4 | S os_version desc | L 20");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Notes:"));
+    line!("  Text table headers shorten data.<path> to <path> to save space, but selectors still use the semantic field name.");
+    line!("  CSV, TSV, JSON, and JSONL keep semantic field names for stable machine output.");
+    line!("  Quote patterns containing spaces or shell-sensitive characters.");
+    line!("  Pipe splitting is quote-aware, so quoted | characters stay inside command values.");
+
+    lines.join("\n")
 }
 
 fn render_where_help(command_path: &[String]) -> Option<String> {
@@ -711,6 +840,17 @@ mod tests {
         assert!(help.contains("F/grep <expr>"));
         assert!(help.contains("use next to fetch the next page"));
         assert!(help.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    fn pipe_topic_help_explains_field_specific_filters() {
+        let catalog = CommandCatalogBuilder::new().build();
+        let help = catalog.render_pipe_topic_help();
+
+        assert!(help.contains("grep <field> <regex>"));
+        assert!(help.contains("os_version not contains '^9'"));
+        assert!(help.contains("P os_version 26"));
+        assert!(help.contains("field named 26"));
     }
 
     #[test]

@@ -237,6 +237,8 @@ fn render_help_from_catalog(
 ) -> Result<CommandOutcome, AppError> {
     if parts.is_empty() {
         append_line(catalog.render_scope_help(&scope))?;
+    } else if parts == ["pipe"] {
+        append_line(catalog.render_pipe_topic_help())?;
     } else if let Ok(resolved) = catalog.resolve_command(&scope, parts) {
         append_line(catalog.render_command_help(&resolved.command_path)?)?;
     } else if let Some(_nested_scope) = catalog.resolve_scope(&scope, parts) {
