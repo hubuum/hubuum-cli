@@ -21,7 +21,7 @@ anyhow = "1"
 dirs = "6"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { path = "../hubuum-client-rust" }  # TEMP: revert to `hubuum_client = "0.0.3"` before opening the PR
+hubuum_client = "0.0.3"
 rpassword = "7"
 rand = "0"
 jqesque = "0.0.3"
