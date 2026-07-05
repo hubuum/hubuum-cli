@@ -1,5 +1,7 @@
 # Manual Test Checklist for hubuum-cli 0.0.3
 
+<!-- markdownlint-disable MD029 MD031 MD032 MD040 -->
+
 This document provides an ordered checklist for manually testing the hubuum-cli against an updated hubuum server (0.0.3+). It covers the core functionality and the new/changed surface area from the async rewrite migration, particularly background task support and IAM features.
 
 ## Prerequisites
