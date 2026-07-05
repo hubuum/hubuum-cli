@@ -99,7 +99,12 @@ pub struct ClassNew {
     pub namespace: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
-    #[option(short = "s", long = "schema", help = "JSON schema for the class")]
+    #[option(
+        short = "s",
+        long = "schema",
+        help = "JSON schema for the class",
+        value_source = true
+    )]
     pub json_schema: Option<serde_json::Value>,
     #[option(
         short = "v",
@@ -256,7 +261,12 @@ pub struct ClassModify {
         help = "New description of the class"
     )]
     pub description: Option<String>,
-    #[option(short = "s", long = "schema", help = "JSON schema for the class")]
+    #[option(
+        short = "s",
+        long = "schema",
+        help = "JSON schema for the class",
+        value_source = true
+    )]
     pub json_schema: Option<serde_json::Value>,
     #[option(
         short = "v",

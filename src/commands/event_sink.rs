@@ -113,7 +113,7 @@ pub struct EventSinkCreate {
         autocomplete = "event_sink_kinds"
     )]
     pub kind: String,
-    #[option(long = "config", help = "Sink config JSON object")]
+    #[option(long = "config", help = "Sink config JSON object", value_source = true)]
     pub config: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,
@@ -143,7 +143,11 @@ pub struct EventSinkUpdate {
     pub name: Option<String>,
     #[option(long = "kind", help = "New kind", autocomplete = "event_sink_kinds")]
     pub kind: Option<String>,
-    #[option(long = "config", help = "Replacement config JSON object")]
+    #[option(
+        long = "config",
+        help = "Replacement config JSON object",
+        value_source = true
+    )]
     pub config: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,

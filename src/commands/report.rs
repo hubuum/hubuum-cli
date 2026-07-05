@@ -192,7 +192,12 @@ pub struct ReportCreate {
         help = "Rendered content type (application/json, text/plain, text/html, text/csv)"
     )]
     pub content_type: String,
-    #[option(short = "t", long = "template", help = "Template source as a string")]
+    #[option(
+        short = "t",
+        long = "template",
+        help = "Template source as a string",
+        value_source = true
+    )]
     pub template: Option<String>,
     #[option(short = "f", long = "file", help = "Read template source from a file")]
     pub file: Option<String>,
@@ -245,7 +250,12 @@ pub struct ReportModify {
         help = "Description of the report template"
     )]
     pub description: Option<String>,
-    #[option(short = "t", long = "template", help = "Template source as a string")]
+    #[option(
+        short = "t",
+        long = "template",
+        help = "Template source as a string",
+        value_source = true
+    )]
     pub template: Option<String>,
     #[option(short = "f", long = "file", help = "Read template source from a file")]
     pub file: Option<String>,

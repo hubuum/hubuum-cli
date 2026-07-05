@@ -159,9 +159,9 @@ pub struct EventSubscriptionCreate {
         autocomplete = "event_actions"
     )]
     pub actions: String,
-    #[option(long = "filter", help = "Filter JSON object")]
+    #[option(long = "filter", help = "Filter JSON object", value_source = true)]
     pub filter: Option<String>,
-    #[option(long = "routing", help = "Routing JSON object")]
+    #[option(long = "routing", help = "Routing JSON object", value_source = true)]
     pub routing: Option<String>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
@@ -221,9 +221,9 @@ pub struct EventSubscriptionUpdate {
         autocomplete = "event_actions"
     )]
     pub actions: Option<String>,
-    #[option(long = "filter", help = "Filter JSON object")]
+    #[option(long = "filter", help = "Filter JSON object", value_source = true)]
     pub filter: Option<String>,
-    #[option(long = "routing", help = "Routing JSON object")]
+    #[option(long = "routing", help = "Routing JSON object", value_source = true)]
     pub routing: Option<String>,
     #[option(long = "enabled", help = "Enabled flag")]
     pub enabled: Option<bool>,

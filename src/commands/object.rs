@@ -124,7 +124,8 @@ pub struct ObjectNew {
     #[option(
         short = "D",
         long = "data",
-        help = "JSON data for the object the class"
+        help = "JSON data for the object the class",
+        value_source = true
     )]
     pub data: Option<serde_json::Value>,
 }
@@ -581,7 +582,12 @@ pub struct ObjectModify {
     pub namespace: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the object")]
     pub description: Option<String>,
-    #[option(short = "D", long = "data", help = "JSON data for the object")]
+    #[option(
+        short = "D",
+        long = "data",
+        help = "JSON data for the object",
+        value_source = true
+    )]
     pub data: Option<String>,
 }
 

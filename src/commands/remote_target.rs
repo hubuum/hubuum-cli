@@ -116,13 +116,21 @@ pub struct RemoteTargetCreate {
     pub auth_username: Option<String>,
     #[option(long = "auth-header", help = "Header name for apikey auth")]
     pub auth_header: Option<String>,
-    #[option(long = "body-template", help = "Body template (JSON string)")]
+    #[option(
+        long = "body-template",
+        help = "Body template (JSON string)",
+        value_source = true
+    )]
     pub body_template: Option<String>,
     #[option(long = "class-id", help = "Class ID filter")]
     pub class_id: Option<i32>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
-    #[option(long = "headers", help = "Headers template (JSON string)")]
+    #[option(
+        long = "headers",
+        help = "Headers template (JSON string)",
+        value_source = true
+    )]
     pub headers_template: Option<String>,
     #[option(long = "timeout-ms", help = "Timeout in milliseconds")]
     pub timeout_ms: Option<i32>,
@@ -266,13 +274,21 @@ pub struct RemoteTargetUpdate {
     pub auth_username: Option<String>,
     #[option(long = "auth-header", help = "Header name for apikey auth")]
     pub auth_header: Option<String>,
-    #[option(long = "body-template", help = "Body template (JSON string)")]
+    #[option(
+        long = "body-template",
+        help = "Body template (JSON string)",
+        value_source = true
+    )]
     pub body_template: Option<String>,
     #[option(long = "class-id", help = "Class ID filter")]
     pub class_id: Option<i32>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
-    #[option(long = "headers", help = "Headers template (JSON string)")]
+    #[option(
+        long = "headers",
+        help = "Headers template (JSON string)",
+        value_source = true
+    )]
     pub headers_template: Option<String>,
     #[option(long = "timeout-ms", help = "Timeout in milliseconds")]
     pub timeout_ms: Option<i32>,
@@ -398,9 +414,9 @@ pub struct RemoteTargetInvoke {
         help = "Relation ID (for class_relation/object_relation subjects)"
     )]
     pub relation_id: Option<i32>,
-    #[option(long = "parameters", help = "Parameters JSON")]
+    #[option(long = "parameters", help = "Parameters JSON", value_source = true)]
     pub parameters: Option<String>,
-    #[option(long = "body", help = "Body override JSON")]
+    #[option(long = "body", help = "Body override JSON", value_source = true)]
     pub body_override: Option<String>,
     #[option(long = "wait", help = "Wait for task completion", flag = true)]
     pub wait: Option<bool>,

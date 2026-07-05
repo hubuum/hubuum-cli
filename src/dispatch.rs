@@ -3,7 +3,9 @@ use std::sync::Arc;
 use hubuum_client::ApiError;
 
 use crate::app::{AppRuntime, SharedSession};
-use crate::catalog::{CommandContext, CommandInvocation, CommandOutcome, ScopeAction};
+use crate::catalog::{
+    CommandCatalog, CommandContext, CommandInvocation, CommandOutcome, ScopeAction,
+};
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, clear_filter, reset_output, set_filter, take_output,
@@ -117,6 +119,68 @@ pub async fn execute_script(
     Ok(outcomes)
 }
 
+pub fn can_execute_offline(line: &str) -> bool {
+    let Ok(parts) = invocation_parts(line) else {
+        return false;
+    };
+    parts
+        .first()
+        .is_some_and(|part| part == "help" || part == "?")
+        || command_path_is(&parts, &["config", "show"])
+        || command_path_is(&parts, &["config", "paths"])
+}
+
+pub fn execute_offline_line(
+    catalog: &CommandCatalog,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
+    reset_output()?;
+    let line = process_filter(line)?;
+    let parts = invocation_parts(&line)?;
+    if parts.is_empty() {
+        return Ok(CommandOutcome::default());
+    }
+
+    if is_help_alias(&parts) {
+        return render_help_from_catalog(catalog, Vec::new(), &parts[1..]);
+    }
+
+    if parts
+        .first()
+        .is_some_and(|part| part == "help" || part == "?")
+    {
+        if parts
+            .iter()
+            .skip(1)
+            .any(|part| part == "--tree" || part == "-t")
+        {
+            append_line(catalog.render_tree())?;
+            return Ok(CommandOutcome {
+                output: take_output()?,
+                scope_action: ScopeAction::None,
+            });
+        }
+        return render_help_from_catalog(catalog, Vec::new(), &parts[1..]);
+    }
+
+    if command_path_is(&parts, &["config", "show"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        crate::commands::config::render_config_show(&tokens)?;
+    } else if command_path_is(&parts, &["config", "paths"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        crate::commands::config::render_config_paths(&tokens)?;
+    } else {
+        return Err(AppError::CommandNotFound(parts.join(" ")));
+    }
+
+    Ok(CommandOutcome {
+        output: take_output()?,
+        scope_action: ScopeAction::None,
+    })
+}
+
 pub fn apply_scope_action(session: &SharedSession, action: &ScopeAction) {
     match action {
         ScopeAction::None => {}
@@ -159,15 +223,22 @@ fn render_help(
     parts: &[String],
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
+    render_help_from_catalog(app.catalog.as_ref(), scope, parts)
+}
 
+fn render_help_from_catalog(
+    catalog: &CommandCatalog,
+    scope: Vec<String>,
+    parts: &[String],
+) -> Result<CommandOutcome, AppError> {
     if parts.is_empty() {
-        append_line(app.catalog.render_scope_help(&scope))?;
-    } else if let Ok(resolved) = app.catalog.resolve_command(&scope, parts) {
-        append_line(app.catalog.render_command_help(&resolved.command_path)?)?;
-    } else if let Some(_nested_scope) = app.catalog.resolve_scope(&scope, parts) {
+        append_line(catalog.render_scope_help(&scope))?;
+    } else if let Ok(resolved) = catalog.resolve_command(&scope, parts) {
+        append_line(catalog.render_command_help(&resolved.command_path)?)?;
+    } else if let Some(_nested_scope) = catalog.resolve_scope(&scope, parts) {
         let mut nested_path = scope.clone();
         nested_path.extend_from_slice(parts);
-        append_line(app.catalog.render_scope_help(&nested_path))?;
+        append_line(catalog.render_scope_help(&nested_path))?;
     } else {
         return Err(AppError::CommandNotFound(parts.join(" ")));
     }
@@ -179,27 +250,80 @@ fn render_help(
 }
 
 fn process_filter(line: &str) -> Result<String, AppError> {
-    let parts: Vec<&str> = line.split('|').collect();
-    if parts.len() > 1 {
-        let filter = parts[1].trim();
+    if let Some(pipe_index) = unquoted_pipe_index(line) {
+        let command = line[..pipe_index].trim();
+        let filter = line[pipe_index + 1..].trim();
         let (invert, pattern) = if let Some(stripped) = filter.strip_prefix('!') {
             (true, stripped.trim())
         } else {
             (false, filter.trim())
         };
         set_filter(pattern.to_string(), invert)?;
-        Ok(parts[0].trim().to_string())
+        Ok(command.to_string())
     } else {
         clear_filter()?;
         Ok(line.to_string())
     }
 }
 
+fn invocation_parts(line: &str) -> Result<Vec<String>, AppError> {
+    shlex::split(line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))
+}
+
+fn command_path_is(parts: &[String], expected: &[&str]) -> bool {
+    parts.len() >= expected.len()
+        && parts
+            .iter()
+            .zip(expected.iter())
+            .all(|(part, expected)| part == expected)
+}
+
+fn tokenizer_for_resolved(
+    line: &str,
+    resolved: &crate::catalog::ResolvedCommand<'_>,
+) -> Result<crate::tokenizer::CommandTokenizer, AppError> {
+    let cmd_name = resolved
+        .command_path
+        .last()
+        .cloned()
+        .ok_or_else(|| AppError::CommandExecutionError("Missing command name".to_string()))?;
+    let option_defs = resolved
+        .command
+        .options
+        .iter()
+        .map(|option| option.to_cli_option())
+        .collect::<Vec<_>>();
+    crate::tokenizer::CommandTokenizer::new(line, &cmd_name, &option_defs)
+}
+
+fn unquoted_pipe_index(line: &str) -> Option<usize> {
+    let mut escaped = false;
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+
+    for (index, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !single_quoted => escaped = true,
+            '\'' if !double_quoted => single_quoted = !single_quoted,
+            '"' if !single_quoted => double_quoted = !double_quoted,
+            '|' if !single_quoted && !double_quoted => return Some(index),
+            _ => {}
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use serial_test::serial;
 
-    use super::{apply_output_state, is_help_alias, process_filter};
+    use super::{apply_output_state, can_execute_offline, is_help_alias, process_filter};
     use crate::app::SharedSession;
     use crate::output::{append_line, reset_output, take_output};
 
@@ -214,6 +338,20 @@ mod tests {
 
         let snapshot = take_output().expect("snapshot should capture filtered output");
         assert_eq!(snapshot.lines, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn process_filter_ignores_quoted_pipes() {
+        reset_output().expect("buffer should reset");
+        let line =
+            process_filter("object list --where name equals 'alpha|beta' | beta").expect("filter");
+        assert_eq!(line, "object list --where name equals 'alpha|beta'");
+        append_line("alpha|beta").expect("line should append");
+        append_line("alpha").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture filtered output");
+        assert_eq!(snapshot.lines, vec!["alpha|beta".to_string()]);
     }
 
     #[test]
@@ -241,5 +379,16 @@ mod tests {
 
         apply_output_state(&session, &crate::output::OutputSnapshot::default());
         assert!(session.next_page_command().is_none());
+    }
+
+    #[test]
+    fn offline_command_detection_is_limited_to_catalog_and_config_inspection() {
+        assert!(can_execute_offline("help --tree"));
+        assert!(can_execute_offline("config show --key server.hostname"));
+        assert!(can_execute_offline("config paths"));
+        assert!(!can_execute_offline(
+            "config set --key server.hostname --value localhost"
+        ));
+        assert!(!can_execute_offline("object list --limit 5"));
     }
 }

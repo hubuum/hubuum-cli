@@ -13,6 +13,7 @@ struct FieldOpts {
     flag: Option<bool>,
     greedy: Option<bool>,
     nargs: Option<usize>,
+    value_source: Option<bool>,
     autocomplete: Option<syn::Path>,
 }
 
@@ -59,6 +60,7 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
         let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
         let greedy = opts.greedy.map(|g| quote! { #g }).unwrap_or(quote! { false });
         let nargs = opts.nargs.map(|n| quote! { Some(#n) }).unwrap_or(quote! { None });
+        let value_source = opts.value_source.map(|v| quote! { #v }).unwrap_or(quote! { false });
 
         let autocomplete_fn = opts.autocomplete.as_ref().map(|fn_path| {
             quote! { Some(#fn_path as fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>) }
@@ -77,6 +79,7 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
                 greedy: #greedy,
                 nargs: #nargs,
                 repeatable: #repeatable,
+                value_source: #value_source,
                 autocomplete: #autocomplete_fn,
             }
         }

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 mod audit;
 mod builder;
 mod class;
-mod config;
+pub(crate) mod config;
 mod event_delivery;
 mod event_sink;
 mod event_subscription;
@@ -49,6 +49,7 @@ pub struct CliOption {
     pub greedy: bool,
     pub nargs: Option<usize>,
     pub repeatable: bool,
+    pub value_source: bool,
     pub help: String,
     pub field_type: TypeId,
     pub field_type_help: String,
@@ -86,6 +87,7 @@ pub fn standard_options() -> Vec<CliOption> {
             greedy: false,
             nargs: None,
             repeatable: false,
+            value_source: false,
             help: "Prints help information".to_string(),
             field_type: TypeId::of::<bool>(),
             field_type_help: "bool".to_string(),
@@ -100,6 +102,7 @@ pub fn standard_options() -> Vec<CliOption> {
             greedy: false,
             nargs: None,
             repeatable: false,
+            value_source: false,
             help: "Output as JSON".to_string(),
             field_type: TypeId::of::<bool>(),
             field_type_help: "bool".to_string(),

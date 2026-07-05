@@ -720,6 +720,7 @@ mod tests {
             greedy: false,
             nargs: None,
             repeatable: false,
+            value_source: false,
             completion: CompletionSpec::None,
         }
     }

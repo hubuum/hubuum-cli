@@ -94,26 +94,30 @@ pub struct ConfigShow {
 
 impl CliCommand for ConfigShow {
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
-        let state = get_config_state();
-
-        if let Some(key) = query.key {
-            let entry = state.entry(&key).ok_or_else(|| {
-                AppError::ParseError(format!(
-                    "Unknown config key: {key}. Use one of: {}",
-                    config_key_names().join(", ")
-                ))
-            })?;
-            return render_single_entry(entry, desired_format(tokens));
-        }
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&state)?)?,
-            OutputFormat::Text => render_config_entries(&state.entries)?,
-        }
-
-        Ok(())
+        render_config_show(tokens)
     }
+}
+
+pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    let query = ConfigShow::parse_tokens(tokens)?;
+    let state = get_config_state();
+
+    if let Some(key) = query.key {
+        let entry = state.entry(&key).ok_or_else(|| {
+            AppError::ParseError(format!(
+                "Unknown config key: {key}. Use one of: {}",
+                config_key_names().join(", ")
+            ))
+        })?;
+        return render_single_entry(entry, desired_format(tokens));
+    }
+
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(serde_json::to_string_pretty(&state)?)?,
+        OutputFormat::Text => render_config_entries(&state.entries)?,
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]
@@ -121,21 +125,25 @@ pub struct ConfigPaths {}
 
 impl CliCommand for ConfigPaths {
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let _query = Self::parse_tokens(tokens)?;
-        let paths = &get_config_state().paths;
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(paths)?)?,
-            OutputFormat::Text => {
-                append_key_value("System", paths.system.display(), 12)?;
-                append_key_value("User", paths.user.display(), 12)?;
-                if let Some(custom) = &paths.custom {
-                    append_key_value("Custom", custom.display(), 12)?;
-                }
-                append_key_value("Write", paths.write_target.display(), 12)?;
-            }
-        }
-        Ok(())
+        render_config_paths(tokens)
     }
+}
+
+pub(crate) fn render_config_paths(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    let _query = ConfigPaths::parse_tokens(tokens)?;
+    let paths = &get_config_state().paths;
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(serde_json::to_string_pretty(paths)?)?,
+        OutputFormat::Text => {
+            append_key_value("System", paths.system.display(), 12)?;
+            append_key_value("User", paths.user.display(), 12)?;
+            if let Some(custom) = &paths.custom {
+                append_key_value("Custom", custom.display(), 12)?;
+            }
+            append_key_value("Write", paths.write_target.display(), 12)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]

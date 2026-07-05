@@ -22,6 +22,7 @@ pub struct OptionSpec {
     pub greedy: bool,
     pub nargs: Option<usize>,
     pub repeatable: bool,
+    pub value_source: bool,
     pub completion: CompletionSpec,
 }
 
@@ -334,10 +335,21 @@ impl CommandCatalog {
                 } else {
                     format!("<{}>", option.field_type_help)
                 };
-                let required = if option.required { " [required]" } else { "" };
+                let mut annotations = Vec::new();
+                if option.required {
+                    annotations.push("required");
+                }
+                if option.value_source {
+                    annotations.push("value-source");
+                }
+                let annotations = if annotations.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", annotations.join(", "))
+                };
                 help.push_str(&format!(
                     "  {:<28} {:<16} {}{}\n",
-                    label, field_type, option.help, required
+                    label, field_type, option.help, annotations
                 ));
             }
             help.push('\n');
@@ -475,6 +487,7 @@ impl OptionSpec {
             greedy: self.greedy,
             nargs: self.nargs,
             repeatable: self.repeatable,
+            value_source: self.value_source,
             help: self.help.clone(),
             field_type: self.field_type,
             field_type_help: self.field_type_help.clone(),
@@ -569,6 +582,7 @@ mod tests {
             greedy: false,
             nargs: None,
             repeatable: false,
+            value_source: false,
             completion: super::CompletionSpec::None,
         });
         builder.add_command(&["class"], spec);
@@ -596,6 +610,7 @@ mod tests {
             greedy: false,
             nargs: Some(3),
             repeatable: true,
+            value_source: false,
             completion: super::CompletionSpec::None,
         };
 

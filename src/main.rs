@@ -27,9 +27,28 @@ mod tokenizer;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), AppError> {
-    let matches = cli::build_cli().get_matches();
+    let startup_args = cli::split_startup_args(std::env::args());
+    let matches = cli::build_cli().get_matches_from(startup_args.clap_args);
     app::init_logging()?;
     let config = app::load_app_config(&matches)?;
+    let catalog = Arc::new(commands::build_command_catalog());
+    let mode = cli::execution_mode(&matches, startup_args.mode);
+
+    match &mode {
+        cli::StartupMode::Command(command) if dispatch::can_execute_offline(command) => {
+            let outcome = dispatch::execute_offline_line(catalog.as_ref(), command);
+            render_dispatch_result(&sessionless(), outcome);
+            return Ok(());
+        }
+        cli::StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
+            let session = SharedSession::new();
+            let outcomes = execute_offline_script(catalog.as_ref(), filename).await;
+            render_script_result(&session, outcomes);
+            return Ok(());
+        }
+        cli::StartupMode::Repl | cli::StartupMode::Command(_) | cli::StartupMode::Script(_) => {}
+    }
+
     let client = app::login(config.clone()).await?;
 
     let services = Arc::new(AppServices::new(
@@ -37,30 +56,26 @@ async fn main() -> Result<(), AppError> {
         tokio::runtime::Handle::current(),
         Duration::from_secs(config.background.poll_interval_seconds),
     ));
-    let catalog = Arc::new(commands::build_command_catalog());
     let runtime = Arc::new(AppRuntime::new(config, services, catalog));
     let session = SharedSession::new();
 
-    if let Some(command) = matches.get_one::<String>("command") {
-        let outcome = dispatch::execute_line(runtime.clone(), &session, command).await;
+    if let cli::StartupMode::Command(command) = mode {
+        let outcome = dispatch::execute_line(runtime.clone(), &session, &command).await;
         render_dispatch_result(&session, outcome);
         return Ok(());
     }
 
-    if let Some(filename) = matches.get_one::<String>("source") {
-        let outcomes = dispatch::execute_script(runtime.clone(), &session, filename).await;
-        match outcomes {
-            Ok(outcomes) => {
-                for outcome in outcomes {
-                    render_outcome(&session, outcome);
-                }
-            }
-            Err(err) => render_snapshot(dispatch::render_error(err)),
-        }
+    if let cli::StartupMode::Script(filename) = mode {
+        let outcomes = dispatch::execute_script(runtime.clone(), &session, &filename).await;
+        render_script_result(&session, outcomes);
         return Ok(());
     }
 
     repl::run(runtime, session).await
+}
+
+fn sessionless() -> SharedSession {
+    SharedSession::new()
 }
 
 fn render_dispatch_result(
@@ -71,6 +86,39 @@ fn render_dispatch_result(
         Ok(outcome) => render_outcome(session, outcome),
         Err(err) => render_snapshot(dispatch::render_error(err)),
     }
+}
+
+fn render_script_result(
+    session: &SharedSession,
+    outcomes: Result<Vec<catalog::CommandOutcome>, AppError>,
+) {
+    match outcomes {
+        Ok(outcomes) => {
+            for outcome in outcomes {
+                render_outcome(session, outcome);
+            }
+        }
+        Err(err) => render_snapshot(dispatch::render_error(err)),
+    }
+}
+
+async fn can_execute_script_offline(filename: &str) -> Result<bool, AppError> {
+    let content = tokio::fs::read_to_string(filename).await?;
+    Ok(content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .all(dispatch::can_execute_offline))
+}
+
+async fn execute_offline_script(
+    catalog: &catalog::CommandCatalog,
+    filename: &str,
+) -> Result<Vec<catalog::CommandOutcome>, AppError> {
+    let content = tokio::fs::read_to_string(filename).await?;
+    content
+        .lines()
+        .map(|line| dispatch::execute_offline_line(catalog, line))
+        .collect()
 }
 
 fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) {

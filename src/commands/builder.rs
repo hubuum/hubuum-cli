@@ -63,6 +63,7 @@ where
             greedy: option.greedy,
             nargs: option.nargs,
             repeatable: option.repeatable,
+            value_source: option.value_source,
             completion: match option.autocomplete {
                 Some(completion) => CompletionSpec::Dynamic(completion),
                 None => CompletionSpec::None,

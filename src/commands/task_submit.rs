@@ -96,6 +96,7 @@ mod tests {
             greedy: false,
             nargs: None,
             repeatable: false,
+            value_source: false,
             help: String::new(),
             field_type: TypeId::of::<String>(),
             field_type_help: "string".to_string(),
