@@ -308,6 +308,7 @@ impl ReplCompleter {
             complete_where_clause(
                 &self.completion,
                 &resolved.command_path,
+                &parts,
                 quoted.clause_prefix,
                 quoted.clause_ends_with_space,
             )
@@ -362,6 +363,7 @@ impl ReplCompleter {
             complete_where_clause(
                 &self.completion,
                 command_path,
+                parts,
                 &clause_prefix,
                 clause_ends_with_space,
             )

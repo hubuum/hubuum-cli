@@ -22,6 +22,7 @@ struct CompletionSnapshot {
     event_sinks: Option<Vec<String>>,
     report_templates: Option<Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
+    class_schemas: HashMap<String, Option<serde_json::Value>>,
 }
 
 #[derive(Clone, Default)]
@@ -99,6 +100,20 @@ impl CompletionContext {
                     ),
             )
             .unwrap_or_default()
+    }
+
+    pub fn class_schema(&self, class_name: &str) -> Option<Option<serde_json::Value>> {
+        if get_config().completion.disable_api_related {
+            return None;
+        }
+
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_class_schema(self.services.gateway(), class_name.to_string()),
+            )
+            .ok()
     }
 
     fn complete(&self, prefix: &str, kind: CompletionKind) -> Vec<String> {
@@ -196,6 +211,29 @@ impl CompletionStore {
         })
         .await
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
+    }
+
+    async fn load_class_schema(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+        class_name: String,
+    ) -> Result<Option<serde_json::Value>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.class_schemas.get(&class_name) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let cache_key = class_name.clone();
+        let fetched = tokio::task::spawn_blocking(move || gateway.class_schema(&class_name))
+            .await
+            .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.class_schemas.insert(cache_key, fetched.clone());
+        }
+
+        Ok(fetched)
     }
 
     fn cached(&self, kind: CompletionKind) -> Option<Vec<String>> {

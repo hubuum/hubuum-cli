@@ -41,6 +41,16 @@ impl HubuumGateway {
             .collect())
     }
 
+    pub fn class_schema(&self, name: &str) -> Result<Option<serde_json::Value>, AppError> {
+        Ok(self
+            .client
+            .classes()
+            .select_by_name(name)?
+            .resource()
+            .json_schema
+            .clone())
+    }
+
     pub fn create_class(&self, input: CreateClassInput) -> Result<ClassRecord, AppError> {
         let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
         let class = self.client.classes().create_raw(ClassPost {
