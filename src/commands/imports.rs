@@ -28,7 +28,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Submit an import request"),
                     long_about: Some(
-                        "Submit an import request from a local JSON file or HTTP(S) URL. CLI policy flags override the request mode. --namespace reuses an existing namespace for classes and class keys that do not already specify one.",
+                        "Submit an import request from a local JSON file or HTTP(S) URL. CLI policy flags override the request mode. --namespace rewrites the import to reuse an existing namespace and removes namespace creation/permission entries.",
                     ),
                     examples: Some("--file import.json --namespace Math --collision-policy overwrite\n--http https://example.com/import.json --atomicity best_effort"),
                 },
@@ -80,7 +80,7 @@ pub struct ImportSubmit {
     #[option(
         short = "N",
         long = "namespace",
-        help = "Existing namespace to reuse when import entries do not specify a namespace",
+        help = "Existing namespace to reuse for all import namespace references",
         autocomplete = "namespaces"
     )]
     pub namespace: Option<String>,
@@ -153,7 +153,7 @@ fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
     let mut request = serde_json::from_str::<ImportRequest>(&body)?;
     apply_mode_overrides(&mut request, query);
     if let Some(namespace) = &query.namespace {
-        apply_default_namespace(&mut request, namespace);
+        apply_existing_namespace_override(&mut request, namespace);
     }
     Ok(request)
 }
@@ -183,21 +183,18 @@ fn apply_mode_overrides(request: &mut ImportRequest, query: &ImportSubmit) {
     }
 }
 
-fn apply_default_namespace(request: &mut ImportRequest, namespace: &str) {
+fn apply_existing_namespace_override(request: &mut ImportRequest, namespace: &str) {
     let namespace_key = NamespaceKey {
         name: namespace.to_string(),
     };
 
     for class in &mut request.graph.classes {
-        apply_namespace_to_ref_or_key(
-            &mut class.namespace_ref,
-            &mut class.namespace_key,
-            namespace_key.clone(),
-        );
+        class.namespace_ref = None;
+        class.namespace_key = Some(namespace_key.clone());
     }
     for object in &mut request.graph.objects {
         if let Some(class_key) = &mut object.class_key {
-            apply_namespace_to_class_key(class_key, namespace_key.clone());
+            rewrite_class_key_namespace(class_key, namespace_key.clone());
         }
     }
     for relation in &mut request.graph.class_relations {
@@ -205,7 +202,7 @@ fn apply_default_namespace(request: &mut ImportRequest, namespace: &str) {
             .into_iter()
             .flatten()
         {
-            apply_namespace_to_class_key(class_key, namespace_key.clone());
+            rewrite_class_key_namespace(class_key, namespace_key.clone());
         }
     }
     for relation in &mut request.graph.object_relations {
@@ -214,35 +211,17 @@ fn apply_default_namespace(request: &mut ImportRequest, namespace: &str) {
             .flatten()
         {
             if let Some(class_key) = &mut object_key.class_key {
-                apply_namespace_to_class_key(class_key, namespace_key.clone());
+                rewrite_class_key_namespace(class_key, namespace_key.clone());
             }
         }
     }
-    for permission in &mut request.graph.namespace_permissions {
-        apply_namespace_to_ref_or_key(
-            &mut permission.namespace_ref,
-            &mut permission.namespace_key,
-            namespace_key.clone(),
-        );
-    }
+    request.graph.namespaces.clear();
+    request.graph.namespace_permissions.clear();
 }
 
-fn apply_namespace_to_class_key(class_key: &mut ClassKey, namespace_key: NamespaceKey) {
-    apply_namespace_to_ref_or_key(
-        &mut class_key.namespace_ref,
-        &mut class_key.namespace_key,
-        namespace_key,
-    );
-}
-
-fn apply_namespace_to_ref_or_key(
-    namespace_ref: &mut Option<String>,
-    target: &mut Option<NamespaceKey>,
-    namespace_key: NamespaceKey,
-) {
-    if namespace_ref.is_none() && target.is_none() {
-        *target = Some(namespace_key);
-    }
+fn rewrite_class_key_namespace(class_key: &mut ClassKey, namespace_key: NamespaceKey) {
+    class_key.namespace_ref = None;
+    class_key.namespace_key = Some(namespace_key);
 }
 
 fn import_atomicity(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -464,12 +443,19 @@ mod tests {
     }
 
     #[test]
-    fn import_request_applies_default_namespace_to_unscoped_class_references() {
+    fn import_request_rewrites_to_existing_namespace_override() {
         let body = r#"{
             "version": 1,
             "dry_run": null,
             "mode": null,
             "graph": {
+                "namespaces": [
+                    {
+                        "ref": "ns:math",
+                        "name": "Math",
+                        "description": "Should not be submitted"
+                    }
+                ],
                 "classes": [
                     {
                         "ref": "host-class",
@@ -477,7 +463,7 @@ mod tests {
                         "description": "Hosts",
                         "json_schema": null,
                         "validate_schema": null,
-                        "namespace_ref": null,
+                        "namespace_ref": "ns:math",
                         "namespace_key": null
                     }
                 ],
@@ -490,9 +476,19 @@ mod tests {
                         "class_ref": null,
                         "class_key": {
                             "name": "Hosts",
-                            "namespace_ref": null,
+                            "namespace_ref": "ns:math",
                             "namespace_key": null
                         }
+                    }
+                ],
+                "namespace_permissions": [
+                    {
+                        "ref": null,
+                        "namespace_ref": "ns:math",
+                        "namespace_key": null,
+                        "group_key": { "groupname": "admins" },
+                        "permissions": [],
+                        "replace_existing": false
                     }
                 ]
             }
@@ -504,12 +500,22 @@ mod tests {
         };
 
         let request = import_request(&query).expect("request should parse");
+        assert!(request.graph.namespaces.is_empty());
+        assert!(request.graph.namespace_permissions.is_empty());
+        assert_eq!(request.graph.classes[0].namespace_ref, None);
         assert_eq!(
             request.graph.classes[0]
                 .namespace_key
                 .as_ref()
                 .map(|key| key.name.as_str()),
             Some("Math")
+        );
+        assert_eq!(
+            request.graph.objects[0]
+                .class_key
+                .as_ref()
+                .and_then(|key| key.namespace_ref.as_ref()),
+            None
         );
         assert_eq!(
             request.graph.objects[0]
