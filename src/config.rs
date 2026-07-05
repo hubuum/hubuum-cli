@@ -400,6 +400,31 @@ pub fn config_key_names() -> Vec<&'static str> {
         .collect()
 }
 
+pub fn config_value_candidates(key: &str) -> Vec<&'static str> {
+    let Ok(descriptor) = descriptor_for_key(key) else {
+        return Vec::new();
+    };
+
+    match descriptor.value_kind {
+        ConfigValueKind::Bool => vec!["true", "false"],
+        ConfigValueKind::Protocol => vec!["http", "https"],
+        ConfigValueKind::OutputFormat => vec!["text", "json"],
+        ConfigValueKind::OutputColor => vec!["auto", "always", "never"],
+        ConfigValueKind::TableStyle => {
+            vec!["ascii", "compact", "dense", "markdown", "plain", "rounded"]
+        }
+        ConfigValueKind::TableWidth => vec!["auto", "full"],
+        ConfigValueKind::TableWrap => vec!["auto", "never"],
+        ConfigValueKind::TableBands => vec!["auto", "always", "never"],
+        ConfigValueKind::EmptyResult => vec!["message", "silent"],
+        ConfigValueKind::String
+        | ConfigValueKind::U16
+        | ConfigValueKind::U64
+        | ConfigValueKind::I8
+        | ConfigValueKind::I32 => Vec::new(),
+    }
+}
+
 pub fn inspect_config_state(
     config: &AppConfig,
     cli_config_path: Option<PathBuf>,
@@ -1114,6 +1139,22 @@ mod tests {
         assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();
+    }
+
+    #[test]
+    fn config_value_candidates_expose_enum_values() {
+        assert_eq!(
+            config_value_candidates("output.table_style"),
+            vec!["ascii", "compact", "dense", "markdown", "plain", "rounded"]
+        );
+        assert_eq!(
+            config_value_candidates("output.table_bands"),
+            vec!["auto", "always", "never"]
+        );
+        assert_eq!(
+            config_value_candidates("server.hostname"),
+            Vec::<&str>::new()
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
-use crate::autocomplete::config_keys;
+use crate::autocomplete::{config_keys, config_values};
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::{
     config_key_names, get_config_state, reload_runtime_config, set_persisted_value,
@@ -155,7 +155,12 @@ pub struct ConfigSet {
         autocomplete = "config_keys"
     )]
     pub key: String,
-    #[option(short = "v", long = "value", help = "Value to persist")]
+    #[option(
+        short = "v",
+        long = "value",
+        help = "Value to persist",
+        autocomplete = "config_values"
+    )]
     pub value: String,
 }
 
