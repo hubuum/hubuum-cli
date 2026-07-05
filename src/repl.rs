@@ -314,7 +314,7 @@ impl ReplCompleter {
             )
             .into_iter()
             .map(|candidate| {
-                suggestion_with_whitespace(
+                where_suggestion(
                     candidate.value,
                     replacement_start,
                     pos,
@@ -369,7 +369,7 @@ impl ReplCompleter {
             )
             .into_iter()
             .map(|candidate| {
-                suggestion_with_whitespace(
+                where_suggestion(
                     candidate.value,
                     start,
                     pos,
@@ -509,6 +509,24 @@ fn suggestion_with_whitespace(
     }
 }
 
+fn where_suggestion(
+    value: String,
+    start: usize,
+    end: usize,
+    description: Option<String>,
+    append_whitespace: bool,
+) -> Suggestion {
+    let display_override = description
+        .as_deref()
+        .filter(|description| matches!(*description, "no schema" | "no schema match"))
+        .map(str::to_string);
+
+    Suggestion {
+        display_override,
+        ..suggestion_with_whitespace(value, start, end, description, append_whitespace)
+    }
+}
+
 fn option_suggestion(
     option: &OptionSpec,
     word: &str,
@@ -632,7 +650,7 @@ mod tests {
 
     use super::{
         clause_active_token_offset, completion_context_parts, is_completing_option_value,
-        option_suggestion, quoted_where_context, safe_prefix_end,
+        option_suggestion, quoted_where_context, safe_prefix_end, where_suggestion,
     };
 
     #[test]
@@ -734,6 +752,21 @@ mod tests {
             clause_active_token_offset("json_data.contact eq", false),
             "json_data.contact ".len()
         );
+    }
+
+    #[test]
+    fn where_status_suggestions_render_visible_menu_entries() {
+        let suggestion = where_suggestion(
+            "json_data.".to_string(),
+            42,
+            52,
+            Some("no schema".to_string()),
+            false,
+        );
+
+        assert_eq!(suggestion.value, "json_data.");
+        assert_eq!(suggestion.display_override.as_deref(), Some("no schema"));
+        assert!(!suggestion.append_whitespace);
     }
 
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {
