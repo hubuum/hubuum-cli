@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reedline::{
@@ -196,6 +197,9 @@ impl Completer for ReplCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let prefix_line = &line[..safe_prefix_end(line, pos)];
         if let Some(suggestions) = self.quoted_where_suggestions(prefix_line, pos) {
+            return suggestions;
+        }
+        if let Some(suggestions) = self.pipe_projection_suggestions(prefix_line, pos) {
             return suggestions;
         }
         let ends_with_space = prefix_line.ends_with(' ');
@@ -434,6 +438,42 @@ impl ReplCompleter {
         )
     }
 
+    fn pipe_projection_suggestions(
+        &self,
+        prefix_line: &str,
+        pos: usize,
+    ) -> Option<Vec<Suggestion>> {
+        let context = projection_pipe_context(prefix_line, pos)?;
+        let command_parts = shlex::split(context.command_prefix.trim())?;
+        let scope = self.session.scope();
+        let resolved = self
+            .app
+            .catalog
+            .resolve_command(&scope, &command_parts)
+            .ok()?;
+        let fields =
+            projection_fields_for_command(&self.completion, &resolved.command_path, &command_parts);
+        if fields.is_empty() {
+            return None;
+        }
+
+        Some(
+            fields
+                .into_iter()
+                .filter(|field| field.starts_with(context.prefix))
+                .map(|field| {
+                    let value = if context.needs_leading_space {
+                        format!(" {field}")
+                    } else {
+                        field.clone()
+                    };
+                    let display_override = context.needs_leading_space.then_some(field);
+                    projection_suggestion(value, context.replacement_start, pos, display_override)
+                })
+                .collect(),
+        )
+    }
+
     fn scope_suggestions(
         &self,
         start: usize,
@@ -467,6 +507,159 @@ impl ReplCompleter {
             .filter(|value| value.starts_with(word))
             .map(|value| suggestion(value, start, start + word.len(), None))
             .collect()
+    }
+}
+
+struct ProjectionPipeContext<'a> {
+    command_prefix: &'a str,
+    prefix: &'a str,
+    replacement_start: usize,
+    needs_leading_space: bool,
+}
+
+fn projection_pipe_context(prefix_line: &str, pos: usize) -> Option<ProjectionPipeContext<'_>> {
+    let pipe_index = last_unquoted_pipe(prefix_line)?;
+    let command_prefix = &prefix_line[..pipe_index];
+    let pipe_prefix = &prefix_line[pipe_index + 1..];
+    let pipe_parts = shlex::split(pipe_prefix)?;
+    let stage = pipe_parts.first()?;
+    if stage != "P" && stage != "columns" {
+        return None;
+    }
+
+    let ends_with_space = prefix_line.ends_with(char::is_whitespace);
+    if pipe_parts.len() == 1 && !ends_with_space {
+        return Some(ProjectionPipeContext {
+            command_prefix,
+            prefix: "",
+            replacement_start: pos,
+            needs_leading_space: true,
+        });
+    }
+
+    let (word_start, word) = if ends_with_space {
+        (pos, "")
+    } else {
+        prefix_line
+            .rsplit_once(char::is_whitespace)
+            .map_or((0, prefix_line), |(left, right)| (left.len() + 1, right))
+    };
+    let comma_offset = word.rfind(',').map(|index| index + 1).unwrap_or(0);
+    Some(ProjectionPipeContext {
+        command_prefix,
+        prefix: &word[comma_offset..],
+        replacement_start: word_start + comma_offset,
+        needs_leading_space: false,
+    })
+}
+
+fn last_unquoted_pipe(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut last_pipe = None;
+
+    for (index, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => {}
+            None if ch == '\'' || ch == '"' => quote = Some(ch),
+            None if ch == '|' => last_pipe = Some(index),
+            None => {}
+        }
+    }
+
+    last_pipe
+}
+
+fn projection_fields_for_command(
+    ctx: &crate::services::CompletionContext,
+    command_path: &[String],
+    command_parts: &[String],
+) -> Vec<String> {
+    if matches!(command_path, [scope, command] if scope == "object" && command == "list") {
+        return object_list_projection_fields(ctx, command_parts);
+    }
+
+    Vec::new()
+}
+
+fn object_list_projection_fields(
+    ctx: &crate::services::CompletionContext,
+    command_parts: &[String],
+) -> Vec<String> {
+    let mut fields = BTreeSet::from([
+        "id".to_string(),
+        "Name".to_string(),
+        "Description".to_string(),
+        "Namespace".to_string(),
+        "Class".to_string(),
+        "Data".to_string(),
+        "Created".to_string(),
+        "Updated".to_string(),
+        "name".to_string(),
+        "description".to_string(),
+        "namespace".to_string(),
+        "class".to_string(),
+        "data".to_string(),
+        "created_at".to_string(),
+        "updated_at".to_string(),
+    ]);
+
+    if let Some(class_name) = class_name_from_command_parts(command_parts) {
+        if let Some(columns) = crate::config::get_config()
+            .output
+            .object_list_class_columns
+            .get(&class_name)
+        {
+            fields.extend(columns.iter().cloned());
+        }
+
+        if let Some(Some(schema)) = ctx.class_schema(&class_name) {
+            for path in schema_paths(&schema) {
+                fields.insert(format!("data.{path}"));
+            }
+        }
+    }
+
+    fields.into_iter().collect()
+}
+
+fn class_name_from_command_parts(parts: &[String]) -> Option<String> {
+    parts
+        .windows(2)
+        .find(|pair| pair[0] == "--class" || pair[0] == "-c")
+        .map(|pair| pair[1].clone())
+}
+
+fn schema_paths(schema: &serde_json::Value) -> Vec<String> {
+    let mut paths = Vec::new();
+    collect_schema_paths(schema, "", &mut paths);
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
+    let Some(properties) = schema.get("properties").and_then(|value| value.as_object()) else {
+        return;
+    };
+
+    for (name, property_schema) in properties {
+        let path = if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix}.{name}")
+        };
+        paths.push(path.clone());
+        collect_schema_paths(property_schema, &path, paths);
     }
 }
 
@@ -529,6 +722,18 @@ fn where_suggestion(
     Suggestion {
         display_override,
         ..suggestion_with_whitespace(value, start, end, description, append_whitespace)
+    }
+}
+
+fn projection_suggestion(
+    value: String,
+    start: usize,
+    end: usize,
+    display_override: Option<String>,
+) -> Suggestion {
+    Suggestion {
+        display_override,
+        ..suggestion_with_whitespace(value, start, end, Some("output field".to_string()), true)
     }
 }
 
@@ -655,7 +860,8 @@ mod tests {
 
     use super::{
         clause_active_token_offset, completion_context_parts, is_completing_option_value,
-        option_suggestion, quoted_where_context, safe_prefix_end, where_suggestion,
+        option_suggestion, projection_pipe_context, quoted_where_context, safe_prefix_end,
+        schema_paths, where_suggestion,
     };
 
     #[test]
@@ -783,6 +989,51 @@ mod tests {
         assert_eq!(
             fallback.display_override.as_deref(),
             Some("type path manually")
+        );
+    }
+
+    #[test]
+    fn projection_pipe_context_completes_after_stage_without_space() {
+        let line = "object list --class Hosts | P";
+        let context = projection_pipe_context(line, line.len()).expect("projection context");
+
+        assert_eq!(context.command_prefix, "object list --class Hosts ");
+        assert_eq!(context.prefix, "");
+        assert_eq!(context.replacement_start, line.len());
+        assert!(context.needs_leading_space);
+    }
+
+    #[test]
+    fn projection_pipe_context_replaces_only_comma_segment() {
+        let line = "object list --class Hosts | P Name,co";
+        let context = projection_pipe_context(line, line.len()).expect("projection context");
+
+        assert_eq!(context.prefix, "co");
+        assert_eq!(context.replacement_start, line.len() - "co".len());
+        assert!(!context.needs_leading_space);
+    }
+
+    #[test]
+    fn projection_schema_paths_include_nested_data_fields() {
+        let schema = serde_json::json!({
+            "properties": {
+                "contact": {"type": "string"},
+                "hardware": {
+                    "type": "object",
+                    "properties": {
+                        "cpu": {"type": "string"}
+                    }
+                }
+            }
+        });
+
+        assert_eq!(
+            schema_paths(&schema),
+            vec![
+                "contact".to_string(),
+                "hardware".to_string(),
+                "hardware.cpu".to_string()
+            ]
         );
     }
 

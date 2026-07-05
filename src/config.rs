@@ -2,7 +2,7 @@ use clap::{parser::ValueSource, ArgMatches};
 use config::{Config, ConfigError, Environment, File};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -144,6 +144,8 @@ pub struct OutputConfig {
     pub empty_result: EmptyResult,
     pub object_show_data: bool,
     pub object_list_data_columns: ObjectListDataColumns,
+    #[serde(default)]
+    pub object_list_class_columns: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -163,6 +165,7 @@ enum ConfigValueKind {
     TableBands,
     EmptyResult,
     ObjectListDataColumns,
+    StringListMap,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -350,6 +353,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         value_kind: ConfigValueKind::ObjectListDataColumns,
         sensitive: false,
     },
+    ConfigKeyDescriptor {
+        key: "output.object_list_class_columns",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_COLUMNS",
+        value_kind: ConfigValueKind::StringListMap,
+        sensitive: false,
+    },
 ];
 
 impl Default for AppConfig {
@@ -393,6 +403,7 @@ impl Default for AppConfig {
                 empty_result: Defaults::OUTPUT_EMPTY_RESULT,
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
                 object_list_data_columns: Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS,
+                object_list_class_columns: HashMap::new(),
             },
         }
     }
@@ -429,6 +440,7 @@ pub fn config_value_candidates(key: &str) -> Vec<&'static str> {
         ConfigValueKind::TableBands => vec!["auto", "always", "never"],
         ConfigValueKind::EmptyResult => vec!["message", "silent"],
         ConfigValueKind::ObjectListDataColumns => vec!["auto", "preview", "all"],
+        ConfigValueKind::StringListMap => Vec::new(),
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
@@ -498,6 +510,9 @@ fn inspect_config_state_inner(
 }
 
 pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> {
+    if let Some(class_name) = object_list_class_columns_key(key) {
+        return set_persisted_object_list_class_columns(class_name, value);
+    }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
@@ -508,6 +523,13 @@ pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> 
 }
 
 pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
+    if object_list_class_columns_key(key).is_some() {
+        let path = get_config_state().paths.write_target.clone();
+        let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
+        remove_toml_path(&mut root, key);
+        write_toml_file(&path, &root)?;
+        return Ok(path);
+    }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
@@ -580,6 +602,10 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.object_list_data_columns" => {
                 target.output.object_list_data_columns = source.output.object_list_data_columns;
             }
+            "output.object_list_class_columns" => {
+                target.output.object_list_class_columns =
+                    source.output.object_list_class_columns.clone();
+            }
             "output.color" => target.output.color = source.output.color,
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
@@ -620,6 +646,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default(
             "output.object_list_data_columns",
             Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS.to_string(),
+        )?
+        .set_default(
+            "output.object_list_class_columns",
+            HashMap::<String, Vec<String>>::new(),
         )?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
@@ -816,6 +846,9 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.object_list_data_columns" => {
             ConfigValueRef::ObjectListDataColumns(&config.output.object_list_data_columns)
         }
+        "output.object_list_class_columns" => {
+            ConfigValueRef::StringListMap(&config.output.object_list_class_columns)
+        }
         _ => ConfigValueRef::String(""),
     }
 }
@@ -837,6 +870,7 @@ enum ConfigValueRef<'a> {
     TableBands(&'a TableBands),
     EmptyResult(&'a EmptyResult),
     ObjectListDataColumns(&'a ObjectListDataColumns),
+    StringListMap(&'a HashMap<String, Vec<String>>),
 }
 
 fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
@@ -870,6 +904,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::TableBands(value) => value.to_string(),
         ConfigValueRef::EmptyResult(value) => value.to_string(),
         ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
+        ConfigValueRef::StringListMap(value) => serde_json::to_string(value).unwrap_or_default(),
     }
 }
 
@@ -955,8 +990,37 @@ fn parse_config_value(
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
+        ConfigValueKind::StringListMap => {
+            toml::from_str(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
     };
     Ok(value)
+}
+
+fn object_list_class_columns_key(key: &str) -> Option<&str> {
+    key.strip_prefix("output.object_list_class_columns.")
+        .filter(|class_name| !class_name.is_empty())
+}
+
+fn set_persisted_object_list_class_columns(
+    class_name: &str,
+    value: &str,
+) -> Result<PathBuf, AppError> {
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
+    let columns = value
+        .split(',')
+        .map(str::trim)
+        .filter(|column| !column.is_empty())
+        .map(|column| toml::Value::String(column.to_string()))
+        .collect::<Vec<_>>();
+    set_toml_path(
+        &mut root,
+        &format!("output.object_list_class_columns.{class_name}"),
+        toml::Value::Array(columns),
+    )?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
 }
 
 fn parse_output_format(value: &str) -> Result<OutputFormat, AppError> {
@@ -1069,6 +1133,7 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
             "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_COLUMNS",
         ] {
             env::remove_var(var);
         }
@@ -1134,6 +1199,34 @@ mod tests {
         assert_eq!(
             cfg.output.object_list_data_columns,
             ObjectListDataColumns::All
+        );
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn object_list_class_columns_load_from_toml() {
+        clear_env();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[output.object_list_class_columns]
+Hosts = ["contact", "jack", "data.name"]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.output.object_list_class_columns.get("Hosts"),
+            Some(&vec![
+                "contact".to_string(),
+                "jack".to_string(),
+                "data.name".to_string()
+            ])
         );
         clear_env();
     }

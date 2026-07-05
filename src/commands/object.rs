@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use cli_command_derive::CommandArgs;
 use jqesque::Jqesque;
@@ -31,6 +31,7 @@ use crate::terminal::terminal_width;
 const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
 const AUTO_OBJECT_DATA_TARGET_WIDTH: usize = 100;
 const AUTO_OBJECT_DATA_MAX_COLUMN_WIDTH: usize = 24;
+const OBJECT_FIELD_SAMPLE_LIMIT: usize = 100;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -60,6 +61,20 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("List objects"),
                     ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "fields",
+                ObjectFields::default(),
+                CommandDocs {
+                    about: Some("Inspect observed object data fields"),
+                    long_about: Some(
+                        "Sample objects in a class and list observed data paths, value types, counts, and examples. This is useful for classes without schemas.",
+                    ),
+                    examples: Some("--class Hosts --limit 100"),
                 },
             ),
         )
@@ -337,8 +352,9 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        bounded_auto_data_columns, display_json_value, explicit_data_columns, first_seen_data_keys,
-        object_data_column_label, object_list_row, ObjectListColumns,
+        bounded_auto_data_columns, data_column_value, display_json_value, explicit_data_columns,
+        first_seen_data_keys, object_data_column_label, object_field_summaries, object_list_row,
+        ObjectListColumns,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
@@ -421,6 +437,65 @@ mod tests {
         assert_eq!(row.get("contact"), Some(&json!("Entry")));
         assert_eq!(row.get("data.name"), Some(&json!("data-name")));
         assert!(!row.contains_key("Data"));
+    }
+
+    #[test]
+    fn object_list_row_accepts_data_prefixed_column_selectors() {
+        let object = test_object(1, json!({"name": "data-name", "hardware": {"cpu": "M2"}}));
+        let columns = ObjectListColumns {
+            data_keys: vec!["data.name".to_string(), "data.hardware.cpu".to_string()],
+            compact_base: true,
+        };
+
+        let row = object_list_row(&object, &columns)
+            .expect("row should render")
+            .as_object()
+            .cloned()
+            .expect("row should be object");
+
+        assert_eq!(row.get("data.name"), Some(&json!("data-name")));
+        assert_eq!(row.get("data.hardware.cpu"), Some(&json!("M2")));
+    }
+
+    #[test]
+    fn data_column_value_accepts_raw_and_data_prefixed_paths() {
+        let data = json!({"name": "host", "hardware": {"cpu": "M2"}});
+        let data = data.as_object().expect("data object");
+
+        assert_eq!(data_column_value(data, "name"), Some(&json!("host")));
+        assert_eq!(data_column_value(data, "data.name"), Some(&json!("host")));
+        assert_eq!(
+            data_column_value(data, "data.hardware.cpu"),
+            Some(&json!("M2"))
+        );
+    }
+
+    #[test]
+    fn object_field_summaries_collect_nested_data_paths() {
+        let page = PagedResult {
+            items: vec![
+                test_object(1, json!({"contact": "Entry", "hardware": {"cpu": "M2"}})),
+                test_object(2, json!({"contact": "Dell", "hardware": {"cpu": "i3"}})),
+            ],
+            next_cursor: None,
+            limit: None,
+            returned_count: 2,
+        };
+
+        let summaries = object_field_summaries(&page);
+
+        assert_eq!(
+            summaries.get("data.contact").map(|summary| summary.count),
+            Some(2)
+        );
+        assert_eq!(
+            summaries.get("data.hardware.cpu").map(|summary| summary
+                .types
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()),
+            Some(vec!["string"])
+        );
     }
 
     #[test]
@@ -702,6 +777,121 @@ impl CliCommand for ObjectList {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectFields {
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Name of the class to sample",
+        autocomplete = "classes"
+    )]
+    pub class: String,
+    #[option(
+        long = "limit",
+        help = "Maximum number of objects to sample (default: 100)"
+    )]
+    pub limit: Option<usize>,
+}
+
+impl CliCommand for ObjectFields {
+    fn execute(&self, services: &AppServices, _tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(_tokens)?;
+        let sample_limit = query.limit.unwrap_or(OBJECT_FIELD_SAMPLE_LIMIT);
+        let list_query = build_list_query(
+            &[],
+            &[],
+            Some(sample_limit),
+            None,
+            [equals_clause("class", query.class.clone())],
+        )?;
+        let objects = services.gateway().list_objects(&list_query)?;
+        render_object_fields(&objects, sample_limit)
+    }
+}
+
+#[derive(Debug, Default)]
+struct FieldSummary {
+    count: usize,
+    types: BTreeSet<&'static str>,
+    example: Option<String>,
+}
+
+fn render_object_fields(
+    objects: &PagedResult<ResolvedObjectRecord>,
+    sample_limit: usize,
+) -> Result<(), AppError> {
+    let summaries = object_field_summaries(objects);
+    let rows = summaries
+        .into_iter()
+        .map(|(field, summary)| {
+            serde_json::json!({
+                "Field": field,
+                "Count": summary.count,
+                "Types": summary.types.into_iter().collect::<Vec<_>>().join(","),
+                "Example": summary.example.unwrap_or_default(),
+                "Sample": objects.returned_count,
+                "Limit": sample_limit,
+            })
+        })
+        .collect::<Vec<_>>();
+    set_semantic_output(hubuum_filter::OutputEnvelope::rows(
+        rows,
+        vec![
+            "Field".to_string(),
+            "Count".to_string(),
+            "Types".to_string(),
+            "Example".to_string(),
+            "Sample".to_string(),
+            "Limit".to_string(),
+        ],
+    ))?;
+    Ok(())
+}
+
+fn object_field_summaries(
+    objects: &PagedResult<ResolvedObjectRecord>,
+) -> BTreeMap<String, FieldSummary> {
+    let mut summaries = BTreeMap::new();
+    for object in &objects.items {
+        if let Some(data) = object.data.as_ref() {
+            collect_object_field_summaries(data, "data", &mut summaries);
+        }
+    }
+    summaries
+}
+
+fn collect_object_field_summaries(
+    value: &serde_json::Value,
+    path: &str,
+    summaries: &mut BTreeMap<String, FieldSummary>,
+) {
+    if path != "data" {
+        let summary = summaries.entry(path.to_string()).or_default();
+        summary.count += 1;
+        summary.types.insert(json_type_name(value));
+        summary
+            .example
+            .get_or_insert_with(|| data_preview(Some(value)));
+    }
+
+    if let Some(object) = value.as_object() {
+        for (key, value) in object {
+            collect_object_field_summaries(value, &format!("{path}.{key}"), summaries);
+        }
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 fn render_object_list_page(
     services: &AppServices,
     tokens: &CommandTokenizer,
@@ -781,7 +971,10 @@ fn object_list_columns(
         None => match get_config().output.object_list_data_columns {
             ObjectListDataColumns::Preview => (Vec::new(), false),
             ObjectListDataColumns::Auto => {
-                let keys = auto_object_data_columns(services, objects, class_filter)?;
+                let keys = match configured_object_data_columns(class_filter) {
+                    Some(columns) => columns,
+                    None => auto_object_data_columns(services, objects, class_filter)?,
+                };
                 let compact_base = !keys.is_empty();
                 (keys, compact_base)
             }
@@ -792,6 +985,16 @@ fn object_list_columns(
         data_keys,
         compact_base,
     })
+}
+
+fn configured_object_data_columns(class_filter: Option<&str>) -> Option<Vec<String>> {
+    let class_name = class_filter?;
+    let columns = get_config()
+        .output
+        .object_list_class_columns
+        .get(class_name)?
+        .clone();
+    (!columns.is_empty()).then_some(columns)
 }
 
 fn auto_object_data_columns(
@@ -960,7 +1163,7 @@ fn object_list_row(
         );
     } else if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
         for key in &columns.data_keys {
-            if let Some(value) = data.get(key) {
+            if let Some(value) = data_column_value(data, key) {
                 row.insert(
                     object_data_column_label(key),
                     serde_json::Value::String(data_preview(Some(value))),
@@ -981,6 +1184,10 @@ fn object_list_row(
 }
 
 fn object_data_column_label(key: &str) -> String {
+    if key.starts_with("data.") {
+        return key.to_string();
+    }
+
     match key {
         "id" | "name" | "description" | "namespace" | "class" | "created_at" | "updated_at"
         | "Name" | "Description" | "Namespace" | "Class" | "Data" | "Created" | "Updated" => {
@@ -988,6 +1195,18 @@ fn object_data_column_label(key: &str) -> String {
         }
         _ => key.to_string(),
     }
+}
+
+fn data_column_value<'a>(
+    data: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    let key = key.strip_prefix("data.").unwrap_or(key);
+    let mut current = data.get(key.split('.').next()?)?;
+    for part in key.split('.').skip(1) {
+        current = current.as_object()?.get(part)?;
+    }
+    Some(current)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
