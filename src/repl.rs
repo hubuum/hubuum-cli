@@ -660,6 +660,9 @@ fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Ve
         };
         paths.push(path.clone());
         collect_schema_paths(property_schema, &path, paths);
+        if let Some(items) = property_schema.get("items") {
+            collect_schema_paths(items, &format!("{path}[*]"), paths);
+        }
     }
 }
 
@@ -1023,6 +1026,15 @@ mod tests {
                     "properties": {
                         "cpu": {"type": "string"}
                     }
+                },
+                "interfaces": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "ipv4": {"type": "string"}
+                        }
+                    }
                 }
             }
         });
@@ -1032,7 +1044,9 @@ mod tests {
             vec![
                 "contact".to_string(),
                 "hardware".to_string(),
-                "hardware.cpu".to_string()
+                "hardware.cpu".to_string(),
+                "interfaces".to_string(),
+                "interfaces[*].ipv4".to_string()
             ]
         );
     }

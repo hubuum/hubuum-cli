@@ -32,6 +32,7 @@ const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
 const AUTO_OBJECT_DATA_TARGET_WIDTH: usize = 100;
 const AUTO_OBJECT_DATA_MAX_COLUMN_WIDTH: usize = 24;
 const OBJECT_FIELD_SAMPLE_LIMIT: usize = 100;
+const OBJECT_FIELD_DEPTH: usize = 6;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -352,9 +353,9 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        bounded_auto_data_columns, data_column_value, display_json_value, explicit_data_columns,
-        first_seen_data_keys, object_data_column_label, object_field_summaries, object_list_row,
-        ObjectListColumns,
+        bounded_auto_data_columns, data_column_display_value, data_column_value,
+        display_json_value, explicit_data_columns, first_seen_data_keys, object_data_column_label,
+        object_field_summaries, object_list_row, ObjectListColumns, OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
@@ -471,6 +472,28 @@ mod tests {
     }
 
     #[test]
+    fn data_column_display_value_accepts_array_wildcards_and_indexes() {
+        let data = json!({
+            "network": {
+                "interfaces": [
+                    {"ipv4": "127.0.0.1"},
+                    {"ipv4": "127.0.0.2"}
+                ]
+            }
+        });
+        let data = data.as_object().expect("data object");
+
+        assert_eq!(
+            data_column_display_value(data, "data.network.interfaces[*].ipv4"),
+            Some("127.0.0.1,127.0.0.2".to_string())
+        );
+        assert_eq!(
+            data_column_display_value(data, "data.network.interfaces[1].ipv4"),
+            Some("127.0.0.2".to_string())
+        );
+    }
+
+    #[test]
     fn object_field_summaries_collect_nested_data_paths() {
         let page = PagedResult {
             items: vec![
@@ -482,7 +505,7 @@ mod tests {
             returned_count: 2,
         };
 
-        let summaries = object_field_summaries(&page);
+        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
 
         assert_eq!(
             summaries.get("data.contact").map(|summary| summary.count),
@@ -496,6 +519,40 @@ mod tests {
                 .collect::<Vec<_>>()),
             Some(vec!["string"])
         );
+    }
+
+    #[test]
+    fn object_field_summaries_expand_array_item_paths() {
+        let page = PagedResult {
+            items: vec![test_object(
+                1,
+                json!({"network": {"interfaces": [{"ipv4": "127.0.0.1"}]}}),
+            )],
+            next_cursor: None,
+            limit: None,
+            returned_count: 1,
+        };
+
+        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
+
+        assert!(summaries.contains_key("data.network.interfaces[*].ipv4"));
+        assert!(!summaries.contains_key("data.network"));
+        assert!(!summaries.contains_key("data.network.interfaces"));
+    }
+
+    #[test]
+    fn object_field_summaries_can_include_containers() {
+        let page = PagedResult {
+            items: vec![test_object(1, json!({"hardware": {"cpu": "M2"}}))],
+            next_cursor: None,
+            limit: None,
+            returned_count: 1,
+        };
+
+        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, true);
+
+        assert!(summaries.contains_key("data.hardware"));
+        assert!(summaries.contains_key("data.hardware.cpu"));
     }
 
     #[test]
@@ -791,6 +848,17 @@ pub struct ObjectFields {
         help = "Maximum number of objects to sample (default: 100)"
     )]
     pub limit: Option<usize>,
+    #[option(
+        long = "depth",
+        help = "Maximum data path depth to inspect (default: 6)"
+    )]
+    pub depth: Option<usize>,
+    #[option(
+        long = "containers",
+        help = "Include object and array container paths",
+        flag = true
+    )]
+    pub containers: Option<bool>,
 }
 
 impl CliCommand for ObjectFields {
@@ -805,7 +873,12 @@ impl CliCommand for ObjectFields {
             [equals_clause("class", query.class.clone())],
         )?;
         let objects = services.gateway().list_objects(&list_query)?;
-        render_object_fields(&objects, sample_limit)
+        render_object_fields(
+            &objects,
+            sample_limit,
+            query.depth.unwrap_or(OBJECT_FIELD_DEPTH),
+            query.containers.unwrap_or(false),
+        )
     }
 }
 
@@ -819,8 +892,10 @@ struct FieldSummary {
 fn render_object_fields(
     objects: &PagedResult<ResolvedObjectRecord>,
     sample_limit: usize,
+    depth: usize,
+    include_containers: bool,
 ) -> Result<(), AppError> {
-    let summaries = object_field_summaries(objects);
+    let summaries = object_field_summaries(objects, depth, include_containers);
     let rows = summaries
         .into_iter()
         .map(|(field, summary)| {
@@ -850,11 +925,20 @@ fn render_object_fields(
 
 fn object_field_summaries(
     objects: &PagedResult<ResolvedObjectRecord>,
+    depth: usize,
+    include_containers: bool,
 ) -> BTreeMap<String, FieldSummary> {
     let mut summaries = BTreeMap::new();
     for object in &objects.items {
         if let Some(data) = object.data.as_ref() {
-            collect_object_field_summaries(data, "data", &mut summaries);
+            collect_object_field_summaries(
+                data,
+                "data",
+                0,
+                depth,
+                include_containers,
+                &mut summaries,
+            );
         }
     }
     summaries
@@ -863,9 +947,16 @@ fn object_field_summaries(
 fn collect_object_field_summaries(
     value: &serde_json::Value,
     path: &str,
+    depth: usize,
+    max_depth: usize,
+    include_containers: bool,
     summaries: &mut BTreeMap<String, FieldSummary>,
 ) {
-    if path != "data" {
+    let is_container = matches!(
+        value,
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+    );
+    if path != "data" && (!is_container || include_containers) {
         let summary = summaries.entry(path.to_string()).or_default();
         summary.count += 1;
         summary.types.insert(json_type_name(value));
@@ -874,9 +965,31 @@ fn collect_object_field_summaries(
             .get_or_insert_with(|| data_preview(Some(value)));
     }
 
+    if depth >= max_depth {
+        return;
+    }
+
     if let Some(object) = value.as_object() {
         for (key, value) in object {
-            collect_object_field_summaries(value, &format!("{path}.{key}"), summaries);
+            collect_object_field_summaries(
+                value,
+                &format!("{path}.{key}"),
+                depth + 1,
+                max_depth,
+                include_containers,
+                summaries,
+            );
+        }
+    } else if let Some(array) = value.as_array() {
+        for item in array {
+            collect_object_field_summaries(
+                item,
+                &format!("{path}[*]"),
+                depth + 1,
+                max_depth,
+                include_containers,
+                summaries,
+            );
         }
     }
 }
@@ -1163,10 +1276,10 @@ fn object_list_row(
         );
     } else if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
         for key in &columns.data_keys {
-            if let Some(value) = data_column_value(data, key) {
+            if let Some(value) = data_column_display_value(data, key) {
                 row.insert(
                     object_data_column_label(key),
-                    serde_json::Value::String(data_preview(Some(value))),
+                    serde_json::Value::String(value),
                 );
             }
         }
@@ -1197,16 +1310,108 @@ fn object_data_column_label(key: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn data_column_value<'a>(
     data: &'a serde_json::Map<String, serde_json::Value>,
     key: &str,
 ) -> Option<&'a serde_json::Value> {
-    let key = key.strip_prefix("data.").unwrap_or(key);
-    let mut current = data.get(key.split('.').next()?)?;
-    for part in key.split('.').skip(1) {
-        current = current.as_object()?.get(part)?;
+    data_column_values(data, key).into_iter().next()
+}
+
+fn data_column_display_value(
+    data: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    let values = data_column_values(data, key);
+    match values.as_slice() {
+        [] => None,
+        [value] => Some(data_preview(Some(value))),
+        many => Some(
+            many.iter()
+                .map(|value| data_preview(Some(value)))
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
     }
-    Some(current)
+}
+
+fn data_column_values<'a>(
+    data: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<&'a serde_json::Value> {
+    let key = key.strip_prefix("data.").unwrap_or(key);
+    let mut current = Vec::new();
+    for (index, part) in key.split('.').enumerate() {
+        if index == 0 {
+            current = select_data_part_from_object(data, part);
+        } else {
+            current = select_data_part(current, part);
+        }
+        if current.is_empty() {
+            break;
+        }
+    }
+    current
+}
+
+fn select_data_part_from_object<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    part: &str,
+) -> Vec<&'a serde_json::Value> {
+    let (field, selectors) = split_data_selector_part(part);
+    let Some(value) = object.get(field) else {
+        return Vec::new();
+    };
+    apply_data_selectors(vec![value], selectors)
+}
+
+fn select_data_part<'a>(
+    values: Vec<&'a serde_json::Value>,
+    part: &str,
+) -> Vec<&'a serde_json::Value> {
+    let (field, selectors) = split_data_selector_part(part);
+    let mut selected = Vec::new();
+    for value in values {
+        if let Some(object) = value.as_object() {
+            if let Some(value) = object.get(field) {
+                selected.push(value);
+            }
+        }
+    }
+    apply_data_selectors(selected, selectors)
+}
+
+fn split_data_selector_part(part: &str) -> (&str, &str) {
+    part.find('[')
+        .map(|index| (&part[..index], &part[index..]))
+        .unwrap_or((part, ""))
+}
+
+fn apply_data_selectors<'a>(
+    mut values: Vec<&'a serde_json::Value>,
+    mut selectors: &str,
+) -> Vec<&'a serde_json::Value> {
+    while let Some(inner) = selectors.strip_prefix('[') {
+        let Some(end) = inner.find(']') else {
+            break;
+        };
+        let selector = &inner[..end];
+        let mut next = Vec::new();
+        for value in values {
+            if let Some(array) = value.as_array() {
+                if selector == "*" {
+                    next.extend(array);
+                } else if let Ok(index) = selector.parse::<usize>() {
+                    if let Some(value) = array.get(index) {
+                        next.push(value);
+                    }
+                }
+            }
+        }
+        values = next;
+        selectors = &inner[end + 1..];
+    }
+    values
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
