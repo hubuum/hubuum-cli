@@ -946,6 +946,7 @@ dependencies = [
  "comfy-table",
  "config",
  "dirs",
+ "hubuum-filter",
  "hubuum_client",
  "jqesque",
  "jsonpath-rust",
@@ -970,6 +971,15 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hubuum-filter"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "shlex 1.3.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

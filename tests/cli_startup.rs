@@ -41,3 +41,21 @@ fn hidden_command_alias_still_works() {
         .success()
         .stdout(predicate::str::contains("Available commands"));
 }
+
+#[test]
+fn hidden_command_alias_supports_pipeline_stages() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["--command", "help | grep Available | count"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1"));
+}
+
+#[test]
+fn direct_command_errors_exit_nonzero() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "definitely-not-a-command"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Command not found"));
+}

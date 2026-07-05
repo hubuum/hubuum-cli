@@ -45,6 +45,9 @@ pub enum AppError {
     #[error("Regular expression error: {0}")]
     RegexError(#[from] regex::Error),
 
+    #[error(transparent)]
+    PipelineError(#[from] hubuum_filter::PipelineError),
+
     #[error("File locking error")]
     LockError,
 

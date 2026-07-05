@@ -1,0 +1,11 @@
+[package]
+name = "hubuum-filter"
+version = "0.1.0"
+edition = "2021"
+description = "Pipeline parsing and filtering primitives for Hubuum CLI output"
+license = "MIT"
+
+[dependencies]
+regex = "1"
+shlex = "1"
+thiserror = "2"

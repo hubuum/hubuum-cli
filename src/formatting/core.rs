@@ -2,12 +2,17 @@ use std::fmt::Display;
 
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS,
-    presets::{ASCII_FULL, ASCII_MARKDOWN, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
-    ContentArrangement, Table,
+    presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
+    ColumnConstraint, ContentArrangement, Table, Width,
 };
 use serde::Serialize;
 
-use crate::{config::get_config, errors::AppError, models::TableStyle, output::append_line};
+use crate::{
+    config::get_config,
+    errors::AppError,
+    models::{EmptyResult, TableStyle, TableWidth, TableWrap},
+    output::append_line,
+};
 
 pub trait OutputFormatter: Sized + Serialize + Clone {
     fn format(&self) -> Result<Self, AppError>;
@@ -51,7 +56,9 @@ where
 {
     fn format(&self) -> Result<Self, AppError> {
         if self.is_empty() {
-            append_line("No results.")?;
+            if get_config().output.empty_result == EmptyResult::Message {
+                append_line("No results.")?;
+            }
             return Ok(self.clone());
         }
 
@@ -101,12 +108,17 @@ fn render_table<T>(rows: &[T]) -> Result<String, AppError>
 where
     T: TableRenderable,
 {
+    let config = get_config();
     let mut table = Table::new();
-    table
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(T::headers());
+    table.set_header(T::headers());
 
-    apply_table_style(&mut table, &get_config().output.table_style);
+    apply_table_style(&mut table, &config.output.table_style);
+    apply_table_layout(
+        &mut table,
+        &config.output.table_width,
+        &config.output.table_wrap,
+        T::headers().len(),
+    );
 
     for row in rows {
         table.add_row(row.row());
@@ -126,9 +138,110 @@ fn apply_table_style(table: &mut Table, style: &TableStyle) {
         TableStyle::Markdown => {
             table.load_preset(ASCII_MARKDOWN);
         }
+        TableStyle::Plain => {
+            table.load_preset(NOTHING);
+        }
         TableStyle::Rounded => {
             table.load_preset(UTF8_FULL);
             table.apply_modifier(UTF8_ROUND_CORNERS);
         }
+    }
+}
+
+fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, columns: usize) {
+    let arrangement = match wrap {
+        TableWrap::Never => ContentArrangement::Disabled,
+        TableWrap::Auto | TableWrap::Fixed(_) => match width {
+            TableWidth::Full => ContentArrangement::DynamicFullWidth,
+            TableWidth::Auto | TableWidth::Fixed(_) => ContentArrangement::Dynamic,
+        },
+    };
+    table.set_content_arrangement(arrangement);
+
+    match width {
+        TableWidth::Auto => {}
+        TableWidth::Full => {
+            if let Some(width) = terminal_width() {
+                table.set_width(width);
+            }
+        }
+        TableWidth::Fixed(width) => {
+            table.set_width(*width);
+        }
+    }
+
+    if let TableWrap::Fixed(width) = wrap {
+        table.set_constraints(std::iter::repeat_n(
+            ColumnConstraint::UpperBoundary(Width::Fixed(*width)),
+            columns,
+        ));
+    }
+}
+
+fn terminal_width() -> Option<u16> {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OutputFormatter, TableRenderable};
+    use crate::{
+        config::{init_config, AppConfig},
+        models::{EmptyResult, TableStyle},
+        output::{reset_output, take_output},
+    };
+    use serde::Serialize;
+    use serial_test::serial;
+
+    #[derive(Clone, Serialize)]
+    struct Row {
+        name: &'static str,
+        value: &'static str,
+    }
+
+    impl TableRenderable for Row {
+        fn headers() -> Vec<&'static str> {
+            vec!["name", "value"]
+        }
+
+        fn row(&self) -> Vec<String> {
+            vec![self.name.to_string(), self.value.to_string()]
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn empty_table_can_be_silent() {
+        let mut config = AppConfig::default();
+        config.output.empty_result = EmptyResult::Silent;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+
+        Vec::<Row>::new().format_noreturn().expect("format");
+
+        assert!(take_output().expect("snapshot").is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn plain_table_style_removes_borders() {
+        let mut config = AppConfig::default();
+        config.output.table_style = TableStyle::Plain;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+
+        vec![Row {
+            name: "alpha",
+            value: "one",
+        }]
+        .format_noreturn()
+        .expect("format");
+
+        let rendered = take_output().expect("snapshot").render();
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains('+'));
+        assert!(!rendered.contains('│'));
     }
 }

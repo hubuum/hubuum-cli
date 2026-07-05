@@ -38,13 +38,17 @@ async fn main() -> Result<(), AppError> {
     match &mode {
         cli::StartupMode::Command(command) if dispatch::can_execute_offline(command) => {
             let outcome = dispatch::execute_offline_line(catalog.as_ref(), command);
-            render_dispatch_result(&sessionless(), outcome);
+            if !render_dispatch_result(&sessionless(), outcome) {
+                std::process::exit(1);
+            }
             return Ok(());
         }
         cli::StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
             let session = SharedSession::new();
             let outcomes = execute_offline_script(catalog.as_ref(), filename).await;
-            render_script_result(&session, outcomes);
+            if !render_script_result(&session, outcomes) {
+                std::process::exit(1);
+            }
             return Ok(());
         }
         cli::StartupMode::Repl | cli::StartupMode::Command(_) | cli::StartupMode::Script(_) => {}
@@ -62,13 +66,17 @@ async fn main() -> Result<(), AppError> {
 
     if let cli::StartupMode::Command(command) = mode {
         let outcome = dispatch::execute_line(runtime.clone(), &session, &command).await;
-        render_dispatch_result(&session, outcome);
+        if !render_dispatch_result(&session, outcome) {
+            std::process::exit(1);
+        }
         return Ok(());
     }
 
     if let cli::StartupMode::Script(filename) = mode {
         let outcomes = dispatch::execute_script(runtime.clone(), &session, &filename).await;
-        render_script_result(&session, outcomes);
+        if !render_script_result(&session, outcomes) {
+            std::process::exit(1);
+        }
         return Ok(());
     }
 
@@ -82,24 +90,34 @@ fn sessionless() -> SharedSession {
 fn render_dispatch_result(
     session: &SharedSession,
     result: Result<catalog::CommandOutcome, AppError>,
-) {
+) -> bool {
     match result {
-        Ok(outcome) => render_outcome(session, outcome),
-        Err(err) => render_snapshot(dispatch::render_error(err)),
+        Ok(outcome) => {
+            render_outcome(session, outcome);
+            true
+        }
+        Err(err) => {
+            render_snapshot(dispatch::render_error(err));
+            false
+        }
     }
 }
 
 fn render_script_result(
     session: &SharedSession,
     outcomes: Result<Vec<catalog::CommandOutcome>, AppError>,
-) {
+) -> bool {
     match outcomes {
         Ok(outcomes) => {
             for outcome in outcomes {
                 render_outcome(session, outcome);
             }
+            true
         }
-        Err(err) => render_snapshot(dispatch::render_error(err)),
+        Err(err) => {
+            render_snapshot(dispatch::render_error(err));
+            false
+        }
     }
 }
 

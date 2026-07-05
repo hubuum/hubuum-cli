@@ -8,8 +8,7 @@ use crate::catalog::{
 };
 use crate::errors::AppError;
 use crate::output::{
-    add_error, add_warning, append_line, clear_filter, reset_output, set_filter, take_output,
-    OutputSnapshot,
+    add_error, add_warning, append_line, reset_output, set_pipeline, take_output, OutputSnapshot,
 };
 
 pub async fn execute_line(
@@ -250,20 +249,9 @@ fn render_help_from_catalog(
 }
 
 fn process_filter(line: &str) -> Result<String, AppError> {
-    if let Some(pipe_index) = unquoted_pipe_index(line) {
-        let command = line[..pipe_index].trim();
-        let filter = line[pipe_index + 1..].trim();
-        let (invert, pattern) = if let Some(stripped) = filter.strip_prefix('!') {
-            (true, stripped.trim())
-        } else {
-            (false, filter.trim())
-        };
-        set_filter(pattern.to_string(), invert)?;
-        Ok(command.to_string())
-    } else {
-        clear_filter()?;
-        Ok(line.to_string())
-    }
+    let (command, pipeline) = hubuum_filter::split_pipeline(line)?;
+    set_pipeline(pipeline)?;
+    Ok(command)
 }
 
 fn invocation_parts(line: &str) -> Result<Vec<String>, AppError> {
@@ -296,29 +284,6 @@ fn tokenizer_for_resolved(
     crate::tokenizer::CommandTokenizer::new(line, &cmd_name, &option_defs)
 }
 
-fn unquoted_pipe_index(line: &str) -> Option<usize> {
-    let mut escaped = false;
-    let mut single_quoted = false;
-    let mut double_quoted = false;
-
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if !single_quoted => escaped = true,
-            '\'' if !double_quoted => single_quoted = !single_quoted,
-            '"' if !single_quoted => double_quoted = !double_quoted,
-            '|' if !single_quoted && !double_quoted => return Some(index),
-            _ => {}
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use serial_test::serial;
@@ -338,6 +303,21 @@ mod tests {
 
         let snapshot = take_output().expect("snapshot should capture filtered output");
         assert_eq!(snapshot.lines, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn process_filter_applies_multiple_pipe_stages() {
+        reset_output().expect("buffer should reset");
+        let line = process_filter("list | reject beta | sort line desc | head 1")
+            .expect("filter should parse");
+        assert_eq!(line, "list");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+        append_line("gamma").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture filtered output");
+        assert_eq!(snapshot.lines, vec!["gamma".to_string()]);
     }
 
     #[test]

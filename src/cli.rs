@@ -1,6 +1,6 @@
 // src/cli.rs
 use crate::config::AppConfig;
-use crate::models::Protocol;
+use crate::models::{EmptyResult, Protocol, TableStyle, TableWidth, TableWrap};
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
 use clap::{value_parser, Arg, ArgMatches, Command};
@@ -136,6 +136,36 @@ pub fn build_cli() -> Command {
                 .value_parser(["auto", "always", "never"])
                 .env("HUBUUM_CLI__OUTPUT__COLOR")
                 .help("Control colored output (auto, always, never)"),
+        )
+        .arg(
+            Arg::new("table_style")
+                .long("table-style")
+                .value_name("STYLE")
+                .value_parser(["ascii", "compact", "markdown", "plain", "rounded"])
+                .env("HUBUUM_CLI__OUTPUT__TABLE_STYLE")
+                .help("Set table borders (ascii, compact, markdown, plain, rounded)"),
+        )
+        .arg(
+            Arg::new("table_width")
+                .long("table-width")
+                .value_name("WIDTH")
+                .env("HUBUUM_CLI__OUTPUT__TABLE_WIDTH")
+                .help("Set table width (auto, full, or a number)"),
+        )
+        .arg(
+            Arg::new("table_wrap")
+                .long("table-wrap")
+                .value_name("WIDTH")
+                .env("HUBUUM_CLI__OUTPUT__TABLE_WRAP")
+                .help("Set table cell wrapping (auto, never, or a number)"),
+        )
+        .arg(
+            Arg::new("empty_result")
+                .long("empty-result")
+                .value_name("MODE")
+                .value_parser(["message", "silent"])
+                .env("HUBUUM_CLI__OUTPUT__EMPTY_RESULT")
+                .help("Set empty table output (message or silent)"),
         )
         .arg(
             Arg::new("command")
@@ -290,6 +320,10 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--background-poll-interval"
             | "--relations-max-depth"
             | "--color"
+            | "--table-style"
+            | "--table-width"
+            | "--table-wrap"
+            | "--empty-result"
     )
 }
 
@@ -395,6 +429,18 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(color) = get_command_line_value::<String>(matches, "color") {
         config.output.color = color.parse().unwrap_or(crate::models::OutputColor::Auto);
     }
+    if let Some(table_style) = get_command_line_value::<String>(matches, "table_style") {
+        config.output.table_style = table_style.parse().unwrap_or(TableStyle::Rounded);
+    }
+    if let Some(table_width) = get_command_line_value::<String>(matches, "table_width") {
+        config.output.table_width = table_width.parse().unwrap_or(TableWidth::Auto);
+    }
+    if let Some(table_wrap) = get_command_line_value::<String>(matches, "table_wrap") {
+        config.output.table_wrap = table_wrap.parse().unwrap_or(TableWrap::Auto);
+    }
+    if let Some(empty_result) = get_command_line_value::<String>(matches, "empty_result") {
+        config.output.empty_result = empty_result.parse().unwrap_or(EmptyResult::Message);
+    }
 }
 
 #[cfg(test)]
@@ -463,11 +509,37 @@ mod tests {
     }
 
     #[test]
+    fn update_config_from_cli_applies_table_flags() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--table-style",
+                "plain",
+                "--table-width",
+                "100",
+                "--table-wrap",
+                "never",
+                "--empty-result",
+                "silent",
+            ])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(config.output.table_style, TableStyle::Plain);
+        assert_eq!(config.output.table_width, TableWidth::Fixed(100));
+        assert_eq!(config.output.table_wrap, TableWrap::Never);
+        assert_eq!(config.output.empty_result, EmptyResult::Silent);
+    }
+
+    #[test]
     fn split_startup_args_extracts_direct_command_after_global_flags() {
         let startup = split_startup_args([
             "hubuum-cli",
             "--hostname",
             "api.example.com",
+            "--table-style",
+            "plain",
             "object",
             "list",
             "--limit",
@@ -476,7 +548,13 @@ mod tests {
 
         assert_eq!(
             startup.clap_args,
-            vec!["hubuum-cli", "--hostname", "api.example.com"]
+            vec![
+                "hubuum-cli",
+                "--hostname",
+                "api.example.com",
+                "--table-style",
+                "plain"
+            ]
         );
         assert_eq!(
             startup.mode,

@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use anstream::AutoStream;
+use hubuum_filter::PipeStage;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::Serialize;
 use std::fmt::Display;
 use std::fmt::Write as FmtWrite;
@@ -62,7 +62,7 @@ pub fn print_rendered(text: &str) -> Result<(), AppError> {
 #[derive(Debug, Default)]
 pub struct OutputBuffer {
     lines: Vec<String>,
-    filter: Option<(Regex, bool)>,
+    pipeline: Vec<PipeStage>,
     warnings: Vec<String>,
     errors: Vec<String>,
     next_page_command: Option<String>,
@@ -85,47 +85,36 @@ impl OutputBuffer {
         self.lines.push(line);
     }
 
-    fn set_filter(&mut self, pattern: String, invert: bool) -> Result<(), AppError> {
-        let regex = Regex::new(&pattern)?;
-        debug!("Setting filter: pattern='{pattern}', invert={invert}");
-        self.filter = Some((regex, invert));
-        Ok(())
+    fn set_pipeline(&mut self, stages: Vec<PipeStage>) {
+        debug!("Setting output pipeline: {stages:?}");
+        self.pipeline = stages;
     }
 
     fn set_next_page_command(&mut self, command: String) {
         self.next_page_command = Some(command);
     }
 
-    fn clear_filter(&mut self) {
-        self.filter = None;
-    }
-
     fn reset(&mut self) {
         self.lines.clear();
         self.warnings.clear();
         self.errors.clear();
-        self.filter = None;
+        self.pipeline.clear();
         self.next_page_command = None;
     }
 
-    fn take_snapshot(&mut self) -> OutputSnapshot {
-        let lines = if let Some((regex, invert)) = &self.filter {
-            self.lines
-                .iter()
-                .filter(|line| regex.is_match(line) != *invert)
-                .cloned()
-                .collect()
-        } else {
-            self.lines.clone()
-        };
+    fn snapshot(&self) -> Result<OutputSnapshot, AppError> {
+        let lines = PipeStage::apply_all(&self.pipeline, self.lines.clone())?;
 
-        let snapshot = OutputSnapshot {
+        Ok(OutputSnapshot {
             lines,
             warnings: self.warnings.clone(),
             errors: self.errors.clone(),
             next_page_command: self.next_page_command.clone(),
-        };
+        })
+    }
 
+    fn take_snapshot(&mut self) -> Result<OutputSnapshot, AppError> {
+        let snapshot = self.snapshot();
         self.reset();
         snapshot
     }
@@ -209,24 +198,17 @@ pub fn reset_output() -> Result<(), AppError> {
 }
 
 pub fn take_output() -> Result<OutputSnapshot, AppError> {
-    Ok(OUTPUT_BUFFER
-        .lock()
-        .map_err(|_| AppError::LockError)?
-        .take_snapshot())
-}
-
-pub fn set_filter(pattern: String, invert: bool) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?
-        .set_filter(pattern, invert)
+        .take_snapshot()
 }
 
-pub fn clear_filter() -> Result<(), AppError> {
+pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?
-        .clear_filter();
+        .set_pipeline(stages);
     Ok(())
 }
 
@@ -242,17 +224,17 @@ pub fn set_next_page_command(command: String) -> Result<(), AppError> {
 mod tests {
     use serial_test::serial;
 
-    use super::{append_line, reset_output, set_filter, take_output};
+    use super::{append_line, reset_output, set_pipeline, take_output};
     use crate::config::{init_config, AppConfig};
     use crate::models::OutputColor;
-
+    use hubuum_filter::PipeStage;
     #[test]
     #[serial]
     fn take_output_applies_filter_and_resets_buffer() {
         reset_output().expect("buffer should reset");
         append_line("alpha").expect("line should append");
         append_line("beta").expect("line should append");
-        set_filter("^b".to_string(), false).expect("filter should set");
+        set_pipeline(vec![PipeStage::Grep("^b".to_string())]).expect("pipeline should set");
 
         let snapshot = take_output().expect("snapshot should be available");
         assert_eq!(snapshot.lines, vec!["beta".to_string()]);
