@@ -945,6 +945,7 @@ dependencies = [
  "cli_command_derive",
  "comfy-table",
  "config",
+ "crossterm",
  "dirs",
  "hubuum-filter",
  "hubuum_client",

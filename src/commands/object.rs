@@ -26,6 +26,7 @@ use crate::output::{add_warning, append_key_value, append_line, set_semantic_out
 use crate::services::{
     AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
 };
+use crate::terminal::terminal_width;
 
 const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
 const AUTO_OBJECT_DATA_TARGET_WIDTH: usize = 100;
@@ -847,9 +848,7 @@ fn bounded_auto_data_columns(
 }
 
 fn auto_object_data_target_width() -> usize {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
+    terminal_width()
         .filter(|width| *width >= 60)
         .unwrap_or(AUTO_OBJECT_DATA_TARGET_WIDTH)
 }

@@ -23,6 +23,7 @@ mod models;
 mod output;
 mod repl;
 mod services;
+mod terminal;
 mod theme;
 mod tokenizer;
 

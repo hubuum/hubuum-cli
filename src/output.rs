@@ -19,6 +19,7 @@ use log::debug;
 use crate::config::get_config;
 use crate::errors::AppError;
 use crate::models::{EmptyResult, TableBands, TableStyle, TableWidth, TableWrap};
+use crate::terminal::terminal_width;
 use crate::theme::{paint, ThemeRole};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
@@ -560,10 +561,7 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
     match width {
         TableWidth::Auto => {}
         TableWidth::Full => {
-            if let Some(width) = std::env::var("COLUMNS")
-                .ok()
-                .and_then(|value| value.parse::<u16>().ok())
-            {
+            if let Some(width) = terminal_width().and_then(|width| u16::try_from(width).ok()) {
                 table.set_width(width);
             }
         }
