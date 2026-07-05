@@ -193,6 +193,7 @@ impl AppRuntime {
             .map(|badge| format!("{badge} "))
             .unwrap_or_default();
         let pagination = pagination.unwrap_or_default();
+        let base = crate::theme::paint(crate::theme::ThemeRole::Prompt, base);
         if scope.is_empty() {
             format!("{status}{background}{base}{pagination} > ")
         } else {

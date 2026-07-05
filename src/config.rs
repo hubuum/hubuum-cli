@@ -9,7 +9,7 @@ use std::sync::RwLock;
 use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
-use crate::models::{OutputFormat, Protocol, TableStyle};
+use crate::models::{OutputColor, OutputFormat, Protocol, TableStyle};
 
 static CONFIG: Lazy<RwLock<AppConfig>> = Lazy::new(|| RwLock::new(AppConfig::default()));
 static CONFIG_STATE: Lazy<RwLock<Option<ConfigState>>> = Lazy::new(|| RwLock::new(None));
@@ -132,6 +132,7 @@ pub struct RelationsConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputConfig {
     pub format: OutputFormat,
+    pub color: OutputColor,
     pub padding: i8,
     pub table_style: TableStyle,
     pub object_show_data: bool,
@@ -147,6 +148,7 @@ enum ConfigValueKind {
     I32,
     Protocol,
     OutputFormat,
+    OutputColor,
     TableStyle,
 }
 
@@ -273,6 +275,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.color",
+        cli_arg: Some("color"),
+        env_var: "HUBUUM_CLI__OUTPUT__COLOR",
+        value_kind: ConfigValueKind::OutputColor,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.padding",
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__PADDING",
@@ -327,6 +336,7 @@ impl Default for AppConfig {
             },
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
+                color: Defaults::OUTPUT_COLOR,
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
@@ -488,6 +498,7 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.object_show_data" => {
                 target.output.object_show_data = source.output.object_show_data;
             }
+            "output.color" => target.output.color = source.output.color,
             _ => {}
         }
     }
@@ -500,6 +511,7 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
     let mut builder = Config::builder()
         // Start with default values
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
+        .set_default("output.color", Defaults::OUTPUT_COLOR.to_string())?
         .set_default("output.padding", Defaults::OUTPUT_PADDING)?
         .set_default(
             "output.table_style",
@@ -684,6 +696,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "relations.ignore_same_class" => ConfigValueRef::Bool(config.relations.ignore_same_class),
         "relations.max_depth" => ConfigValueRef::I32(config.relations.max_depth),
         "output.format" => ConfigValueRef::OutputFormat(&config.output.format),
+        "output.color" => ConfigValueRef::OutputColor(&config.output.color),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
         "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
@@ -701,6 +714,7 @@ enum ConfigValueRef<'a> {
     I32(i32),
     Protocol(&'a Protocol),
     OutputFormat(&'a OutputFormat),
+    OutputColor(&'a OutputColor),
     TableStyle(&'a TableStyle),
 }
 
@@ -728,6 +742,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
             OutputFormat::Json => "json".to_string(),
             OutputFormat::Text => "text".to_string(),
         },
+        ConfigValueRef::OutputColor(value) => value.to_string(),
         ConfigValueRef::TableStyle(value) => value.to_string(),
     }
 }
@@ -772,6 +787,12 @@ fn parse_config_value(
         ConfigValueKind::OutputFormat => {
             toml::Value::String(parse_output_format(value)?.to_string().to_lowercase())
         }
+        ConfigValueKind::OutputColor => toml::Value::String(
+            value
+                .parse::<OutputColor>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
         ConfigValueKind::TableStyle => toml::Value::String(
             value
                 .parse::<TableStyle>()
@@ -882,6 +903,7 @@ mod tests {
             "HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE",
             "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
             "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
+            "HUBUUM_CLI__OUTPUT__COLOR",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
         ] {
@@ -910,6 +932,7 @@ mod tests {
         env::set_var("HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE", "true");
         env::set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
         env::set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
+        env::set_var("HUBUUM_CLI__OUTPUT__COLOR", "never");
         env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
 
         // 2. load and assert
@@ -932,6 +955,7 @@ mod tests {
         assert!(cfg.repl.enter_fetches_next_page);
         assert!(!cfg.relations.ignore_same_class);
         assert_eq!(cfg.relations.max_depth, 4);
+        assert_eq!(cfg.output.color, crate::models::OutputColor::Never);
         assert!(cfg.output.object_show_data);
         clear_env();
     }
@@ -966,6 +990,7 @@ mod tests {
             cfg.output.object_show_data,
             baseline.output.object_show_data
         );
+        assert_eq!(cfg.output.color, baseline.output.color);
         assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();

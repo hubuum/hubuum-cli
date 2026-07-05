@@ -23,6 +23,7 @@ mod models;
 mod output;
 mod repl;
 mod services;
+mod theme;
 mod tokenizer;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -129,6 +130,6 @@ fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) {
 
 fn render_snapshot(snapshot: output::OutputSnapshot) {
     if !snapshot.is_empty() {
-        print!("{}", snapshot.render());
+        let _ = output::print_rendered(&snapshot.render());
     }
 }

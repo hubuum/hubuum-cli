@@ -70,7 +70,7 @@ fn run_thread(
         .with_quick_completions(true)
         .with_ansi_colors(true);
 
-    println!("{}", app.catalog.render_scope_help(&[]));
+    let _ = crate::output::print_rendered(&format!("{}\n", app.catalog.render_scope_help(&[])));
 
     loop {
         let prompt = ReplPrompt {
@@ -105,7 +105,8 @@ fn run_thread(
                         }
                     }
                     Err(err) => {
-                        print!("{}", dispatch::render_error(err).render());
+                        let _ =
+                            crate::output::print_rendered(&dispatch::render_error(err).render());
                     }
                 }
             }
@@ -145,7 +146,7 @@ fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) {
     dispatch::apply_scope_action(session, &outcome.scope_action);
     dispatch::apply_output_state(session, &outcome.output);
     if !outcome.output.is_empty() {
-        print!("{}", outcome.output.render());
+        let _ = crate::output::print_rendered(&outcome.output.render());
     }
 }
 

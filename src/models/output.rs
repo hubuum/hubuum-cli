@@ -45,6 +45,37 @@ pub enum OutputFormat {
     Text,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum OutputColor {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl FromStr for OutputColor {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(OutputColor::Auto),
+            "always" => Ok(OutputColor::Always),
+            "never" => Ok(OutputColor::Never),
+            _ => Err(format!(
+                "Invalid output color: {s}. Use auto, always, or never."
+            )),
+        }
+    }
+}
+
+impl From<OutputColor> for Value {
+    fn from(val: OutputColor) -> Self {
+        Value::new(None, val.to_string())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Display, Default)]
 #[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "lowercase")]

@@ -130,6 +130,14 @@ pub fn build_cli() -> Command {
                 .help("Set whether object show expands object data by default"),
         )
         .arg(
+            Arg::new("color")
+                .long("color")
+                .value_name("WHEN")
+                .value_parser(["auto", "always", "never"])
+                .env("HUBUUM_CLI__OUTPUT__COLOR")
+                .help("Control colored output (auto, always, never)"),
+        )
+        .arg(
             Arg::new("command")
                 .long("command")
                 .value_name("COMMAND")
@@ -281,6 +289,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--cache-size"
             | "--background-poll-interval"
             | "--relations-max-depth"
+            | "--color"
     )
 }
 
@@ -383,6 +392,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     {
         config.output.object_show_data = *object_show_data;
     }
+    if let Some(color) = get_command_line_value::<String>(matches, "color") {
+        config.output.color = color.parse().unwrap_or(crate::models::OutputColor::Auto);
+    }
 }
 
 #[cfg(test)]
@@ -437,6 +449,17 @@ mod tests {
         assert!(!config.relations.ignore_same_class);
         assert_eq!(config.relations.max_depth, 5);
         assert!(config.output.object_show_data);
+    }
+
+    #[test]
+    fn update_config_from_cli_applies_color_flag() {
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--color", "never"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(config.output.color, crate::models::OutputColor::Never);
     }
 
     #[test]

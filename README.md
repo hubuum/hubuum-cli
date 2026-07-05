@@ -32,6 +32,13 @@ Global configuration flags go before the command:
 hubuum-cli --hostname api.example.com --username alice object list --limit 5
 ```
 
+Colored output defaults to terminal-aware `auto` mode and can be controlled per run or via `output.color`:
+
+```sh
+hubuum-cli --color never help
+hubuum-cli --color always config paths
+```
+
 Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.
 
 ```sh

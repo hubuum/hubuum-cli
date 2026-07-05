@@ -8,6 +8,7 @@ use crate::errors::AppError;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::services::filter_specs_for_command_path;
+use crate::theme::{paint, ThemeRole};
 
 #[derive(Debug, Clone)]
 pub struct OptionSpec {
@@ -224,11 +225,11 @@ impl CommandCatalog {
         } else {
             format!("Scope: {}", scope.join(" "))
         };
-        lines.push(title);
+        lines.push(paint(ThemeRole::Heading, title));
 
         if !scope_spec.scopes.is_empty() {
             lines.push(String::new());
-            lines.push("Scopes:".to_string());
+            lines.push(paint(ThemeRole::Heading, "Scopes:"));
             for (scope_name, nested_scope) in &scope_spec.scopes {
                 let summary = scope_command_summary(nested_scope);
                 if summary.is_empty() {
@@ -241,7 +242,7 @@ impl CommandCatalog {
 
         if !scope_spec.commands.is_empty() {
             lines.push(String::new());
-            lines.push("Commands:".to_string());
+            lines.push(paint(ThemeRole::Heading, "Commands:"));
             for command in scope_spec.commands.values() {
                 let about = command.about.clone().unwrap_or_default();
                 if about.is_empty() {
@@ -253,7 +254,7 @@ impl CommandCatalog {
         }
 
         lines.push(String::new());
-        lines.push("Shell:".to_string());
+        lines.push(paint(ThemeRole::Heading, "Shell:"));
         if scope.is_empty() {
             lines.push("  Type a scope name to enter it.".to_string());
             lines.push("  Use help <command> or ? <command> for command help.".to_string());
@@ -303,7 +304,7 @@ impl CommandCatalog {
             .ok_or_else(|| AppError::CommandNotFound(name.clone()))?;
 
         let mut help = String::new();
-        help.push_str(&command_path.join(" "));
+        help.push_str(&paint(ThemeRole::Heading, command_path.join(" ")));
         if let Some(about) = &command.about {
             help.push_str(" - ");
             help.push_str(about);
@@ -316,7 +317,8 @@ impl CommandCatalog {
         }
 
         if !command.options.is_empty() {
-            help.push_str("Options:\n");
+            help.push_str(&paint(ThemeRole::Heading, "Options:"));
+            help.push('\n');
             for option in &command.options {
                 let mut names = Vec::new();
                 if let Some(short) = &option.short {
@@ -366,7 +368,8 @@ impl CommandCatalog {
         }
 
         if let Some(examples) = &command.examples {
-            help.push_str("Examples:\n");
+            help.push_str(&paint(ThemeRole::Heading, "Examples:"));
+            help.push('\n');
             for line in examples.lines() {
                 help.push_str("  ");
                 help.push_str(&command_path.join(" "));
@@ -419,7 +422,8 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
         .join(", ");
 
     let mut help = String::new();
-    help.push_str("Where:\n");
+    help.push_str(&paint(ThemeRole::Heading, "Where:"));
+    help.push('\n');
     help.push_str("  Syntax: --where 'field operator value'\n");
     help.push_str("  Repeat --where to combine filters with AND.\n");
     help.push_str("  Fields: ");
@@ -463,16 +467,21 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
     }
 
     let mut help = String::new();
-    help.push_str("Pagination:\n");
+    help.push_str(&paint(ThemeRole::Heading, "Pagination:"));
+    help.push('\n');
     if option_names.contains(&"limit") {
         help.push_str("  Use --limit <n> to control page size.\n");
     }
     if option_names.contains(&"cursor") {
         help.push_str("  Use --cursor <token> to continue from a previous page.\n");
-        help.push_str("  In the REPL, type next after a paginated result to reuse the last next-page cursor.\n");
-        help.push_str(
+        help.push_str(&paint(
+            ThemeRole::Muted,
+            "  In the REPL, type next after a paginated result to reuse the last next-page cursor.\n",
+        ));
+        help.push_str(&paint(
+            ThemeRole::Muted,
             "  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page and Ctrl-C clears the pending pagination state.\n",
-        );
+        ));
     }
     Some(help)
 }

@@ -1,14 +1,17 @@
-use colored::Colorize;
+use std::io::Write;
+
+use anstream::AutoStream;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
 use std::fmt::Display;
-use std::fmt::Write;
+use std::fmt::Write as FmtWrite;
 use std::sync::Mutex;
 
 use log::debug;
 
 use crate::errors::AppError;
+use crate::theme::{paint, ThemeRole};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
@@ -31,12 +34,12 @@ impl OutputSnapshot {
         rendered.extend(
             self.warnings
                 .iter()
-                .map(|warning| format!("Warning: {warning}").yellow().to_string()),
+                .map(|warning| paint(ThemeRole::Warning, format!("Warning: {warning}"))),
         );
         rendered.extend(
             self.errors
                 .iter()
-                .map(|error| format!("Error: {error}").red().to_string()),
+                .map(|error| paint(ThemeRole::Error, format!("Error: {error}"))),
         );
         rendered.extend(self.lines.iter().cloned());
 
@@ -46,6 +49,14 @@ impl OutputSnapshot {
             format!("{}\n", rendered.join("\n"))
         }
     }
+}
+
+pub fn print_rendered(text: &str) -> Result<(), AppError> {
+    let stdout = std::io::stdout();
+    let mut stream = AutoStream::new(stdout, crate::theme::color_choice());
+    stream.write_all(text.as_bytes())?;
+    stream.flush()?;
+    Ok(())
 }
 
 #[derive(Debug, Default)]
@@ -232,6 +243,8 @@ mod tests {
     use serial_test::serial;
 
     use super::{append_line, reset_output, set_filter, take_output};
+    use crate::config::{init_config, AppConfig};
+    use crate::models::OutputColor;
 
     #[test]
     #[serial]
@@ -246,5 +259,21 @@ mod tests {
 
         let empty = take_output().expect("buffer should be empty after take");
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn render_honors_never_color() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Never;
+        init_config(config).expect("config should initialize");
+
+        let snapshot = super::OutputSnapshot {
+            warnings: vec!["careful".to_string()],
+            errors: vec!["failed".to_string()],
+            ..Default::default()
+        };
+
+        assert_eq!(snapshot.render(), "Warning: careful\nError: failed\n");
     }
 }
