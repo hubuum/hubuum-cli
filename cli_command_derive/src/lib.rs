@@ -1,6 +1,6 @@
+use darling::FromField;
 use proc_macro::TokenStream;
 use quote::quote;
-use darling::FromField;
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 #[derive(FromField, Default)]
@@ -23,11 +23,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     let fields = match input.data {
-        Data::Struct(ref data) => {
-            match data.fields {
-                Fields::Named(ref fields) => fields,
-                _ => panic!("CommandArgs can only be derived for structs with named fields"),
-            }
+        Data::Struct(ref data) => match data.fields {
+            Fields::Named(ref fields) => fields,
+            _ => panic!("CommandArgs can only be derived for structs with named fields"),
         },
         _ => panic!("CommandArgs can only be derived for structs"),
     };
@@ -45,8 +43,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
 
         let is_optional = is_outer_type(field_type, "Option");
         let is_vec = is_outer_type(field_type, "Vec");
+        let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
 
-        let required = if is_optional || is_vec {
+        let required = if is_optional || is_vec || opts.flag.unwrap_or(false) {
             quote! { false }
         } else {
             opts.required.map(|r| quote! { #r }).unwrap_or(quote! { true })
@@ -57,7 +56,6 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
             quote! { false }
         };
 
-        let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
         let greedy = opts.greedy.map(|g| quote! { #g }).unwrap_or(quote! { false });
         let nargs = opts.nargs.map(|n| quote! { Some(#n) }).unwrap_or(quote! { None });
         let value_source = opts.value_source.map(|v| quote! { #v }).unwrap_or(quote! { false });
@@ -84,7 +82,6 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
             }
         }
     }).collect();
-
 
     let field_setters: Vec<_> = fields.named.iter().map(|f| {
         let opts       = FieldOpts::from_field(f).unwrap_or_default();
