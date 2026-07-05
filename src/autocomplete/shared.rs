@@ -14,6 +14,7 @@ pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -
 }
 
 const OBJECT_LIST_CLASS_COLUMNS_PREFIX: &str = "output.object_list_class_columns.";
+const OBJECT_LIST_CLASS_META_PREFIX: &str = "output.object_list_class_meta.";
 
 pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     let mut keys = config_key_names()
@@ -29,6 +30,27 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
                 .map(|class| format!("{OBJECT_LIST_CLASS_COLUMNS_PREFIX}{class}")),
         );
     }
+    if let Some(rest) = prefix.strip_prefix(OBJECT_LIST_CLASS_META_PREFIX) {
+        if let Some((class_name, alias_prefix)) = rest.split_once('.') {
+            let config = crate::config::get_config();
+            if let Some(aliases) = config.output.object_list_class_meta.get(class_name) {
+                keys.extend(
+                    aliases
+                        .keys()
+                        .filter(|alias| alias.starts_with(alias_prefix))
+                        .map(|alias| {
+                            format!("{OBJECT_LIST_CLASS_META_PREFIX}{class_name}.{alias}")
+                        }),
+                );
+            }
+        } else {
+            keys.extend(
+                ctx.classes(rest)
+                    .into_iter()
+                    .map(|class| format!("{OBJECT_LIST_CLASS_META_PREFIX}{class}.")),
+            );
+        }
+    }
 
     keys.sort();
     keys.dedup();
@@ -38,6 +60,12 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
 pub fn config_values(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
     if let Some(class_name) = config_key_from_parts(parts)
         .and_then(|key| key.strip_prefix(OBJECT_LIST_CLASS_COLUMNS_PREFIX))
+    {
+        return object_list_class_column_values(ctx, class_name, prefix);
+    }
+    if let Some(class_name) = config_key_from_parts(parts)
+        .and_then(|key| key.strip_prefix(OBJECT_LIST_CLASS_META_PREFIX))
+        .and_then(|rest| rest.split_once('.').map(|(class_name, _)| class_name))
     {
         return object_list_class_column_values(ctx, class_name, prefix);
     }

@@ -349,6 +349,8 @@ fn display_json_value(value: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
     use serial_test::serial;
 
@@ -358,6 +360,7 @@ mod tests {
         object_field_summaries, object_list_row, ObjectListColumns, OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
+    use crate::config::{init_config, AppConfig};
     use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
     use crate::list_query::PagedResult;
     use crate::output::{append_line, reset_output, take_output};
@@ -491,6 +494,36 @@ mod tests {
             data_column_display_value(data, "data.network.interfaces[1].ipv4"),
             Some("127.0.0.2".to_string())
         );
+    }
+
+    #[test]
+    #[serial]
+    fn object_list_row_inserts_configured_meta_columns() {
+        let mut config = AppConfig::default();
+        config.output.object_list_class_meta.insert(
+            "Hosts".to_string(),
+            HashMap::from([(
+                "os_version".to_string(),
+                vec![
+                    "data.os.macos.version".to_string(),
+                    "data.os.redhat.version".to_string(),
+                ],
+            )]),
+        );
+        init_config(config).expect("config should initialize");
+        let object = test_object(1, json!({"os": {"redhat": {"version": "9.8"}}}));
+        let columns = ObjectListColumns {
+            data_keys: vec!["os_version".to_string()],
+            compact_base: true,
+        };
+
+        let row = object_list_row(&object, &columns)
+            .expect("row should render")
+            .as_object()
+            .cloned()
+            .expect("row should be object");
+
+        assert_eq!(row.get("os_version"), Some(&json!("9.8")));
     }
 
     #[test]
@@ -1269,14 +1302,19 @@ fn object_list_row(
         "Class".to_string(),
         serde_json::Value::String(object.class.clone()),
     );
+    let data_object = object.data.as_ref().and_then(serde_json::Value::as_object);
+    if let Some(data) = data_object {
+        insert_meta_columns(&mut row, &object.class, data);
+    }
+
     if columns.data_keys.is_empty() {
         row.insert(
             "Data".to_string(),
             serde_json::Value::String(data_preview(object.data.as_ref())),
         );
-    } else if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
+    } else if let Some(data) = data_object {
         for key in &columns.data_keys {
-            if let Some(value) = data_column_display_value(data, key) {
+            if let Some(value) = data_or_meta_column_display_value(&object.class, data, key) {
                 row.insert(
                     object_data_column_label(key),
                     serde_json::Value::String(value),
@@ -1294,6 +1332,20 @@ fn object_list_row(
     );
 
     Ok(serde_json::Value::Object(row))
+}
+
+fn insert_meta_columns(
+    row: &mut serde_json::Map<String, serde_json::Value>,
+    class_name: &str,
+    data: &serde_json::Map<String, serde_json::Value>,
+) {
+    if let Some(meta) = get_config().output.object_list_class_meta.get(class_name) {
+        for (alias, selectors) in meta {
+            if let Some(value) = meta_column_display_value(data, selectors) {
+                row.insert(alias.clone(), serde_json::Value::String(value));
+            }
+        }
+    }
 }
 
 fn object_data_column_label(key: &str) -> String {
@@ -1333,6 +1385,30 @@ fn data_column_display_value(
                 .join(","),
         ),
     }
+}
+
+fn data_or_meta_column_display_value(
+    class_name: &str,
+    data: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    data_column_display_value(data, key).or_else(|| {
+        get_config()
+            .output
+            .object_list_class_meta
+            .get(class_name)
+            .and_then(|meta| meta.get(key))
+            .and_then(|selectors| meta_column_display_value(data, selectors))
+    })
+}
+
+fn meta_column_display_value(
+    data: &serde_json::Map<String, serde_json::Value>,
+    selectors: &[String],
+) -> Option<String> {
+    selectors
+        .iter()
+        .find_map(|selector| data_column_display_value(data, selector))
 }
 
 fn data_column_values<'a>(

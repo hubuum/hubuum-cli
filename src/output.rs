@@ -138,11 +138,7 @@ impl OutputBuffer {
 
     fn snapshot(&self) -> Result<OutputSnapshot, AppError> {
         let lines = if !self.semantic.is_empty() {
-            let mut rendered = if self.lines.is_empty() {
-                Vec::new()
-            } else {
-                PipeStage::apply_all(&self.pipeline, self.lines.clone())?
-            };
+            let mut rendered = self.lines.clone();
             for envelope in &self.semantic {
                 let envelope = hubuum_filter::apply_pipeline(envelope.clone(), &self.pipeline)?;
                 rendered.extend(render_semantic(&envelope, self.render_format)?);
@@ -582,10 +578,10 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
 mod tests {
     use serial_test::serial;
 
-    use super::{append_line, reset_output, set_pipeline, take_output};
+    use super::{append_line, reset_output, set_pipeline, set_semantic_output, take_output};
     use crate::config::{init_config, AppConfig};
     use crate::models::OutputColor;
-    use hubuum_filter::PipeStage;
+    use hubuum_filter::{OutputEnvelope, PipeStage};
     #[test]
     #[serial]
     fn take_output_applies_filter_and_resets_buffer() {
@@ -615,5 +611,25 @@ mod tests {
         };
 
         assert_eq!(snapshot.render(), "Warning: careful\nError: failed\n");
+    }
+
+    #[test]
+    #[serial]
+    fn structured_pipeline_ignores_auxiliary_lines_when_semantic_output_exists() {
+        reset_output().expect("buffer should reset");
+        append_line("Returned 1 item(s)").expect("line should append");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![serde_json::json!({"Name": "alpha", "hidden": "secret"})],
+            vec!["Name".to_string(), "hidden".to_string()],
+        ))
+        .expect("semantic output should be set");
+        set_pipeline(vec![PipeStage::Columns(vec!["Name".to_string()])])
+            .expect("pipeline should set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered.contains("Returned 1 item(s)"));
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains("secret"));
     }
 }
