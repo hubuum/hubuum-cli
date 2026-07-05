@@ -5,8 +5,15 @@ use tokio::runtime::Handle;
 
 use crate::config::get_config;
 use crate::errors::AppError;
+use crate::services::ListTasksInput;
 
 use super::AppServices;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompletionItem {
+    pub value: String,
+    pub description: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct CompletionContext {
@@ -24,6 +31,7 @@ struct CompletionSnapshot {
     objects_by_class: HashMap<String, Vec<String>>,
     event_subscriptions_by_namespace: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<serde_json::Value>>,
+    task_ids: Option<Vec<CompletionItem>>,
 }
 
 #[derive(Clone, Default)]
@@ -128,6 +136,32 @@ impl CompletionContext {
             )
             .map(|values| filter_prefix(&values, prefix))
             .unwrap_or_default()
+    }
+
+    pub fn task_ids(&self, prefix: &str) -> Vec<CompletionItem> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_task_id_items(self.services.gateway()),
+            )
+            .map(|items| filter_item_prefix(&items, prefix))
+            .unwrap_or_default()
+    }
+
+    pub fn import_task_ids(&self, prefix: &str) -> Vec<CompletionItem> {
+        self.task_ids(prefix)
+            .into_iter()
+            .filter(|item| {
+                item.description
+                    .as_deref()
+                    .is_some_and(|description| description.starts_with("import "))
+            })
+            .collect()
     }
 
     pub fn class_schema(&self, class_name: &str) -> Option<Option<serde_json::Value>> {
@@ -291,6 +325,42 @@ impl CompletionStore {
         Ok(fetched)
     }
 
+    async fn load_task_id_items(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+    ) -> Result<Vec<CompletionItem>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = &snapshot.task_ids {
+                return Ok(cached.clone());
+            }
+        }
+
+        let fetched = tokio::task::spawn_blocking(move || {
+            let tasks = gateway.list_tasks(ListTasksInput {
+                limit: Some(50),
+                ..ListTasksInput::default()
+            })?;
+            Ok::<_, AppError>(
+                tasks
+                    .items
+                    .into_iter()
+                    .map(|task| CompletionItem {
+                        value: task.0.id.to_string(),
+                        description: Some(task_description(&task)),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.task_ids = Some(fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
     fn cached(&self, kind: CompletionKind) -> Option<Vec<String>> {
         let Ok(snapshot) = self.snapshot.read() else {
             return None;
@@ -312,6 +382,28 @@ fn filter_prefix(values: &[String], prefix: &str) -> Vec<String> {
         .filter(|value| value.starts_with(prefix))
         .cloned()
         .collect()
+}
+
+fn filter_item_prefix(values: &[CompletionItem], prefix: &str) -> Vec<CompletionItem> {
+    values
+        .iter()
+        .filter(|value| value.value.starts_with(prefix))
+        .cloned()
+        .collect()
+}
+
+fn task_description(task: &crate::domain::TaskRecord) -> String {
+    let mut parts = vec![task.0.kind.to_string(), task.0.status.to_string()];
+    if let Some(summary) = task
+        .0
+        .summary
+        .as_deref()
+        .filter(|summary| !summary.is_empty())
+    {
+        parts.push(summary.to_string());
+    }
+    parts.push(task.0.created_at.to_string());
+    parts.join("  ")
 }
 
 #[cfg(test)]

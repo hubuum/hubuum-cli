@@ -295,6 +295,17 @@ impl Completer for ReplCompleter {
                 return suggestions;
             }
 
+            if let Some(suggestions) = self.id_value_suggestions(
+                &resolved.command_path,
+                &parts,
+                start,
+                pos,
+                word,
+                ends_with_space,
+            ) {
+                return suggestions;
+            }
+
             if let Some(last) = parts.last() {
                 if prefix_line.ends_with(' ') && last.starts_with('-') {
                     if let Some(option) = options.iter().find(|option| {
@@ -519,6 +530,82 @@ impl ReplCompleter {
         )
     }
 
+    fn id_value_suggestions(
+        &self,
+        command_path: &[String],
+        parts: &[String],
+        start: usize,
+        pos: usize,
+        word: &str,
+        ends_with_space: bool,
+    ) -> Option<Vec<Suggestion>> {
+        let context =
+            id_completion_context(command_path, parts, start, pos, word, ends_with_space)?;
+        let suggestions = match context.kind {
+            IdCompletionKind::LocalJob => self.local_job_id_suggestions(
+                context.prefix,
+                context.replacement_start,
+                context.replacement_end,
+            ),
+            IdCompletionKind::Task => self.task_id_suggestions(
+                context.prefix,
+                context.replacement_start,
+                context.replacement_end,
+            ),
+            IdCompletionKind::ImportTask => self.import_task_id_suggestions(
+                context.prefix,
+                context.replacement_start,
+                context.replacement_end,
+            ),
+        };
+        Some(suggestions)
+    }
+
+    fn local_job_id_suggestions(&self, prefix: &str, start: usize, end: usize) -> Vec<Suggestion> {
+        self.app
+            .services
+            .background()
+            .list_jobs()
+            .into_iter()
+            .filter_map(|job| {
+                let value = job.id.to_string();
+                value.starts_with(prefix).then(|| {
+                    let mut details = vec![
+                        format!("task {}", job.task_id),
+                        job.state,
+                        job.status,
+                        job.label,
+                    ];
+                    if let Some(summary) = job.summary.filter(|summary| !summary.is_empty()) {
+                        details.push(summary);
+                    }
+                    suggestion_with_whitespace(value, start, end, Some(details.join("  ")), true)
+                })
+            })
+            .collect()
+    }
+
+    fn task_id_suggestions(&self, prefix: &str, start: usize, end: usize) -> Vec<Suggestion> {
+        self.completion
+            .task_ids(prefix)
+            .into_iter()
+            .map(|item| suggestion_with_whitespace(item.value, start, end, item.description, true))
+            .collect()
+    }
+
+    fn import_task_id_suggestions(
+        &self,
+        prefix: &str,
+        start: usize,
+        end: usize,
+    ) -> Vec<Suggestion> {
+        self.completion
+            .import_task_ids(prefix)
+            .into_iter()
+            .map(|item| suggestion_with_whitespace(item.value, start, end, item.description, true))
+            .collect()
+    }
+
     fn scope_suggestions(
         &self,
         start: usize,
@@ -553,6 +640,124 @@ impl ReplCompleter {
             .map(|value| suggestion(value, start, start + word.len(), None))
             .collect()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdCompletionKind {
+    LocalJob,
+    Task,
+    ImportTask,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IdCompletionContext<'a> {
+    kind: IdCompletionKind,
+    prefix: &'a str,
+    replacement_start: usize,
+    replacement_end: usize,
+}
+
+fn id_completion_context<'a>(
+    command_path: &[String],
+    parts: &'a [String],
+    start: usize,
+    pos: usize,
+    word: &'a str,
+    ends_with_space: bool,
+) -> Option<IdCompletionContext<'a>> {
+    let kind = id_completion_kind(command_path)?;
+    let option_names = id_completion_option_names(command_path, kind);
+
+    if ends_with_space {
+        if let Some(last) = parts.last() {
+            if option_names.contains(&last.as_str()) {
+                return Some(IdCompletionContext {
+                    kind,
+                    prefix: "",
+                    replacement_start: pos,
+                    replacement_end: pos,
+                });
+            }
+        }
+    } else if let Some(previous) = parts.iter().rev().nth(1) {
+        if option_names.contains(&previous.as_str()) {
+            return Some(IdCompletionContext {
+                kind,
+                prefix: word,
+                replacement_start: start,
+                replacement_end: pos,
+            });
+        }
+    }
+
+    if is_completing_positional_id(command_path, parts, ends_with_space) {
+        return Some(IdCompletionContext {
+            kind,
+            prefix: if ends_with_space { "" } else { word },
+            replacement_start: if ends_with_space { pos } else { start },
+            replacement_end: pos,
+        });
+    }
+
+    None
+}
+
+fn id_completion_kind(command_path: &[String]) -> Option<IdCompletionKind> {
+    match command_path {
+        [scope, command]
+            if (scope == "jobs" || scope == "bg")
+                && matches!(command.as_str(), "show" | "output" | "forget") =>
+        {
+            Some(IdCompletionKind::LocalJob)
+        }
+        [scope, command] if (scope == "jobs" || scope == "bg") && command == "watch" => {
+            Some(IdCompletionKind::Task)
+        }
+        [scope, command]
+            if scope == "task" && matches!(command.as_str(), "show" | "events" | "output") =>
+        {
+            Some(IdCompletionKind::Task)
+        }
+        [scope, command] if scope == "import" && matches!(command.as_str(), "show" | "results") => {
+            Some(IdCompletionKind::ImportTask)
+        }
+        _ => None,
+    }
+}
+
+fn id_completion_option_names(
+    command_path: &[String],
+    kind: IdCompletionKind,
+) -> &'static [&'static str] {
+    match (kind, command_path) {
+        (IdCompletionKind::Task, [scope, command])
+            if (scope == "jobs" || scope == "bg") && command == "watch" =>
+        {
+            &["--task", "-t"]
+        }
+        (IdCompletionKind::LocalJob, _)
+        | (IdCompletionKind::Task, _)
+        | (IdCompletionKind::ImportTask, _) => &["--id", "-i"],
+    }
+}
+
+fn is_completing_positional_id(
+    command_path: &[String],
+    parts: &[String],
+    ends_with_space: bool,
+) -> bool {
+    if parts.len() < command_path.len() {
+        return false;
+    }
+    if parts
+        .iter()
+        .skip(command_path.len())
+        .any(|part| part.starts_with('-'))
+    {
+        return false;
+    }
+    let positional_count = parts.len().saturating_sub(command_path.len());
+    (ends_with_space && positional_count == 0) || (!ends_with_space && positional_count == 1)
 }
 
 struct ProjectionPipeContext<'a> {
@@ -920,8 +1125,9 @@ mod tests {
 
     use super::{
         clause_active_token_offset, completion_context_parts, is_completing_option_value,
-        option_suggestion, projection_pipe_context, quoted_where_context, safe_prefix_end,
-        schema_paths, where_suggestion, PaginationEditMode, CANCEL_PAGINATION_HOST_COMMAND,
+        id_completion_context, option_suggestion, projection_pipe_context, quoted_where_context,
+        safe_prefix_end, schema_paths, where_suggestion, IdCompletionKind, PaginationEditMode,
+        CANCEL_PAGINATION_HOST_COMMAND,
     };
 
     #[test]
@@ -1123,6 +1329,64 @@ mod tests {
                 "interfaces[*].ipv4".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn id_completion_context_detects_task_option_value() {
+        let parts = vec![
+            "task".to_string(),
+            "show".to_string(),
+            "--id".to_string(),
+            "12".to_string(),
+        ];
+        let context = id_completion_context(
+            &["task".to_string(), "show".to_string()],
+            &parts,
+            "task show --id ".len(),
+            "task show --id 12".len(),
+            "12",
+            false,
+        )
+        .expect("task id context");
+
+        assert_eq!(context.kind, IdCompletionKind::Task);
+        assert_eq!(context.prefix, "12");
+        assert_eq!(context.replacement_start, "task show --id ".len());
+    }
+
+    #[test]
+    fn id_completion_context_detects_positional_local_job_id() {
+        let parts = vec!["jobs".to_string(), "show".to_string()];
+        let context = id_completion_context(
+            &["jobs".to_string(), "show".to_string()],
+            &parts,
+            "jobs show".len(),
+            "jobs show ".len(),
+            "",
+            true,
+        )
+        .expect("local job id context");
+
+        assert_eq!(context.kind, IdCompletionKind::LocalJob);
+        assert_eq!(context.prefix, "");
+        assert_eq!(context.replacement_start, "jobs show ".len());
+    }
+
+    #[test]
+    fn id_completion_context_detects_import_task_id() {
+        let parts = vec!["import".to_string(), "results".to_string(), "7".to_string()];
+        let context = id_completion_context(
+            &["import".to_string(), "results".to_string()],
+            &parts,
+            "import results ".len(),
+            "import results 7".len(),
+            "7",
+            false,
+        )
+        .expect("import task id context");
+
+        assert_eq!(context.kind, IdCompletionKind::ImportTask);
+        assert_eq!(context.prefix, "7");
     }
 
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {
