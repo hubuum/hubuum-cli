@@ -518,7 +518,12 @@ fn where_suggestion(
 ) -> Suggestion {
     let display_override = description
         .as_deref()
-        .filter(|description| matches!(*description, "no schema" | "no schema match"))
+        .filter(|description| {
+            matches!(
+                *description,
+                "no schema" | "no schema match" | "type path manually"
+            )
+        })
         .map(str::to_string);
 
     Suggestion {
@@ -767,6 +772,18 @@ mod tests {
         assert_eq!(suggestion.value, "json_data.");
         assert_eq!(suggestion.display_override.as_deref(), Some("no schema"));
         assert!(!suggestion.append_whitespace);
+
+        let fallback = where_suggestion(
+            "json_data.".to_string(),
+            42,
+            52,
+            Some("type path manually".to_string()),
+            false,
+        );
+        assert_eq!(
+            fallback.display_override.as_deref(),
+            Some("type path manually")
+        );
     }
 
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {

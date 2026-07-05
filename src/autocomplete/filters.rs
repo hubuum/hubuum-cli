@@ -251,33 +251,36 @@ fn complete_json_data_path_from_schema(
     };
 
     let Some(schema) = schema else {
-        return vec![FilterCompletion {
-            value: prefix.to_string(),
-            description: Some("no schema".to_string()),
-            append_whitespace: false,
-        }];
+        return status_completions(prefix, "no schema");
     };
 
     let schema_paths = schema_paths(&schema);
     if schema_paths.is_empty() {
-        return vec![FilterCompletion {
-            value: prefix.to_string(),
-            description: Some("no schema".to_string()),
-            append_whitespace: false,
-        }];
+        return status_completions(prefix, "no schema");
     }
 
     let completions =
         schema_path_completions_from_paths("json_data", prefix, &schema, schema_paths);
     if completions.is_empty() {
-        return vec![FilterCompletion {
-            value: prefix.to_string(),
-            description: Some("no schema match".to_string()),
-            append_whitespace: false,
-        }];
+        return status_completions(prefix, "no schema match");
     }
 
     completions
+}
+
+fn status_completions(prefix: &str, status: &str) -> Vec<FilterCompletion> {
+    vec![
+        FilterCompletion {
+            value: prefix.to_string(),
+            description: Some(status.to_string()),
+            append_whitespace: false,
+        },
+        FilterCompletion {
+            value: prefix.to_string(),
+            description: Some("type path manually".to_string()),
+            append_whitespace: false,
+        },
+    ]
 }
 
 fn class_name_from_parts(parts: &[String]) -> Option<String> {
@@ -456,7 +459,8 @@ mod tests {
 
     use super::{
         class_name_from_parts, clause_stage, complete_field, complete_json_path_fallback,
-        placeholder_value, schema_path_completions_from_paths, schema_paths, ClauseStage,
+        placeholder_value, schema_path_completions_from_paths, schema_paths, status_completions,
+        ClauseStage,
     };
     use crate::list_query::{FilterFieldSpec, FilterOperatorProfile, FilterValueProfile};
 
@@ -621,6 +625,24 @@ mod tests {
             ]),
             Some("Hosts".to_string())
         );
+    }
+
+    #[test]
+    fn status_completions_do_not_collapse_to_single_quick_completion() {
+        let completions = status_completions("json_data.", "no schema");
+
+        assert_eq!(completions.len(), 2);
+        assert!(completions
+            .iter()
+            .all(|completion| completion.value == "json_data."));
+        assert_eq!(completions[0].description.as_deref(), Some("no schema"));
+        assert_eq!(
+            completions[1].description.as_deref(),
+            Some("type path manually")
+        );
+        assert!(completions
+            .iter()
+            .all(|completion| !completion.append_whitespace));
     }
 
     #[test]
