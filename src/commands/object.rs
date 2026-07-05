@@ -1232,9 +1232,9 @@ fn data_column_width(key: &str, objects: &PagedResult<ResolvedObjectRecord>) -> 
                 .and_then(|data| data.get(key))
         })
         .map(|value| data_preview(Some(value)).len())
-        .chain(std::iter::once(object_data_column_label(key).len()))
+        .chain(std::iter::once(object_data_column_header(key).len()))
         .max()
-        .unwrap_or_else(|| object_data_column_label(key).len())
+        .unwrap_or_else(|| object_data_column_header(key).len())
 }
 
 fn explicit_data_columns(value: &str) -> Vec<String> {
@@ -1360,6 +1360,11 @@ fn object_data_column_label(key: &str) -> String {
         }
         _ => key.to_string(),
     }
+}
+
+fn object_data_column_header(key: &str) -> String {
+    let label = object_data_column_label(key);
+    label.strip_prefix("data.").unwrap_or(&label).to_string()
 }
 
 #[cfg(test)]

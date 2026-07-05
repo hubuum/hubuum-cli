@@ -329,8 +329,9 @@ fn render_rows_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> 
         return Ok(render_dense_rows(&rows, &columns));
     }
 
+    let headers = column_headers(&columns);
     let mut table = Table::new();
-    table.set_header(columns.clone());
+    table.set_header(headers);
     apply_table_style(&mut table, &get_config().output.table_style);
     apply_table_layout(
         &mut table,
@@ -449,10 +450,11 @@ fn display_columns(envelope: &OutputEnvelope, rows: &[Value]) -> Vec<String> {
 }
 
 fn render_dense_rows(rows: &[Value], columns: &[String]) -> Vec<String> {
-    let widths = dense_widths(rows, columns);
+    let headers = column_headers(columns);
+    let widths = dense_widths(rows, columns, &headers);
     let mut lines = Vec::with_capacity(rows.len() + 1);
     lines.push(render_dense_line(
-        columns.iter().map(String::as_str),
+        headers.iter().map(String::as_str),
         &widths,
     ));
     for (index, row) in rows.iter().enumerate() {
@@ -470,17 +472,27 @@ fn render_dense_rows(rows: &[Value], columns: &[String]) -> Vec<String> {
     lines
 }
 
-fn dense_widths(rows: &[Value], columns: &[String]) -> Vec<usize> {
+fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<usize> {
     columns
         .iter()
+        .zip(headers.iter())
         .map(|column| {
+            let (column, header) = column;
             rows.iter()
                 .map(|row| cell_text(row.get(column)).len())
-                .chain(std::iter::once(column.len()))
+                .chain(std::iter::once(header.len()))
                 .max()
-                .unwrap_or(column.len())
+                .unwrap_or(header.len())
         })
         .collect()
+}
+
+fn column_headers(columns: &[String]) -> Vec<String> {
+    columns.iter().map(|column| column_header(column)).collect()
+}
+
+fn column_header(column: &str) -> String {
+    column.strip_prefix("data.").unwrap_or(column).to_string()
 }
 
 fn render_dense_line<'a>(values: impl IntoIterator<Item = &'a str>, widths: &[usize]) -> String {
@@ -580,7 +592,7 @@ mod tests {
 
     use super::{append_line, reset_output, set_pipeline, set_semantic_output, take_output};
     use crate::config::{init_config, AppConfig};
-    use crate::models::OutputColor;
+    use crate::models::{OutputColor, TableStyle};
     use hubuum_filter::{OutputEnvelope, PipeStage};
     #[test]
     #[serial]
@@ -631,5 +643,46 @@ mod tests {
         assert!(rendered.contains("Returned 1 item(s)"));
         assert!(rendered.contains("alpha"));
         assert!(!rendered.contains("secret"));
+    }
+
+    #[test]
+    #[serial]
+    fn text_tables_shorten_data_prefixed_headers() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![serde_json::json!({"Name": "alpha", "data.contact": "Entry"})],
+            vec!["Name".to_string(), "data.contact".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered.contains("contact"));
+        assert!(!rendered.contains("data.contact"));
+        assert!(rendered.contains("Entry"));
+    }
+
+    #[test]
+    #[serial]
+    fn dense_tables_shorten_data_prefixed_headers() {
+        let mut config = AppConfig::default();
+        config.output.table_style = TableStyle::Dense;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![serde_json::json!({"Name": "alpha", "data.contact": "Entry"})],
+            vec!["Name".to_string(), "data.contact".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("contact")));
+        assert!(!rendered.contains("data.contact"));
+        assert!(rendered.contains("Entry"));
     }
 }
