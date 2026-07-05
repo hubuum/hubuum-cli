@@ -289,10 +289,7 @@ fn sort_envelope(
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let mut values = array_values(&envelope.value)?;
-            values.sort_by(|left, right| compare_selected(left, right, selector));
-            if descending {
-                values.reverse();
-            }
+            values.sort_by(|left, right| compare_selected(left, right, selector, descending));
             Ok(OutputEnvelope {
                 value: Value::Array(values),
                 ..envelope
@@ -637,14 +634,42 @@ fn project_value(value: &Value, columns: &[String]) -> Value {
     Value::Object(object)
 }
 
-fn compare_selected(left: &Value, right: &Value, selector: Option<&str>) -> Ordering {
-    let left = selector
-        .and_then(|selector| select_values(left, selector).first().copied())
-        .unwrap_or(left);
-    let right = selector
-        .and_then(|selector| select_values(right, selector).first().copied())
-        .unwrap_or(right);
-    compare_values(left, right)
+fn compare_selected(
+    left: &Value,
+    right: &Value,
+    selector: Option<&str>,
+    descending: bool,
+) -> Ordering {
+    let left = selected_sort_value(left, selector);
+    let right = selected_sort_value(right, selector);
+    compare_sort_values(left, right, descending)
+}
+
+fn selected_sort_value<'a>(value: &'a Value, selector: Option<&str>) -> Option<&'a Value> {
+    match selector {
+        Some(selector) => select_values(value, selector).first().copied(),
+        None => Some(value),
+    }
+}
+
+fn compare_sort_values(left: Option<&Value>, right: Option<&Value>, descending: bool) -> Ordering {
+    match (is_nullish(left), is_nullish(right)) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => {
+            let ordering = compare_values(left.expect("left value"), right.expect("right value"));
+            if descending {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        }
+    }
+}
+
+fn is_nullish(value: Option<&Value>) -> bool {
+    matches!(value, None | Some(Value::Null))
 }
 
 fn compare_values(left: &Value, right: &Value) -> Ordering {
@@ -1261,6 +1286,36 @@ mod tests {
         assert_eq!(
             transformed.value,
             json!([{"name": "beta", "os_version": "26.5"}])
+        );
+    }
+
+    #[test]
+    fn semantic_sort_keeps_null_values_last_when_descending() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "missing", "os_version": null}),
+                json!({"name": "old", "os_version": "a"}),
+                json!({"name": "new", "os_version": "b"}),
+            ],
+            vec!["name".to_string(), "os_version".to_string()],
+        );
+
+        let transformed = apply_pipeline(
+            envelope,
+            &[PipeStage::SortColumn {
+                column: "os_version".to_string(),
+                descending: true,
+            }],
+        )
+        .expect("sort");
+
+        assert_eq!(
+            transformed.value,
+            json!([
+                {"name": "new", "os_version": "b"},
+                {"name": "old", "os_version": "a"},
+                {"name": "missing", "os_version": null}
+            ])
         );
     }
 }

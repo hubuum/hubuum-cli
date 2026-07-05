@@ -126,6 +126,15 @@ impl OutputBuffer {
         self.next_page_command = Some(command);
     }
 
+    fn pipeline_suppresses_pagination(&self) -> bool {
+        self.pipeline.iter().any(|stage| {
+            matches!(
+                stage,
+                PipeStage::Head(_) | PipeStage::Tail(_) | PipeStage::Count | PipeStage::Value(_)
+            )
+        })
+    }
+
     fn reset(&mut self) {
         self.lines.clear();
         self.semantic.clear();
@@ -272,6 +281,13 @@ pub fn set_next_page_command(command: String) -> Result<(), AppError> {
         .map_err(|_| AppError::LockError)?
         .set_next_page_command(command);
     Ok(())
+}
+
+pub fn pipeline_suppresses_pagination() -> Result<bool, AppError> {
+    Ok(OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .pipeline_suppresses_pagination())
 }
 
 fn render_semantic(
@@ -522,7 +538,10 @@ fn value_array(value: &Value) -> Vec<Value> {
 }
 
 fn cell_text(value: Option<&Value>) -> String {
-    value.map(semantic_scalar).unwrap_or_default()
+    match value {
+        Some(Value::Null) | None => String::new(),
+        Some(value) => semantic_scalar(value),
+    }
 }
 
 fn semantic_scalar(value: &Value) -> String {
@@ -684,5 +703,22 @@ mod tests {
             .is_some_and(|line| line.contains("contact")));
         assert!(!rendered.contains("data.contact"));
         assert!(rendered.contains("Entry"));
+    }
+
+    #[test]
+    #[serial]
+    fn text_tables_render_null_cells_as_blank() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![serde_json::json!({"Name": "alpha", "os_version": null})],
+            vec!["Name".to_string(), "os_version".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains("null"));
     }
 }

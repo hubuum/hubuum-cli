@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
-use crate::output::{append_line, set_next_page_command};
+use crate::output::{append_line, pipeline_suppresses_pagination, set_next_page_command};
 use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -656,6 +656,10 @@ pub(crate) fn append_paging_footer<T>(
     tokens: &CommandTokenizer,
     paged: &PagedResult<T>,
 ) -> Result<(), AppError> {
+    if pipeline_suppresses_pagination()? {
+        return Ok(());
+    }
+
     if paged.limit.is_none() && paged.next_cursor.is_none() {
         return Ok(());
     }
@@ -741,8 +745,9 @@ mod tests {
     };
     use crate::config::{init_config, AppConfig};
     use crate::models::OutputFormat;
-    use crate::output::{reset_output, take_output};
+    use crate::output::{reset_output, set_pipeline, take_output};
     use crate::tokenizer::CommandTokenizer;
+    use hubuum_filter::PipeStage;
 
     static CONFIG_INIT: Once = Once::new();
 
@@ -924,5 +929,37 @@ mod tests {
             snapshot.next_page_command.as_deref(),
             Some("class list --limit 1 --cursor abc123")
         );
+    }
+
+    #[test]
+    #[serial]
+    fn terminal_pipeline_stage_suppresses_pagination_footer() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        reset_output().expect("output should reset");
+        set_pipeline(vec![PipeStage::Head(10)]).expect("pipeline should set");
+        let tokens = CommandTokenizer::new("class list --limit 100", "list", &[])
+            .expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }, DummyRow { id: 2 }],
+            next_cursor: Some("abc123".to_string()),
+            limit: Some(100),
+            returned_count: 100,
+        };
+
+        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+            .expect("text output should render");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert!(snapshot.next_page_command.is_none());
+        assert!(!snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Paginated results available.")));
+        assert!(!snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Returned 100 item")));
     }
 }
