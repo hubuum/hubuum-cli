@@ -197,6 +197,53 @@ impl BackgroundManager {
             .is_some()
     }
 
+    pub fn prompt_status(&self) -> Option<String> {
+        let guard = self.inner.lock().ok()?;
+        if !guard.enabled {
+            return None;
+        }
+
+        let running = guard.jobs.values().filter(|j| j.poller_running).count();
+        let failed = guard
+            .jobs
+            .values()
+            .filter(|j| {
+                j.task
+                    .as_ref()
+                    .map(|t| is_attention_status(t.0.status))
+                    .unwrap_or(false)
+                    || j.last_error.is_some()
+            })
+            .count();
+        let done = guard
+            .jobs
+            .values()
+            .filter(|j| {
+                j.task
+                    .as_ref()
+                    .map(|t| is_terminal_status(t.0.status) && !is_attention_status(t.0.status))
+                    .unwrap_or(false)
+            })
+            .count();
+
+        if running == 0 && failed == 0 && done == 0 {
+            return None;
+        }
+
+        let mut parts = Vec::new();
+        if running > 0 {
+            parts.push(format!("{running}▸"));
+        }
+        if done > 0 {
+            parts.push(format!("{done}✓"));
+        }
+        if failed > 0 {
+            parts.push(format!("{failed}✗"));
+        }
+
+        Some(format!("[jobs {}]", parts.join(" ")))
+    }
+
     pub fn take_prompt_badge(&self) -> Option<String> {
         let mut guard = self
             .inner
@@ -503,8 +550,58 @@ mod tests {
                 events: format!("/api/v1/tasks/{task_id}/events"),
                 import_url: Some(format!("/api/v1/imports/{task_id}")),
                 import_results: Some(format!("/api/v1/imports/{task_id}/results")),
+                report: None,
+                report_output: None,
             },
             details: None,
         })
+    }
+
+    #[test]
+    fn prompt_status_counts_running_and_failed() {
+        let runtime = Runtime::new().expect("runtime should build");
+        runtime.block_on(async {
+            let mut state = BackgroundState {
+                enabled: true,
+                ..BackgroundState::default()
+            };
+
+            // One job with poller_running = true
+            state.jobs.insert(
+                1,
+                BackgroundJob {
+                    id: 1,
+                    task_id: 10,
+                    label: "import 1".to_string(),
+                    task: Some(task(10, TaskStatus::Running, Some("running"))),
+                    last_error: None,
+                    poller_running: true,
+                    pending_notice: PendingNotice::None,
+                },
+            );
+
+            // One job with attention status (failed)
+            state.jobs.insert(
+                2,
+                BackgroundJob {
+                    id: 2,
+                    task_id: 20,
+                    label: "import 2".to_string(),
+                    task: Some(task(20, TaskStatus::Failed, Some("failed"))),
+                    last_error: None,
+                    poller_running: false,
+                    pending_notice: PendingNotice::None,
+                },
+            );
+
+            let manager = BackgroundManager {
+                inner: Arc::new(Mutex::new(state)),
+                runtime: Handle::current(),
+                poll_interval: Duration::from_millis(10),
+                fetch_task: Arc::new(|_| Err(AppError::CommandExecutionError("test".to_string()))),
+            };
+
+            assert_eq!(manager.prompt_status(), Some("[jobs 1▸ 1✗]".to_string()));
+        });
     }
 }

@@ -2,13 +2,13 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
+use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
     classes, namespaces, objects_from_class, report_missing_data_policies, report_scope_kinds,
     report_sort, report_templates, report_where,
 };
 use crate::catalog::CommandCatalogBuilder;
-use crate::domain::ReportOutput;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
@@ -368,12 +368,26 @@ pub struct ReportRun {
         help = "Maximum output size in bytes"
     )]
     pub max_output_bytes: Option<u64>,
+    #[option(long = "relation-depth", help = "Relation context depth for traversal")]
+    pub relation_depth: Option<i32>,
+    #[option(
+        long = "include-related",
+        help = "Include related objects: '<key>:<class_id>[:<max_depth>]' (repeatable)"
+    )]
+    pub include_related: Vec<String>,
+    #[option(long = "wait", flag, help = "Wait for task completion")]
+    pub wait: bool,
+    #[option(long = "timeout", help = "Timeout in seconds when waiting")]
+    pub timeout: Option<u64>,
+    #[option(long = "poll-interval", help = "Poll interval in seconds when waiting")]
+    pub poll_interval: Option<u64>,
 }
 
 impl CliCommand for ReportRun {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let output = services.gateway().run_report(RunReportInput {
+        let opts = parse_task_submit_options(tokens)?;
+        let input = RunReportInput {
             template: query.template,
             scope_kind: query.scope,
             class_name: query.class,
@@ -382,17 +396,17 @@ impl CliCommand for ReportRun {
             missing_data_policy: query.missing_data_policy,
             max_items: query.max_items,
             max_output_bytes: query.max_output_bytes,
-        })?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
-            OutputFormat::Text => match output {
-                ReportOutput::Json { body } => append_line(serde_json::to_string_pretty(&body)?)?,
-                ReportOutput::Rendered(rendered) => append_line(rendered.body)?,
-            },
-        }
-
-        Ok(())
+            relation_depth: query.relation_depth,
+            include_related: query.include_related,
+        };
+        let task = services.gateway().submit_report(input)?;
+        run_task_backed(
+            services,
+            tokens,
+            format!("report {}", task.0.id),
+            opts,
+            task,
+        )
     }
 }
 

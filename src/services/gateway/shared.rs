@@ -5,7 +5,6 @@ use hubuum_client::{
     ApiError as ClientApiError, ApiResource, Class, ClassRelation, FilterOperator, Namespace,
     Object, ObjectRelation, QueryFilter,
 };
-use reqwest::StatusCode;
 
 use crate::errors::AppError;
 use crate::list_query::{
@@ -189,14 +188,14 @@ fn is_missing_relation_error(error: &AppError) -> bool {
     matches!(
         error,
         AppError::ApiError(ClientApiError::HttpWithBody { status, .. })
-            if *status == StatusCode::NOT_FOUND
+            if status.as_u16() == 404
     ) || matches!(error, AppError::ApiError(ClientApiError::EmptyResult(_)))
 }
 
 fn is_missing_api_error(error: &ClientApiError) -> bool {
     matches!(
         error,
-        ClientApiError::HttpWithBody { status, .. } if *status == StatusCode::NOT_FOUND
+        ClientApiError::HttpWithBody { status, .. } if status.as_u16() == 404
     ) || matches!(error, ClientApiError::EmptyResult(_))
 }
 

@@ -132,7 +132,7 @@ fn authenticate(
     let token = files::get_token_from_tokenfile(hostname, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");
-        if let Ok(client) = client.clone().login_with_token(Token { token }) {
+        if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
             return Ok(client);
         }
     }
@@ -180,6 +180,12 @@ impl AppRuntime {
                 " [more]"
             }
         });
+        let status = self
+            .services
+            .background()
+            .prompt_status()
+            .map(|s| format!("{s} "))
+            .unwrap_or_default();
         let background = self
             .services
             .background()
@@ -188,9 +194,12 @@ impl AppRuntime {
             .unwrap_or_default();
         let pagination = pagination.unwrap_or_default();
         if scope.is_empty() {
-            format!("{background}{base}{pagination} > ")
+            format!("{status}{background}{base}{pagination} > ")
         } else {
-            format!("{background}{base} [{}]{pagination} > ", scope.join(" "))
+            format!(
+                "{status}{background}{base} [{}]{pagination} > ",
+                scope.join(" ")
+            )
         }
     }
 }

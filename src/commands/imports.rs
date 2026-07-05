@@ -2,6 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
+use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::import_result_sort;
 use crate::catalog::CommandCatalogBuilder;
@@ -64,42 +65,30 @@ pub struct ImportSubmit {
         help = "Optional idempotency key"
     )]
     pub idempotency_key: Option<String>,
+    #[option(long = "wait", flag, help = "Wait for task completion")]
+    pub wait: bool,
+    #[option(long = "timeout", help = "Timeout in seconds when waiting")]
+    pub timeout: Option<u64>,
+    #[option(long = "poll-interval", help = "Poll interval in seconds when waiting")]
+    pub poll_interval: Option<u64>,
 }
 
 impl CliCommand for ImportSubmit {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
+        let opts = parse_task_submit_options(tokens)?;
         let request_json = std::fs::read_to_string(query.file)?;
         let task = services.gateway().submit_import(SubmitImportInput {
             request_json,
             idempotency_key: query.idempotency_key,
         })?;
-        let watcher = services
-            .background()
-            .watch_task(task.clone(), format!("import {}", task.0.id));
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&task)?)?,
-            OutputFormat::Text => {
-                task.format_noreturn()?;
-                if let Some(registration) = watcher {
-                    let message = if registration.created {
-                        format!(
-                            "Watching import task {} as local background job {}",
-                            registration.task_id, registration.local_id
-                        )
-                    } else {
-                        format!(
-                            "Already watching import task {} as local background job {}",
-                            registration.task_id, registration.local_id
-                        )
-                    };
-                    append_line(message)?;
-                }
-            }
-        }
-
-        Ok(())
+        run_task_backed(
+            services,
+            tokens,
+            format!("import {}", task.0.id),
+            opts,
+            task,
+        )
     }
 }
 

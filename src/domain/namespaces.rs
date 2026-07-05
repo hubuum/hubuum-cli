@@ -33,6 +33,15 @@ pub enum NamespacePermission {
     ReadObjectRelation,
     UpdateObjectRelation,
     DeleteObjectRelation,
+    ReadTemplate,
+    CreateTemplate,
+    UpdateTemplate,
+    DeleteTemplate,
+    ReadRemoteTarget,
+    CreateRemoteTarget,
+    UpdateRemoteTarget,
+    DeleteRemoteTarget,
+    ExecuteRemoteTarget,
 }
 
 impl NamespacePermission {
@@ -49,6 +58,8 @@ pub struct GroupPermissionsSummary {
     pub object: String,
     pub class_relation: String,
     pub object_relation: String,
+    pub template: String,
+    pub remote_target: String,
 }
 
 impl From<GroupPermissionsResult> for GroupPermissionsSummary {
@@ -93,6 +104,19 @@ impl From<GroupPermissionsResult> for GroupPermissionsSummary {
                 ("read", permission.has_read_object_relation),
                 ("update", permission.has_update_object_relation),
                 ("delete", permission.has_delete_object_relation),
+            ]),
+            template: enabled(&[
+                ("create", permission.has_create_template),
+                ("read", permission.has_read_template),
+                ("update", permission.has_update_template),
+                ("delete", permission.has_delete_template),
+            ]),
+            remote_target: enabled(&[
+                ("create", permission.has_create_remote_target),
+                ("read", permission.has_read_remote_target),
+                ("update", permission.has_update_remote_target),
+                ("delete", permission.has_delete_remote_target),
+                ("execute", permission.has_execute_remote_target),
             ]),
         }
     }

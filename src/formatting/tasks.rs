@@ -89,6 +89,27 @@ impl DetailRenderable for TaskQueueStateRecord {
     }
 }
 
+impl TableRenderable for TaskRecord {
+    fn headers() -> Vec<&'static str> {
+        vec!["ID", "Kind", "Status", "Progress", "Summary"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        let task = &self.0;
+        let progress = format!(
+            "{}/{}",
+            task.progress.processed_items, task.progress.total_items
+        );
+        vec![
+            task.id.to_string(),
+            task.kind.to_string(),
+            task.status.to_string(),
+            progress,
+            task.summary.clone().unwrap_or_default(),
+        ]
+    }
+}
+
 impl TableRenderable for TaskEventRecord {
     fn headers() -> Vec<&'static str> {
         vec!["id", "Task", "Type", "Message", "Created"]

@@ -14,12 +14,22 @@ pub use completion::CompletionContext;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
-    ClassUpdateInput, CreateClassInput, CreateGroupInput, CreateNamespaceInput, CreateObjectInput,
-    CreateReportTemplateInput, CreateUserInput, GroupUpdateInput, HubuumGateway,
-    NamespaceUpdateInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RelationTraversalOptions, RunReportInput, SearchInput, SearchKind, SubmitImportInput,
-    TaskLookupInput, UpdateReportTemplateInput, UserFilter, UserUpdateInput,
+    AuditListInput, AuditScope, ClassUpdateInput, CreateClassInput, CreateGroupInput,
+    CreateNamespaceInput, CreateObjectInput, CreateRemoteTargetInput, CreateReportTemplateInput,
+    CreateServiceAccountInput, CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope,
+    HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NamespaceUpdateInput, NewTokenInput,
+    ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions, RemoteAuthConfigInput, RunReportInput, SearchInput, SearchKind,
+    SubmitImportInput, TaskLookupInput, UpdateRemoteTargetInput, UpdateReportTemplateInput,
+    UserFilter, UserUpdateInput,
 };
+
+#[derive(Debug, Clone)]
+pub struct WaitTaskInput {
+    pub task_id: i32,
+    pub timeout_secs: Option<u64>,
+    pub poll_interval_secs: Option<u64>,
+}
 
 #[derive(Clone)]
 pub struct AppServices {

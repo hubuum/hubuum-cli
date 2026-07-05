@@ -2,11 +2,13 @@ mod background;
 mod classes;
 mod core;
 mod groups;
+mod identity;
 mod imports;
 mod namespaces;
 mod objects;
 mod relations;
 mod reports;
+mod service_accounts;
 mod tasks;
 mod users;
 

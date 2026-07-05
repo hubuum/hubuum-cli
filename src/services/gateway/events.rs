@@ -1,0 +1,557 @@
+use hubuum_client::{
+    client::sync::{EventListRequest, HistoryRequest},
+    types::SortDirection,
+    HubuumDateTime, NewEventSink, NewEventSubscription, QueryFilter, UpdateEventSink,
+    UpdateEventSubscription,
+};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
+use crate::domain::JsonRecord;
+use crate::errors::AppError;
+use crate::list_query::{
+    apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
+    validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery,
+    PagedResult, SortFieldSpec,
+};
+
+use super::HubuumGateway;
+
+#[derive(Debug, Clone, Default)]
+pub struct AuditListInput {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<i32>,
+    pub action: Option<String>,
+    pub actor_kind: Option<String>,
+    pub actor_user_id: Option<i32>,
+    pub namespace_id: Option<i32>,
+    pub occurred_after: Option<String>,
+    pub occurred_before: Option<String>,
+    pub limit: Option<usize>,
+    pub sort: Option<String>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum AuditScope {
+    Global,
+    Namespace(i32),
+    Class(i32),
+    Object { class_id: i32, object_id: i32 },
+    User(i32),
+    Group(i32),
+    Template(i32),
+    RemoteTarget(i32),
+}
+
+#[derive(Debug, Clone)]
+pub enum HistoryScope {
+    Class(i32),
+    Object { class_id: i32, object_id: i32 },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HistoryInput {
+    pub limit: Option<usize>,
+    pub sort: Option<String>,
+    pub cursor: Option<String>,
+    pub at: Option<String>,
+}
+
+impl HubuumGateway {
+    pub fn list_event_sink_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .client
+            .event_sinks()
+            .find()
+            .execute()?
+            .into_iter()
+            .map(|sink| sink.name)
+            .collect())
+    }
+
+    pub fn event_sink_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self.client.event_sinks().select_by_name(name)?.id())
+    }
+
+    pub fn namespace_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        self.namespace_id(name)
+    }
+
+    pub fn audit_events(
+        &self,
+        scope: AuditScope,
+        input: AuditListInput,
+    ) -> Result<PagedResult<JsonRecord>, AppError> {
+        if input.entity_type.is_some() || input.entity_id.is_some() {
+            return Err(AppError::InvalidOption(
+                "entity-type/entity-id filters are not exposed by the official hubuum_client yet"
+                    .to_string(),
+            ));
+        }
+
+        let request = match scope {
+            AuditScope::Global => self.client.events(),
+            AuditScope::Namespace(id) => self.client.namespace_events(id),
+            AuditScope::Class(id) => self.client.class_events(id),
+            AuditScope::Object {
+                class_id,
+                object_id,
+            } => self.client.object_events(class_id, object_id),
+            AuditScope::Template(id) => self.client.template_events(id),
+            AuditScope::RemoteTarget(id) => self.client.remote_target_events(id),
+            AuditScope::User(id) => self.client.user_events(id),
+            AuditScope::Group(id) => self.client.group_events(id),
+        };
+
+        let request = apply_audit_input(request, &input)?;
+        page_to_json(request.page()?, input.limit)
+    }
+
+    pub fn history(
+        &self,
+        scope: HistoryScope,
+        input: HistoryInput,
+    ) -> Result<PagedResult<JsonRecord>, AppError> {
+        if let Some(at) = input.at {
+            let at = parse_hubuum_datetime(&at)?;
+            let record = match scope {
+                HistoryScope::Class(id) => {
+                    JsonRecord::from_serializable(self.client.class_history_as_of(id, at)?)?
+                }
+                HistoryScope::Object {
+                    class_id,
+                    object_id,
+                } => JsonRecord::from_serializable(
+                    self.client.object_history_as_of(class_id, object_id, at)?,
+                )?,
+            };
+            return Ok(PagedResult {
+                items: vec![record],
+                next_cursor: None,
+                limit: Some(1),
+                returned_count: 1,
+            });
+        }
+
+        match scope {
+            HistoryScope::Class(id) => {
+                let request = apply_history_input(self.client.class_history(id), &input)?;
+                page_to_json(request.page()?, input.limit)
+            }
+            HistoryScope::Object {
+                class_id,
+                object_id,
+            } => {
+                let request =
+                    apply_history_input(self.client.object_history(class_id, object_id), &input)?;
+                page_to_json(request.page()?, input.limit)
+            }
+        }
+    }
+
+    pub fn event_sinks(&self, query: &ListQuery) -> Result<PagedResult<JsonRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, EVENT_SINK_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_SINK_SORT_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
+        let page = apply_query_paging(
+            self.client.event_sinks().find().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
+        page_to_json(page, query.limit)
+    }
+
+    pub fn event_sink(&self, id: i32) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_sinks().select(id)?.resource().clone())
+            .map_err(AppError::from)
+    }
+
+    pub fn create_event_sink(&self, input: NewEventSink) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_sinks().create_raw(input)?)
+            .map_err(AppError::from)
+    }
+
+    pub fn update_event_sink(
+        &self,
+        id: i32,
+        input: UpdateEventSink,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_sinks().update_raw(id, input)?)
+            .map_err(AppError::from)
+    }
+
+    pub fn delete_event_sink(&self, id: i32) -> Result<(), AppError> {
+        self.client.event_sinks().delete(id)?;
+        Ok(())
+    }
+
+    pub fn event_subscriptions(
+        &self,
+        namespace_id: i32,
+        query: &ListQuery,
+    ) -> Result<PagedResult<JsonRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_SUBSCRIPTION_SORT_SPECS)?;
+        let filters = self.resolve_event_filters(&validated)?;
+        let page = apply_cursor_request_paging(
+            self.client
+                .event_subscriptions(namespace_id)
+                .query()
+                .filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
+        page_to_json(page, query.limit)
+    }
+
+    pub fn event_subscription(
+        &self,
+        namespace_id: i32,
+        subscription_id: i32,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client
+                .event_subscriptions(namespace_id)
+                .get(subscription_id)?,
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn create_event_subscription(
+        &self,
+        namespace_id: i32,
+        input: NewEventSubscription,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client
+                .event_subscriptions(namespace_id)
+                .create(input)?,
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn update_event_subscription(
+        &self,
+        namespace_id: i32,
+        subscription_id: i32,
+        input: UpdateEventSubscription,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client
+                .event_subscriptions(namespace_id)
+                .update(subscription_id, input)?,
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn delete_event_subscription(
+        &self,
+        namespace_id: i32,
+        subscription_id: i32,
+    ) -> Result<(), AppError> {
+        self.client
+            .event_subscriptions(namespace_id)
+            .delete(subscription_id)?;
+        Ok(())
+    }
+
+    pub fn event_deliveries(&self, query: &ListQuery) -> Result<PagedResult<JsonRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, EVENT_DELIVERY_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_DELIVERY_SORT_SPECS)?;
+        let filters = self.resolve_event_filters(&validated)?;
+        let page = apply_cursor_request_paging(
+            self.client.event_deliveries().query().filters(filters),
+            query,
+            &validated_sorts,
+        )
+        .page()?;
+        page_to_json(page, query.limit)
+    }
+
+    pub fn event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_deliveries().get(id)?)
+            .map_err(AppError::from)
+    }
+
+    pub fn event_delivery_health(&self) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_deliveries().health()?)
+            .map_err(AppError::from)
+    }
+
+    pub fn retry_event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_deliveries().retry(id)?)
+            .map_err(AppError::from)
+    }
+
+    pub fn dead_event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(self.client.event_deliveries().mark_dead(id)?)
+            .map_err(AppError::from)
+    }
+
+    fn resolve_event_filters(
+        &self,
+        validated: &[crate::list_query::ValidatedFilterClause],
+    ) -> Result<Vec<QueryFilter>, AppError> {
+        validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect()
+    }
+}
+
+fn apply_audit_input(
+    mut request: EventListRequest,
+    input: &AuditListInput,
+) -> Result<EventListRequest, AppError> {
+    if let Some(action) = &input.action {
+        request = request.action(action);
+    }
+    if let Some(actor_kind) = &input.actor_kind {
+        request = request.actor_kind(actor_kind);
+    }
+    if let Some(actor_user_id) = input.actor_user_id {
+        request = request.actor_user_id(actor_user_id);
+    }
+    if let Some(namespace_id) = input.namespace_id {
+        request = request.namespace_id(namespace_id);
+    }
+    if let Some(occurred_after) = &input.occurred_after {
+        request = request.occurred_after(occurred_after);
+    }
+    if let Some(occurred_before) = &input.occurred_before {
+        request = request.occurred_before(occurred_before);
+    }
+    if let Some(limit) = input.limit {
+        request = request.limit(limit);
+    }
+    if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
+        request = request.sort(field, direction);
+    }
+    if let Some(cursor) = &input.cursor {
+        request = request.cursor(cursor);
+    }
+    Ok(request)
+}
+
+fn apply_history_input<T>(
+    mut request: HistoryRequest<T>,
+    input: &HistoryInput,
+) -> Result<HistoryRequest<T>, AppError>
+where
+    T: DeserializeOwned,
+{
+    if let Some(limit) = input.limit {
+        request = request.limit(limit);
+    }
+    if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
+        request = request.sort(field, direction);
+    }
+    if let Some(cursor) = &input.cursor {
+        request = request.cursor(cursor);
+    }
+    Ok(request)
+}
+
+fn parse_single_sort(sort: Option<&str>) -> Result<Option<(&str, SortDirection)>, AppError> {
+    let Some(sort) = sort.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if sort.contains(',') {
+        return Err(AppError::InvalidOption(
+            "only one sort field is supported by the official hubuum_client request type"
+                .to_string(),
+        ));
+    }
+    let sort = sort.trim();
+    if let Some(field) = sort.strip_prefix('-') {
+        Ok(Some((field, SortDirection::Desc)))
+    } else {
+        Ok(Some((sort, SortDirection::Asc)))
+    }
+}
+
+fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
+    serde_json::from_value(serde_json::Value::String(value.to_string())).map_err(AppError::from)
+}
+
+fn page_to_json<T: Serialize>(
+    page: hubuum_client::Page<T>,
+    limit: Option<usize>,
+) -> Result<PagedResult<JsonRecord>, AppError> {
+    let items = page
+        .items
+        .into_iter()
+        .map(JsonRecord::from_serializable)
+        .collect::<Result<Vec<_>, _>>()?;
+    let returned_count = items.len();
+    Ok(PagedResult {
+        items,
+        next_cursor: page.next_cursor,
+        limit,
+        returned_count,
+    })
+}
+
+pub(crate) const EVENT_SINK_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "kind",
+        "kind",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "enabled",
+        "enabled",
+        FilterOperatorProfile::Boolean,
+        FilterValueProfile::Boolean,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];
+
+pub(crate) const EVENT_SINK_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("name", "name"),
+    SortFieldSpec::new("kind", "kind"),
+    SortFieldSpec::new("enabled", "enabled"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
+];
+
+pub(crate) const EVENT_SUBSCRIPTION_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "sink_id",
+        "sink_id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "enabled",
+        "enabled",
+        FilterOperatorProfile::Boolean,
+        FilterValueProfile::Boolean,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];
+
+pub(crate) const EVENT_SUBSCRIPTION_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("sink_id", "sink_id"),
+    SortFieldSpec::new("name", "name"),
+    SortFieldSpec::new("enabled", "enabled"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
+];
+
+pub(crate) const EVENT_DELIVERY_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "event_id",
+        "event_id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "subscription_id",
+        "subscription_id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "status",
+        "status",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "attempts",
+        "attempts",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "next_attempt_at",
+        "next_attempt_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "updated_at",
+        "updated_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+];
+
+pub(crate) const EVENT_DELIVERY_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("event_id", "event_id"),
+    SortFieldSpec::new("subscription_id", "subscription_id"),
+    SortFieldSpec::new("status", "status"),
+    SortFieldSpec::new("attempts", "attempts"),
+    SortFieldSpec::new("next_attempt_at", "next_attempt_at"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("updated_at", "updated_at"),
+];

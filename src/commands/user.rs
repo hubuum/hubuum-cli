@@ -12,7 +12,7 @@ use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, CreateUserInput, UserFilter, UserUpdateInput};
+use crate::services::{AppServices, CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -76,6 +76,50 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                         r#"modify alice --rename alice2
 modify --username alice --email alice@example.com"#,
                     ),
+                },
+            ),
+        )
+        .add_command(
+            &["user"],
+            catalog_command(
+                "set-password",
+                UserSetPassword::default(),
+                CommandDocs {
+                    about: Some("Set a user's password"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "list",
+                UserTokenList::default(),
+                CommandDocs {
+                    about: Some("List tokens for a user"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "create",
+                UserTokenCreate::default(),
+                CommandDocs {
+                    about: Some("Create a token for a user"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "revoke",
+                UserTokenRevoke::default(),
+                CommandDocs {
+                    about: Some("Revoke a user token"),
+                    ..CommandDocs::default()
                 },
             ),
         );
@@ -323,4 +367,183 @@ where
         return Ok(pos0.cloned());
     };
     Ok(query.username().clone())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserSetPassword {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "p", long = "password", help = "New password")]
+    pub password: String,
+}
+
+impl GetUsername for &UserSetPassword {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserSetPassword {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+
+        services
+            .gateway()
+            .set_user_password(&username, &query.password)?;
+
+        let message = format!("Password updated for user '{}'", username);
+        match desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenList {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+}
+
+impl GetUsername for &UserTokenList {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserTokenList {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+
+        let token_list = services.gateway().user_tokens(&username)?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => {
+                append_line(serde_json::to_string_pretty(&token_list)?)?;
+            }
+            OutputFormat::Text => {
+                token_list.format_noreturn()?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenCreate {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "n", long = "name", help = "Token name")]
+    pub name: Option<String>,
+    #[option(short = "d", long = "description", help = "Token description")]
+    pub description: Option<String>,
+    #[option(
+        short = "s",
+        long = "scope",
+        help = "Permission scope (repeatable)",
+        nargs = 1
+    )]
+    pub scopes: Vec<String>,
+    #[option(
+        long = "expires-at",
+        help = "Token expiration, RFC3339 (e.g. 2026-12-31T23:59:59Z)"
+    )]
+    pub expires_at: Option<String>,
+}
+
+impl GetUsername for &UserTokenCreate {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserTokenCreate {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+
+        let raw_token = services.gateway().user_token_create(
+            &username,
+            NewTokenInput {
+                name: query.name,
+                description: query.description,
+                expires_at: query.expires_at,
+                scopes: query.scopes,
+            },
+        )?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => {
+                append_line(serde_json::to_string_pretty(&serde_json::json!({
+                    "token": raw_token,
+                    "warning": "This token will not be shown again. Store it securely."
+                }))?)?;
+            }
+            OutputFormat::Text => {
+                append_line(format!("\nToken created for user '{}':", username))?;
+                append_line(format!("  {}", raw_token))?;
+                append_line("\n⚠️  This token will not be shown again. Store it securely.\n")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenRevoke {
+    #[option(short = "u", long = "username", help = "Username of the user")]
+    pub username: Option<String>,
+    #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
+    pub token_id: i32,
+}
+
+impl GetUsername for &UserTokenRevoke {
+    fn username(&self) -> Option<String> {
+        self.username.clone()
+    }
+}
+
+impl CliCommand for UserTokenRevoke {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let mut query = Self::parse_tokens(tokens)?;
+        query.username = username_or_pos(&query, tokens, 0)?;
+
+        let username = query
+            .username
+            .clone()
+            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+
+        services
+            .gateway()
+            .user_token_revoke(&username, query.token_id)?;
+
+        let message = format!("Token {} revoked for user '{}'", query.token_id, username);
+        match desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
 }

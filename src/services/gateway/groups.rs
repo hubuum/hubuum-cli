@@ -1,6 +1,4 @@
-use hubuum_client::{GroupPatch, GroupPost};
-
-use crate::domain::{GroupDetails, GroupRecord, UserRecord};
+use crate::domain::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -27,58 +25,65 @@ impl HubuumGateway {
         Ok(self
             .client
             .groups()
-            .find()
-            .execute()?
+            .query()
+            .list()?
             .into_iter()
-            .map(|group| group.groupname)
+            .map(|group| group.groupname.clone())
             .collect())
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
-        let group = self.client.groups().create_raw(GroupPost {
-            groupname: input.groupname,
-            description: input.description,
-        })?;
+        let group = self
+            .client
+            .groups()
+            .create()
+            .params(hubuum_client::GroupPost {
+                groupname: input.groupname,
+                description: input.description,
+            })
+            .send()?;
         Ok(GroupRecord::from(group))
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
         let group = self.client.groups().select_by_name(group_name)?;
-        let user = self.client.users().select_by_name(username)?;
-        group.add_user(user.id())?;
+        let principal_id = self.client.users().select_by_name(username)?.id();
+        group.add_member(principal_id)?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
         let group = self.client.groups().select_by_name(group_name)?;
-        let user = self.client.users().select_by_name(username)?;
-        group.remove_user(user.id())?;
+        let principal_id = self.client.users().select_by_name(username)?.id();
+        group.remove_member(principal_id)?;
         Ok(())
     }
 
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
-        let group = self.client.groups().select_by_name(group_name)?;
-        let members = group
+        let handle = self.client.groups().select_by_name(group_name)?;
+        let members = handle
             .members()?
             .into_iter()
-            .map(|user| UserRecord::from(user.resource()))
+            .map(PrincipalMemberRecord::from)
             .collect::<Vec<_>>();
 
         Ok(GroupDetails {
-            group: GroupRecord::from(group.resource()),
+            group: GroupRecord::from(handle.resource().clone()),
             members,
         })
     }
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
-        let group = self.client.groups().select_by_name(&input.groupname)?;
-        let updated = self.client.groups().update_raw(
-            group.id(),
-            GroupPatch {
+        let handle = self.client.groups().select_by_name(&input.groupname)?;
+        let updated = self
+            .client
+            .groups()
+            .update(handle.id())
+            .params(hubuum_client::GroupPatch {
                 groupname: input.rename,
                 description: input.description,
-            },
-        )?;
+            })
+            .send()?;
 
         Ok(GroupRecord::from(updated))
     }
@@ -91,12 +96,12 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(
-            self.client.groups().find().filters(filters),
-            query,
-            &validated_sorts,
-        )
-        .page()?;
+        let mut query_op = self.client.groups().query();
+        for filter in filters {
+            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+        }
+
+        let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
         Ok(PagedResult::from_page(page, query.limit, GroupRecord::from))
     }
 }

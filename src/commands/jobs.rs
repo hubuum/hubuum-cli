@@ -12,34 +12,51 @@ use crate::services::{AppServices, TaskLookupInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    // `bg` is a true alias of `jobs`: both prefixes reuse the same command structs.
+    register_group(builder, "jobs");
+    register_group(builder, "bg");
+}
+
+fn register_group(builder: &mut CommandCatalogBuilder, prefix: &'static str) {
     builder
         .add_command(
-            &["bg"],
+            &[prefix],
             catalog_command(
                 "list",
-                BgList::default(),
+                JobsList::default(),
                 CommandDocs {
-                    about: Some("List local background watchers"),
+                    about: Some("List local background jobs"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["bg"],
+            &[prefix],
             catalog_command(
                 "show",
-                BgShow::default(),
+                JobsShow::default(),
                 CommandDocs {
-                    about: Some("Show a local background watcher"),
+                    about: Some("Show a local background job"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["bg"],
+            &[prefix],
+            catalog_command(
+                "output",
+                JobsOutput::default(),
+                CommandDocs {
+                    about: Some("View output of a background job"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &[prefix],
             catalog_command(
                 "watch",
-                BgWatch::default(),
+                JobsWatch::default(),
                 CommandDocs {
                     about: Some("Watch a server task in the background"),
                     ..CommandDocs::default()
@@ -47,12 +64,12 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["bg"],
+            &[prefix],
             catalog_command(
                 "forget",
-                BgForget::default(),
+                JobsForget::default(),
                 CommandDocs {
-                    about: Some("Stop tracking a local background watcher"),
+                    about: Some("Stop tracking a local background job"),
                     ..CommandDocs::default()
                 },
             ),
@@ -68,9 +85,9 @@ trait GetTaskId {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct BgList {}
+pub struct JobsList {}
 
-impl CliCommand for BgList {
+impl CliCommand for JobsList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let jobs = services.background().list_jobs();
@@ -80,7 +97,8 @@ impl CliCommand for BgList {
             OutputFormat::Text => {
                 jobs.format_noreturn()?;
                 if !jobs.is_empty() {
-                    append_line("Use 'bg show <id>' for local details.")?;
+                    append_line("Use 'jobs show <id>' for local details.")?;
+                    append_line("Use 'jobs output <id>' to view task results.")?;
                     append_line("Use 'task show <task-id>' or 'task events <task-id>' for server status and history.")?;
                 }
             }
@@ -91,18 +109,18 @@ impl CliCommand for BgList {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct BgShow {
+pub struct JobsShow {
     #[option(short = "i", long = "id", help = "Local background job ID")]
     pub id: Option<u64>,
 }
 
-impl GetLocalId for &BgShow {
+impl GetLocalId for &JobsShow {
     fn local_id(&self) -> Option<u64> {
         self.id
     }
 }
 
-impl CliCommand for BgShow {
+impl CliCommand for JobsShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
@@ -123,6 +141,9 @@ impl CliCommand for BgShow {
                     "Use 'task show {}' for server status and 'task events {}' for history.",
                     job.task_id, job.task_id
                 ))?;
+                if job.state == "completed" {
+                    append_line(format!("View results with: jobs output {}", id))?;
+                }
             }
         }
 
@@ -131,18 +152,55 @@ impl CliCommand for BgShow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct BgWatch {
+pub struct JobsOutput {
+    #[option(short = "i", long = "id", help = "Local background job ID")]
+    pub id: Option<u64>,
+}
+
+impl GetLocalId for &JobsOutput {
+    fn local_id(&self) -> Option<u64> {
+        self.id
+    }
+}
+
+impl CliCommand for JobsOutput {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        services.background().require_enabled()?;
+        let mut query = Self::parse_tokens(tokens)?;
+        query.id = local_id_or_pos(&query, tokens, 0)?;
+        let local_id = query
+            .id
+            .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
+        let job = services
+            .background()
+            .job(local_id)
+            .ok_or_else(|| AppError::EntityNotFound(format!("background job {local_id}")))?;
+        let output = services.gateway().task_output(job.task_id)?;
+        match desired_format(tokens) {
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
+            OutputFormat::Text => {
+                for line in output.render_lines() {
+                    append_line(line)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct JobsWatch {
     #[option(short = "t", long = "task", help = "Server task ID")]
     pub task: Option<i32>,
 }
 
-impl GetTaskId for &BgWatch {
+impl GetTaskId for &JobsWatch {
     fn task_id(&self) -> Option<i32> {
         self.task
     }
 }
 
-impl CliCommand for BgWatch {
+impl CliCommand for JobsWatch {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
@@ -177,7 +235,7 @@ impl CliCommand for BgWatch {
             OutputFormat::Text => {
                 append_line(message)?;
                 append_line(format!(
-                    "Use 'bg show {}' for local watcher state.",
+                    "Use 'jobs show {}' for local watcher state.",
                     registration.local_id
                 ))?;
             }
@@ -188,18 +246,18 @@ impl CliCommand for BgWatch {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct BgForget {
+pub struct JobsForget {
     #[option(short = "i", long = "id", help = "Local background job ID")]
     pub id: Option<u64>,
 }
 
-impl GetLocalId for &BgForget {
+impl GetLocalId for &JobsForget {
     fn local_id(&self) -> Option<u64> {
         self.id
     }
 }
 
-impl CliCommand for BgForget {
+impl CliCommand for JobsForget {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
