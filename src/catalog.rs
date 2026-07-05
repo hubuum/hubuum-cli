@@ -235,7 +235,7 @@ impl CommandCatalog {
                 if summary.is_empty() {
                     lines.push(format!("  {scope_name}"));
                 } else {
-                    lines.push(format!("  {scope_name:<16} [{summary}]"));
+                    lines.extend(render_scope_summary(scope_name, &summary));
                 }
             }
         }
@@ -252,6 +252,9 @@ impl CommandCatalog {
                 }
             }
         }
+
+        lines.push(String::new());
+        lines.extend(render_pipe_help_lines());
 
         lines.push(String::new());
         lines.push(paint(ThemeRole::Heading, "Shell:"));
@@ -367,6 +370,9 @@ impl CommandCatalog {
             help.push('\n');
         }
 
+        help.push_str(&render_pipe_help());
+        help.push('\n');
+
         if let Some(examples) = &command.examples {
             help.push_str(&paint(ThemeRole::Heading, "Examples:"));
             help.push('\n');
@@ -391,6 +397,67 @@ fn scope_command_summary(scope: &ScopeSpec) -> String {
         .cloned()
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn render_scope_summary(scope_name: &str, summary: &str) -> Vec<String> {
+    const NAME_WIDTH: usize = 16;
+    const INLINE_WIDTH: usize = 76;
+    const SUMMARY_WIDTH: usize = 56;
+
+    if scope_name.len() <= NAME_WIDTH && NAME_WIDTH + summary.len() <= INLINE_WIDTH {
+        return vec![format!("  {scope_name:<NAME_WIDTH$} {summary}")];
+    }
+
+    let mut lines = vec![format!("  {scope_name}")];
+    lines.extend(
+        wrap_comma_list(summary, SUMMARY_WIDTH)
+            .into_iter()
+            .map(|line| format!("    {line}")),
+    );
+    lines
+}
+
+fn wrap_comma_list(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+
+    for item in text.split(", ") {
+        let candidate = if current.is_empty() {
+            item.to_string()
+        } else {
+            format!("{current}, {item}")
+        };
+        if !current.is_empty() && candidate.len() > width {
+            lines.push(current);
+            current = item.to_string();
+        } else {
+            current = candidate;
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+
+    lines
+}
+
+fn render_pipe_help() -> String {
+    render_pipe_help_lines().join("\n") + "\n"
+}
+
+fn render_pipe_help_lines() -> Vec<String> {
+    vec![
+        paint(ThemeRole::Heading, "Pipe:"),
+        "  Append | stages after any command to filter or reshape output before rendering."
+            .to_string(),
+        "  Common stages: F/grep <expr>, R/reject <expr>, L/head <n>, T/tail <n>, C/count."
+            .to_string(),
+        "  Structured stages: P/columns <fields>, S/sort <field|!field>, VALUE/VAL <path>."
+            .to_string(),
+        "  Examples: object list --class Hosts | F 'json_data.contact equals Entry' | P name json_data.contact".to_string(),
+        "            config show | F output | P key value | S key | L 5".to_string(),
+    ]
 }
 
 fn render_where_help(command_path: &[String]) -> Option<String> {
@@ -632,11 +699,14 @@ mod tests {
         let help = catalog.render_scope_help(&[]);
 
         assert!(help.contains("class"));
-        assert!(help.contains("[create, delete, list, modify, show]"));
+        assert!(help.contains("create, delete, list, modify, show"));
         assert!(help.contains("object"));
-        assert!(help.contains("[create, delete, list, modify, show]"));
+        assert!(help.contains("create, delete, list, modify, show"));
+        assert!(help.contains("event-subscription\n    create, delete, list, show, update"));
         assert!(help.contains("relation"));
-        assert!(help.contains("[class, object]"));
+        assert!(help.contains("class, object"));
+        assert!(help.contains("Pipe:"));
+        assert!(help.contains("F/grep <expr>"));
         assert!(help.contains("use next to fetch the next page"));
         assert!(help.contains("repl.enter_fetches_next_page"));
     }
@@ -648,8 +718,7 @@ mod tests {
 
         assert!(help.contains("class"));
         assert!(help.contains("object"));
-        assert!(help.contains("[create, delete, direct, graph, list, show]"));
-        assert!(help.contains("[create, delete, direct, graph, list, show]"));
+        assert!(help.contains("create, delete, direct, graph, list, show"));
     }
 
     #[test]
@@ -670,6 +739,8 @@ mod tests {
         assert!(help.contains("Use --cursor <token> to continue from a previous page."));
         assert!(help.contains("type next"));
         assert!(help.contains("repl.enter_fetches_next_page"));
+        assert!(help.contains("Pipe:"));
+        assert!(help.contains("VALUE/VAL <path>"));
     }
 
     #[test]
