@@ -6,7 +6,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{groups, namespace_sort, namespace_where, namespaces};
+use crate::autocomplete::{groups, namespace_sort, namespace_where, namespaces, principal_kinds};
 use crate::domain::NamespacePermission;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -119,11 +119,11 @@ set --name my-namespace --group readers --ReadCollection --ReadClass --ReadObjec
                 CommandDocs {
                     about: Some("List principal permissions for a namespace"),
                     long_about: Some(
-                        "Show namespace permissions for a given principal. Pass the namespace as the first positional argument or with --name, and the principal ID with --principal-id.",
+                        "Show namespace permissions for a given principal. Pass the namespace as the first positional argument or with --name, and identify the principal with --principal-kind and --principal.",
                     ),
                     examples: Some(
-                        r#"principal-permissions my-namespace --principal-id 123
-principal-permissions --name my-namespace --principal-id 123"#,
+                        r#"principal-permissions my-namespace --principal-kind group --principal admins
+principal-permissions --name my-namespace --principal-kind user --principal alice"#,
                     ),
                 },
             ),
@@ -709,8 +709,14 @@ pub struct NamespacePrincipalPermissions {
     )]
     pub name: Option<String>,
 
-    #[option(short = "p", long = "principal-id", help = "ID of the principal")]
-    pub principal_id: i32,
+    #[option(
+        long = "principal-kind",
+        help = "Principal kind: user, group, or service-account",
+        autocomplete = "principal_kinds"
+    )]
+    pub principal_kind: String,
+    #[option(short = "p", long = "principal", help = "Principal name")]
+    pub principal: String,
 }
 
 impl GetNamespace for &NamespacePrincipalPermissions {
@@ -730,13 +736,14 @@ impl CliCommand for NamespacePrincipalPermissions {
             None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
         };
 
+        let principal_id = principal_id_by_name(services, &new.principal_kind, &new.principal)?;
         let permissions = services
             .gateway()
-            .principal_namespace_permissions(name, new.principal_id)?;
+            .principal_namespace_permissions(name, principal_id)?;
 
         let empty_message = format!(
-            "No permissions found for principal {} in namespace '{}'",
-            new.principal_id, name
+            "No permissions found for principal '{}' in namespace '{}'",
+            new.principal, name
         );
 
         match (desired_format(tokens), permissions.is_empty()) {
@@ -754,6 +761,15 @@ impl CliCommand for NamespacePrincipalPermissions {
         }
 
         Ok(())
+    }
+}
+
+fn principal_id_by_name(services: &AppServices, kind: &str, name: &str) -> Result<i32, AppError> {
+    match kind {
+        "user" => services.gateway().user_id_by_name(name),
+        "group" => services.gateway().group_id_by_name(name),
+        "service-account" => services.gateway().service_account_id_by_name(name),
+        other => Err(AppError::InvalidOption(format!("principal-kind={other}"))),
     }
 }
 

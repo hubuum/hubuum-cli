@@ -147,21 +147,6 @@ impl HubuumGateway {
         })
     }
 
-    pub fn get_class_relation_by_id(
-        &self,
-        relation_id: i32,
-    ) -> Result<ResolvedClassRelationRecord, AppError> {
-        let relation = self
-            .client
-            .class_relation()
-            .select(relation_id)?
-            .resource()
-            .clone();
-        let class_map =
-            self.class_map_from_ids([relation.from_hubuum_class_id, relation.to_hubuum_class_id])?;
-        Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
-    }
-
     pub fn get_class_relation_by_pair(
         &self,
         class_a: &str,
@@ -171,11 +156,6 @@ impl HubuumGateway {
         let relation = self.find_class_relation_between(classes.0.id, classes.1.id)?;
         let class_map = self.class_map_from_classes([&classes.0, &classes.1]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
-    }
-
-    pub fn delete_class_relation_by_id(&self, relation_id: i32) -> Result<(), AppError> {
-        self.client.class_relation().delete(relation_id)?;
-        Ok(())
     }
 
     pub fn delete_class_relation_by_pair(
@@ -209,19 +189,6 @@ impl HubuumGateway {
         )
         .page()?;
         self.resolve_object_relation_page(page, query.limit)
-    }
-
-    pub fn get_object_relation_by_id(
-        &self,
-        relation_id: i32,
-    ) -> Result<ResolvedObjectRelationRecord, AppError> {
-        let relation = self
-            .client
-            .object_relation()
-            .select(relation_id)?
-            .resource()
-            .clone();
-        self.resolve_object_relation_record(&relation)
     }
 
     pub fn get_object_relation_v2(
@@ -259,11 +226,6 @@ impl HubuumGateway {
         let relation =
             object_a.create_relation_to(object_b.resource().hubuum_class_id, object_b.id())?;
         self.resolve_object_relation_record(&relation)
-    }
-
-    pub fn delete_object_relation_by_id(&self, relation_id: i32) -> Result<(), AppError> {
-        self.client.object_relation().delete(relation_id)?;
-        Ok(())
     }
 
     pub fn delete_object_relation_v2(&self, target: &RelationTarget) -> Result<(), AppError> {

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{render_list_page, CliCommand};
+use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::services::{AppServices, HistoryInput, HistoryScope};
@@ -36,8 +37,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassHistory {
-    #[option(long = "class-id", help = "Class ID")]
-    pub class_id: i32,
+    #[option(long = "class", help = "Class name", autocomplete = "classes")]
+    pub class: Option<String>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
     #[option(long = "limit", help = "Maximum number of results")]
@@ -50,9 +51,16 @@ pub struct ClassHistory {
 
 impl CliCommand for ClassHistory {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
+        let mut query = Self::parse_tokens(tokens)?;
+        query.class = query
+            .class
+            .or_else(|| tokens.get_positionals().first().cloned());
+        let class_name = query
+            .class
+            .as_deref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
         let history = services.gateway().history(
-            HistoryScope::Class(query.class_id),
+            HistoryScope::ClassName(class_name.to_string()),
             HistoryInput {
                 limit: query.limit,
                 sort: query.sort,
@@ -66,10 +74,14 @@ impl CliCommand for ClassHistory {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectHistory {
-    #[option(long = "class-id", help = "Class ID")]
-    pub class_id: i32,
-    #[option(long = "object-id", help = "Object ID")]
-    pub object_id: i32,
+    #[option(long = "class", help = "Class name", autocomplete = "classes")]
+    pub class: Option<String>,
+    #[option(
+        long = "name",
+        help = "Object name",
+        autocomplete = "objects_from_class"
+    )]
+    pub name: Option<String>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
     #[option(long = "limit", help = "Maximum number of results")]
@@ -82,11 +94,22 @@ pub struct ObjectHistory {
 
 impl CliCommand for ObjectHistory {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
+        let mut query = Self::parse_tokens(tokens)?;
+        let positionals = tokens.get_positionals();
+        query.class = query.class.or_else(|| positionals.first().cloned());
+        query.name = query.name.or_else(|| positionals.get(1).cloned());
+        let class_name = query
+            .class
+            .as_deref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
+        let object_name = query
+            .name
+            .as_deref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
         let history = services.gateway().history(
-            HistoryScope::Object {
-                class_id: query.class_id,
-                object_id: query.object_id,
+            HistoryScope::ObjectName {
+                class_name: class_name.to_string(),
+                object_name: object_name.to_string(),
             },
             HistoryInput {
                 limit: query.limit,

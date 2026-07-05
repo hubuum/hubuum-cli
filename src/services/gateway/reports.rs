@@ -51,50 +51,20 @@ pub struct RunReportInput {
 
 /// Parse a single --include-related spec into (key, ReportIncludeRelatedObject).
 ///
-/// Format: `<key>:<class_id>[:<max_depth>]`
+/// Format: `<key>:<class_name>[:<max_depth>]`
 /// - `<key>`: arbitrary string (map key for the related object set)
-/// - `<class_id>`: integer class ID
+/// - `<class_name>`: class name
 /// - `<max_depth>`: optional integer for max traversal depth
 ///
 /// Examples:
-/// - `servers:42` → key="servers", class_id=42, max_depth=None
-/// - `servers:42:3` → key="servers", class_id=42, max_depth=Some(3)
+/// - `servers:Hosts` → key="servers", class_id=<Hosts id>, max_depth=None
+/// - `servers:Hosts:3` → key="servers", class_id=<Hosts id>, max_depth=Some(3)
 fn parse_include_related_spec(
+    gateway: &HubuumGateway,
     spec: &str,
 ) -> Result<(String, ReportIncludeRelatedObject), AppError> {
-    let parts: Vec<&str> = spec.split(':').collect();
-    if parts.len() < 2 {
-        return Err(AppError::ParseError(format!(
-            "Invalid --include-related spec '{}': expected '<key>:<class_id>[:<max_depth>]'",
-            spec
-        )));
-    }
-
-    let key = parts[0].to_string();
-    if key.is_empty() {
-        return Err(AppError::ParseError(format!(
-            "Invalid --include-related spec '{}': key cannot be empty",
-            spec
-        )));
-    }
-
-    let class_id = parts[1].parse::<i32>().map_err(|_| {
-        AppError::ParseError(format!(
-            "Invalid --include-related spec '{}': class_id must be an integer",
-            spec
-        ))
-    })?;
-
-    let max_depth = if parts.len() >= 3 {
-        Some(parts[2].parse::<i32>().map_err(|_| {
-            AppError::ParseError(format!(
-                "Invalid --include-related spec '{}': max_depth must be an integer",
-                spec
-            ))
-        })?)
-    } else {
-        None
-    };
+    let (key, class_name, max_depth) = parse_include_related_spec_parts(spec)?;
+    let class_id = gateway.class_handle_by_name(&class_name)?.id();
 
     Ok((
         key,
@@ -107,6 +77,45 @@ fn parse_include_related_spec(
             sort: None,
         },
     ))
+}
+
+fn parse_include_related_spec_parts(spec: &str) -> Result<(String, String, Option<i32>), AppError> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() < 2 {
+        return Err(AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': expected '<key>:<class_name>[:<max_depth>]'",
+            spec
+        )));
+    }
+
+    let key = parts[0].to_string();
+    if key.is_empty() {
+        return Err(AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': key cannot be empty",
+            spec
+        )));
+    }
+
+    let class_name = parts[1];
+    if class_name.is_empty() {
+        return Err(AppError::ParseError(format!(
+            "Invalid --include-related spec '{}': class name cannot be empty",
+            spec
+        )));
+    }
+
+    let max_depth = if parts.len() >= 3 {
+        Some(parts[2].parse::<i32>().map_err(|_| {
+            AppError::ParseError(format!(
+                "Invalid --include-related spec '{}': max_depth must be an integer",
+                spec
+            ))
+        })?)
+    } else {
+        None
+    };
+
+    Ok((key, class_name.to_string(), max_depth))
 }
 
 impl HubuumGateway {
@@ -289,7 +298,7 @@ impl HubuumGateway {
         let include = if !input.include_related.is_empty() {
             let mut related_objects = HashMap::new();
             for spec in &input.include_related {
-                let (key, obj) = parse_include_related_spec(spec)?;
+                let (key, obj) = parse_include_related_spec(self, spec)?;
                 related_objects.insert(key, obj);
             }
             Some(ReportInclude {
@@ -430,44 +439,43 @@ mod tests {
 
     #[test]
     fn test_parse_include_related_spec_valid() {
-        // Test basic format: key:class_id
-        let (key, obj) = parse_include_related_spec("servers:42").unwrap();
+        // Test basic format: key:class_name
+        let (key, class_name, max_depth) =
+            parse_include_related_spec_parts("servers:Hosts").unwrap();
         assert_eq!(key, "servers");
-        assert_eq!(obj.class_id, 42);
-        assert_eq!(obj.max_depth, None);
-        assert_eq!(obj.class_relation_id, None);
-        assert_eq!(obj.direction, None);
-        assert_eq!(obj.limit, None);
-        assert_eq!(obj.sort, None);
+        assert_eq!(class_name, "Hosts");
+        assert_eq!(max_depth, None);
 
-        // Test with max_depth: key:class_id:max_depth
-        let (key, obj) = parse_include_related_spec("servers:42:3").unwrap();
+        // Test with max_depth: key:class_name:max_depth
+        let (key, class_name, max_depth) =
+            parse_include_related_spec_parts("servers:Hosts:3").unwrap();
         assert_eq!(key, "servers");
-        assert_eq!(obj.class_id, 42);
-        assert_eq!(obj.max_depth, Some(3));
+        assert_eq!(class_name, "Hosts");
+        assert_eq!(max_depth, Some(3));
 
         // Test with complex key
-        let (key, obj) = parse_include_related_spec("my_servers:100:5").unwrap();
+        let (key, class_name, max_depth) =
+            parse_include_related_spec_parts("my_servers:ServerClass:5").unwrap();
         assert_eq!(key, "my_servers");
-        assert_eq!(obj.class_id, 100);
-        assert_eq!(obj.max_depth, Some(5));
+        assert_eq!(class_name, "ServerClass");
+        assert_eq!(max_depth, Some(5));
     }
 
     #[test]
     fn test_parse_include_related_spec_invalid() {
-        // Missing class_id
-        assert!(parse_include_related_spec("servers").is_err());
+        // Missing class name
+        assert!(parse_include_related_spec_parts("servers").is_err());
 
         // Empty key
-        assert!(parse_include_related_spec(":42").is_err());
+        assert!(parse_include_related_spec_parts(":Hosts").is_err());
 
-        // Non-integer class_id
-        assert!(parse_include_related_spec("servers:foo").is_err());
+        // Empty class name
+        assert!(parse_include_related_spec_parts("servers:").is_err());
 
         // Non-integer max_depth
-        assert!(parse_include_related_spec("servers:42:bar").is_err());
+        assert!(parse_include_related_spec_parts("servers:Hosts:bar").is_err());
 
         // Empty string
-        assert!(parse_include_related_spec("").is_err());
+        assert!(parse_include_related_spec_parts("").is_err());
     }
 }

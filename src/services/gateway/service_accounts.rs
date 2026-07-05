@@ -64,6 +64,10 @@ impl HubuumGateway {
         Ok(ServiceAccountRecord::from(sa.resource().clone()))
     }
 
+    pub fn service_account_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self.client.service_accounts().select_by_name(name)?.id())
+    }
+
     pub fn delete_service_account(&self, name: &str) -> Result<(), AppError> {
         let sa = self.client.service_accounts().select_by_name(name)?;
         self.client.service_accounts().delete(sa.id())?;

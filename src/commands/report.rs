@@ -382,7 +382,7 @@ pub struct ReportRun {
     pub relation_depth: Option<i32>,
     #[option(
         long = "include-related",
-        help = "Include related objects: '<key>:<class_id>[:<max_depth>]' (repeatable)"
+        help = "Include related objects: '<key>:<class_name>[:<max_depth>]' (repeatable)"
     )]
     pub include_related: Vec<String>,
     #[option(long = "wait", flag, help = "Wait for task completion")]

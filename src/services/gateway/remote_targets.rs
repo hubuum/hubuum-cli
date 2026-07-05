@@ -14,7 +14,7 @@ use super::HubuumGateway;
 
 #[derive(Debug, Clone)]
 pub struct CreateRemoteTargetInput {
-    pub namespace_id: i32,
+    pub namespace: String,
     pub name: String,
     pub description: String,
     pub method: String,
@@ -22,7 +22,7 @@ pub struct CreateRemoteTargetInput {
     pub allowed_subject_types: Vec<String>,
     pub auth_config: Option<RemoteAuthConfigInput>,
     pub body_template: Option<String>,
-    pub class_id: Option<i32>,
+    pub class: Option<String>,
     pub enabled: Option<bool>,
     pub headers_template: Option<serde_json::Value>,
     pub timeout_ms: Option<i32>,
@@ -33,13 +33,13 @@ pub struct UpdateRemoteTargetInput {
     pub name: String,
     pub rename: Option<String>,
     pub description: Option<String>,
-    pub namespace_id: Option<i32>,
+    pub namespace: Option<String>,
     pub method: Option<String>,
     pub url_template: Option<String>,
     pub allowed_subject_types: Option<Vec<String>>,
     pub auth_config: Option<RemoteAuthConfigInput>,
     pub body_template: Option<String>,
-    pub class_id: Option<i32>,
+    pub class: Option<String>,
     pub enabled: Option<bool>,
     pub headers_template: Option<serde_json::Value>,
     pub timeout_ms: Option<i32>,
@@ -56,10 +56,13 @@ pub enum RemoteAuthConfigInput {
 #[derive(Debug, Clone)]
 pub struct InvokeRemoteTargetInput {
     pub subject_kind: String,
-    pub namespace_id: Option<i32>,
-    pub class_id: Option<i32>,
-    pub object_id: Option<i32>,
-    pub relation_id: Option<i32>,
+    pub namespace: Option<String>,
+    pub class: Option<String>,
+    pub object: Option<String>,
+    pub class_a: Option<String>,
+    pub class_b: Option<String>,
+    pub object_a: Option<String>,
+    pub object_b: Option<String>,
     pub parameters: Option<serde_json::Value>,
     pub body_override: Option<serde_json::Value>,
 }
@@ -105,40 +108,74 @@ fn parse_auth_config(input: RemoteAuthConfigInput) -> RemoteAuthConfig {
 }
 
 fn build_invocation_subject(
+    gateway: &HubuumGateway,
     input: &InvokeRemoteTargetInput,
 ) -> Result<RemoteInvocationSubject, AppError> {
     match input.subject_kind.to_lowercase().as_str() {
         "namespace" => {
-            let namespace_id = input.namespace_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["namespace-id".to_string()])
-            })?;
+            let namespace_id = gateway.namespace_id(input.namespace.as_deref().ok_or_else(|| {
+                AppError::MissingOptions(vec!["namespace".to_string()])
+            })?)?;
             Ok(RemoteInvocationSubject::Namespace { namespace_id })
         }
         "class" => {
-            let class_id = input.class_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["class-id".to_string()])
-            })?;
+            let class_id = gateway
+                .class_handle_by_name(input.class.as_deref().ok_or_else(|| {
+                    AppError::MissingOptions(vec!["class".to_string()])
+                })?)?
+                .id();
             Ok(RemoteInvocationSubject::Class { class_id })
         }
         "object" => {
-            let class_id = input.class_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["class-id".to_string()])
-            })?;
-            let object_id = input.object_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["object-id".to_string()])
-            })?;
+            let class = input
+                .class
+                .as_deref()
+                .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
+            let object = gateway.object_handle_by_name(
+                class,
+                input
+                    .object
+                    .as_deref()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["object".to_string()]))?,
+            )?;
+            let class_id = object.resource().hubuum_class_id;
+            let object_id = object.id();
             Ok(RemoteInvocationSubject::Object { class_id, object_id })
         }
         "class_relation" | "classrelation" => {
-            let relation_id = input.relation_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["relation-id".to_string()])
-            })?;
+            let relation = gateway.get_class_relation_by_pair(
+                input
+                    .class_a
+                    .as_deref()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["class-a".to_string()]))?,
+                input
+                    .class_b
+                    .as_deref()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["class-b".to_string()]))?,
+            )?;
+            let relation_id = relation.id;
             Ok(RemoteInvocationSubject::ClassRelation { relation_id })
         }
         "object_relation" | "objectrelation" => {
-            let relation_id = input.relation_id.ok_or_else(|| {
-                AppError::MissingOptions(vec!["relation-id".to_string()])
+            let relation = gateway.get_object_relation_v2(&crate::services::RelationTarget {
+                class_a: input
+                    .class_a
+                    .clone()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["class-a".to_string()]))?,
+                object_a: Some(input
+                    .object_a
+                    .clone()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["object-a".to_string()]))?),
+                class_b: input
+                    .class_b
+                    .clone()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["class-b".to_string()]))?,
+                object_b: Some(input
+                    .object_b
+                    .clone()
+                    .ok_or_else(|| AppError::MissingOptions(vec!["object-b".to_string()]))?),
             })?;
+            let relation_id = relation.id;
             Ok(RemoteInvocationSubject::ObjectRelation { relation_id })
         }
         _ => Err(AppError::ParseError(format!(
@@ -161,7 +198,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let new_target = NewRemoteTarget {
-            namespace_id: input.namespace_id,
+            namespace_id: self.namespace_id(&input.namespace)?,
             name: input.name,
             description: input.description,
             method,
@@ -169,7 +206,11 @@ impl HubuumGateway {
             allowed_subject_types,
             auth_config: input.auth_config.map(parse_auth_config),
             body_template: input.body_template,
-            class_id: input.class_id,
+            class_id: input
+                .class
+                .as_deref()
+                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
+                .transpose()?,
             enabled: input.enabled,
             headers_template: input.headers_template,
             timeout_ms: input.timeout_ms,
@@ -234,14 +275,22 @@ impl HubuumGateway {
         let update = UpdateRemoteTarget {
             name: input.rename,
             description: input.description,
-            namespace_id: input.namespace_id,
+            namespace_id: input
+                .namespace
+                .as_deref()
+                .map(|namespace| self.namespace_id(namespace))
+                .transpose()?,
             method,
             url_template: input.url_template,
             headers_template: input.headers_template,
             auth_config: input.auth_config.map(parse_auth_config),
             allowed_subject_types,
             body_template: input.body_template,
-            class_id: input.class_id,
+            class_id: input
+                .class
+                .as_deref()
+                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
+                .transpose()?,
             enabled: input.enabled,
             timeout_ms: input.timeout_ms,
         };
@@ -267,7 +316,7 @@ impl HubuumGateway {
         input: InvokeRemoteTargetInput,
     ) -> Result<TaskRecord, AppError> {
         let handle = self.client.remote_targets().select_by_name(name)?;
-        let subject = build_invocation_subject(&input)?;
+        let subject = build_invocation_subject(self, &input)?;
         let mut req = RemoteTargetInvokeRequest::new(subject);
         if let Some(p) = input.parameters {
             req = req.parameters(p);

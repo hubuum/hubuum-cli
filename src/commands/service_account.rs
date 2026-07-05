@@ -1,6 +1,7 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
+use crate::autocomplete::groups;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -114,8 +115,13 @@ pub struct ServiceAccountCreate {
     pub name: String,
     #[option(short = "d", long = "description", help = "Description")]
     pub description: Option<String>,
-    #[option(short = "o", long = "owner-group-id", help = "Owner group ID")]
-    pub owner_group_id: i32,
+    #[option(
+        short = "o",
+        long = "owner-group",
+        help = "Owner group name",
+        autocomplete = "groups"
+    )]
+    pub owner_group: String,
 }
 
 impl CliCommand for ServiceAccountCreate {
@@ -127,7 +133,7 @@ impl CliCommand for ServiceAccountCreate {
             .create_service_account(CreateServiceAccountInput {
                 name: query.name,
                 description: query.description,
-                owner_group_id: query.owner_group_id,
+                owner_group_id: services.gateway().group_id_by_name(&query.owner_group)?,
             })?;
 
         match desired_format(tokens) {

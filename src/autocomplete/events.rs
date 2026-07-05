@@ -4,6 +4,10 @@ pub fn event_sinks(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
     ctx.event_sinks(prefix)
 }
 
+pub fn event_subscriptions(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
+    ctx.event_subscriptions_from_namespace(prefix, parts)
+}
+
 pub fn event_sink_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(&["webhook", "amqp", "valkey_stream", "email"], prefix)
 }

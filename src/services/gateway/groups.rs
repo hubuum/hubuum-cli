@@ -32,6 +32,10 @@ impl HubuumGateway {
             .collect())
     }
 
+    pub fn group_id_by_name(&self, group_name: &str) -> Result<i32, AppError> {
+        Ok(self.client.groups().select_by_name(group_name)?.id())
+    }
+
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
         let group = self
             .client

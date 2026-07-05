@@ -1046,6 +1046,89 @@ mod tests {
         }
     }
 
+    #[test]
+    fn command_catalog_only_exposes_allowed_id_options() {
+        let catalog = crate::commands::build_command_catalog();
+        let mut exposed = Vec::new();
+        collect_exposed_id_options(&catalog.root, &mut Vec::new(), &mut exposed);
+
+        let allowed = [
+            "audit show --id",
+            "bg forget --id",
+            "bg output --id",
+            "bg show --id",
+            "bg watch --task",
+            "event-delivery dead --id",
+            "event-delivery retry --id",
+            "event-delivery show --id",
+            "import results --id",
+            "import show --id",
+            "jobs forget --id",
+            "jobs output --id",
+            "jobs show --id",
+            "jobs watch --task",
+            "service-account token revoke --token-id",
+            "task events --id",
+            "task output --id",
+            "task show --id",
+            "user token revoke --token-id",
+        ];
+
+        exposed.sort();
+        assert_eq!(exposed, allowed);
+    }
+
+    #[test]
+    fn history_commands_use_name_options_with_dynamic_completion() {
+        let catalog = crate::commands::build_command_catalog();
+        let class_history = catalog
+            .resolve_command(&[], &["history".to_string(), "class".to_string()])
+            .expect("history class should resolve");
+        let object_history = catalog
+            .resolve_command(&[], &["history".to_string(), "object".to_string()])
+            .expect("history object should resolve");
+
+        let class_option = class_history
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--class"))
+            .expect("history class should expose --class");
+        assert!(matches!(
+            class_option.completion,
+            super::CompletionSpec::Dynamic(_)
+        ));
+        assert!(!class_history
+            .command
+            .options
+            .iter()
+            .any(|option| option.long.as_deref() == Some("--class-id")));
+
+        let object_options = &object_history.command.options;
+        let object_class = object_options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--class"))
+            .expect("history object should expose --class");
+        let object_name = object_options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--name"))
+            .expect("history object should expose --name");
+        assert!(matches!(
+            object_class.completion,
+            super::CompletionSpec::Dynamic(_)
+        ));
+        assert!(matches!(
+            object_name.completion,
+            super::CompletionSpec::Dynamic(_)
+        ));
+        assert!(!object_options.iter().any(|option| {
+            matches!(
+                option.long.as_deref(),
+                Some("--class-id") | Some("--object-id")
+            )
+        }));
+    }
+
     fn collect_commands_missing_about(
         scope: &super::ScopeSpec,
         path: &mut Vec<String>,
@@ -1066,6 +1149,41 @@ mod tests {
         for nested_scope in scope.scopes.values() {
             path.push(nested_scope.name.clone());
             collect_commands_missing_about(nested_scope, path, missing);
+            path.pop();
+        }
+    }
+
+    fn collect_exposed_id_options(
+        scope: &super::ScopeSpec,
+        path: &mut Vec<String>,
+        exposed: &mut Vec<String>,
+    ) {
+        for command in scope.commands.values() {
+            let mut command_path = path.clone();
+            command_path.push(command.name.clone());
+            for option in &command.options {
+                let long = option.long.as_deref().unwrap_or_default();
+                if matches!(
+                    long,
+                    "--id"
+                        | "--token-id"
+                        | "--task"
+                        | "--class-id"
+                        | "--object-id"
+                        | "--namespace-id"
+                        | "--owner-group-id"
+                        | "--sink-id"
+                        | "--relation-id"
+                        | "--principal-id"
+                ) {
+                    exposed.push(format!("{} {long}", command_path.join(" ")));
+                }
+            }
+        }
+
+        for nested_scope in scope.scopes.values() {
+            path.push(nested_scope.name.clone());
+            collect_exposed_id_options(nested_scope, path, exposed);
             path.pop();
         }
     }

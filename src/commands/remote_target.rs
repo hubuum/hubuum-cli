@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use crate::autocomplete::{
+    classes, namespaces, objects_from_class, objects_from_class_a, objects_from_class_b,
+};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::errors::AppError;
@@ -91,8 +94,12 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct RemoteTargetCreate {
     #[option(short = "n", long = "name", help = "Name of the remote target")]
     pub name: String,
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: i32,
+    #[option(
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: String,
     #[option(short = "d", long = "description", help = "Description")]
     pub description: String,
     #[option(
@@ -122,8 +129,8 @@ pub struct RemoteTargetCreate {
         value_source = true
     )]
     pub body_template: Option<String>,
-    #[option(long = "class-id", help = "Class ID filter")]
-    pub class_id: Option<i32>,
+    #[option(long = "class", help = "Class filter", autocomplete = "classes")]
+    pub class: Option<String>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
     #[option(
@@ -162,7 +169,7 @@ impl CliCommand for RemoteTargetCreate {
         let target = services
             .gateway()
             .create_remote_target(CreateRemoteTargetInput {
-                namespace_id: new.namespace_id,
+                namespace: new.namespace,
                 name: new.name,
                 description: new.description,
                 method: new.method,
@@ -170,7 +177,7 @@ impl CliCommand for RemoteTargetCreate {
                 allowed_subject_types: subject_types,
                 auth_config,
                 body_template: new.body_template,
-                class_id: new.class_id,
+                class: new.class,
                 enabled: new.enabled,
                 headers_template: headers,
                 timeout_ms: new.timeout_ms,
@@ -251,8 +258,12 @@ pub struct RemoteTargetUpdate {
     pub rename: Option<String>,
     #[option(short = "d", long = "description", help = "Description")]
     pub description: Option<String>,
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
+    #[option(
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: Option<String>,
     #[option(
         short = "m",
         long = "method",
@@ -280,8 +291,8 @@ pub struct RemoteTargetUpdate {
         value_source = true
     )]
     pub body_template: Option<String>,
-    #[option(long = "class-id", help = "Class ID filter")]
-    pub class_id: Option<i32>,
+    #[option(long = "class", help = "Class filter", autocomplete = "classes")]
+    pub class: Option<String>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
     #[option(
@@ -341,13 +352,13 @@ impl CliCommand for RemoteTargetUpdate {
                 name,
                 rename: query.rename,
                 description: query.description,
-                namespace_id: query.namespace_id,
+                namespace: query.namespace,
                 method: query.method,
                 url_template: query.url_template,
                 allowed_subject_types: subject_types,
                 auth_config,
                 body_template: query.body_template,
-                class_id: query.class_id,
+                class: query.class,
                 enabled: query.enabled,
                 headers_template: headers,
                 timeout_ms: query.timeout_ms,
@@ -403,17 +414,48 @@ pub struct RemoteTargetInvoke {
         help = "Subject kind: namespace, class, object, class_relation, object_relation"
     )]
     pub subject_kind: String,
-    #[option(long = "namespace-id", help = "Namespace ID (for namespace subject)")]
-    pub namespace_id: Option<i32>,
-    #[option(long = "class-id", help = "Class ID (for class/object subjects)")]
-    pub class_id: Option<i32>,
-    #[option(long = "object-id", help = "Object ID (for object subject)")]
-    pub object_id: Option<i32>,
     #[option(
-        long = "relation-id",
-        help = "Relation ID (for class_relation/object_relation subjects)"
+        long = "namespace",
+        help = "Namespace subject",
+        autocomplete = "namespaces"
     )]
-    pub relation_id: Option<i32>,
+    pub namespace: Option<String>,
+    #[option(
+        long = "class",
+        help = "Class subject or object class",
+        autocomplete = "classes"
+    )]
+    pub class: Option<String>,
+    #[option(
+        long = "object",
+        help = "Object subject",
+        autocomplete = "objects_from_class"
+    )]
+    pub object: Option<String>,
+    #[option(
+        long = "class-a",
+        help = "First relation class",
+        autocomplete = "classes"
+    )]
+    pub class_a: Option<String>,
+    #[option(
+        long = "class-b",
+        help = "Second relation class",
+        autocomplete = "classes"
+    )]
+    pub class_b: Option<String>,
+    #[option(
+        long = "object-a",
+        help = "First relation object",
+        autocomplete = "objects_from_class_a"
+    )]
+    pub object_a: Option<String>,
+    #[option(
+        long = "object-b",
+        help = "Second relation object",
+        autocomplete = "objects_from_class_b"
+    )]
+    pub object_b: Option<String>,
     #[option(long = "parameters", help = "Parameters JSON", value_source = true)]
     pub parameters: Option<String>,
     #[option(long = "body", help = "Body override JSON", value_source = true)]
@@ -454,10 +496,13 @@ impl CliCommand for RemoteTargetInvoke {
             new.name.as_ref().unwrap(),
             InvokeRemoteTargetInput {
                 subject_kind: new.subject_kind,
-                namespace_id: new.namespace_id,
-                class_id: new.class_id,
-                object_id: new.object_id,
-                relation_id: new.relation_id,
+                namespace: new.namespace,
+                class: new.class,
+                object: new.object,
+                class_a: new.class_a,
+                class_b: new.class_b,
+                object_a: new.object_a,
+                object_b: new.object_b,
                 parameters,
                 body_override,
             },

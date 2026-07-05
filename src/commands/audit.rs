@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, render_list_page, CliCommand};
-use crate::autocomplete::{audit_resources, event_actions};
+use crate::autocomplete::{
+    audit_resources, classes, event_actions, namespaces, objects_from_class,
+};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -49,7 +51,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     long_about: Some(
                         "Lists audit events scoped to a resource such as a namespace, class, object, user, group, template, or remote target.",
                     ),
-                    examples: Some("--resource namespace --id 12\n--resource object --class-id 7 --id 42"),
+                    examples: Some("--resource namespace --name Math\n--resource object --class Hosts --name adlet.uio.no"),
                 },
             ),
         );
@@ -65,10 +67,14 @@ pub struct AuditList {
     pub action: Option<String>,
     #[option(long = "actor-kind", help = "Actor kind filter")]
     pub actor_kind: Option<String>,
-    #[option(long = "actor-user-id", help = "Actor principal ID filter")]
-    pub actor_user_id: Option<i32>,
-    #[option(long = "namespace-id", help = "Namespace ID filter")]
-    pub namespace_id: Option<i32>,
+    #[option(long = "actor-user", help = "Actor user name")]
+    pub actor_user: Option<String>,
+    #[option(
+        long = "namespace",
+        help = "Namespace name",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: Option<String>,
     #[option(long = "occurred-after", help = "Lower occurred_at bound")]
     pub occurred_after: Option<String>,
     #[option(long = "occurred-before", help = "Upper occurred_at bound")]
@@ -84,26 +90,27 @@ pub struct AuditList {
 impl CliCommand for AuditList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let events = services
-            .gateway()
-            .audit_events(AuditScope::Global, query.into())?;
+        let input = AuditListInput {
+            action: query.action,
+            actor_kind: query.actor_kind,
+            actor_user_id: query
+                .actor_user
+                .as_deref()
+                .map(|name| services.gateway().user_id_by_name(name))
+                .transpose()?,
+            namespace_id: query
+                .namespace
+                .as_deref()
+                .map(|name| services.gateway().namespace_id_by_name(name))
+                .transpose()?,
+            occurred_after: query.occurred_after,
+            occurred_before: query.occurred_before,
+            limit: query.limit,
+            sort: query.sort,
+            cursor: query.cursor,
+        };
+        let events = services.gateway().audit_events(AuditScope::Global, input)?;
         render_list_page(tokens, &events)
-    }
-}
-
-impl From<AuditList> for AuditListInput {
-    fn from(value: AuditList) -> Self {
-        Self {
-            action: value.action,
-            actor_kind: value.actor_kind,
-            actor_user_id: value.actor_user_id,
-            namespace_id: value.namespace_id,
-            occurred_after: value.occurred_after,
-            occurred_before: value.occurred_before,
-            limit: value.limit,
-            sort: value.sort,
-            cursor: value.cursor,
-        }
     }
 }
 
@@ -139,18 +146,30 @@ pub struct AuditResource {
         autocomplete = "audit_resources"
     )]
     pub resource: String,
-    #[option(long = "id", help = "Resource ID")]
-    pub id: i32,
-    #[option(long = "class-id", help = "Class ID for object events")]
-    pub class_id: Option<i32>,
+    #[option(
+        long = "name",
+        help = "Resource name",
+        autocomplete = "objects_from_class"
+    )]
+    pub name: Option<String>,
+    #[option(
+        long = "class",
+        help = "Class name for object events",
+        autocomplete = "classes"
+    )]
+    pub class: Option<String>,
     #[option(
         long = "action",
         help = "Action filter",
         autocomplete = "event_actions"
     )]
     pub action: Option<String>,
-    #[option(long = "namespace-id", help = "Namespace ID filter")]
-    pub namespace_id: Option<i32>,
+    #[option(
+        long = "namespace",
+        help = "Namespace name filter",
+        autocomplete = "namespaces"
+    )]
+    pub namespace: Option<String>,
     #[option(long = "limit", help = "Maximum number of results")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -occurred_at")]
@@ -162,26 +181,20 @@ pub struct AuditResource {
 impl CliCommand for AuditResource {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let scope = match query.resource.as_str() {
-            "namespace" => AuditScope::Namespace(query.id),
-            "class" => AuditScope::Class(query.id),
-            "object" => AuditScope::Object {
-                class_id: query
-                    .class_id
-                    .ok_or_else(|| AppError::MissingOptions(vec!["class_id".to_string()]))?,
-                object_id: query.id,
-            },
-            "user" => AuditScope::User(query.id),
-            "group" => AuditScope::Group(query.id),
-            "template" => AuditScope::Template(query.id),
-            "remote-target" => AuditScope::RemoteTarget(query.id),
-            other => return Err(AppError::InvalidOption(format!("resource={other}"))),
-        };
+        let scope = services.gateway().audit_scope_by_name(
+            &query.resource,
+            query.name.as_deref(),
+            query.class.as_deref(),
+        )?;
         let events = services.gateway().audit_events(
             scope,
             AuditListInput {
                 action: query.action,
-                namespace_id: query.namespace_id,
+                namespace_id: query
+                    .namespace
+                    .as_deref()
+                    .map(|name| services.gateway().namespace_id_by_name(name))
+                    .transpose()?,
                 limit: query.limit,
                 sort: query.sort,
                 cursor: query.cursor,

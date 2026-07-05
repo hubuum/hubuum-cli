@@ -15,6 +15,14 @@ pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -
         .collect()
 }
 
+pub fn principal_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    ["user", "group", "service-account"]
+        .into_iter()
+        .filter(|kind| kind.starts_with(prefix))
+        .map(str::to_string)
+        .collect()
+}
+
 pub fn file_paths(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     file_path_candidates(prefix)
 }

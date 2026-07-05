@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::event_sink_kinds;
+use crate::autocomplete::{event_sink_kinds, event_sinks};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -88,17 +88,17 @@ impl CliCommand for EventSinkList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkShow {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSinkShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.name = name_or_pos(query.name, tokens);
         let sink = services
             .gateway()
-            .event_sink(required_i32(query.id, "id")?)?;
+            .event_sink_by_name(required_string(query.name.as_deref(), "name")?)?;
         render_record(tokens, &sink)
     }
 }
@@ -137,8 +137,8 @@ impl CliCommand for EventSinkCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkUpdate {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "sink", help = "Event sink name", autocomplete = "event_sinks")]
+    pub current_name: Option<String>,
     #[option(long = "name", help = "New name")]
     pub name: Option<String>,
     #[option(long = "kind", help = "New kind", autocomplete = "event_sink_kinds")]
@@ -164,7 +164,7 @@ pub struct EventSinkUpdate {
 impl CliCommand for EventSinkUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.current_name = name_or_pos(query.current_name, tokens);
         if query.clear_secret_ref.unwrap_or(false) {
             return Err(AppError::InvalidOption(
                 "clear-secret-ref is not exposed by the official hubuum_client update type yet"
@@ -172,7 +172,7 @@ impl CliCommand for EventSinkUpdate {
             ));
         }
         let sink = services.gateway().update_event_sink(
-            required_i32(query.id, "id")?,
+            required_string(query.current_name.as_deref(), "name")?,
             UpdateEventSink {
                 name: query.name,
                 kind: query
@@ -191,19 +191,23 @@ impl CliCommand for EventSinkUpdate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkDelete {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSinkDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.name = name_or_pos(query.name, tokens);
         services
             .gateway()
-            .delete_event_sink(required_i32(query.id, "id")?)?;
+            .delete_event_sink_by_name(required_string(query.name.as_deref(), "name")?)?;
         append_json_message("event sink deleted")
     }
+}
+
+pub(super) fn name_or_pos(name: Option<String>, tokens: &CommandTokenizer) -> Option<String> {
+    name.or_else(|| tokens.get_positionals().first().cloned())
 }
 
 pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, AppError> {
@@ -239,7 +243,7 @@ where
         .transpose()
 }
 
-pub(super) fn required_i32(value: Option<i32>, name: &str) -> Result<i32, AppError> {
+pub(super) fn required_string<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, AppError> {
     value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
 }
 

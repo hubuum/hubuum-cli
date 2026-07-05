@@ -22,6 +22,7 @@ struct CompletionSnapshot {
     event_sinks: Option<Vec<String>>,
     report_templates: Option<Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
+    event_subscriptions_by_namespace: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<serde_json::Value>>,
 }
 
@@ -99,6 +100,33 @@ impl CompletionContext {
                         prefix.to_string(),
                     ),
             )
+            .unwrap_or_default()
+    }
+
+    pub fn event_subscriptions_from_namespace(
+        &self,
+        prefix: &str,
+        parts: &[String],
+    ) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        let Some(namespace) = parts
+            .windows(2)
+            .find(|pair| pair[0] == "--namespace")
+            .map(|pair| pair[1].clone())
+        else {
+            return Vec::new();
+        };
+
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_event_subscriptions_for_namespace(self.services.gateway(), namespace),
+            )
+            .map(|values| filter_prefix(&values, prefix))
             .unwrap_or_default()
     }
 
@@ -211,6 +239,33 @@ impl CompletionStore {
         })
         .await
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
+    }
+
+    async fn load_event_subscriptions_for_namespace(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+        namespace: String,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.event_subscriptions_by_namespace.get(&namespace) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let cache_key = namespace.clone();
+        let fetched = tokio::task::spawn_blocking(move || {
+            gateway.list_event_subscription_names_for_namespace(&namespace)
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot
+                .event_subscriptions_by_namespace
+                .insert(cache_key, fetched.clone());
+        }
+
+        Ok(fetched)
     }
 
     async fn load_class_schema(

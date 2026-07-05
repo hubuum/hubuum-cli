@@ -239,8 +239,6 @@ impl CliCommand for RelatedClassList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassRelationShow {
-    #[option(long = "id", help = "Class relation id")]
-    pub id: Option<i32>,
     #[option(
         long = "class-a",
         help = "First class endpoint",
@@ -258,13 +256,10 @@ pub struct ClassRelationShow {
 impl CliCommand for ClassRelationShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let relation = match query.id {
-            Some(id) => services.gateway().get_class_relation_by_id(id)?,
-            None => services.gateway().get_class_relation_by_pair(
-                required_option(query.class_a, "class-a")?.as_str(),
-                required_option(query.class_b, "class-b")?.as_str(),
-            )?,
-        };
+        let relation = services.gateway().get_class_relation_by_pair(
+            required_option(query.class_a, "class-a")?.as_str(),
+            required_option(query.class_b, "class-b")?.as_str(),
+        )?;
 
         match desired_format(tokens) {
             OutputFormat::Json => relation.format_json_noreturn()?,
@@ -309,8 +304,6 @@ impl CliCommand for ClassRelationCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassRelationDelete {
-    #[option(long = "id", help = "Class relation id")]
-    pub id: Option<i32>,
     #[option(
         long = "class-a",
         help = "First class endpoint",
@@ -328,17 +321,12 @@ pub struct ClassRelationDelete {
 impl CliCommand for ClassRelationDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let message = if let Some(id) = query.id {
-            services.gateway().delete_class_relation_by_id(id)?;
-            format!("Deleted class relation #{id}")
-        } else {
-            let class_a = required_option(query.class_a, "class-a")?;
-            let class_b = required_option(query.class_b, "class-b")?;
-            services
-                .gateway()
-                .delete_class_relation_by_pair(&class_a, &class_b)?;
-            format!("Deleted class relation between '{class_a}' and '{class_b}'")
-        };
+        let class_a = required_option(query.class_a, "class-a")?;
+        let class_b = required_option(query.class_b, "class-b")?;
+        services
+            .gateway()
+            .delete_class_relation_by_pair(&class_a, &class_b)?;
+        let message = format!("Deleted class relation between '{class_a}' and '{class_b}'");
 
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
@@ -434,8 +422,6 @@ impl CliCommand for RelatedClassGraphCommand {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectRelationShowV2 {
-    #[option(long = "id", help = "Object relation id")]
-    pub id: Option<i32>,
     #[option(
         long = "class-a",
         help = "First class endpoint",
@@ -465,20 +451,17 @@ pub struct ObjectRelationShowV2 {
 impl CliCommand for ObjectRelationShowV2 {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let relation = match query.id {
-            Some(id) => services.gateway().get_object_relation_by_id(id)?,
-            None => services.gateway().get_object_relation_v2(
-                &exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
-                    .ok_or_else(|| {
-                        AppError::MissingOptions(vec![
-                            "class-a".to_string(),
-                            "object-a".to_string(),
-                            "class-b".to_string(),
-                            "object-b".to_string(),
-                        ])
-                    })?,
-            )?,
-        };
+        let relation = services.gateway().get_object_relation_v2(
+            &exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
+                .ok_or_else(|| {
+                    AppError::MissingOptions(vec![
+                        "class-a".to_string(),
+                        "object-a".to_string(),
+                        "class-b".to_string(),
+                        "object-b".to_string(),
+                    ])
+                })?,
+        )?;
 
         match desired_format(tokens) {
             OutputFormat::Json => relation.format_json_noreturn()?,
@@ -540,8 +523,6 @@ impl CliCommand for ObjectRelationCreateV2 {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectRelationDeleteV2 {
-    #[option(long = "id", help = "Object relation id")]
-    pub id: Option<i32>,
     #[option(
         long = "class-a",
         help = "First class endpoint",
@@ -571,29 +552,24 @@ pub struct ObjectRelationDeleteV2 {
 impl CliCommand for ObjectRelationDeleteV2 {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let message = if let Some(id) = query.id {
-            services.gateway().delete_object_relation_by_id(id)?;
-            format!("Deleted object relation #{id}")
-        } else {
-            let target =
-                exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
-                    .ok_or_else(|| {
-                        AppError::MissingOptions(vec![
-                            "class-a".to_string(),
-                            "object-a".to_string(),
-                            "class-b".to_string(),
-                            "object-b".to_string(),
-                        ])
-                    })?;
-            services.gateway().delete_object_relation_v2(&target)?;
-            format!(
-                "Deleted object relation between '{}:{}' and '{}:{}'",
-                target.class_a,
-                target.object_a.clone().unwrap_or_default(),
-                target.class_b,
-                target.object_b.clone().unwrap_or_default()
-            )
-        };
+        let target =
+            exact_object_target(query.class_a, query.object_a, query.class_b, query.object_b)?
+                .ok_or_else(|| {
+                    AppError::MissingOptions(vec![
+                        "class-a".to_string(),
+                        "object-a".to_string(),
+                        "class-b".to_string(),
+                        "object-b".to_string(),
+                    ])
+                })?;
+        services.gateway().delete_object_relation_v2(&target)?;
+        let message = format!(
+            "Deleted object relation between '{}:{}' and '{}:{}'",
+            target.class_a,
+            target.object_a.clone().unwrap_or_default(),
+            target.class_b,
+            target.object_b.clone().unwrap_or_default()
+        );
 
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,

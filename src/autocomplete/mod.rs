@@ -11,6 +11,7 @@ mod sorts;
 pub use classes::classes;
 pub use events::{
     audit_resources, event_actions, event_entity_types, event_sink_kinds, event_sinks,
+    event_subscriptions,
 };
 pub(crate) use filters::complete_where_clause;
 pub use filters::{
@@ -24,7 +25,10 @@ pub use objects::{
     objects_from_class, objects_from_class_a, objects_from_class_b, objects_from_root_class,
 };
 pub use reports::{report_missing_data_policies, report_scope_kinds, report_templates};
-pub use shared::{bool, config_keys, config_values, file_paths, object_data_columns, search_kinds};
+pub use shared::{
+    bool, config_keys, config_values, file_paths, object_data_columns, principal_kinds,
+    search_kinds,
+};
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{
     class_sort, group_sort, import_result_sort, namespace_sort, object_sort,
