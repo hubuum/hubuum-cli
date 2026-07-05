@@ -359,6 +359,9 @@ fn parse_boolish(value: &str) -> Option<bool> {
 fn join_command_args(args: &[String]) -> String {
     args.iter()
         .map(|arg| {
+            if arg == "|" {
+                return "|".to_string();
+            }
             shlex::try_quote(arg)
                 .map(|quoted| quoted.into_owned())
                 .unwrap_or_else(|_| arg.replace('\0', ""))
@@ -574,6 +577,24 @@ mod tests {
         assert_eq!(
             startup.mode,
             StartupMode::Command("object list --limit 5".to_string())
+        );
+    }
+
+    #[test]
+    fn split_startup_args_preserves_pipe_token_for_direct_command() {
+        let startup = split_startup_args([
+            "hubuum-cli",
+            "object",
+            "list",
+            "--class",
+            "Hosts",
+            "|",
+            "tornar",
+        ]);
+
+        assert_eq!(
+            startup.mode,
+            StartupMode::Command("object list --class Hosts | tornar".to_string())
         );
     }
 

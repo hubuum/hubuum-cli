@@ -18,7 +18,7 @@ pub async fn execute_line(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let mut line = process_filter(line)?;
+    let (mut line, pipeline) = process_filter(line)?;
     let mut parts = shlex::split(&line)
         .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
 
@@ -96,6 +96,7 @@ pub async fn execute_line(
     let invocation = CommandInvocation {
         raw_line: line.clone(),
         command_path: resolved.command_path.clone(),
+        pipeline,
     };
     let ctx = CommandContext { app: app.clone() };
 
@@ -136,7 +137,7 @@ pub fn execute_offline_line(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let line = process_filter(line)?;
+    let (line, _pipeline) = process_filter(line)?;
     let parts = invocation_parts(&line)?;
     if parts.is_empty() {
         return Ok(CommandOutcome::default());
@@ -252,10 +253,10 @@ fn render_help_from_catalog(
     })
 }
 
-fn process_filter(line: &str) -> Result<String, AppError> {
+fn process_filter(line: &str) -> Result<(String, Vec<hubuum_filter::PipeStage>), AppError> {
     let (command, pipeline) = hubuum_filter::split_pipeline(line)?;
-    set_pipeline(pipeline)?;
-    Ok(command)
+    set_pipeline(pipeline.clone())?;
+    Ok((command, pipeline))
 }
 
 fn invocation_parts(line: &str) -> Result<Vec<String>, AppError> {
@@ -300,7 +301,7 @@ mod tests {
     #[serial]
     fn process_filter_sets_runtime_filter() {
         reset_output().expect("buffer should reset");
-        let line = process_filter("list | alpha").expect("filter should parse");
+        let (line, _pipeline) = process_filter("list | alpha").expect("filter should parse");
         assert_eq!(line, "list");
         append_line("alpha").expect("line should append");
         append_line("beta").expect("line should append");
@@ -313,7 +314,7 @@ mod tests {
     #[serial]
     fn process_filter_applies_multiple_pipe_stages() {
         reset_output().expect("buffer should reset");
-        let line = process_filter("list | reject beta | sort line desc | head 1")
+        let (line, _pipeline) = process_filter("list | reject beta | sort line desc | head 1")
             .expect("filter should parse");
         assert_eq!(line, "list");
         append_line("alpha").expect("line should append");
@@ -328,7 +329,7 @@ mod tests {
     #[serial]
     fn process_filter_ignores_quoted_pipes() {
         reset_output().expect("buffer should reset");
-        let line =
+        let (line, _pipeline) =
             process_filter("object list --where name equals 'alpha|beta' | beta").expect("filter");
         assert_eq!(line, "object list --where name equals 'alpha|beta'");
         append_line("alpha|beta").expect("line should append");

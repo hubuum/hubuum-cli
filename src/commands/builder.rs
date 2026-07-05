@@ -8,7 +8,7 @@ use crate::catalog::{
 };
 use crate::commands::{self, command_options, CliCommand};
 use crate::errors::AppError;
-use crate::output::{reset_output, take_output};
+use crate::output::{reset_output, set_pipeline, set_render_format, take_output};
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct CommandDocs {
@@ -103,9 +103,11 @@ where
         let command = self.command.clone();
         let services = ctx.app.services.clone();
         let raw_line = invocation.raw_line.clone();
+        let pipeline = invocation.pipeline.clone();
 
         tokio::task::spawn_blocking(move || {
             reset_output()?;
+            set_pipeline(pipeline)?;
             let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
                 AppError::CommandExecutionError("Missing command name".to_string())
             })?;
@@ -115,6 +117,7 @@ where
                 &cmd_name,
                 &command_options::<C>(),
             )?;
+            set_render_format(commands::render_format(&tokens)?)?;
 
             command.execute(services.as_ref(), &tokens)?;
             services.invalidate_completion();

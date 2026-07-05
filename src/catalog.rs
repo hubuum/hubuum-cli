@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use hubuum_filter::PipeStage;
 
 use crate::errors::AppError;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
@@ -85,6 +86,7 @@ pub struct CommandContext {
 pub struct CommandInvocation {
     pub raw_line: String,
     pub command_path: Vec<String>,
+    pub pipeline: Vec<PipeStage>,
 }
 
 #[derive(Debug, Clone, Default)]
