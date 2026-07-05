@@ -245,6 +245,37 @@ impl From<EmptyResult> for Value {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
 #[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
+pub enum ObjectListDataColumns {
+    #[default]
+    Auto,
+    Preview,
+    All,
+}
+
+impl FromStr for ObjectListDataColumns {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(ObjectListDataColumns::Auto),
+            "preview" => Ok(ObjectListDataColumns::Preview),
+            "all" => Ok(ObjectListDataColumns::All),
+            _ => Err(format!(
+                "Invalid object list data columns mode: {s}. Use auto, preview, or all."
+            )),
+        }
+    }
+}
+
+impl From<ObjectListDataColumns> for Value {
+    fn from(val: ObjectListDataColumns) -> Self {
+        Value::new(None, val.to_string())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum TableBands {
     #[default]
     Auto,

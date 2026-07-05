@@ -1,5 +1,6 @@
 use crate::models::{
-    EmptyResult, OutputColor, OutputFormat, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
+    TableStyle, TableWidth, TableWrap,
 };
 
 pub struct Defaults;
@@ -28,4 +29,5 @@ impl Defaults {
     pub const OUTPUT_TABLE_BANDS: TableBands = TableBands::Auto;
     pub const OUTPUT_EMPTY_RESULT: EmptyResult = EmptyResult::Message;
     pub const OUTPUT_OBJECT_SHOW_DATA: bool = false;
+    pub const OUTPUT_OBJECT_LIST_DATA_COLUMNS: ObjectListDataColumns = ObjectListDataColumns::Auto;
 }

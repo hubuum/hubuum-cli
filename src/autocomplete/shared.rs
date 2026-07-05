@@ -22,11 +22,27 @@ pub fn config_keys(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
 }
 
 pub fn config_values(_ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
+    config_value_candidates_for_parts(prefix, parts)
+}
+
+fn config_value_candidates_for_parts(prefix: &str, parts: &[String]) -> Vec<String> {
     let Some(key) = config_key_from_parts(parts) else {
         return Vec::new();
     };
 
     config_value_candidates(key)
+        .into_iter()
+        .filter(|value| value.starts_with(prefix))
+        .map(str::to_string)
+        .collect()
+}
+
+pub fn object_data_columns(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    ["auto", "preview", "all"]
         .into_iter()
         .filter(|value| value.starts_with(prefix))
         .map(str::to_string)
@@ -45,7 +61,7 @@ fn config_key_from_parts(parts: &[String]) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::config_key_from_parts;
+    use super::{config_key_from_parts, config_value_candidates_for_parts};
 
     #[test]
     fn config_key_from_parts_uses_selected_key() {
@@ -72,5 +88,21 @@ mod tests {
         ];
 
         assert_eq!(config_key_from_parts(&parts), Some("output.table_style"));
+    }
+
+    #[test]
+    fn config_values_complete_object_list_data_column_modes() {
+        let parts = vec![
+            "config".to_string(),
+            "set".to_string(),
+            "--key".to_string(),
+            "output.object_list_data_columns".to_string(),
+            "--value".to_string(),
+        ];
+
+        assert_eq!(
+            config_value_candidates_for_parts("", &parts),
+            vec!["auto".to_string(), "preview".to_string(), "all".to_string()]
+        );
     }
 }

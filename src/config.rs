@@ -10,7 +10,8 @@ use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
-    EmptyResult, OutputColor, OutputFormat, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
+    TableStyle, TableWidth, TableWrap,
 };
 
 static CONFIG: Lazy<RwLock<AppConfig>> = Lazy::new(|| RwLock::new(AppConfig::default()));
@@ -142,6 +143,7 @@ pub struct OutputConfig {
     pub table_bands: TableBands,
     pub empty_result: EmptyResult,
     pub object_show_data: bool,
+    pub object_list_data_columns: ObjectListDataColumns,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -160,6 +162,7 @@ enum ConfigValueKind {
     TableWrap,
     TableBands,
     EmptyResult,
+    ObjectListDataColumns,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -340,6 +343,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         value_kind: ConfigValueKind::Bool,
         sensitive: false,
     },
+    ConfigKeyDescriptor {
+        key: "output.object_list_data_columns",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
+        value_kind: ConfigValueKind::ObjectListDataColumns,
+        sensitive: false,
+    },
 ];
 
 impl Default for AppConfig {
@@ -382,6 +392,7 @@ impl Default for AppConfig {
                 table_bands: Defaults::OUTPUT_TABLE_BANDS,
                 empty_result: Defaults::OUTPUT_EMPTY_RESULT,
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
+                object_list_data_columns: Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS,
             },
         }
     }
@@ -417,6 +428,7 @@ pub fn config_value_candidates(key: &str) -> Vec<&'static str> {
         ConfigValueKind::TableWrap => vec!["auto", "never"],
         ConfigValueKind::TableBands => vec!["auto", "always", "never"],
         ConfigValueKind::EmptyResult => vec!["message", "silent"],
+        ConfigValueKind::ObjectListDataColumns => vec!["auto", "preview", "all"],
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
@@ -565,6 +577,9 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.object_show_data" => {
                 target.output.object_show_data = source.output.object_show_data;
             }
+            "output.object_list_data_columns" => {
+                target.output.object_list_data_columns = source.output.object_list_data_columns;
+            }
             "output.color" => target.output.color = source.output.color,
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
@@ -601,6 +616,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default(
             "output.empty_result",
             Defaults::OUTPUT_EMPTY_RESULT.to_string(),
+        )?
+        .set_default(
+            "output.object_list_data_columns",
+            Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS.to_string(),
         )?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
@@ -794,6 +813,9 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.table_bands" => ConfigValueRef::TableBands(&config.output.table_bands),
         "output.empty_result" => ConfigValueRef::EmptyResult(&config.output.empty_result),
         "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
+        "output.object_list_data_columns" => {
+            ConfigValueRef::ObjectListDataColumns(&config.output.object_list_data_columns)
+        }
         _ => ConfigValueRef::String(""),
     }
 }
@@ -814,6 +836,7 @@ enum ConfigValueRef<'a> {
     TableWrap(&'a TableWrap),
     TableBands(&'a TableBands),
     EmptyResult(&'a EmptyResult),
+    ObjectListDataColumns(&'a ObjectListDataColumns),
 }
 
 fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
@@ -846,6 +869,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::TableWrap(value) => value.to_string(),
         ConfigValueRef::TableBands(value) => value.to_string(),
         ConfigValueRef::EmptyResult(value) => value.to_string(),
+        ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
     }
 }
 
@@ -922,6 +946,12 @@ fn parse_config_value(
         ConfigValueKind::EmptyResult => toml::Value::String(
             value
                 .parse::<EmptyResult>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::ObjectListDataColumns => toml::Value::String(
+            value
+                .parse::<ObjectListDataColumns>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
@@ -1006,7 +1036,9 @@ fn write_toml_file(path: &Path, root: &toml::Value) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::cli;
-    use crate::models::{EmptyResult, Protocol, TableBands, TableStyle, TableWidth, TableWrap};
+    use crate::models::{
+        EmptyResult, ObjectListDataColumns, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+    };
     use serial_test::serial;
     use std::env;
     use std::fs;
@@ -1036,6 +1068,7 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
             "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
         ] {
             env::remove_var(var);
         }
@@ -1069,6 +1102,7 @@ mod tests {
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_BANDS", "always");
         env::set_var("HUBUUM_CLI__OUTPUT__EMPTY_RESULT", "silent");
         env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
+        env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS", "all");
 
         // 2. load and assert
         let cfg = load_config(None).expect("failed to load config from env");
@@ -1097,6 +1131,10 @@ mod tests {
         assert_eq!(cfg.output.table_bands, TableBands::Always);
         assert_eq!(cfg.output.empty_result, EmptyResult::Silent);
         assert!(cfg.output.object_show_data);
+        assert_eq!(
+            cfg.output.object_list_data_columns,
+            ObjectListDataColumns::All
+        );
         clear_env();
     }
 
@@ -1136,6 +1174,10 @@ mod tests {
         assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
         assert_eq!(cfg.output.table_bands, baseline.output.table_bands);
         assert_eq!(cfg.output.empty_result, baseline.output.empty_result);
+        assert_eq!(
+            cfg.output.object_list_data_columns,
+            baseline.output.object_list_data_columns
+        );
         assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();
@@ -1150,6 +1192,10 @@ mod tests {
         assert_eq!(
             config_value_candidates("output.table_bands"),
             vec!["auto", "always", "never"]
+        );
+        assert_eq!(
+            config_value_candidates("output.object_list_data_columns"),
+            vec!["auto", "preview", "all"]
         );
         assert_eq!(
             config_value_candidates("server.hostname"),

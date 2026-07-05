@@ -4,5 +4,6 @@ pub mod responses;
 
 pub use auth::TokenEntry;
 pub use output::{
-    EmptyResult, OutputColor, OutputFormat, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
+    TableStyle, TableWidth, TableWrap,
 };

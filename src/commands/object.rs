@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cli_command_derive::CommandArgs;
 use jqesque::Jqesque;
@@ -8,19 +8,21 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, render_list_page, want_json,
-    CliCommand,
+    build_list_query, contains_clause, desired_format, equals_clause, want_json, CliCommand,
 };
-use crate::autocomplete::{classes, namespaces, object_sort, object_where, objects_from_class};
+use crate::autocomplete::{
+    classes, namespaces, object_data_columns, object_sort, object_where, objects_from_class,
+};
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
-use crate::domain::ObjectShowRecord;
+use crate::domain::{ObjectShowRecord, ResolvedObjectRecord};
 use crate::errors::AppError;
 use crate::formatting::{
-    append_json_message, render_related_object_tree_with_key, OutputFormatter,
+    append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
-use crate::models::OutputFormat;
-use crate::output::{add_warning, append_key_value, append_line};
+use crate::list_query::{append_paging_footer, PagedResult};
+use crate::models::{ObjectListDataColumns, OutputFormat};
+use crate::output::{add_warning, append_key_value, append_line, set_semantic_output};
 use crate::services::{
     AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
 };
@@ -329,9 +331,13 @@ mod tests {
     use serde_json::json;
     use serial_test::serial;
 
-    use super::display_json_value;
+    use super::{
+        display_json_value, explicit_data_columns, first_seen_data_keys, object_data_column_label,
+        object_list_row, ObjectListColumns,
+    };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
+    use crate::list_query::PagedResult;
     use crate::output::{append_line, reset_output, take_output};
 
     #[test]
@@ -351,6 +357,72 @@ mod tests {
         assert!(should_render_object_data(None, None, true));
         assert!(should_render_object_data(Some(true), None, false));
         assert!(should_render_object_data(None, Some("$.hello"), false));
+    }
+
+    #[test]
+    fn explicit_data_columns_preserve_requested_order() {
+        assert_eq!(
+            explicit_data_columns("contact, ip,cpu_cpuinfo"),
+            vec![
+                "contact".to_string(),
+                "ip".to_string(),
+                "cpu_cpuinfo".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn first_seen_data_keys_preserve_page_order() {
+        let page = PagedResult {
+            items: vec![
+                test_object(1, json!({"contact": "Entry", "ip": "127.0.0.1"})),
+                test_object(
+                    2,
+                    json!({"cpu_cpuinfo": "8 x Apple M4", "contact": "Bitpro"}),
+                ),
+            ],
+            next_cursor: None,
+            limit: None,
+            returned_count: 2,
+        };
+
+        assert_eq!(
+            first_seen_data_keys(&page),
+            vec![
+                "contact".to_string(),
+                "ip".to_string(),
+                "cpu_cpuinfo".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn object_list_row_expands_requested_data_columns() {
+        let object = test_object(
+            1,
+            json!({"contact": "Entry", "ip": "127.0.0.1", "name": "data-name"}),
+        );
+        let columns = ObjectListColumns {
+            data_keys: vec!["contact".to_string(), "name".to_string()],
+        };
+
+        let row = object_list_row(&object, &columns)
+            .expect("row should render")
+            .as_object()
+            .cloned()
+            .expect("row should be object");
+
+        assert_eq!(row.get("contact"), Some(&json!("Entry")));
+        assert_eq!(row.get("data.name"), Some(&json!("data-name")));
+        assert!(!row.contains_key("Data"));
+    }
+
+    #[test]
+    fn object_data_column_label_avoids_display_and_serialized_collisions() {
+        assert_eq!(object_data_column_label("id"), "data.id");
+        assert_eq!(object_data_column_label("name"), "data.name");
+        assert_eq!(object_data_column_label("Name"), "data.Name");
+        assert_eq!(object_data_column_label("contact"), "contact");
     }
 
     #[test]
@@ -406,6 +478,19 @@ mod tests {
             .lines
             .iter()
             .any(|line| line.contains("Jacks/BL14=521.A7-UD7056 → Rooms/B701")));
+    }
+
+    fn test_object(id: i32, data: serde_json::Value) -> ResolvedObjectRecord {
+        ResolvedObjectRecord {
+            id,
+            name: format!("host-{id}"),
+            description: String::new(),
+            namespace: "Math".to_string(),
+            class: "Hosts".to_string(),
+            data: Some(data),
+            created_at: "2026-07-05 03:44:41".to_string(),
+            updated_at: "2026-07-05 03:44:41".to_string(),
+        }
     }
 }
 
@@ -523,11 +608,18 @@ pub struct ObjectList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "data-columns",
+        help = "Object data columns: auto, preview, all, or comma-separated keys",
+        autocomplete = "object_data_columns"
+    )]
+    pub data_columns: Option<String>,
 }
 
 impl CliCommand for ObjectList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;
+        let class_filter = query.class.clone();
         let list_query = build_list_query(
             &query.where_clauses,
             &query.sort_clauses,
@@ -544,7 +636,218 @@ impl CliCommand for ObjectList {
             .flatten(),
         )?;
         let objects = services.gateway().list_objects(&list_query)?;
-        render_list_page(tokens, &objects)
+        render_object_list_page(
+            services,
+            tokens,
+            &objects,
+            class_filter.as_deref(),
+            query.data_columns.as_deref(),
+        )
+    }
+}
+
+fn render_object_list_page(
+    services: &AppServices,
+    tokens: &CommandTokenizer,
+    objects: &PagedResult<ResolvedObjectRecord>,
+    class_filter: Option<&str>,
+    data_columns: Option<&str>,
+) -> Result<(), AppError> {
+    match desired_format(tokens) {
+        OutputFormat::Json => {
+            crate::list_query::render_paged_result(tokens, objects, OutputFormat::Json)
+        }
+        OutputFormat::Text => {
+            let columns = object_list_columns(services, objects, class_filter, data_columns)?;
+            let rows = objects
+                .items
+                .iter()
+                .map(|object| object_list_row(object, &columns))
+                .collect::<Result<Vec<_>, AppError>>()?;
+            set_semantic_output(hubuum_filter::OutputEnvelope::rows(
+                rows,
+                columns.display_columns(),
+            ))?;
+            append_paging_footer(tokens, objects)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObjectListColumns {
+    data_keys: Vec<String>,
+}
+
+impl ObjectListColumns {
+    fn display_columns(&self) -> Vec<String> {
+        let mut columns = vec![
+            "id".to_string(),
+            "Name".to_string(),
+            "Description".to_string(),
+            "Namespace".to_string(),
+            "Class".to_string(),
+        ];
+        if self.data_keys.is_empty() {
+            columns.push("Data".to_string());
+        } else {
+            columns.extend(
+                self.data_keys
+                    .iter()
+                    .map(|key| object_data_column_label(key)),
+            );
+        }
+        columns.extend(["Created".to_string(), "Updated".to_string()]);
+        columns
+    }
+}
+
+fn object_list_columns(
+    services: &AppServices,
+    objects: &PagedResult<ResolvedObjectRecord>,
+    class_filter: Option<&str>,
+    requested: Option<&str>,
+) -> Result<ObjectListColumns, AppError> {
+    let data_keys = match requested {
+        Some(value) => match value.parse::<ObjectListDataColumns>() {
+            Ok(ObjectListDataColumns::Preview) => Vec::new(),
+            Ok(ObjectListDataColumns::Auto) => {
+                auto_object_data_columns(services, objects, class_filter)?
+            }
+            Ok(ObjectListDataColumns::All) => first_seen_data_keys(objects),
+            Err(_) => explicit_data_columns(value),
+        },
+        None => match get_config().output.object_list_data_columns {
+            ObjectListDataColumns::Preview => Vec::new(),
+            ObjectListDataColumns::Auto => {
+                auto_object_data_columns(services, objects, class_filter)?
+            }
+            ObjectListDataColumns::All => first_seen_data_keys(objects),
+        },
+    };
+    Ok(ObjectListColumns { data_keys })
+}
+
+fn auto_object_data_columns(
+    services: &AppServices,
+    objects: &PagedResult<ResolvedObjectRecord>,
+    class_filter: Option<&str>,
+) -> Result<Vec<String>, AppError> {
+    let Some(class_name) = class_filter else {
+        return Ok(Vec::new());
+    };
+
+    let schema_keys = services
+        .gateway()
+        .class_schema(class_name)?
+        .as_ref()
+        .map(schema_property_keys)
+        .unwrap_or_default();
+    if schema_keys.is_empty() {
+        Ok(first_seen_data_keys(objects))
+    } else {
+        Ok(schema_keys)
+    }
+}
+
+fn explicit_data_columns(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn schema_property_keys(schema: &serde_json::Value) -> Vec<String> {
+    schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .map(|properties| properties.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn first_seen_data_keys(objects: &PagedResult<ResolvedObjectRecord>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut keys = Vec::new();
+    for object in &objects.items {
+        if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
+            for key in data.keys() {
+                if seen.insert(key.clone()) {
+                    keys.push(key.clone());
+                }
+            }
+        }
+    }
+    keys
+}
+
+fn object_list_row(
+    object: &ResolvedObjectRecord,
+    columns: &ObjectListColumns,
+) -> Result<serde_json::Value, AppError> {
+    let mut row = match serde_json::to_value(object)? {
+        serde_json::Value::Object(object) => object,
+        value => {
+            let mut object = serde_json::Map::new();
+            object.insert("value".to_string(), value);
+            object
+        }
+    };
+
+    row.insert(
+        "id".to_string(),
+        serde_json::Value::String(object.id.to_string()),
+    );
+    row.insert(
+        "Name".to_string(),
+        serde_json::Value::String(object.name.clone()),
+    );
+    row.insert(
+        "Description".to_string(),
+        serde_json::Value::String(object.description.clone()),
+    );
+    row.insert(
+        "Namespace".to_string(),
+        serde_json::Value::String(object.namespace.clone()),
+    );
+    row.insert(
+        "Class".to_string(),
+        serde_json::Value::String(object.class.clone()),
+    );
+    if columns.data_keys.is_empty() {
+        row.insert(
+            "Data".to_string(),
+            serde_json::Value::String(data_preview(object.data.as_ref())),
+        );
+    } else if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
+        for key in &columns.data_keys {
+            if let Some(value) = data.get(key) {
+                row.insert(
+                    object_data_column_label(key),
+                    serde_json::Value::String(data_preview(Some(value))),
+                );
+            }
+        }
+    }
+    row.insert(
+        "Created".to_string(),
+        serde_json::Value::String(object.created_at.clone()),
+    );
+    row.insert(
+        "Updated".to_string(),
+        serde_json::Value::String(object.updated_at.clone()),
+    );
+
+    Ok(serde_json::Value::Object(row))
+}
+
+fn object_data_column_label(key: &str) -> String {
+    match key {
+        "id" | "name" | "description" | "namespace" | "class" | "created_at" | "updated_at"
+        | "Name" | "Description" | "Namespace" | "Class" | "Data" | "Created" | "Updated" => {
+            format!("data.{key}")
+        }
+        _ => key.to_string(),
     }
 }
 

@@ -652,7 +652,7 @@ fn parse_sort_direction(direction: &str) -> Result<SortDirectionArg, AppError> {
     }
 }
 
-fn append_paging_footer<T>(
+pub(crate) fn append_paging_footer<T>(
     tokens: &CommandTokenizer,
     paged: &PagedResult<T>,
 ) -> Result<(), AppError> {

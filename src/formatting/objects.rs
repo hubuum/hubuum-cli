@@ -78,7 +78,7 @@ fn human_readable_bytes(size: usize) -> String {
     format!("{value:.1} PB")
 }
 
-fn data_preview(data: Option<&serde_json::Value>) -> String {
+pub(crate) fn data_preview(data: Option<&serde_json::Value>) -> String {
     match data {
         Some(serde_json::Value::Object(object)) => truncate_preview(
             &object
