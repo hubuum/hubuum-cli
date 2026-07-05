@@ -9,6 +9,7 @@ use crate::errors::AppError;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::services::filter_specs_for_command_path;
+use crate::terminal::terminal_width;
 use crate::theme::{paint, ThemeRole};
 
 #[derive(Debug, Clone)]
@@ -232,12 +233,19 @@ impl CommandCatalog {
         if !scope_spec.scopes.is_empty() {
             lines.push(String::new());
             lines.push(paint(ThemeRole::Heading, "Scopes:"));
+            let name_width = scope_spec
+                .scopes
+                .keys()
+                .map(String::len)
+                .max()
+                .unwrap_or(0)
+                .max(16);
             for (scope_name, nested_scope) in &scope_spec.scopes {
                 let summary = scope_command_summary(nested_scope);
                 if summary.is_empty() {
                     lines.push(format!("  {scope_name}"));
                 } else {
-                    lines.extend(render_scope_summary(scope_name, &summary));
+                    lines.extend(render_scope_summary(scope_name, &summary, name_width));
                 }
             }
         }
@@ -406,21 +414,30 @@ fn scope_command_summary(scope: &ScopeSpec) -> String {
         .join(", ")
 }
 
-fn render_scope_summary(scope_name: &str, summary: &str) -> Vec<String> {
-    const NAME_WIDTH: usize = 16;
-    const INLINE_WIDTH: usize = 76;
-    const SUMMARY_WIDTH: usize = 56;
+fn render_scope_summary(scope_name: &str, summary: &str, name_width: usize) -> Vec<String> {
+    let terminal_width = terminal_width().unwrap_or(120);
+    render_scope_summary_at_width(scope_name, summary, name_width, terminal_width)
+}
 
-    if scope_name.len() <= NAME_WIDTH && NAME_WIDTH + summary.len() <= INLINE_WIDTH {
-        return vec![format!("  {scope_name:<NAME_WIDTH$} {summary}")];
+fn render_scope_summary_at_width(
+    scope_name: &str,
+    summary: &str,
+    name_width: usize,
+    terminal_width: usize,
+) -> Vec<String> {
+    let inline_width = 2 + name_width + 1 + summary.len();
+
+    if inline_width <= terminal_width {
+        return vec![format!("  {scope_name:<name_width$} {summary}")];
     }
 
-    let mut lines = vec![format!("  {scope_name}")];
-    lines.extend(
-        wrap_comma_list(summary, SUMMARY_WIDTH)
-            .into_iter()
-            .map(|line| format!("    {line}")),
-    );
+    let summary_width = terminal_width.saturating_sub(2 + name_width + 1).max(24);
+    let mut wrapped = wrap_comma_list(summary, summary_width).into_iter();
+    let mut lines = Vec::new();
+    if let Some(first) = wrapped.next() {
+        lines.push(format!("  {scope_name:<name_width$} {first}"));
+    }
+    lines.extend(wrapped.map(|line| format!("  {:<name_width$} {line}", "")));
     lines
 }
 
@@ -833,13 +850,32 @@ mod tests {
         assert!(help.contains("create, delete, list, modify, show"));
         assert!(help.contains("object"));
         assert!(help.contains("create, delete, list, modify, show"));
-        assert!(help.contains("event-subscription\n    create, delete, list, show, update"));
+        assert!(help.contains("event-subscription create, delete, list, show, update"));
+        assert!(help.contains("namespace          permissions, create, delete, list, modify"));
+        assert!(help.contains("                   principal-permissions, show"));
         assert!(help.contains("relation"));
         assert!(help.contains("class, object"));
         assert!(help.contains("Pipe:"));
         assert!(help.contains("F/grep <expr>"));
         assert!(help.contains("use next to fetch the next page"));
         assert!(help.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    fn scope_summary_uses_one_line_when_terminal_is_wide_enough() {
+        let lines = super::render_scope_summary_at_width(
+            "namespace",
+            "permissions, create, delete, list, modify, principal-permissions, show",
+            "event-subscription".len(),
+            120,
+        );
+
+        assert_eq!(
+            lines,
+            vec![
+                "  namespace          permissions, create, delete, list, modify, principal-permissions, show"
+            ]
+        );
     }
 
     #[test]
