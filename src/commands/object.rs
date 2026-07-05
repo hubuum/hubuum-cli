@@ -26,6 +26,8 @@ use crate::output::{add_warning, append_key_value, append_line, set_semantic_out
 use crate::services::{
     AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
 };
+
+const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -332,8 +334,8 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        display_json_value, explicit_data_columns, first_seen_data_keys, object_data_column_label,
-        object_list_row, ObjectListColumns,
+        bounded_auto_data_columns, display_json_value, explicit_data_columns, first_seen_data_keys,
+        object_data_column_label, object_list_row, ObjectListColumns,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
@@ -404,6 +406,7 @@ mod tests {
         );
         let columns = ObjectListColumns {
             data_keys: vec!["contact".to_string(), "name".to_string()],
+            compact_base: false,
         };
 
         let row = object_list_row(&object, &columns)
@@ -415,6 +418,27 @@ mod tests {
         assert_eq!(row.get("contact"), Some(&json!("Entry")));
         assert_eq!(row.get("data.name"), Some(&json!("data-name")));
         assert!(!row.contains_key("Data"));
+    }
+
+    #[test]
+    fn auto_data_columns_are_bounded_for_wide_schemas() {
+        let keys = vec![
+            "contact".to_string(),
+            "cpu_cpuinfo".to_string(),
+            "date".to_string(),
+            "ip".to_string(),
+            "ipv4".to_string(),
+        ];
+
+        assert_eq!(
+            bounded_auto_data_columns(keys),
+            vec![
+                "contact".to_string(),
+                "cpu_cpuinfo".to_string(),
+                "date".to_string(),
+                "ip".to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -676,6 +700,7 @@ fn render_object_list_page(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectListColumns {
     data_keys: Vec<String>,
+    compact_base: bool,
 }
 
 impl ObjectListColumns {
@@ -685,8 +710,10 @@ impl ObjectListColumns {
             "Name".to_string(),
             "Description".to_string(),
             "Namespace".to_string(),
-            "Class".to_string(),
         ];
+        if !self.compact_base {
+            columns.push("Class".to_string());
+        }
         if self.data_keys.is_empty() {
             columns.push("Data".to_string());
         } else {
@@ -696,7 +723,9 @@ impl ObjectListColumns {
                     .map(|key| object_data_column_label(key)),
             );
         }
-        columns.extend(["Created".to_string(), "Updated".to_string()]);
+        if !self.compact_base {
+            columns.extend(["Created".to_string(), "Updated".to_string()]);
+        }
         columns
     }
 }
@@ -707,24 +736,31 @@ fn object_list_columns(
     class_filter: Option<&str>,
     requested: Option<&str>,
 ) -> Result<ObjectListColumns, AppError> {
-    let data_keys = match requested {
+    let (data_keys, compact_base) = match requested {
         Some(value) => match value.parse::<ObjectListDataColumns>() {
-            Ok(ObjectListDataColumns::Preview) => Vec::new(),
+            Ok(ObjectListDataColumns::Preview) => (Vec::new(), false),
             Ok(ObjectListDataColumns::Auto) => {
-                auto_object_data_columns(services, objects, class_filter)?
+                let keys = auto_object_data_columns(services, objects, class_filter)?;
+                let compact_base = !keys.is_empty();
+                (keys, compact_base)
             }
-            Ok(ObjectListDataColumns::All) => first_seen_data_keys(objects),
-            Err(_) => explicit_data_columns(value),
+            Ok(ObjectListDataColumns::All) => (first_seen_data_keys(objects), false),
+            Err(_) => (explicit_data_columns(value), false),
         },
         None => match get_config().output.object_list_data_columns {
-            ObjectListDataColumns::Preview => Vec::new(),
+            ObjectListDataColumns::Preview => (Vec::new(), false),
             ObjectListDataColumns::Auto => {
-                auto_object_data_columns(services, objects, class_filter)?
+                let keys = auto_object_data_columns(services, objects, class_filter)?;
+                let compact_base = !keys.is_empty();
+                (keys, compact_base)
             }
-            ObjectListDataColumns::All => first_seen_data_keys(objects),
+            ObjectListDataColumns::All => (first_seen_data_keys(objects), false),
         },
     };
-    Ok(ObjectListColumns { data_keys })
+    Ok(ObjectListColumns {
+        data_keys,
+        compact_base,
+    })
 }
 
 fn auto_object_data_columns(
@@ -742,11 +778,18 @@ fn auto_object_data_columns(
         .as_ref()
         .map(schema_property_keys)
         .unwrap_or_default();
-    if schema_keys.is_empty() {
-        Ok(first_seen_data_keys(objects))
+    let keys = if schema_keys.is_empty() {
+        first_seen_data_keys(objects)
     } else {
-        Ok(schema_keys)
-    }
+        schema_keys
+    };
+    Ok(bounded_auto_data_columns(keys))
+}
+
+fn bounded_auto_data_columns(keys: Vec<String>) -> Vec<String> {
+    keys.into_iter()
+        .take(AUTO_OBJECT_DATA_COLUMN_LIMIT)
+        .collect()
 }
 
 fn explicit_data_columns(value: &str) -> Vec<String> {
