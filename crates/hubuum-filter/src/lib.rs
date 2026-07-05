@@ -363,7 +363,7 @@ impl SemanticFilter {
 
     fn matches(&self, value: &Value) -> Result<bool, PipelineError> {
         match self {
-            Self::Quick(regex) => Ok(scalar_descendants(value).any(|text| regex.is_match(&text))),
+            Self::Quick(regex) => Ok(regex.is_match(&value.to_string())),
             Self::PathExists(path) => Ok(!select_values(value, path).is_empty()),
             Self::PathEquals(path, expected) => Ok(select_values(value, path)
                 .into_iter()
@@ -492,16 +492,6 @@ fn selector_tokens(selector: &str) -> Vec<SelectorToken<'_>> {
         }
     }
     tokens
-}
-
-fn scalar_descendants(value: &Value) -> Box<dyn Iterator<Item = String> + '_> {
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
-            Box::new(scalar_text(value).into_iter())
-        }
-        Value::Array(values) => Box::new(values.iter().flat_map(scalar_descendants)),
-        Value::Object(object) => Box::new(object.values().flat_map(scalar_descendants)),
-    }
 }
 
 fn scalar_text(value: &Value) -> Option<String> {
@@ -870,5 +860,23 @@ mod tests {
 
         let count = apply_pipeline(envelope, &[PipeStage::Count]).expect("count pipeline");
         assert_eq!(count.value, json!([2]));
+    }
+
+    #[test]
+    fn semantic_quick_filter_matches_json_keys_and_values() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha", "json_data": {"eko_marker": "no visible value"}}),
+                json!({"name": "beta", "json_data": {"marker": "other"}}),
+            ],
+            vec!["name".to_string()],
+        );
+
+        let transformed =
+            apply_pipeline(envelope, &[PipeStage::Grep("eko".to_string())]).expect("grep");
+        assert_eq!(
+            transformed.value,
+            json!([{"name": "alpha", "json_data": {"eko_marker": "no visible value"}}])
+        );
     }
 }

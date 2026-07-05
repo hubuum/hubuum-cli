@@ -56,13 +56,20 @@ where
         let rows = self
             .iter()
             .map(|row| {
-                let mut object = serde_json::Map::new();
+                let mut object = match serde_json::to_value(row)? {
+                    serde_json::Value::Object(object) => object,
+                    value => {
+                        let mut object = serde_json::Map::new();
+                        object.insert("value".to_string(), value);
+                        object
+                    }
+                };
                 for (column, value) in columns.iter().zip(row.row()) {
                     object.insert(column.clone(), serde_json::Value::String(value));
                 }
-                serde_json::Value::Object(object)
+                Ok(serde_json::Value::Object(object))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, AppError>>()?;
         set_semantic_output(hubuum_filter::OutputEnvelope::rows(rows, columns))?;
         Ok(self.clone())
     }
@@ -94,8 +101,9 @@ mod tests {
     use crate::{
         config::{init_config, AppConfig},
         models::{EmptyResult, TableStyle},
-        output::{reset_output, take_output},
+        output::{reset_output, set_pipeline, take_output},
     };
+    use hubuum_filter::PipeStage;
     use serde::Serialize;
     use serial_test::serial;
 
@@ -103,6 +111,7 @@ mod tests {
     struct Row {
         name: &'static str,
         value: &'static str,
+        hidden: &'static str,
     }
 
     impl TableRenderable for Row {
@@ -139,6 +148,7 @@ mod tests {
         vec![Row {
             name: "alpha",
             value: "one",
+            hidden: "secret",
         }]
         .format_noreturn()
         .expect("format");
@@ -147,5 +157,33 @@ mod tests {
         assert!(rendered.contains("alpha"));
         assert!(!rendered.contains('+'));
         assert!(!rendered.contains('│'));
+    }
+
+    #[test]
+    #[serial]
+    fn table_pipe_filter_can_match_hidden_serialized_fields() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("output should reset");
+        set_pipeline(vec![PipeStage::Grep("eko".to_string())]).expect("pipeline should set");
+
+        vec![
+            Row {
+                name: "alpha",
+                value: "one",
+                hidden: "cpu eko payload",
+            },
+            Row {
+                name: "beta",
+                value: "two",
+                hidden: "other payload",
+            },
+        ]
+        .format_noreturn()
+        .expect("format");
+
+        let rendered = take_output().expect("snapshot").render();
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains("beta"));
+        assert!(!rendered.contains("cpu eko payload"));
     }
 }
