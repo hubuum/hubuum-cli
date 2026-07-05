@@ -302,6 +302,8 @@ impl ReplCompleter {
         let parts = shlex::split(quoted.command_prefix)?;
         let scope = self.session.scope();
         let resolved = self.app.catalog.resolve_command(&scope, &parts).ok()?;
+        let replacement_start = quoted.start
+            + clause_active_token_offset(quoted.clause_prefix, quoted.clause_ends_with_space);
         Some(
             complete_where_clause(
                 &self.completion,
@@ -313,7 +315,7 @@ impl ReplCompleter {
             .map(|candidate| {
                 suggestion_with_whitespace(
                     candidate.value,
-                    quoted.start,
+                    replacement_start,
                     pos,
                     candidate.description,
                     candidate.append_whitespace,
@@ -609,6 +611,17 @@ fn quoted_where_context(prefix_line: &str) -> Option<QuotedWhereContext<'_>> {
     })
 }
 
+fn clause_active_token_offset(clause: &str, ends_with_space: bool) -> usize {
+    if ends_with_space {
+        return clause.len();
+    }
+
+    clause
+        .rfind(char::is_whitespace)
+        .map(|index| index + 1)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
@@ -616,8 +629,8 @@ mod tests {
     use crate::catalog::{CompletionSpec, OptionSpec};
 
     use super::{
-        completion_context_parts, is_completing_option_value, option_suggestion,
-        quoted_where_context, safe_prefix_end,
+        clause_active_token_offset, completion_context_parts, is_completing_option_value,
+        option_suggestion, quoted_where_context, safe_prefix_end,
     };
 
     #[test]
@@ -706,6 +719,19 @@ mod tests {
     #[test]
     fn quoted_where_context_ignores_closed_quotes() {
         assert!(quoted_where_context("namespace list --where 'name icontains foo'").is_none());
+    }
+
+    #[test]
+    fn clause_active_token_offset_tracks_current_clause_word() {
+        assert_eq!(clause_active_token_offset("json_data.contact", false), 0);
+        assert_eq!(
+            clause_active_token_offset("json_data.contact ", true),
+            "json_data.contact ".len()
+        );
+        assert_eq!(
+            clause_active_token_offset("json_data.contact eq", false),
+            "json_data.contact ".len()
+        );
     }
 
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {

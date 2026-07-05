@@ -21,7 +21,7 @@ pub(crate) fn complete_where_clause(
     };
 
     match clause_stage(clause, ends_with_space, specs) {
-        ClauseStage::Field { prefix } => complete_field(prefix, specs),
+        ClauseStage::Field { prefix } => complete_field_or_json_path(prefix, specs),
         ClauseStage::Operator { field, prefix } => {
             let Some((spec, _)) = resolve_filter_field_spec(specs, field) else {
                 return complete_field(field, specs);
@@ -156,7 +156,9 @@ fn clause_stage<'a>(
         [] => ClauseStage::Field { prefix: "" },
         [field] if ends_with_space => ClauseStage::Operator { field, prefix: "" },
         [field] => {
-            if resolve_filter_field_spec(specs, field).is_some() {
+            if is_dotted_json_path(specs, field) {
+                ClauseStage::Field { prefix: field }
+            } else if resolve_filter_field_spec(specs, field).is_some() {
                 ClauseStage::Operator { field, prefix: "" }
             } else {
                 ClauseStage::Field { prefix: field }
@@ -178,6 +180,30 @@ fn clause_stage<'a>(
             value_prefix: remainder.last().copied().unwrap_or(operator),
         },
     }
+}
+
+fn is_dotted_json_path(specs: &[FilterFieldSpec], field: &str) -> bool {
+    field.contains('.')
+        && resolve_filter_field_spec(specs, field)
+            .map(|(spec, path)| spec.json_root && !path.is_empty())
+            .unwrap_or(false)
+}
+
+fn complete_field_or_json_path(prefix: &str, specs: &[FilterFieldSpec]) -> Vec<FilterCompletion> {
+    let completions = complete_field(prefix, specs);
+    if !completions.is_empty() {
+        return completions;
+    }
+
+    if is_dotted_json_path(specs, prefix) {
+        return vec![FilterCompletion {
+            value: prefix.to_string(),
+            description: Some("JSON path".to_string()),
+            append_whitespace: true,
+        }];
+    }
+
+    Vec::new()
 }
 
 fn complete_field(prefix: &str, specs: &[FilterFieldSpec]) -> Vec<FilterCompletion> {
@@ -274,7 +300,9 @@ fn placeholder_value(spec: FilterFieldSpec, operator: &str) -> FilterCompletion 
 mod tests {
     use crate::list_query::{FilterOperatorProfile, FilterValueProfile};
 
-    use super::{clause_stage, complete_field, placeholder_value, ClauseStage};
+    use super::{
+        clause_stage, complete_field, complete_field_or_json_path, placeholder_value, ClauseStage,
+    };
     use crate::list_query::FilterFieldSpec;
 
     #[test]
@@ -346,6 +374,45 @@ mod tests {
         assert!(completions
             .iter()
             .any(|candidate| candidate.value == "data."));
+    }
+
+    #[test]
+    fn dotted_json_path_completion_preserves_field_and_appends_space() {
+        let specs = [FilterFieldSpec::new(
+            "json_data",
+            "json_data",
+            FilterOperatorProfile::Any,
+            FilterValueProfile::Any,
+        )
+        .json_root()];
+
+        assert_eq!(
+            clause_stage("json_data.contact", false, &specs),
+            ClauseStage::Field {
+                prefix: "json_data.contact"
+            }
+        );
+
+        let completions = complete_field_or_json_path("json_data.contact", &specs);
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].value, "json_data.contact");
+        assert!(completions[0].append_whitespace);
+    }
+
+    #[test]
+    fn dotted_json_schema_path_completion_preserves_field_and_appends_space() {
+        let specs = [FilterFieldSpec::new(
+            "json_schema",
+            "json_schema",
+            FilterOperatorProfile::Any,
+            FilterValueProfile::Any,
+        )
+        .json_root()];
+
+        let completions = complete_field_or_json_path("json_schema.contact", &specs);
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].value, "json_schema.contact");
+        assert!(completions[0].append_whitespace);
     }
 
     #[test]
