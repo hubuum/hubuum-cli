@@ -199,25 +199,43 @@ fn filter_envelope(
     invert: bool,
 ) -> Result<OutputEnvelope, PipelineError> {
     let filter = SemanticFilter::parse(expression)?;
-    let keep = |value: &Value| filter.matches(value).map(|matched| matched != invert);
 
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
+            let columns = envelope.columns.clone();
+            let add_match_column = !invert && filter.is_quick() && !columns.is_empty();
+            let match_column = add_match_column.then(|| match_column_name(&columns));
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter_map(|value| match keep(&value) {
-                    Ok(true) => Some(Ok(value)),
-                    Ok(false) => None,
+                .filter_map(|value| match filter.match_result(&value, &columns) {
+                    Ok(result) if result.matched != invert => Some(Ok(match &match_column {
+                        Some(column) => with_match_column(value, column, &result.hits),
+                        None => value,
+                    })),
+                    Ok(_) => None,
                     Err(err) => Some(Err(err)),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            let output_columns = match match_column {
+                Some(column) => {
+                    let mut output_columns = columns;
+                    output_columns.push(column);
+                    output_columns
+                }
+                None => columns,
+            };
             Ok(OutputEnvelope {
                 value: Value::Array(rows),
+                columns: output_columns,
                 ..envelope
             })
         }
         OutputShape::Detail | OutputShape::Message => {
-            if keep(&envelope.value)? {
+            if filter
+                .match_result(&envelope.value, &envelope.columns)?
+                .matched
+                != invert
+            {
                 Ok(envelope)
             } else {
                 Ok(OutputEnvelope::empty())
@@ -336,6 +354,12 @@ enum SemanticFilter {
     PathContains(String, Regex),
 }
 
+#[derive(Debug, Default)]
+struct FilterMatch {
+    matched: bool,
+    hits: Vec<String>,
+}
+
 impl SemanticFilter {
     fn parse(expression: &str) -> Result<Self, PipelineError> {
         let parts = shlex::split(expression).unwrap_or_else(|| {
@@ -361,16 +385,188 @@ impl SemanticFilter {
         Ok(Self::Quick(Regex::new(expression)?))
     }
 
-    fn matches(&self, value: &Value) -> Result<bool, PipelineError> {
+    fn is_quick(&self) -> bool {
+        matches!(self, Self::Quick(_))
+    }
+
+    fn match_result(
+        &self,
+        value: &Value,
+        columns: &[String],
+    ) -> Result<FilterMatch, PipelineError> {
         match self {
-            Self::Quick(regex) => Ok(regex.is_match(&value.to_string())),
-            Self::PathExists(path) => Ok(!select_values(value, path).is_empty()),
-            Self::PathEquals(path, expected) => Ok(select_values(value, path)
-                .into_iter()
-                .any(|value| scalar_text(value).is_some_and(|actual| actual == *expected))),
-            Self::PathContains(path, regex) => Ok(select_values(value, path)
-                .into_iter()
-                .any(|value| scalar_text(value).is_some_and(|actual| regex.is_match(&actual)))),
+            Self::Quick(regex) => Ok(quick_filter_match(value, columns, regex)),
+            Self::PathExists(path) => Ok(FilterMatch {
+                matched: !select_values(value, path).is_empty(),
+                hits: Vec::new(),
+            }),
+            Self::PathEquals(path, expected) => Ok(FilterMatch {
+                matched: select_values(value, path)
+                    .into_iter()
+                    .any(|value| scalar_text(value).is_some_and(|actual| actual == *expected)),
+                hits: Vec::new(),
+            }),
+            Self::PathContains(path, regex) => Ok(FilterMatch {
+                matched: select_values(value, path)
+                    .into_iter()
+                    .any(|value| scalar_text(value).is_some_and(|actual| regex.is_match(&actual))),
+                hits: Vec::new(),
+            }),
+        }
+    }
+}
+
+fn quick_filter_match(value: &Value, columns: &[String], regex: &Regex) -> FilterMatch {
+    if columns.is_empty() {
+        let mut text = String::new();
+        collect_quick_filter_key_text(value, &mut text);
+        collect_quick_filter_values(value, &mut text);
+        return FilterMatch {
+            matched: regex.is_match(&text),
+            hits: Vec::new(),
+        };
+    }
+
+    let mut hits = Vec::new();
+    for column in columns {
+        let mut text = String::new();
+        for value in select_values(value, column) {
+            collect_quick_filter_values(value, &mut text);
+        }
+        if regex.is_match(&text) {
+            hits.push(column.clone());
+        }
+    }
+
+    collect_quick_filter_key_hits(value, "", regex, &mut hits);
+
+    FilterMatch {
+        matched: !hits.is_empty(),
+        hits,
+    }
+}
+
+fn collect_quick_filter_key_text(value: &Value, text: &mut String) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if is_quick_filter_bookkeeping_key(key) {
+                    continue;
+                }
+                text.push(' ');
+                text.push_str(key);
+                collect_quick_filter_key_text(value, text);
+            }
+        }
+        Value::Array(items) => {
+            for value in items {
+                collect_quick_filter_key_text(value, text);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn collect_quick_filter_key_hits(
+    value: &Value,
+    prefix: &str,
+    regex: &Regex,
+    hits: &mut Vec<String>,
+) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if is_quick_filter_bookkeeping_key(key) {
+                    continue;
+                }
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                if regex.is_match(&path) {
+                    hits.push(format!("key:{path}"));
+                }
+                collect_quick_filter_key_hits(value, &path, regex, hits);
+            }
+        }
+        Value::Array(items) => {
+            for value in items {
+                collect_quick_filter_key_hits(value, prefix, regex, hits);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn collect_quick_filter_values(value: &Value, text: &mut String) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if is_quick_filter_bookkeeping_key(key) {
+                    continue;
+                }
+                collect_quick_filter_values(value, text);
+            }
+        }
+        Value::Array(items) => {
+            for value in items {
+                collect_quick_filter_values(value, text);
+            }
+        }
+        Value::Null => text.push_str(" null"),
+        Value::Bool(value) => {
+            text.push(' ');
+            text.push_str(if *value { "true" } else { "false" });
+        }
+        Value::Number(value) => {
+            text.push(' ');
+            text.push_str(&value.to_string());
+        }
+        Value::String(value) => {
+            text.push(' ');
+            text.push_str(value);
+        }
+    }
+}
+
+fn is_quick_filter_bookkeeping_key(key: &str) -> bool {
+    matches!(key, "created_at" | "updated_at" | "Created" | "Updated")
+}
+
+fn match_column_name(columns: &[String]) -> String {
+    let base = "Match";
+    if !columns.iter().any(|column| column == base) {
+        return base.to_string();
+    }
+
+    let mut suffix = 2;
+    loop {
+        let candidate = format!("{base} {suffix}");
+        if !columns.iter().any(|column| column == &candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
+fn with_match_column(mut value: Value, column: &str, hits: &[String]) -> Value {
+    let text = if hits.is_empty() {
+        "value".to_string()
+    } else {
+        hits.join(", ")
+    };
+
+    match &mut value {
+        Value::Object(object) => {
+            object.insert(column.to_string(), Value::String(text));
+            value
+        }
+        _ => {
+            let mut object = Map::new();
+            object.insert("value".to_string(), value);
+            object.insert(column.to_string(), Value::String(text));
+            Value::Object(object)
         }
     }
 }
@@ -876,7 +1072,46 @@ mod tests {
             apply_pipeline(envelope, &[PipeStage::Grep("eko".to_string())]).expect("grep");
         assert_eq!(
             transformed.value,
-            json!([{"name": "alpha", "json_data": {"eko_marker": "no visible value"}}])
+            json!([{
+                "name": "alpha",
+                "json_data": {"eko_marker": "no visible value"},
+                "Match": "key:json_data.eko_marker"
+            }])
+        );
+        assert_eq!(
+            transformed.columns,
+            vec!["name".to_string(), "Match".to_string()]
+        );
+    }
+
+    #[test]
+    fn semantic_quick_filter_ignores_bookkeeping_timestamps() {
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"name": "alpha", "os_version": "26.5", "created_at": "2026-07-05"}),
+                json!({"name": "beta", "os_version": "9.8", "created_at": "2026-07-05"}),
+            ],
+            vec!["name".to_string(), "os_version".to_string()],
+        );
+
+        let transformed =
+            apply_pipeline(envelope, &[PipeStage::Grep("26".to_string())]).expect("grep");
+        assert_eq!(
+            transformed.value,
+            json!([{
+                "name": "alpha",
+                "os_version": "26.5",
+                "created_at": "2026-07-05",
+                "Match": "os_version"
+            }])
+        );
+        assert_eq!(
+            transformed.columns,
+            vec![
+                "name".to_string(),
+                "os_version".to_string(),
+                "Match".to_string()
+            ]
         );
     }
 }

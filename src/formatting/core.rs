@@ -161,10 +161,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn table_pipe_filter_can_match_hidden_serialized_fields() {
+    fn table_pipe_filter_matches_visible_fields_and_shows_hit_column() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("output should reset");
-        set_pipeline(vec![PipeStage::Grep("eko".to_string())]).expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Grep("one".to_string())]).expect("pipeline should set");
 
         vec![
             Row {
@@ -184,6 +184,8 @@ mod tests {
         let rendered = take_output().expect("snapshot").render();
         assert!(rendered.contains("alpha"));
         assert!(!rendered.contains("beta"));
+        assert!(rendered.contains("Match"));
+        assert!(rendered.contains("value"));
         assert!(!rendered.contains("cpu eko payload"));
     }
 }
