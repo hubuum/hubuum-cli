@@ -42,6 +42,26 @@ impl TableRenderable for JsonRecord {
     }
 
     fn row(&self) -> Vec<String> {
+        if self.is_history_record() {
+            return vec![
+                self.get_string("history_id")
+                    .or_else_dash(self.get_string("id")),
+                self.get_string("name")
+                    .or_else_dash(self.get_string("entity_type"))
+                    .or_else_dash(self.get_string("kind")),
+                self.get_string("op")
+                    .or_else_dash(self.get_string("operation"))
+                    .or_else_dash(self.get_string("status"))
+                    .or_else_dash(self.get_string("action")),
+                self.get_string("summary")
+                    .or_else_dash(self.get_string("description"))
+                    .or_else_dash(self.get_string("entity_name")),
+                self.get_string("valid_from")
+                    .or_else_dash(self.get_string("updated_at"))
+                    .or_else_dash(self.get_string("occurred_at")),
+            ];
+        }
+
         vec![
             self.get_string("id")
                 .or_else_dash(self.get_string("event_id"))
@@ -51,7 +71,8 @@ impl TableRenderable for JsonRecord {
                 .or_else_dash(self.get_string("kind")),
             self.get_string("status")
                 .or_else_dash(self.get_string("action"))
-                .or_else_dash(self.get_string("operation")),
+                .or_else_dash(self.get_string("operation"))
+                .or_else_dash(self.get_string("op")),
             self.get_string("summary")
                 .or_else_dash(self.get_string("description"))
                 .or_else_dash(self.get_string("entity_name")),
@@ -71,6 +92,14 @@ impl DetailRenderable for JsonRecord {
                 .collect(),
             _ => vec![("value", json_summary(&self.value))],
         }
+    }
+}
+
+impl JsonRecord {
+    fn is_history_record(&self) -> bool {
+        self.value.get("history_id").is_some()
+            || self.value.get("valid_from").is_some()
+            || self.value.get("op").is_some()
     }
 }
 
@@ -100,5 +129,38 @@ impl DashFallback for String {
         } else {
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::JsonRecord;
+    use crate::formatting::TableRenderable;
+
+    #[test]
+    fn history_rows_prefer_history_metadata_over_resource_fields() {
+        let record = JsonRecord::from(json!({
+            "id": 1526,
+            "history_id": 5031,
+            "op": "U",
+            "valid_from": "2026-07-05T23:31:49.388144+00:00",
+            "valid_to": null,
+            "name": "abacus-as.uio.no",
+            "description": "abacus-as.uio.no (129.240.75.230)",
+            "updated_at": "2026-07-05T23:31:49.388144+00:00"
+        }));
+
+        assert_eq!(
+            record.row(),
+            vec![
+                "5031".to_string(),
+                "abacus-as.uio.no".to_string(),
+                "U".to_string(),
+                "abacus-as.uio.no (129.240.75.230)".to_string(),
+                "2026-07-05T23:31:49.388144+00:00".to_string(),
+            ]
+        );
     }
 }

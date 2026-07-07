@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{desired_format, option_or_pos, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -76,14 +76,6 @@ fn register_group(builder: &mut CommandCatalogBuilder, prefix: &'static str) {
         );
 }
 
-trait GetLocalId {
-    fn local_id(&self) -> Option<u64>;
-}
-
-trait GetTaskId {
-    fn task_id(&self) -> Option<i32>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct JobsList {}
 
@@ -114,17 +106,11 @@ pub struct JobsShow {
     pub id: Option<u64>,
 }
 
-impl GetLocalId for &JobsShow {
-    fn local_id(&self) -> Option<u64> {
-        self.id
-    }
-}
-
 impl CliCommand for JobsShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = local_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let id = query
             .id
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
@@ -157,17 +143,11 @@ pub struct JobsOutput {
     pub id: Option<u64>,
 }
 
-impl GetLocalId for &JobsOutput {
-    fn local_id(&self) -> Option<u64> {
-        self.id
-    }
-}
-
 impl CliCommand for JobsOutput {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = local_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let local_id = query
             .id
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
@@ -194,17 +174,11 @@ pub struct JobsWatch {
     pub task: Option<i32>,
 }
 
-impl GetTaskId for &JobsWatch {
-    fn task_id(&self) -> Option<i32> {
-        self.task
-    }
-}
-
 impl CliCommand for JobsWatch {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
-        query.task = task_id_or_pos(&query, tokens, 0)?;
+        query.task = option_or_pos(query.task, tokens, 0, "task")?;
         let task_id = query
             .task
             .ok_or_else(|| AppError::MissingOptions(vec!["task".to_string()]))?;
@@ -251,17 +225,11 @@ pub struct JobsForget {
     pub id: Option<u64>,
 }
 
-impl GetLocalId for &JobsForget {
-    fn local_id(&self) -> Option<u64> {
-        self.id
-    }
-}
-
 impl CliCommand for JobsForget {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = local_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let id = query
             .id
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
@@ -277,40 +245,4 @@ impl CliCommand for JobsForget {
 
         Ok(())
     }
-}
-
-fn local_id_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<u64>, AppError>
-where
-    U: GetLocalId,
-{
-    let positional = tokens.get_positionals().get(pos);
-    if query.local_id().is_none() {
-        if let Some(value) = positional {
-            return Ok(Some(value.parse()?));
-        }
-        return Err(AppError::MissingOptions(vec!["id".to_string()]));
-    }
-    Ok(query.local_id())
-}
-
-fn task_id_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<i32>, AppError>
-where
-    U: GetTaskId,
-{
-    let positional = tokens.get_positionals().get(pos);
-    if query.task_id().is_none() {
-        if let Some(value) = positional {
-            return Ok(Some(value.parse()?));
-        }
-        return Err(AppError::MissingOptions(vec!["task".to_string()]));
-    }
-    Ok(query.task_id())
 }

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, want_json, CliCommand,
+    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, want_json,
+    CliCommand,
 };
 use crate::autocomplete::{
     classes, namespaces, object_data_columns, object_sort, object_where, objects_from_class,
@@ -120,10 +121,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
-trait GetObjectname {
-    fn objectname(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectNew {
     #[option(short = "n", long = "name", help = "Name of the object")]
@@ -173,12 +170,6 @@ impl CliCommand for ObjectNew {
     }
 }
 
-impl GetObjectname for &ObjectInfo {
-    fn objectname(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectInfo {
     #[option(
@@ -224,7 +215,7 @@ pub struct ObjectInfo {
 impl CliCommand for ObjectInfo {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.name = objectname_or_pos(&query, tokens, 0)?;
+        query.name = option_or_pos(query.name, tokens, 0, "name")?;
 
         let object_name = query
             .name
@@ -338,13 +329,7 @@ fn should_render_object_data(
 }
 
 fn display_json_value(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "null".to_string(),
-        serde_json::Value::Bool(value) => value.to_string(),
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::String(value) => value.clone(),
-        other => other.to_string(),
-    }
+    hubuum_filter::scalar_text(value).unwrap_or_else(|| value.to_string())
 }
 
 #[cfg(test)]
@@ -466,11 +451,11 @@ mod tests {
         let data = json!({"name": "host", "hardware": {"cpu": "M2"}});
         let data = data.as_object().expect("data object");
 
-        assert_eq!(data_column_value(data, "name"), Some(&json!("host")));
-        assert_eq!(data_column_value(data, "data.name"), Some(&json!("host")));
+        assert_eq!(data_column_value(data, "name"), Some(json!("host")));
+        assert_eq!(data_column_value(data, "data.name"), Some(json!("host")));
         assert_eq!(
             data_column_value(data, "data.hardware.cpu"),
-            Some(&json!("M2"))
+            Some(json!("M2"))
         );
     }
 
@@ -736,7 +721,7 @@ pub struct ObjectDelete {
 impl CliCommand for ObjectDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.name = objectname_or_pos(&query, tokens, 1)?;
+        query.name = option_or_pos(query.name, tokens, 1, "name")?;
 
         let class_name = query
             .class
@@ -760,30 +745,6 @@ impl CliCommand for ObjectDelete {
 
         Ok(())
     }
-}
-
-impl GetObjectname for &ObjectDelete {
-    fn objectname(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-fn objectname_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetObjectname,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.objectname().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    };
-    Ok(query.objectname().clone())
 }
 
 fn prettify_slice_path(path: &str) -> String {
@@ -1368,10 +1329,10 @@ fn object_data_column_header(key: &str) -> String {
 }
 
 #[cfg(test)]
-fn data_column_value<'a>(
-    data: &'a serde_json::Map<String, serde_json::Value>,
+fn data_column_value(
+    data: &serde_json::Map<String, serde_json::Value>,
     key: &str,
-) -> Option<&'a serde_json::Value> {
+) -> Option<serde_json::Value> {
     data_column_values(data, key).into_iter().next()
 }
 
@@ -1416,83 +1377,16 @@ fn meta_column_display_value(
         .find_map(|selector| data_column_display_value(data, selector))
 }
 
-fn data_column_values<'a>(
-    data: &'a serde_json::Map<String, serde_json::Value>,
+fn data_column_values(
+    data: &serde_json::Map<String, serde_json::Value>,
     key: &str,
-) -> Vec<&'a serde_json::Value> {
+) -> Vec<serde_json::Value> {
     let key = key.strip_prefix("data.").unwrap_or(key);
-    let mut current = Vec::new();
-    for (index, part) in key.split('.').enumerate() {
-        if index == 0 {
-            current = select_data_part_from_object(data, part);
-        } else {
-            current = select_data_part(current, part);
-        }
-        if current.is_empty() {
-            break;
-        }
-    }
-    current
-}
-
-fn select_data_part_from_object<'a>(
-    object: &'a serde_json::Map<String, serde_json::Value>,
-    part: &str,
-) -> Vec<&'a serde_json::Value> {
-    let (field, selectors) = split_data_selector_part(part);
-    let Some(value) = object.get(field) else {
-        return Vec::new();
-    };
-    apply_data_selectors(vec![value], selectors)
-}
-
-fn select_data_part<'a>(
-    values: Vec<&'a serde_json::Value>,
-    part: &str,
-) -> Vec<&'a serde_json::Value> {
-    let (field, selectors) = split_data_selector_part(part);
-    let mut selected = Vec::new();
-    for value in values {
-        if let Some(object) = value.as_object() {
-            if let Some(value) = object.get(field) {
-                selected.push(value);
-            }
-        }
-    }
-    apply_data_selectors(selected, selectors)
-}
-
-fn split_data_selector_part(part: &str) -> (&str, &str) {
-    part.find('[')
-        .map(|index| (&part[..index], &part[index..]))
-        .unwrap_or((part, ""))
-}
-
-fn apply_data_selectors<'a>(
-    mut values: Vec<&'a serde_json::Value>,
-    mut selectors: &str,
-) -> Vec<&'a serde_json::Value> {
-    while let Some(inner) = selectors.strip_prefix('[') {
-        let Some(end) = inner.find(']') else {
-            break;
-        };
-        let selector = &inner[..end];
-        let mut next = Vec::new();
-        for value in values {
-            if let Some(array) = value.as_array() {
-                if selector == "*" {
-                    next.extend(array);
-                } else if let Ok(index) = selector.parse::<usize>() {
-                    if let Some(value) = array.get(index) {
-                        next.push(value);
-                    }
-                }
-            }
-        }
-        values = next;
-        selectors = &inner[end + 1..];
-    }
-    values
+    let root = serde_json::Value::Object(data.clone());
+    hubuum_filter::select_values(&root, key)
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]

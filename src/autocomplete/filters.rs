@@ -254,7 +254,7 @@ fn complete_json_data_path_from_schema(
         return status_completions(prefix, "no schema");
     };
 
-    let schema_paths = schema_paths(&schema);
+    let schema_paths = crate::json_schema::schema_paths(&schema, false);
     if schema_paths.is_empty() {
         return status_completions(prefix, "no schema");
     }
@@ -316,30 +316,6 @@ fn schema_path_completions_from_paths(
         .flatten()
         .filter(|candidate| candidate.value.starts_with(prefix))
         .collect()
-}
-
-fn schema_paths(schema: &serde_json::Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    collect_schema_paths(schema, "", &mut paths);
-    paths.sort();
-    paths.dedup();
-    paths
-}
-
-fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
-    let Some(properties) = schema.get("properties").and_then(|value| value.as_object()) else {
-        return;
-    };
-
-    for (name, property_schema) in properties {
-        let path = if prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{prefix}.{name}")
-        };
-        paths.push(path.clone());
-        collect_schema_paths(property_schema, &path, paths);
-    }
 }
 
 fn schema_path_points_to_object(schema: &serde_json::Value, path: &str) -> bool {
@@ -459,9 +435,9 @@ mod tests {
 
     use super::{
         class_name_from_parts, clause_stage, complete_field, complete_json_path_fallback,
-        placeholder_value, schema_path_completions_from_paths, schema_paths, status_completions,
-        ClauseStage,
+        placeholder_value, schema_path_completions_from_paths, status_completions, ClauseStage,
     };
+    use crate::json_schema::schema_paths;
     use crate::list_query::{FilterFieldSpec, FilterOperatorProfile, FilterValueProfile};
 
     #[test]
@@ -593,7 +569,7 @@ mod tests {
             "json_data",
             "json_data.o",
             &schema,
-            schema_paths(&schema),
+            schema_paths(&schema, false),
         );
         let values = completions
             .iter()

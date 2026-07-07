@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, render_list_page, CliCommand};
+use super::{desired_format, option_or_pos, render_list_page, CliCommand};
 use crate::autocomplete::{
     audit_resources, classes, event_actions, namespaces, objects_from_class,
 };
@@ -123,9 +123,7 @@ pub struct AuditShow {
 impl CliCommand for AuditShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        if query.id.is_none() {
-            query.id = positional_i64(tokens, 0, "id")?;
-        }
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let event = services
             .gateway()
             .audit_event_by_id(required_i64(query.id, "id")?)?;
@@ -208,22 +206,6 @@ impl CliCommand for AuditResource {
         }
         Ok(())
     }
-}
-
-fn positional_i64(
-    tokens: &CommandTokenizer,
-    pos: usize,
-    name: &str,
-) -> Result<Option<i64>, AppError> {
-    tokens
-        .get_positionals()
-        .get(pos)
-        .map(|value| {
-            value
-                .parse::<i64>()
-                .map_err(|_| AppError::ParseError(format!("{name} must be an integer")))
-        })
-        .transpose()
 }
 
 fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {

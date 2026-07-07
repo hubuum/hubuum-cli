@@ -684,7 +684,7 @@ fn compare_values(left: &Value, right: &Value) -> Ordering {
     }
 }
 
-fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
+pub fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
     let mut current = vec![value];
     for token in selector_tokens(selector) {
         let mut next = Vec::new();
@@ -761,7 +761,7 @@ fn selector_tokens(selector: &str) -> Vec<SelectorToken<'_>> {
     tokens
 }
 
-fn scalar_text(value: &Value) -> Option<String> {
+pub fn scalar_text(value: &Value) -> Option<String> {
     match value {
         Value::Null => Some("null".to_string()),
         Value::Bool(value) => Some(value.to_string()),

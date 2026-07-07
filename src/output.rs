@@ -611,7 +611,7 @@ mod tests {
 
     use super::{append_line, reset_output, set_pipeline, set_semantic_output, take_output};
     use crate::config::{init_config, AppConfig};
-    use crate::models::{OutputColor, TableStyle};
+    use crate::models::{OutputColor, TableBands, TableStyle};
     use hubuum_filter::{OutputEnvelope, PipeStage};
     #[test]
     #[serial]
@@ -703,6 +703,54 @@ mod tests {
             .is_some_and(|line| line.contains("contact")));
         assert!(!rendered.contains("data.contact"));
         assert!(rendered.contains("Entry"));
+    }
+
+    #[test]
+    #[serial]
+    fn dense_table_bands_use_subtle_dark_theme_background() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Always;
+        config.output.table_style = TableStyle::Dense;
+        config.output.table_bands = TableBands::Always;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![
+                serde_json::json!({"Name": "alpha"}),
+                serde_json::json!({"Name": "beta"}),
+            ],
+            vec!["Name".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered.contains("\x1b[48;5;236m"));
+        assert!(rendered.contains("beta"));
+    }
+
+    #[test]
+    #[serial]
+    fn dense_table_bands_respect_never_color() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Never;
+        config.output.table_style = TableStyle::Dense;
+        config.output.table_bands = TableBands::Always;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![
+                serde_json::json!({"Name": "alpha"}),
+                serde_json::json!({"Name": "beta"}),
+            ],
+            vec!["Name".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(!rendered.contains("\x1b[48;5;236m"));
+        assert!(rendered.contains("beta"));
     }
 
     #[test]

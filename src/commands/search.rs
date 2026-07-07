@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{desired_format, option_or_pos, CliCommand};
 use crate::autocomplete::search_kinds;
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::{
@@ -91,7 +91,7 @@ pub struct SearchCommand {
 impl CliCommand for SearchCommand {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.query = query_or_pos(&query, tokens, 0)?;
+        query.query = option_or_pos(query.query, tokens, 0, "query")?;
 
         let query_string = query
             .query
@@ -117,31 +117,6 @@ impl CliCommand for SearchCommand {
             render_search_response(tokens, &response)
         }
     }
-}
-
-trait GetQuery {
-    fn query(&self) -> Option<String>;
-}
-
-impl GetQuery for &SearchCommand {
-    fn query(&self) -> Option<String> {
-        self.query.clone()
-    }
-}
-
-fn query_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetQuery,
-{
-    if query.query().is_some() {
-        return Ok(query.query());
-    }
-
-    Ok(tokens.get_positionals().get(pos).cloned())
 }
 
 fn render_search_response(
@@ -296,68 +271,25 @@ fn apply_next_page_state(
 }
 
 fn next_cursor_command(tokens: &CommandTokenizer, next: &SearchCursorSet) -> String {
-    let mut rebuilt = Vec::new();
-    let mut skip_next = false;
-
-    for token in tokens.raw_tokens() {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-
-        if matches!(
-            token.as_str(),
-            "--cursor-namespaces" | "--cursor-classes" | "--cursor-objects"
-        ) {
-            skip_next = true;
-            continue;
-        }
-
-        if token.starts_with("--cursor-namespaces=")
-            || token.starts_with("--cursor-classes=")
-            || token.starts_with("--cursor-objects=")
-        {
-            continue;
-        }
-
-        rebuilt.push(shell_escape(token));
-    }
-
-    if let Some(cursor) = &next.namespaces {
-        rebuilt.push("--cursor-namespaces".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-    if let Some(cursor) = &next.classes {
-        rebuilt.push("--cursor-classes".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-    if let Some(cursor) = &next.objects {
-        rebuilt.push("--cursor-objects".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-
-    rebuilt.join(" ")
-}
-
-fn shell_escape(token: &str) -> String {
-    if token.is_empty() {
-        return "''".to_string();
-    }
-
-    if token
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '='))
-    {
-        token.to_string()
-    } else {
-        format!("'{}'", token.replace('\'', "'\\''"))
-    }
+    crate::command_line::rebuild_with_replaced_options(
+        tokens,
+        &[
+            "--cursor-namespaces",
+            "--cursor-classes",
+            "--cursor-objects",
+        ],
+        [
+            ("--cursor-namespaces", next.namespaces.as_deref()),
+            ("--cursor-classes", next.classes.as_deref()),
+            ("--cursor-objects", next.objects.as_deref()),
+        ],
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{next_cursor_command, query_or_pos, SearchCommand};
-    use crate::commands::command_options;
+    use super::{next_cursor_command, SearchCommand};
+    use crate::commands::{command_options, option_or_pos};
     use crate::domain::SearchCursorSet;
     use crate::services::SearchKind;
     use crate::tokenizer::CommandTokenizer;
@@ -371,7 +303,7 @@ mod tests {
         )
         .expect("tokenization should succeed");
 
-        let query = query_or_pos(&SearchCommand::default(), &tokens, 0)
+        let query = option_or_pos(SearchCommand::default().query, &tokens, 0, "query")
             .expect("query resolution should succeed");
         assert_eq!(query.as_deref(), Some("server"));
     }

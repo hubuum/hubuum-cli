@@ -271,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn render_related_object_tree_with_key_aligns_follow_on_entries() {
         reset_output().expect("output should reset");
         render_related_object_tree_with_key(

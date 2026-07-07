@@ -6,6 +6,7 @@ use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
     classes, namespaces, objects_from_class, objects_from_class_a, objects_from_class_b,
+    remote_auth_types, remote_http_methods, remote_subject_kinds, remote_subject_types,
 };
 use crate::catalog::CommandCatalogBuilder;
 
@@ -105,17 +106,23 @@ pub struct RemoteTargetCreate {
     #[option(
         short = "m",
         long = "method",
-        help = "HTTP method (get, post, patch, delete)"
+        help = "HTTP method (get, post, patch, delete)",
+        autocomplete = "remote_http_methods"
     )]
     pub method: String,
     #[option(short = "u", long = "url", help = "URL template")]
     pub url_template: String,
     #[option(
         long = "subject-types",
-        help = "Allowed subject types (comma-separated: namespace,class,object,class_relation,object_relation)"
+        help = "Allowed subject types (comma-separated: namespace,class,object,class_relation,object_relation)",
+        autocomplete = "remote_subject_types"
     )]
     pub allowed_subject_types: String,
-    #[option(long = "auth-type", help = "Auth type: none, bearer, basic, apikey")]
+    #[option(
+        long = "auth-type",
+        help = "Auth type: none, bearer, basic, apikey",
+        autocomplete = "remote_auth_types"
+    )]
     pub auth_type: Option<String>,
     #[option(long = "auth-secret", help = "Secret for bearer/basic/apikey auth")]
     pub auth_secret: Option<String>,
@@ -267,17 +274,23 @@ pub struct RemoteTargetUpdate {
     #[option(
         short = "m",
         long = "method",
-        help = "HTTP method (get, post, patch, delete)"
+        help = "HTTP method (get, post, patch, delete)",
+        autocomplete = "remote_http_methods"
     )]
     pub method: Option<String>,
     #[option(short = "u", long = "url", help = "URL template")]
     pub url_template: Option<String>,
     #[option(
         long = "subject-types",
-        help = "Allowed subject types (comma-separated)"
+        help = "Allowed subject types (comma-separated)",
+        autocomplete = "remote_subject_types"
     )]
     pub allowed_subject_types: Option<String>,
-    #[option(long = "auth-type", help = "Auth type: none, bearer, basic, apikey")]
+    #[option(
+        long = "auth-type",
+        help = "Auth type: none, bearer, basic, apikey",
+        autocomplete = "remote_auth_types"
+    )]
     pub auth_type: Option<String>,
     #[option(long = "auth-secret", help = "Secret for bearer/basic/apikey auth")]
     pub auth_secret: Option<String>,
@@ -411,7 +424,8 @@ pub struct RemoteTargetInvoke {
     pub name: Option<String>,
     #[option(
         long = "subject",
-        help = "Subject kind: namespace, class, object, class_relation, object_relation"
+        help = "Subject kind: namespace, class, object, class_relation, object_relation",
+        autocomplete = "remote_subject_kinds"
     )]
     pub subject_kind: String,
     #[option(

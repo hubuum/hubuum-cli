@@ -176,6 +176,7 @@ pub fn execute_offline_line(
         set_render_format(crate::commands::render_format(&tokens)?)?;
         crate::commands::config::render_config_paths(&tokens)?;
     } else {
+        catalog.resolve_command(&[], &parts)?;
         return Err(AppError::CommandNotFound(parts.join(" ")));
     }
 
@@ -297,7 +298,10 @@ fn tokenizer_for_resolved(
 mod tests {
     use serial_test::serial;
 
-    use super::{apply_output_state, can_execute_offline, is_help_alias, process_filter};
+    use super::{
+        apply_output_state, can_execute_offline, execute_offline_line, is_help_alias,
+        process_filter,
+    };
     use crate::app::SharedSession;
     use crate::output::{append_line, reset_output, take_output};
 
@@ -379,5 +383,14 @@ mod tests {
             "config set --key server.hostname --value localhost"
         ));
         assert!(!can_execute_offline("object list --limit 5"));
+    }
+
+    #[test]
+    fn offline_unknown_commands_include_catalog_suggestion() {
+        let catalog = crate::commands::build_command_catalog();
+        let err = execute_offline_line(&catalog, "clas list")
+            .expect_err("mistyped offline command should fail");
+
+        assert!(err.to_string().contains("Did you mean 'class'?"));
     }
 }

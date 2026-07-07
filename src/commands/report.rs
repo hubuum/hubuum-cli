@@ -5,8 +5,8 @@ use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
-    classes, namespaces, objects_from_class, report_missing_data_policies, report_scope_kinds,
-    report_sort, report_templates, report_where,
+    classes, namespaces, objects_from_class, report_content_types, report_missing_data_policies,
+    report_scope_kinds, report_sort, report_templates, report_where,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -189,7 +189,8 @@ pub struct ReportCreate {
     #[option(
         short = "c",
         long = "content-type",
-        help = "Rendered content type (application/json, text/plain, text/html, text/csv)"
+        help = "Rendered content type (application/json, text/plain, text/html, text/csv)",
+        autocomplete = "report_content_types"
     )]
     pub content_type: String,
     #[option(

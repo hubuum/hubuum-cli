@@ -1,5 +1,5 @@
 use anstream::ColorChoice;
-use anstyle::{AnsiColor, Color, Style};
+use anstyle::{Ansi256Color, AnsiColor, Color, Style};
 
 use crate::models::OutputColor;
 
@@ -46,6 +46,6 @@ fn role_style(role: ThemeRole) -> Style {
         ThemeRole::Heading => Style::new()
             .bold()
             .fg_color(Some(Color::Ansi(AnsiColor::Green))),
-        ThemeRole::TableBand => Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
+        ThemeRole::TableBand => Style::new().bg_color(Some(Color::Ansi256(Ansi256Color(236)))),
     }
 }

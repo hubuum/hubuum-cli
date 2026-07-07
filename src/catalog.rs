@@ -186,7 +186,8 @@ impl CommandCatalog {
                 });
             }
 
-            return Err(AppError::CommandNotFound(part.clone()));
+            let message = command_not_found_message(part, traversed);
+            return Err(AppError::CommandNotFound(message));
         }
 
         Err(AppError::CommandNotFound(parts.join(" ")))
@@ -330,6 +331,14 @@ impl CommandCatalog {
                 if option.required {
                     annotations.push("required");
                 }
+                if option.repeatable {
+                    annotations.push("repeatable");
+                }
+                let nargs_annotation;
+                if let Some(nargs) = option.nargs {
+                    nargs_annotation = format!("nargs={nargs}");
+                    annotations.push(&nargs_annotation);
+                }
                 if option.value_source {
                     annotations.push("value-source");
                 }
@@ -380,6 +389,19 @@ impl CommandCatalog {
 
     pub fn render_shell_topic_help(&self) -> String {
         render_shell_topic_help()
+    }
+}
+
+fn command_not_found_message(part: &str, scope: &ScopeSpec) -> String {
+    let candidates = scope
+        .scopes
+        .keys()
+        .chain(scope.commands.keys())
+        .cloned()
+        .collect::<Vec<_>>();
+    match crate::suggestions::did_you_mean_message(part, candidates) {
+        Some(hint) => format!("{part}. {hint}"),
+        None => part.to_string(),
     }
 }
 
@@ -618,6 +640,13 @@ fn render_shell_topic_help() -> String {
     line!("  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.");
     line!("  Esc or Ctrl-C clears pending pagination state.");
     line!("");
+    line!(paint(ThemeRole::Heading, "Completion:"));
+    line!("  Press Tab to open or advance completions.");
+    line!("  Press Shift-Tab to move backward in the completion menu.");
+    line!("  Option values complete after either --option <value> or --option=<value>.");
+    line!("  Pipe stages and supported field names complete after |.");
+    line!("  API-backed completions can be disabled with --completion-api-disable true.");
+    line!("");
     line!(paint(ThemeRole::Heading, "Pipes:"));
     line!("  Append | stages after commands to filter or reshape output before rendering.");
     line!("  Use help pipe for pipeline syntax and examples.");
@@ -699,16 +728,16 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
     }
 
     let mut help = String::new();
-    help.push_str(&paint(ThemeRole::Heading, "Pagination:"));
+    help.push_str(&paint(ThemeRole::Heading, "Result Limits:"));
     help.push('\n');
     if option_names.contains(&"limit") {
-        help.push_str("  Use --limit <n> to control page size.\n");
+        help.push_str("  Use --limit <n> to cap the number of returned results.\n");
     }
     if option_names.contains(&"cursor") {
         help.push_str("  Use --cursor <token> to continue from a previous page.\n");
         help.push_str(&paint(
             ThemeRole::Muted,
-            "  In the REPL, type next after a paginated result to reuse the last next-page cursor.\n",
+            "  In the REPL, type next after a result with a next-page cursor to reuse it.\n",
         ));
         help.push_str(&paint(
             ThemeRole::Muted,
@@ -830,6 +859,21 @@ mod tests {
             value_source: false,
             completion: super::CompletionSpec::None,
         });
+        spec.options.push(super::OptionSpec {
+            name: "where".to_string(),
+            short: None,
+            long: Some("--where".to_string()),
+            help: "Filter clause".to_string(),
+            field_type_help: "string".to_string(),
+            field_type: std::any::TypeId::of::<String>(),
+            required: false,
+            flag: false,
+            greedy: false,
+            nargs: Some(3),
+            repeatable: true,
+            value_source: false,
+            completion: super::CompletionSpec::None,
+        });
         builder.add_command(&["class"], spec);
         let catalog = builder.build();
 
@@ -839,6 +883,8 @@ mod tests {
         assert!(help.contains("--name"));
         assert!(help.contains("[required]"));
         assert!(help.contains("Name filter"));
+        assert!(help.contains("--where"));
+        assert!(help.contains("[repeatable, nargs=3]"));
     }
 
     #[test]
@@ -940,6 +986,8 @@ mod tests {
         assert!(help.contains("Type a scope name"));
         assert!(help.contains("next to fetch the next page"));
         assert!(help.contains("repl.enter_fetches_next_page"));
+        assert!(help.contains("Press Tab"));
+        assert!(help.contains("--option=<value>"));
         assert!(help.contains("help pipe"));
     }
 
@@ -966,8 +1014,8 @@ mod tests {
         assert!(help.contains("json_data.<path>"));
         assert!(help.contains("data.<path>"));
         assert!(help.contains("json_data.contact equals Entry"));
-        assert!(help.contains("Pagination:"));
-        assert!(help.contains("Use --limit <n> to control page size."));
+        assert!(help.contains("Result Limits:"));
+        assert!(help.contains("Use --limit <n> to cap the number of returned results."));
         assert!(help.contains("Use --cursor <token> to continue from a previous page."));
         assert!(help.contains("type next"));
         assert!(help.contains("repl.enter_fetches_next_page"));
@@ -1127,6 +1175,82 @@ mod tests {
                 Some("--class-id") | Some("--object-id")
             )
         }));
+    }
+
+    #[test]
+    fn common_format_and_task_filters_have_dynamic_completion() {
+        let catalog = crate::commands::build_command_catalog();
+        let task_list = catalog
+            .resolve_command(&[], &["task".to_string(), "list".to_string()])
+            .expect("task list should resolve");
+
+        for long in ["--output", "--kind", "--status"] {
+            let option = task_list
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some(long))
+                .unwrap_or_else(|| panic!("{long} should be exposed"));
+            assert!(matches!(
+                option.completion,
+                super::CompletionSpec::Dynamic(_)
+            ));
+        }
+
+        let remote_create = catalog
+            .resolve_command(&[], &["remote-target".to_string(), "create".to_string()])
+            .expect("remote-target create should resolve");
+        for long in ["--method", "--subject-types", "--auth-type"] {
+            let option = remote_create
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some(long))
+                .unwrap_or_else(|| panic!("{long} should be exposed"));
+            assert!(matches!(
+                option.completion,
+                super::CompletionSpec::Dynamic(_)
+            ));
+        }
+
+        let remote_invoke = catalog
+            .resolve_command(&[], &["remote-target".to_string(), "invoke".to_string()])
+            .expect("remote-target invoke should resolve");
+        let subject = remote_invoke
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--subject"))
+            .expect("--subject should be exposed");
+        assert!(matches!(
+            subject.completion,
+            super::CompletionSpec::Dynamic(_)
+        ));
+
+        let report_create = catalog
+            .resolve_command(&[], &["report".to_string(), "create".to_string()])
+            .expect("report create should resolve");
+        let content_type = report_create
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--content-type"))
+            .expect("--content-type should be exposed");
+        assert!(matches!(
+            content_type.completion,
+            super::CompletionSpec::Dynamic(_)
+        ));
+    }
+
+    #[test]
+    fn command_resolution_suggests_nearby_words() {
+        let catalog = crate::commands::build_command_catalog();
+        let err = match catalog.resolve_command(&[], &["clas".to_string(), "list".to_string()]) {
+            Ok(_) => panic!("mistyped command should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("Did you mean 'class'?"));
     }
 
     fn collect_commands_missing_about(

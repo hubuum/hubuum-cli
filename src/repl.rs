@@ -244,7 +244,7 @@ impl Completer for ReplCompleter {
         if let Some(suggestions) = self.quoted_where_suggestions(prefix_line, pos) {
             return suggestions;
         }
-        if let Some(suggestions) = self.pipe_projection_suggestions(prefix_line, pos) {
+        if let Some(suggestions) = self.pipe_suggestions(prefix_line, pos) {
             return suggestions;
         }
         let ends_with_space = prefix_line.ends_with(' ');
@@ -268,10 +268,10 @@ impl Completer for ReplCompleter {
 
         if let Ok(resolved) = self.app.catalog.resolve_command(&scope, &parts) {
             let options = &resolved.command.options;
-            let options_seen: Vec<&str> = parts
+            let options_seen: Vec<String> = parts
                 .iter()
                 .filter(|part| part.starts_with('-'))
-                .map(String::as_str)
+                .map(|part| option_token_name(part).to_string())
                 .collect();
 
             if let Some(suggestions) = self.where_clause_suggestions(
@@ -290,6 +290,7 @@ impl Completer for ReplCompleter {
                 &parts,
                 start,
                 pos,
+                word,
                 ends_with_space,
             ) {
                 return suggestions;
@@ -307,32 +308,24 @@ impl Completer for ReplCompleter {
             }
 
             if let Some(last) = parts.last() {
-                if prefix_line.ends_with(' ') && last.starts_with('-') {
+                if let Some(context) =
+                    option_value_context(&parts, start, pos, word, ends_with_space)
+                {
                     if let Some(option) = options.iter().find(|option| {
-                        option.short.as_deref() == Some(last.as_str())
-                            || option.long.as_deref() == Some(last.as_str())
+                        option.short.as_deref() == Some(context.option_name)
+                            || option.long.as_deref() == Some(context.option_name)
                     }) {
                         if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
-                            return completion(&self.completion, "", &parts)
+                            return completion(&self.completion, context.prefix, &parts)
                                 .into_iter()
-                                .map(|value| dynamic_value_suggestion(value, pos, pos))
+                                .map(|value| {
+                                    dynamic_value_suggestion(
+                                        value,
+                                        context.replacement_start,
+                                        context.replacement_end,
+                                    )
+                                })
                                 .collect();
-                        }
-                    }
-                }
-
-                if is_completing_option_value(&parts, ends_with_space) {
-                    if let Some(prev) = parts.iter().rev().nth(1) {
-                        if let Some(option) = options.iter().find(|option| {
-                            option.short.as_deref() == Some(prev.as_str())
-                                || option.long.as_deref() == Some(prev.as_str())
-                        }) {
-                            if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
-                                return completion(&self.completion, word, &parts)
-                                    .into_iter()
-                                    .map(|value| dynamic_value_suggestion(value, start, pos))
-                                    .collect();
-                            }
                         }
                     }
                 }
@@ -342,9 +335,12 @@ impl Completer for ReplCompleter {
                         .iter()
                         .filter(|option| {
                             option.repeatable
-                                || (!options_seen.contains(&option.short.as_deref().unwrap_or(""))
+                                || (!options_seen
+                                    .iter()
+                                    .any(|seen| option.short.as_deref() == Some(seen.as_str()))
                                     && !options_seen
-                                        .contains(&option.long.as_deref().unwrap_or("")))
+                                        .iter()
+                                        .any(|seen| option.long.as_deref() == Some(seen.as_str())))
                         })
                         .filter_map(|option| option_suggestion(option, word, start, pos))
                         .collect();
@@ -392,46 +388,37 @@ impl ReplCompleter {
         parts: &[String],
         start: usize,
         pos: usize,
-        _word: &str,
+        word: &str,
         ends_with_space: bool,
     ) -> Option<Vec<Suggestion>> {
-        let where_index = parts.iter().rposition(|part| part == "--where")?;
-        let clause_parts = &parts[where_index + 1..];
-        if clause_parts.len() >= 3 && !ends_with_space {
+        let context =
+            clause_option_context(parts, "--where", 3, start, pos, word, ends_with_space)?;
+        if context.is_complete && !ends_with_space {
             return Some(vec![suggestion_with_whitespace(
-                clause_parts.last()?.clone(),
+                context.prefix.to_string(),
                 start,
                 pos,
                 None,
                 true,
             )]);
         }
-        if clause_parts.len() >= 3 && ends_with_space {
+        if context.is_complete && ends_with_space {
             return None;
         }
-        let (clause_prefix, clause_ends_with_space) = if clause_parts.is_empty() {
-            ("".to_string(), false)
-        } else {
-            let mut clause = clause_parts.join(" ");
-            if ends_with_space {
-                clause.push(' ');
-            }
-            (clause, ends_with_space)
-        };
 
         Some(
             complete_where_clause(
                 &self.completion,
                 command_path,
                 parts,
-                &clause_prefix,
-                clause_ends_with_space,
+                &context.clause_prefix,
+                context.clause_ends_with_space,
             )
             .into_iter()
             .map(|candidate| {
                 where_suggestion(
                     candidate.value,
-                    start,
+                    context.replacement_start,
                     pos,
                     candidate.description,
                     candidate.append_whitespace,
@@ -447,44 +434,35 @@ impl ReplCompleter {
         parts: &[String],
         start: usize,
         pos: usize,
+        word: &str,
         ends_with_space: bool,
     ) -> Option<Vec<Suggestion>> {
-        let sort_index = parts.iter().rposition(|part| part == "--sort")?;
-        let clause_parts = &parts[sort_index + 1..];
-        if clause_parts.len() >= 2 && !ends_with_space {
+        let context = clause_option_context(parts, "--sort", 2, start, pos, word, ends_with_space)?;
+        if context.is_complete && !ends_with_space {
             return Some(vec![suggestion_with_whitespace(
-                clause_parts.last()?.clone(),
+                context.prefix.to_string(),
                 start,
                 pos,
                 None,
                 true,
             )]);
         }
-        if clause_parts.len() >= 2 && ends_with_space {
+        if context.is_complete && ends_with_space {
             return None;
         }
-        let (clause_prefix, clause_ends_with_space) = if clause_parts.is_empty() {
-            ("".to_string(), false)
-        } else {
-            let mut clause = clause_parts.join(" ");
-            if ends_with_space {
-                clause.push(' ');
-            }
-            (clause, ends_with_space)
-        };
 
         Some(
             complete_sort_clause(
                 &self.completion,
                 command_path,
-                &clause_prefix,
-                clause_ends_with_space,
+                &context.clause_prefix,
+                context.clause_ends_with_space,
             )
             .into_iter()
             .map(|candidate| {
                 suggestion_with_whitespace(
                     candidate.value,
-                    start,
+                    context.replacement_start,
                     pos,
                     candidate.description,
                     candidate.append_whitespace,
@@ -494,12 +472,33 @@ impl ReplCompleter {
         )
     }
 
-    fn pipe_projection_suggestions(
-        &self,
-        prefix_line: &str,
-        pos: usize,
-    ) -> Option<Vec<Suggestion>> {
-        let context = projection_pipe_context(prefix_line, pos)?;
+    fn pipe_suggestions(&self, prefix_line: &str, pos: usize) -> Option<Vec<Suggestion>> {
+        let context = pipe_completion_context(prefix_line, pos)?;
+        if context.kind == PipeCompletionKind::Stage {
+            return Some(
+                PIPE_STAGES
+                    .iter()
+                    .copied()
+                    .filter(|stage| stage.starts_with(context.prefix))
+                    .map(|stage| {
+                        let value = if context.needs_leading_space {
+                            format!(" {stage}")
+                        } else {
+                            stage.to_string()
+                        };
+                        let display_override =
+                            context.needs_leading_space.then(|| stage.to_string());
+                        pipe_stage_suggestion(
+                            value,
+                            context.replacement_start,
+                            pos,
+                            display_override,
+                        )
+                    })
+                    .collect(),
+            );
+        }
+
         let command_parts = shlex::split(context.command_prefix.trim())?;
         let scope = self.session.scope();
         let resolved = self
@@ -668,6 +667,19 @@ fn id_completion_context<'a>(
     let kind = id_completion_kind(command_path)?;
     let option_names = id_completion_option_names(command_path, kind);
 
+    if !ends_with_space {
+        if let Some((option_name, prefix)) = word.split_once('=') {
+            if option_names.contains(&option_name) {
+                return Some(IdCompletionContext {
+                    kind,
+                    prefix,
+                    replacement_start: start + option_name.len() + 1,
+                    replacement_end: pos,
+                });
+            }
+        }
+    }
+
     if ends_with_space {
         if let Some(last) = parts.last() {
             if option_names.contains(&last.as_str()) {
@@ -700,6 +712,122 @@ fn id_completion_context<'a>(
     }
 
     None
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OptionValueContext<'a> {
+    option_name: &'a str,
+    prefix: &'a str,
+    replacement_start: usize,
+    replacement_end: usize,
+}
+
+fn option_value_context<'a>(
+    parts: &'a [String],
+    start: usize,
+    pos: usize,
+    word: &'a str,
+    ends_with_space: bool,
+) -> Option<OptionValueContext<'a>> {
+    if ends_with_space {
+        let last = parts.last()?;
+        if last.starts_with('-') {
+            return Some(OptionValueContext {
+                option_name: option_token_name(last),
+                prefix: "",
+                replacement_start: pos,
+                replacement_end: pos,
+            });
+        }
+        return None;
+    }
+
+    if let Some((option_name, prefix)) = word.split_once('=') {
+        if option_name.starts_with('-') {
+            return Some(OptionValueContext {
+                option_name,
+                prefix,
+                replacement_start: start + option_name.len() + 1,
+                replacement_end: pos,
+            });
+        }
+    }
+
+    let previous = parts.iter().rev().nth(1)?;
+    previous.starts_with('-').then_some(OptionValueContext {
+        option_name: option_token_name(previous),
+        prefix: word,
+        replacement_start: start,
+        replacement_end: pos,
+    })
+}
+
+fn option_token_name(token: &str) -> &str {
+    token.split_once('=').map_or(token, |(name, _)| name)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClauseOptionContext {
+    clause_prefix: String,
+    clause_ends_with_space: bool,
+    prefix: String,
+    replacement_start: usize,
+    is_complete: bool,
+}
+
+fn clause_option_context(
+    parts: &[String],
+    option_name: &str,
+    value_count: usize,
+    start: usize,
+    pos: usize,
+    word: &str,
+    ends_with_space: bool,
+) -> Option<ClauseOptionContext> {
+    let (option_index, inline_prefix) =
+        parts.iter().enumerate().rev().find_map(|(index, part)| {
+            if part == option_name {
+                return Some((index, None));
+            }
+            part.strip_prefix(&format!("{option_name}="))
+                .map(|value| (index, Some(value)))
+        })?;
+
+    let mut clause_parts = Vec::new();
+    if let Some(value) = inline_prefix.filter(|value| !value.is_empty()) {
+        clause_parts.push(value.to_string());
+    }
+    clause_parts.extend(parts[option_index + 1..].iter().cloned());
+
+    let prefix = if ends_with_space {
+        String::new()
+    } else if inline_prefix.is_some() && option_index == parts.len().saturating_sub(1) {
+        inline_prefix.unwrap_or_default().to_string()
+    } else {
+        word.to_string()
+    };
+
+    let replacement_start =
+        if !ends_with_space && inline_prefix.is_some() && option_index == parts.len() - 1 {
+            start + option_name.len() + 1
+        } else if ends_with_space && clause_parts.is_empty() {
+            pos
+        } else {
+            start
+        };
+
+    let mut clause_prefix = clause_parts.join(" ");
+    if ends_with_space && !clause_prefix.is_empty() {
+        clause_prefix.push(' ');
+    }
+
+    Some(ClauseOptionContext {
+        clause_prefix,
+        clause_ends_with_space: ends_with_space,
+        prefix,
+        replacement_start,
+        is_complete: clause_parts.len() >= value_count,
+    })
 }
 
 fn id_completion_kind(command_path: &[String]) -> Option<IdCompletionKind> {
@@ -760,47 +888,123 @@ fn is_completing_positional_id(
     (ends_with_space && positional_count == 0) || (!ends_with_space && positional_count == 1)
 }
 
-struct ProjectionPipeContext<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PipeCompletionKind {
+    Stage,
+    Field,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PipeCompletionContext<'a> {
     command_prefix: &'a str,
+    kind: PipeCompletionKind,
     prefix: &'a str,
     replacement_start: usize,
     needs_leading_space: bool,
 }
 
-fn projection_pipe_context(prefix_line: &str, pos: usize) -> Option<ProjectionPipeContext<'_>> {
+const PIPE_STAGES: &[&str] = &[
+    "grep", "F", "reject", "P", "columns", "S", "sort", "L", "head", "tail", "C", "count", "VALUE",
+    "VAL",
+];
+
+fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompletionContext<'_>> {
     let pipe_index = last_unquoted_pipe(prefix_line)?;
     let command_prefix = &prefix_line[..pipe_index];
     let pipe_prefix = &prefix_line[pipe_index + 1..];
     let pipe_parts = shlex::split(pipe_prefix)?;
-    let stage = pipe_parts.first()?;
-    if stage != "P" && stage != "columns" {
-        return None;
-    }
-
     let ends_with_space = prefix_line.ends_with(char::is_whitespace);
-    if pipe_parts.len() == 1 && !ends_with_space {
-        return Some(ProjectionPipeContext {
-            command_prefix,
-            prefix: "",
-            replacement_start: pos,
-            needs_leading_space: true,
-        });
-    }
-
     let (word_start, word) = if ends_with_space {
         (pos, "")
     } else {
         prefix_line
             .rsplit_once(char::is_whitespace)
-            .map_or((0, prefix_line), |(left, right)| (left.len() + 1, right))
+            .map_or((pipe_index + 1, pipe_prefix), |(left, right)| {
+                (left.len() + 1, right)
+            })
     };
-    let comma_offset = word.rfind(',').map(|index| index + 1).unwrap_or(0);
-    Some(ProjectionPipeContext {
+
+    let leading_pipe_space = pipe_prefix.chars().next().is_some_and(char::is_whitespace);
+
+    if pipe_parts.is_empty() {
+        return Some(PipeCompletionContext {
+            command_prefix,
+            kind: PipeCompletionKind::Stage,
+            prefix: "",
+            replacement_start: pos,
+            needs_leading_space: !leading_pipe_space,
+        });
+    }
+
+    let stage = pipe_parts.first()?;
+    if pipe_parts.len() == 1 && !ends_with_space {
+        if field_completion_stage(stage) {
+            return Some(PipeCompletionContext {
+                command_prefix,
+                kind: PipeCompletionKind::Field,
+                prefix: "",
+                replacement_start: pos,
+                needs_leading_space: true,
+            });
+        }
+
+        return Some(PipeCompletionContext {
+            command_prefix,
+            kind: PipeCompletionKind::Stage,
+            prefix: word,
+            replacement_start: word_start,
+            needs_leading_space: false,
+        });
+    }
+
+    if !field_completion_stage(stage)
+        || !should_complete_stage_field(stage, &pipe_parts, ends_with_space)
+    {
+        return None;
+    }
+
+    let prefix = if field_uses_comma_segments(stage) {
+        let comma_offset = word.rfind(',').map(|index| index + 1).unwrap_or(0);
+        return Some(PipeCompletionContext {
+            command_prefix,
+            kind: PipeCompletionKind::Field,
+            prefix: &word[comma_offset..],
+            replacement_start: word_start + comma_offset,
+            needs_leading_space: false,
+        });
+    } else {
+        word
+    };
+
+    Some(PipeCompletionContext {
         command_prefix,
-        prefix: &word[comma_offset..],
-        replacement_start: word_start + comma_offset,
+        kind: PipeCompletionKind::Field,
+        prefix,
+        replacement_start: word_start,
         needs_leading_space: false,
     })
+}
+
+fn field_completion_stage(stage: &str) -> bool {
+    matches!(
+        stage,
+        "P" | "columns" | "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "reject"
+    )
+}
+
+fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_space: bool) -> bool {
+    match stage {
+        "P" | "columns" => pipe_parts.len() >= 2 || ends_with_space,
+        "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "reject" => {
+            (pipe_parts.len() == 1 && ends_with_space)
+                || (pipe_parts.len() == 2 && !ends_with_space)
+        }
+        _ => false,
+    }
+}
+
+fn field_uses_comma_segments(stage: &str) -> bool {
+    matches!(stage, "P" | "columns")
 }
 
 fn last_unquoted_pipe(line: &str) -> Option<usize> {
@@ -873,7 +1077,7 @@ fn object_list_projection_fields(
         }
 
         if let Some(Some(schema)) = ctx.class_schema(&class_name) {
-            for path in schema_paths(&schema) {
+            for path in crate::json_schema::schema_paths(&schema, true) {
                 fields.insert(format!("data.{path}"));
             }
         }
@@ -889,33 +1093,6 @@ fn class_name_from_command_parts(parts: &[String]) -> Option<String> {
         .map(|pair| pair[1].clone())
 }
 
-fn schema_paths(schema: &serde_json::Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    collect_schema_paths(schema, "", &mut paths);
-    paths.sort();
-    paths.dedup();
-    paths
-}
-
-fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
-    let Some(properties) = schema.get("properties").and_then(|value| value.as_object()) else {
-        return;
-    };
-
-    for (name, property_schema) in properties {
-        let path = if prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{prefix}.{name}")
-        };
-        paths.push(path.clone());
-        collect_schema_paths(property_schema, &path, paths);
-        if let Some(items) = property_schema.get("items") {
-            collect_schema_paths(items, &format!("{path}[*]"), paths);
-        }
-    }
-}
-
 fn completion_context_parts(parts: &[String], ends_with_space: bool) -> &[String] {
     if ends_with_space || parts.is_empty() {
         parts
@@ -924,6 +1101,7 @@ fn completion_context_parts(parts: &[String], ends_with_space: bool) -> &[String
     }
 }
 
+#[cfg(test)]
 fn is_completing_option_value(parts: &[String], ends_with_space: bool) -> bool {
     !ends_with_space
         && parts.len() >= 2
@@ -992,6 +1170,18 @@ fn projection_suggestion(
     Suggestion {
         display_override,
         ..suggestion_with_whitespace(value, start, end, Some("output field".to_string()), true)
+    }
+}
+
+fn pipe_stage_suggestion(
+    value: String,
+    start: usize,
+    end: usize,
+    display_override: Option<String>,
+) -> Suggestion {
+    Suggestion {
+        display_override,
+        ..suggestion_with_whitespace(value, start, end, Some("pipe stage".to_string()), true)
     }
 }
 
@@ -1124,11 +1314,12 @@ mod tests {
     use crate::catalog::{CompletionSpec, OptionSpec};
 
     use super::{
-        clause_active_token_offset, completion_context_parts, is_completing_option_value,
-        id_completion_context, option_suggestion, projection_pipe_context, quoted_where_context,
-        safe_prefix_end, schema_paths, where_suggestion, IdCompletionKind, PaginationEditMode,
-        CANCEL_PAGINATION_HOST_COMMAND,
+        clause_active_token_offset, clause_option_context, completion_context_parts,
+        id_completion_context, is_completing_option_value, option_suggestion, option_value_context,
+        pipe_completion_context, quoted_where_context, safe_prefix_end, where_suggestion,
+        IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
     };
+    use crate::json_schema::schema_paths;
 
     #[test]
     fn esc_cancels_only_when_pagination_is_pending() {
@@ -1181,6 +1372,27 @@ mod tests {
             "Ui".to_string(),
         ];
         assert!(is_completing_option_value(&parts, false));
+    }
+
+    #[test]
+    fn option_value_context_accepts_inline_values() {
+        let parts = vec![
+            "task".to_string(),
+            "show".to_string(),
+            "--id=12".to_string(),
+        ];
+        let context = option_value_context(
+            &parts,
+            "task show ".len(),
+            "task show --id=12".len(),
+            "--id=12",
+            false,
+        )
+        .expect("inline option value context");
+
+        assert_eq!(context.option_name, "--id");
+        assert_eq!(context.prefix, "12");
+        assert_eq!(context.replacement_start, "task show --id=".len());
     }
 
     #[test]
@@ -1276,24 +1488,71 @@ mod tests {
     }
 
     #[test]
-    fn projection_pipe_context_completes_after_stage_without_space() {
+    fn pipe_completion_context_completes_fields_after_projection_stage_without_space() {
         let line = "object list --class Hosts | P";
-        let context = projection_pipe_context(line, line.len()).expect("projection context");
+        let context = pipe_completion_context(line, line.len()).expect("projection context");
 
         assert_eq!(context.command_prefix, "object list --class Hosts ");
+        assert_eq!(context.kind, PipeCompletionKind::Field);
         assert_eq!(context.prefix, "");
         assert_eq!(context.replacement_start, line.len());
         assert!(context.needs_leading_space);
     }
 
     #[test]
-    fn projection_pipe_context_replaces_only_comma_segment() {
+    fn pipe_completion_context_replaces_only_projection_comma_segment() {
         let line = "object list --class Hosts | P Name,co";
-        let context = projection_pipe_context(line, line.len()).expect("projection context");
+        let context = pipe_completion_context(line, line.len()).expect("projection context");
 
+        assert_eq!(context.kind, PipeCompletionKind::Field);
         assert_eq!(context.prefix, "co");
         assert_eq!(context.replacement_start, line.len() - "co".len());
         assert!(!context.needs_leading_space);
+    }
+
+    #[test]
+    fn pipe_completion_context_completes_stage_after_pipe() {
+        let line = "object list --class Hosts |";
+        let context = pipe_completion_context(line, line.len()).expect("stage context");
+
+        assert_eq!(context.kind, PipeCompletionKind::Stage);
+        assert_eq!(context.prefix, "");
+        assert_eq!(context.replacement_start, line.len());
+        assert!(context.needs_leading_space);
+    }
+
+    #[test]
+    fn pipe_completion_context_completes_value_stage_fields() {
+        let line = "object list --class Hosts | VALUE da";
+        let context = pipe_completion_context(line, line.len()).expect("field context");
+
+        assert_eq!(context.kind, PipeCompletionKind::Field);
+        assert_eq!(context.prefix, "da");
+        assert_eq!(context.replacement_start, line.len() - "da".len());
+    }
+
+    #[test]
+    fn clause_option_context_accepts_inline_where_values() {
+        let parts = vec![
+            "namespace".to_string(),
+            "list".to_string(),
+            "--where=na".to_string(),
+        ];
+        let context = clause_option_context(
+            &parts,
+            "--where",
+            3,
+            "namespace list ".len(),
+            "namespace list --where=na".len(),
+            "--where=na",
+            false,
+        )
+        .expect("where context");
+
+        assert_eq!(context.clause_prefix, "na");
+        assert_eq!(context.prefix, "na");
+        assert_eq!(context.replacement_start, "namespace list --where=".len());
+        assert!(!context.is_complete);
     }
 
     #[test]
@@ -1320,7 +1579,7 @@ mod tests {
         });
 
         assert_eq!(
-            schema_paths(&schema),
+            schema_paths(&schema, true),
             vec![
                 "contact".to_string(),
                 "hardware".to_string(),
@@ -1387,6 +1646,28 @@ mod tests {
 
         assert_eq!(context.kind, IdCompletionKind::ImportTask);
         assert_eq!(context.prefix, "7");
+    }
+
+    #[test]
+    fn id_completion_context_detects_inline_task_option_value() {
+        let parts = vec![
+            "task".to_string(),
+            "show".to_string(),
+            "--id=12".to_string(),
+        ];
+        let context = id_completion_context(
+            &["task".to_string(), "show".to_string()],
+            &parts,
+            "task show ".len(),
+            "task show --id=12".len(),
+            "--id=12",
+            false,
+        )
+        .expect("task id context");
+
+        assert_eq!(context.kind, IdCompletionKind::Task);
+        assert_eq!(context.prefix, "12");
+        assert_eq!(context.replacement_start, "task show --id=".len());
     }
 
     fn test_option(short: Option<&str>, long: Option<&str>, flag: bool, help: &str) -> OptionSpec {

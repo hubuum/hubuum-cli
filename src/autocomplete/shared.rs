@@ -7,20 +7,95 @@ pub fn bool(_ctx: &CompletionContext, _prefix: &str, _parts: &[String]) -> Vec<S
     vec!["true".to_string(), "false".to_string()]
 }
 
+pub fn output_formats(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(&["text", "json", "jsonl", "csv", "tsv"], prefix)
+}
+
+pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(
+        &["import", "report", "export", "reindex", "remotecall"],
+        prefix,
+    )
+}
+
+pub fn task_statuses(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(
+        &[
+            "queued",
+            "validating",
+            "running",
+            "succeeded",
+            "failed",
+            "partiallysucceeded",
+            "cancelled",
+        ],
+        prefix,
+    )
+}
+
+pub fn remote_http_methods(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(&["get", "post", "patch", "delete"], prefix)
+}
+
+pub fn remote_auth_types(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(&["none", "bearer", "basic", "apikey"], prefix)
+}
+
+pub fn remote_subject_types(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_csv_values(
+        &[
+            "namespace",
+            "class",
+            "object",
+            "class_relation",
+            "object_relation",
+        ],
+        prefix,
+    )
+}
+
+pub fn remote_subject_kinds(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(
+        &[
+            "namespace",
+            "class",
+            "object",
+            "class_relation",
+            "object_relation",
+        ],
+        prefix,
+    )
+}
+
+pub fn report_content_types(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(
+        &["application/json", "text/plain", "text/html", "text/csv"],
+        prefix,
+    )
+}
+
 pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    ["namespace", "class", "object"]
-        .into_iter()
-        .filter(|kind| kind.starts_with(prefix))
-        .map(str::to_string)
-        .collect()
+    complete_values(&["namespace", "class", "object"], prefix)
 }
 
 pub fn principal_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    ["user", "group", "service-account"]
-        .into_iter()
-        .filter(|kind| kind.starts_with(prefix))
-        .map(str::to_string)
-        .collect()
+    complete_values(&["user", "group", "service-account"], prefix)
 }
 
 pub fn file_paths(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -263,7 +338,7 @@ fn object_list_class_column_values(
 
     if let Some(Some(schema)) = ctx.class_schema(class_name) {
         fields.extend(
-            schema_paths(&schema)
+            crate::json_schema::schema_paths(&schema, true)
                 .into_iter()
                 .map(|path| format!("data.{path}")),
         );
@@ -285,39 +360,36 @@ fn comma_completion_prefix(prefix: &str) -> (&str, &str) {
         .unwrap_or(("", prefix))
 }
 
-fn schema_paths(schema: &serde_json::Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    collect_schema_paths(schema, "", &mut paths);
-    paths.sort();
-    paths.dedup();
-    paths
+fn complete_values(values: &[&str], prefix: &str) -> Vec<String> {
+    values
+        .iter()
+        .copied()
+        .filter(|value| value.starts_with(prefix))
+        .map(str::to_string)
+        .collect()
 }
 
-fn collect_schema_paths(schema: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
-    let Some(properties) = schema.get("properties").and_then(|value| value.as_object()) else {
-        return;
-    };
+fn complete_csv_values(values: &[&str], prefix: &str) -> Vec<String> {
+    let (head, tail) = prefix
+        .rsplit_once(',')
+        .map(|(head, tail)| (format!("{head},"), tail))
+        .unwrap_or_else(|| (String::new(), prefix));
 
-    for (name, property_schema) in properties {
-        let path = if prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{prefix}.{name}")
-        };
-        paths.push(path.clone());
-        collect_schema_paths(property_schema, &path, paths);
-        if let Some(items) = property_schema.get("items") {
-            collect_schema_paths(items, &format!("{path}[*]"), paths);
-        }
-    }
+    values
+        .iter()
+        .copied()
+        .filter(|value| value.starts_with(tail.trim_start()))
+        .map(|value| format!("{head}{value}"))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         comma_completion_prefix, config_key_from_parts, config_value_candidates_for_parts,
-        file_path_candidates, schema_paths,
+        file_path_candidates,
     };
+    use crate::json_schema::schema_paths;
 
     #[test]
     fn config_key_from_parts_uses_selected_key() {
@@ -421,7 +493,7 @@ mod tests {
         });
 
         assert_eq!(
-            schema_paths(&schema),
+            schema_paths(&schema, true),
             vec![
                 "contact".to_string(),
                 "hardware".to_string(),

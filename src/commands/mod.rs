@@ -1,6 +1,7 @@
 use log::trace;
 use std::any::TypeId;
 use std::collections::HashSet;
+use std::str::FromStr;
 
 mod audit;
 mod builder;
@@ -30,11 +31,13 @@ pub use builder::build_command_catalog;
 
 use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
 use crate::{
-    formatting::TableRenderable,
+    formatting::{OutputFormatter, TableRenderable},
     list_query::{
         filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
         PagedResult,
     },
+    models::OutputFormat,
+    output::append_line,
 };
 
 pub type AutoCompleter = fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>;
@@ -122,7 +125,7 @@ pub fn standard_options() -> Vec<CliOption> {
             field_type: TypeId::of::<String>(),
             field_type_help: "string".to_string(),
             required: false,
-            autocomplete: None,
+            autocomplete: Some(crate::autocomplete::output_formats),
         },
     ]
 }
@@ -144,11 +147,14 @@ pub fn validate_command_args<C: CommandArgs>(tokens: &CommandTokenizer) -> Resul
 
 pub fn validate_unknown_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let mut known_options = HashSet::new();
+    let mut known_display_options = Vec::new();
     for opt in command_options::<C>() {
         if let Some(short) = opt.short_without_dash() {
+            known_display_options.push(format!("-{short}"));
             known_options.insert(short);
         }
         if let Some(long) = opt.long_without_dashes() {
+            known_display_options.push(format!("--{long}"));
             known_options.insert(long);
         }
     }
@@ -157,7 +163,7 @@ pub fn validate_unknown_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Re
         .get_options()
         .keys()
         .filter(|key| !known_options.contains(*key))
-        .cloned()
+        .map(|key| unknown_option_message(key, &known_display_options))
         .collect();
 
     if unknown_options.is_empty() {
@@ -166,6 +172,18 @@ pub fn validate_unknown_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Re
 
     unknown_options.sort();
     Err(AppError::InvalidOption(unknown_options.join(", ")))
+}
+
+fn unknown_option_message(key: &str, known_display_options: &[String]) -> String {
+    let displayed = if key.len() == 1 {
+        format!("-{key}")
+    } else {
+        format!("--{key}")
+    };
+    match crate::suggestions::did_you_mean_message(&displayed, known_display_options.to_vec()) {
+        Some(hint) => format!("{displayed}. {hint}"),
+        None => displayed,
+    }
 }
 
 pub fn validate_missing_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Result<(), AppError> {
@@ -286,6 +304,18 @@ where
     render_paged_result(tokens, paged, desired_format(tokens))
 }
 
+pub fn render_task_record(
+    tokens: &CommandTokenizer,
+    task: &crate::domain::TaskRecord,
+) -> Result<(), AppError> {
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(serde_json::to_string_pretty(task)?)?,
+        OutputFormat::Text => task.format_noreturn()?,
+    }
+
+    Ok(())
+}
+
 pub fn contains_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
     filter_clause(
         field,
@@ -300,6 +330,37 @@ pub fn equals_clause(field: impl Into<String>, value: impl Into<String>) -> Filt
         hubuum_client::FilterOperator::Equals { is_negated: false },
         value,
     )
+}
+
+pub fn option_or_pos<T>(
+    value: Option<T>,
+    tokens: &CommandTokenizer,
+    pos: usize,
+    name: &str,
+) -> Result<Option<T>, AppError>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    if value.is_some() {
+        return Ok(value);
+    }
+
+    tokens
+        .get_positionals()
+        .get(pos)
+        .map(|value| parse_positional(value, name))
+        .transpose()
+}
+
+fn parse_positional<T>(value: &str, name: &str) -> Result<T, AppError>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    value
+        .parse::<T>()
+        .map_err(|err| AppError::ParseError(format!("{name} has invalid value '{value}': {err}")))
 }
 
 pub fn lte_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
@@ -357,4 +418,50 @@ fn validate_output_options(tokens: &CommandTokenizer) -> Result<(), AppError> {
 pub fn want_help(tokens: &CommandTokenizer) -> bool {
     let opts = tokens.get_options();
     opts.contains_key("h") || opts.contains_key("help")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::TypeId;
+
+    use super::{validate_unknown_options, CliOption, CommandArgs};
+    use crate::errors::AppError;
+    use crate::tokenizer::CommandTokenizer;
+
+    #[derive(Default)]
+    struct DummyArgs;
+
+    impl CommandArgs for DummyArgs {
+        fn options() -> Vec<CliOption> {
+            vec![CliOption {
+                name: "limit".to_string(),
+                short: None,
+                long: Some("--limit".to_string()),
+                flag: false,
+                greedy: false,
+                nargs: None,
+                repeatable: false,
+                value_source: false,
+                help: "Limit".to_string(),
+                field_type: TypeId::of::<usize>(),
+                field_type_help: "usize".to_string(),
+                required: false,
+                autocomplete: None,
+            }]
+        }
+
+        fn parse_tokens(_tokens: &CommandTokenizer) -> Result<Self, AppError> {
+            Ok(Self)
+        }
+    }
+
+    #[test]
+    fn unknown_options_suggest_nearby_known_options() {
+        let tokens = CommandTokenizer::new("dummy list --limt 10", "list", &[])
+            .expect("unknown option tokenization should succeed");
+        let err = validate_unknown_options::<DummyArgs>(&tokens)
+            .expect_err("unknown option should fail validation");
+
+        assert!(err.to_string().contains("Did you mean '--limit'?"));
+    }
 }

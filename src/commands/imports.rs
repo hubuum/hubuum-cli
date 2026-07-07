@@ -7,13 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{build_list_query, option_or_pos, render_list_page, render_task_record, CliCommand};
 use crate::autocomplete::{file_paths, import_result_sort, namespaces};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
-use crate::formatting::OutputFormatter;
-use crate::models::OutputFormat;
-use crate::output::append_line;
 use crate::services::CompletionContext;
 use crate::services::{AppServices, SubmitImportInput};
 use crate::tokenizer::CommandTokenizer;
@@ -56,10 +53,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 },
             ),
         );
-}
-
-trait GetTaskId {
-    fn task_id(&self) -> Option<i32>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -259,28 +252,17 @@ pub struct ImportShow {
     pub id: Option<i32>,
 }
 
-impl GetTaskId for &ImportShow {
-    fn task_id(&self) -> Option<i32> {
-        self.id
-    }
-}
-
 impl CliCommand for ImportShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = task_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let task = services.gateway().import_task(
             query
                 .id
                 .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
         )?;
 
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&task)?)?,
-            OutputFormat::Text => task.format_noreturn()?,
-        }
-
-        Ok(())
+        render_task_record(tokens, &task)
     }
 }
 
@@ -301,16 +283,10 @@ pub struct ImportResults {
     pub cursor: Option<String>,
 }
 
-impl GetTaskId for &ImportResults {
-    fn task_id(&self) -> Option<i32> {
-        self.id
-    }
-}
-
 impl CliCommand for ImportResults {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = task_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let list_query = build_list_query(&[], &query.sort_clauses, query.limit, query.cursor, [])?;
         let results = services.gateway().import_results(
             query
@@ -320,24 +296,6 @@ impl CliCommand for ImportResults {
         )?;
         render_list_page(tokens, &results)
     }
-}
-
-fn task_id_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<i32>, AppError>
-where
-    U: GetTaskId,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.task_id().is_none() {
-        if let Some(value) = pos0 {
-            return Ok(Some(value.parse()?));
-        }
-        return Err(AppError::MissingOptions(vec!["id".to_string()]));
-    }
-    Ok(query.task_id())
 }
 
 #[cfg(test)]

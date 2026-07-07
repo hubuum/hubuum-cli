@@ -26,8 +26,9 @@ pub use objects::{
 };
 pub use reports::{report_missing_data_policies, report_scope_kinds, report_templates};
 pub use shared::{
-    bool, config_keys, config_values, file_paths, object_data_columns, principal_kinds,
-    search_kinds,
+    bool, config_keys, config_values, file_paths, object_data_columns, output_formats,
+    principal_kinds, remote_auth_types, remote_http_methods, remote_subject_kinds,
+    remote_subject_types, report_content_types, search_kinds, task_kinds, task_statuses,
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{
