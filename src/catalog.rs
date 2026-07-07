@@ -10,7 +10,7 @@ use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::services::filter_specs_for_command_path;
 use crate::terminal::terminal_width;
-use crate::theme::{paint, ThemeRole};
+use crate::theme::{paint, paint_command, ThemeRole};
 
 #[derive(Debug, Clone)]
 pub struct OptionSpec {
@@ -373,10 +373,11 @@ impl CommandCatalog {
             help.push_str(&paint(ThemeRole::Heading, "Examples:"));
             help.push('\n');
             for line in examples.lines() {
-                help.push_str("  ");
-                help.push_str(&command_path.join(" "));
-                help.push(' ');
-                help.push_str(line);
+                help.push_str(&paint_command(format!(
+                    "  {} {}",
+                    command_path.join(" "),
+                    line
+                )));
                 help.push('\n');
             }
         }
@@ -384,12 +385,12 @@ impl CommandCatalog {
         Ok(help.trim_end().to_string())
     }
 
-    pub fn render_pipe_topic_help(&self) -> String {
-        render_pipe_topic_help()
+    pub fn render_pipe_topic_help(&self, topic: Option<&str>) -> Result<String, AppError> {
+        render_pipe_topic_help(topic)
     }
 
-    pub fn render_shell_topic_help(&self) -> String {
-        render_shell_topic_help()
+    pub fn render_shell_topic_help(&self, topic: Option<&str>) -> Result<String, AppError> {
+        render_shell_topic_help(topic)
     }
 }
 
@@ -475,19 +476,24 @@ fn render_pipe_help() -> String {
 fn render_pipe_help_lines() -> Vec<String> {
     vec![
         paint(ThemeRole::Heading, "Pipe:"),
-        "  Use help pipe for output pipeline syntax, filters, projections, sorting, and examples."
-            .to_string(),
+        format!(
+            "  Use {} for output pipeline syntax, filters, projections, sorting, and examples.",
+            paint_command("help pipe")
+        ),
     ]
 }
 
 fn render_shell_help_lines() -> Vec<String> {
     vec![
         paint(ThemeRole::Heading, "Shell:"),
-        "  Use help shell for REPL navigation, pagination, and exit commands.".to_string(),
+        format!(
+            "  Use {} for REPL navigation, pagination, and exit commands.",
+            paint_command("help shell")
+        ),
     ]
 }
 
-fn render_pipe_topic_help() -> String {
+fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     let mut lines = Vec::new();
     macro_rules! line {
         ($value:expr) => {
@@ -495,168 +501,195 @@ fn render_pipe_topic_help() -> String {
         };
     }
 
-    line!(paint(ThemeRole::Heading, "Pipe"));
-    line!("Append pipe stages after a command to transform the command's semantic JSON output before it is rendered as a table, JSON, CSV, TSV, or plain text.");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Mental Model:"));
-    line!("  command | stage | stage | stage");
-    line!("  The command runs first and produces rows, details, values, or lines.");
-    line!("  Each stage receives the previous stage's output.");
-    line!("  For normal table output, stages run before rendering, so hidden JSON can still be selected explicitly.");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Quick Filters:"));
-    line!("  | pattern");
-    line!("  | grep pattern");
-    line!("  | F pattern");
-    line!("  | grep <field> <regex>");
-    line!("  | F <field> <regex>");
-    line!("");
-    line!("  Keeps rows matching the regex pattern. For structured rows, quick filters search JSON keys plus the currently displayed/projected values. They add a Match column so you can see why a row survived.");
-    line!("  With a field argument, grep only checks that field and does not add a Match column.");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | 26");
-    line!("    object list --class Hosts | F '^web-'");
-    line!("    object list --class Hosts | grep os_version '^26'");
-    line!(
-        "    object list --class Hosts | grep data.network.interfaces[*].ipv4 '^129\\\\.240\\\\.'"
-    );
-    line!("    object list --class Hosts | P Name os_version | 26");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Field Predicates:"));
-    line!("  | <field> exists");
-    line!("  | <field> equals <value>");
-    line!("  | <field> contains <regex>");
-    line!("  | <field> matches <regex>");
-    line!("  | <field> != <value>");
-    line!("  | <field> not contains <regex>");
-    line!("  | <field> !~ <regex>");
-    line!("");
-    line!("  Matches one field/path precisely. Use dotted selectors for nested JSON and [*] for array items.");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | os_version contains 26");
-    line!("    object list --class Hosts | os_version not contains '^9'");
-    line!("    object list --class Hosts | data.network.interfaces[*].ipv4 contains '^129\\\\.240\\\\.'");
-    line!("    config show | key contains '^output\\\\.'");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Rejecting Rows:"));
-    line!("  | reject <expr>");
-    line!("  | reject <field> <regex>");
-    line!("  | !<regex>");
-    line!("");
-    line!("  Removes rows matching the expression.");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | reject os_version contains 9");
-    line!("    object list --class Hosts | reject os_version '^9'");
-    line!("    object list --class Hosts | !retired");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Projection:"));
-    line!("  | P <field> [field...]");
-    line!("  | columns <field> [field...]");
-    line!("");
-    line!("  Chooses which fields to show. This is not a filter. Every argument after P is a column selector.");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | P Name os_version");
-    line!("    object list --class Hosts | P Name data.network.interfaces[*].ipv4");
-    line!("    object list --class Hosts | P os_version 26");
-    line!("      Shows columns named os_version and 26. If no field named 26 exists, that column is null.");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Sorting And Limits:"));
-    line!("  | S <field>");
-    line!("  | S !<field>");
-    line!("  | sort <field> asc|desc");
-    line!("  | L <n>");
-    line!("  | head <n>");
-    line!("  | tail <n>");
-    line!("  | C");
-    line!("  | count");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | S os_version desc | L 10");
-    line!("    object list --class Hosts | os_version contains 26 | C");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Value Extraction:"));
-    line!("  | VALUE <path>");
-    line!("  | VAL <path>");
-    line!("");
-    line!("  Extracts values from rows and returns a value list.");
-    line!("");
-    line!("  Examples:");
-    line!("    object list --class Hosts | VAL data.network.interfaces[*].ipv4");
-    line!("    config show | VALUE key | C");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Common Recipes:"));
-    line!("  Filter by a precise field:");
-    line!("    object list --class Hosts --where json_data.hardware.cpu.summary startswith 8 | os_version contains 26");
-    line!("");
-    line!("  Project first, then quick-filter displayed values:");
-    line!("    object list --class Hosts | P Name os_version | 26");
-    line!("");
-    line!("  Show the fields that caused a quick-filter hit:");
-    line!("    object list --class Hosts | 26");
-    line!("");
-    line!("  Pick columns, sort, and limit:");
-    line!("    object list --class Hosts | P Name os_version data.network.interfaces[*].ipv4 | S os_version desc | L 20");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Notes:"));
-    line!("  Text table headers shorten data.<path> to <path> to save space, but selectors still use the semantic field name.");
-    line!("  CSV, TSV, JSON, and JSONL keep semantic field names for stable machine output.");
-    line!("  Quote patterns containing spaces or shell-sensitive characters.");
-    line!("  Pipe splitting is quote-aware, so quoted | characters stay inside command values.");
+    if let Some(topic) = topic {
+        let Some(help) = hubuum_filter::topic_help(topic) else {
+            return Err(AppError::CommandNotFound(format!("pipe {topic}")));
+        };
+        line!(paint(ThemeRole::Heading, format!("Pipe: {topic}")));
+        line!(colorize_help_commands(help));
+        return Ok(lines.join("\n"));
+    }
 
-    lines.join("\n")
+    line!(paint(ThemeRole::Heading, "Pipe"));
+    line!("Append pipe stages after a command to transform semantic output before table, JSON, JSONL, CSV, TSV, or text rendering.");
+    line!("");
+    line!(paint(ThemeRole::Heading, "Topics:"));
+    for topic in hubuum_filter::help_topics() {
+        line!(format!(
+            "  {} {}",
+            paint_command(format!("help pipe {:<10}", topic.name)),
+            topic.summary
+        ));
+    }
+    line!("");
+    line!(paint(ThemeRole::Heading, "Verbs:"));
+    for summary in hubuum_filter::verb_summaries() {
+        line!(format!(
+            "  {:<14} {:<9} {}",
+            summary.names, summary.topic, summary.summary
+        ));
+    }
+    line!("");
+    line!("Examples:");
+    line!(paint_command(
+        "  object list --class Hosts | grep <field> <regex>"
+    ));
+    line!(paint_command(
+        "  object list --class Hosts | P os_version 26"
+    ));
+    line!(paint_command(
+        "  object list --class Hosts | F os_version contains 26"
+    ));
+    line!(paint_command(
+        "  object list --class Hosts | P Name os_version | S os_version | L 10"
+    ));
+    line!(paint_command(
+        "  object list --class Hosts | G os_version AS \"OS Version\" | A count AS Hosts"
+    ));
+
+    Ok(lines.join("\n"))
 }
 
-fn render_shell_topic_help() -> String {
+fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     let mut lines = Vec::new();
     macro_rules! line {
         ($value:expr) => {
             lines.push($value.to_string());
         };
+    }
+
+    if let Some(topic) = topic {
+        line!(paint(ThemeRole::Heading, format!("Shell: {topic}")));
+        match topic {
+            "navigation" => {
+                line!(format!(
+                    "  Type a scope name to enter it, for example {} or {}.",
+                    paint_command("object"),
+                    paint_command("namespace")
+                ));
+                line!("  Type a nested scope name to descend further.");
+                line!(format!(
+                    "  Use {} to leave the current scope.",
+                    paint_command("..")
+                ));
+                line!(format!(
+                    "  Use {} to leave the current scope, or {} at root to leave the REPL.",
+                    paint_command("exit"),
+                    paint_command("exit")
+                ));
+                line!("  Use Ctrl-D to leave the REPL.");
+            }
+            "pagination" => {
+                line!(format!(
+                    "  After a paginated list result, type {} to fetch the next page.",
+                    paint_command("next")
+                ));
+                line!("  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.");
+                line!("  Esc or Ctrl-C clears pending pagination state.");
+            }
+            "completion" => {
+                line!("  Press Tab to open or advance completions.");
+                line!("  Press Shift-Tab to move backward in the completion menu.");
+                line!(format!(
+                    "  Option values complete after either {} or {}.",
+                    paint_command("--option <value>"),
+                    paint_command("--option=<value>")
+                ));
+                line!("  Pipe stages and supported field names complete after |.");
+                line!(format!(
+                    "  API-backed completions can be disabled with {}.",
+                    paint_command("--completion-api-disable true")
+                ));
+            }
+            "redirects" => {
+                line!(format!(
+                    "  Append {} to write rendered output, or {} to append.",
+                    paint_command("> <file>"),
+                    paint_command(">> <file>")
+                ));
+                line!(format!(
+                    "  Use {} to write one file per semantic row or value.",
+                    paint_command("> each:<template>")
+                ));
+                line!(
+                    "  each: templates accept field placeholders such as {Name}, {value}, and {n}."
+                );
+                line!("  Redirect paths complete like normal file path arguments.");
+            }
+            _ => return Err(AppError::CommandNotFound(format!("shell {topic}"))),
+        }
+        return Ok(lines.join("\n"));
     }
 
     line!(paint(ThemeRole::Heading, "Shell"));
     line!("The REPL shell keeps a current scope, command history, and next-page state.");
     line!("");
-    line!(paint(ThemeRole::Heading, "Navigation:"));
-    line!("  Type a scope name to enter it, for example object or namespace.");
-    line!("  Type a nested scope name to descend further.");
-    line!("  Use .. to leave the current scope.");
-    line!("  Use exit to leave the current scope, or exit at root to leave the REPL.");
-    line!("  Use Ctrl-D to leave the REPL.");
-    line!("");
     line!(paint(ThemeRole::Heading, "Help:"));
-    line!("  help");
-    line!("  help <scope>");
-    line!("  help <command>");
-    line!("  ? <command>");
-    line!("  help pipe");
-    line!("  help shell");
+    line!(paint_command("  help"));
+    line!(paint_command("  help <scope>"));
+    line!(paint_command("  help <command>"));
+    line!(paint_command("  ? <command>"));
+    line!(paint_command("  help pipe"));
+    line!(paint_command("  help pipe <topic>"));
+    line!(paint_command("  help shell"));
+    line!(paint_command("  help shell <topic>"));
     line!("");
-    line!(paint(ThemeRole::Heading, "Pagination:"));
-    line!("  After a paginated list result, type next to fetch the next page.");
-    line!("  If repl.enter_fetches_next_page is enabled, pressing Enter fetches the next page.");
-    line!("  Esc or Ctrl-C clears pending pagination state.");
+    line!(paint(ThemeRole::Heading, "Topics:"));
+    line!(format!(
+        "  {} Type a scope name to enter it.",
+        paint_command("help shell navigation")
+    ));
+    line!(format!(
+        "  {} Type next to fetch the next page.",
+        paint_command("help shell pagination")
+    ));
+    line!(format!("  {}", paint_command("help shell completion")));
+    line!(format!("  {}", paint_command("help shell redirects")));
     line!("");
-    line!(paint(ThemeRole::Heading, "Completion:"));
-    line!("  Press Tab to open or advance completions.");
-    line!("  Press Shift-Tab to move backward in the completion menu.");
-    line!("  Option values complete after either --option <value> or --option=<value>.");
-    line!("  Pipe stages and supported field names complete after |.");
-    line!("  API-backed completions can be disabled with --completion-api-disable true.");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Redirects:"));
-    line!("  Append > <file> to write rendered output, or >> <file> to append.");
-    line!("  Redirect paths complete like normal file path arguments.");
-    line!("");
-    line!(paint(ThemeRole::Heading, "Pipes:"));
-    line!("  Append | stages after commands to filter or reshape output before rendering.");
-    line!("  Use help pipe for pipeline syntax and examples.");
+    line!("Pipes:");
+    line!(format!(
+        "  Append {} stages after commands to filter or reshape output before rendering.",
+        paint_command("|")
+    ));
+    line!(format!(
+        "  Use {} for pipeline syntax and examples.",
+        paint_command("help pipe")
+    ));
 
-    lines.join("\n")
+    Ok(lines.join("\n"))
+}
+
+fn colorize_help_commands(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if is_command_help_line(trimmed) {
+                let indent_len = line.len() - trimmed.len();
+                if let Some((command, description)) = trimmed.split_once(" - ") {
+                    format!(
+                        "{}{} - {}",
+                        &line[..indent_len],
+                        paint_command(command),
+                        description
+                    )
+                } else {
+                    format!("{}{}", &line[..indent_len], paint_command(trimmed))
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_command_help_line(trimmed: &str) -> bool {
+    trimmed.starts_with('|')
+        || trimmed.starts_with('>')
+        || trimmed.starts_with(">>")
+        || trimmed.starts_with("object ")
+        || trimmed.starts_with("help ")
+        || trimmed.starts_with("? ")
 }
 
 fn render_where_help(command_path: &[String]) -> Option<String> {
@@ -690,8 +723,15 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
     let mut help = String::new();
     help.push_str(&paint(ThemeRole::Heading, "Where:"));
     help.push('\n');
-    help.push_str("  Syntax: --where 'field operator value'\n");
-    help.push_str("  Repeat --where to combine filters with AND.\n");
+    help.push_str(&format!(
+        "  Syntax: {}",
+        paint_command("--where 'field operator value'")
+    ));
+    help.push('\n');
+    help.push_str(&format!(
+        "  Repeat {} to combine filters with AND.\n",
+        paint_command("--where")
+    ));
     help.push_str("  Fields: ");
     help.push_str(&fields);
     help.push('\n');
@@ -703,9 +743,10 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
     );
 
     if specs.iter().any(|spec| spec.json_root) {
-        help.push_str(
-            "  JSON paths: use dotted paths, for example json_data.contact equals Entry.\n",
-        );
+        help.push_str(&format!(
+            "  JSON paths: use dotted paths, for example {}.\n",
+            paint_command("json_data.contact equals Entry")
+        ));
     }
 
     Some(help)
@@ -736,13 +777,21 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
     help.push_str(&paint(ThemeRole::Heading, "Result Limits:"));
     help.push('\n');
     if option_names.contains(&"limit") {
-        help.push_str("  Use --limit <n> to cap the number of returned results.\n");
+        help.push_str(&format!(
+            "  Use {} to cap the number of returned results.",
+            paint_command("--limit <n>")
+        ));
+        help.push('\n');
     }
     if option_names.contains(&"cursor") {
-        help.push_str("  Use --cursor <token> to continue from a previous page.\n");
-        help.push_str(&paint(
-            ThemeRole::Muted,
-            "  In the REPL, type next after a result with a next-page cursor to reuse it.\n",
+        help.push_str(&format!(
+            "  Use {} to continue from a previous page.",
+            paint_command("--cursor <token>")
+        ));
+        help.push('\n');
+        help.push_str(&format!(
+            "  In the REPL, type {} after a result with a next-page cursor to reuse it.\n",
+            paint_command("next")
         ));
         help.push_str(&paint(
             ThemeRole::Muted,
@@ -800,6 +849,7 @@ pub struct ResolvedCommand<'a> {
 mod tests {
     use super::{CommandCatalogBuilder, CommandSpec, ScopeAction};
     use async_trait::async_trait;
+    use serial_test::serial;
     use std::sync::Arc;
 
     struct NoopHandler;
@@ -828,6 +878,13 @@ mod tests {
             options: Vec::new(),
             handler: Arc::new(NoopHandler),
         }
+    }
+
+    fn strip_ansi(text: &str) -> String {
+        regex::Regex::new(r"\x1b\[[0-9;]*m")
+            .expect("ANSI regex should compile")
+            .replace_all(text, "")
+            .into_owned()
     }
 
     #[test]
@@ -894,6 +951,52 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn render_command_help_colors_example_commands_when_enabled() {
+        let previous = crate::config::get_config();
+        let mut config = previous.clone();
+        config.output.color = crate::models::OutputColor::Always;
+        crate::config::init_config(config).expect("config update");
+
+        let mut builder = CommandCatalogBuilder::new();
+        let mut spec = command("list");
+        spec.examples = Some("--class Hosts".to_string());
+        builder.add_command(&["object"], spec);
+        let catalog = builder.build();
+
+        let help = catalog
+            .render_command_help(&["object".to_string(), "list".to_string()])
+            .expect("help should render");
+
+        crate::config::init_config(previous).expect("config restore");
+        assert!(help.contains("\u{1b}["));
+        assert!(help.contains("object list --class Hosts"));
+    }
+
+    #[test]
+    #[serial]
+    fn render_command_help_omits_command_color_when_disabled() {
+        let previous = crate::config::get_config();
+        let mut config = previous.clone();
+        config.output.color = crate::models::OutputColor::Never;
+        crate::config::init_config(config).expect("config update");
+
+        let mut builder = CommandCatalogBuilder::new();
+        let mut spec = command("list");
+        spec.examples = Some("--class Hosts".to_string());
+        builder.add_command(&["object"], spec);
+        let catalog = builder.build();
+
+        let help = catalog
+            .render_command_help(&["object".to_string(), "list".to_string()])
+            .expect("help should render");
+
+        crate::config::init_config(previous).expect("config restore");
+        assert!(!help.contains("\u{1b}["));
+        assert!(help.contains("object list --class Hosts"));
+    }
+
+    #[test]
     fn option_spec_round_trips_nargs_to_cli_option() {
         let option = super::OptionSpec {
             name: "where_clauses".to_string(),
@@ -918,22 +1021,44 @@ mod tests {
     fn root_scope_help_lists_scope_subcommands() {
         let catalog = crate::commands::build_command_catalog();
         let help = catalog.render_scope_help(&[]);
+        let plain = strip_ansi(&help);
 
-        assert!(help.contains("class"));
-        assert!(help.contains("create, delete, list, modify, show"));
-        assert!(help.contains("object"));
-        assert!(help.contains("create, delete, list, modify, show"));
-        assert!(help.contains("event-subscription create, delete, list, show, update"));
-        assert!(help.contains("namespace          permissions, create, delete, list, modify"));
-        assert!(help.contains("                   principal-permissions, show"));
-        assert!(help.contains("relation"));
-        assert!(help.contains("class, object"));
-        assert!(help.contains("Pipe:"));
-        assert!(help.contains("Use help pipe"));
-        assert!(!help.contains("Examples: object list --class Hosts"));
-        assert!(help.contains("Shell:"));
-        assert!(help.contains("Use help shell"));
-        assert!(!help.contains("repl.enter_fetches_next_page"));
+        assert!(plain.contains("class"));
+        assert!(plain.contains("create, delete, list, modify, show"));
+        assert!(plain.contains("object"));
+        assert!(plain.contains("create, delete, list, modify, show"));
+        assert!(plain.contains("event-subscription create, delete, list, show, update"));
+        assert!(plain.contains("namespace          permissions, create, delete, list, modify"));
+        assert!(plain.contains("                   principal-permissions, show"));
+        assert!(plain.contains("relation"));
+        assert!(plain.contains("class, object"));
+        assert!(plain.contains("Pipe:"));
+        assert!(plain.contains("Use help pipe"));
+        assert!(!plain.contains("Examples: object list --class Hosts"));
+        assert!(plain.contains("Shell:"));
+        assert!(plain.contains("Use help shell"));
+        assert!(!plain.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    #[serial]
+    fn scope_help_colors_only_command_fragment_in_prose() {
+        let previous = crate::config::get_config();
+        let mut config = previous.clone();
+        config.output.color = crate::models::OutputColor::Always;
+        crate::config::init_config(config).expect("config update");
+
+        let catalog = crate::commands::build_command_catalog();
+        let help = catalog.render_scope_help(&[]);
+        let line = help
+            .lines()
+            .find(|line| strip_ansi(line).contains("Use help pipe"))
+            .expect("pipe help line should render");
+        let expected = format!("Use {}", crate::theme::paint_command("help pipe"));
+
+        crate::config::init_config(previous).expect("config restore");
+        assert!(line.contains(&expected));
+        assert!(!line.trim_start().starts_with("\u{1b}["));
     }
 
     #[test]
@@ -976,27 +1101,59 @@ mod tests {
     #[test]
     fn pipe_topic_help_explains_field_specific_filters() {
         let catalog = CommandCatalogBuilder::new().build();
-        let help = catalog.render_pipe_topic_help();
+        let help = catalog
+            .render_pipe_topic_help(None)
+            .expect("pipe index should render");
+        let search = catalog
+            .render_pipe_topic_help(Some("search"))
+            .expect("pipe search should render");
+        let group = catalog
+            .render_pipe_topic_help(Some("group"))
+            .expect("pipe group should render");
+        let help = strip_ansi(&help);
+        let search = strip_ansi(&search);
+        let group = strip_ansi(&group);
 
-        assert!(help.contains("grep <field> <regex>"));
-        assert!(help.contains("os_version not contains '^9'"));
-        assert!(help.contains("P os_version 26"));
-        assert!(help.contains("field named 26"));
+        assert!(help.contains("help pipe search"));
+        assert!(help.contains("help pipe group"));
+        assert!(search.contains("F os_version contains 26"));
+        assert!(search.contains("K ipv4"));
+        assert!(group.contains("G os_version AS"));
+        assert!(group.contains("A count AS Hosts"));
     }
 
     #[test]
     fn shell_topic_help_explains_repl_navigation_and_pagination() {
         let catalog = CommandCatalogBuilder::new().build();
-        let help = catalog.render_shell_topic_help();
+        let help = catalog
+            .render_shell_topic_help(None)
+            .expect("shell index should render");
+        let navigation = catalog
+            .render_shell_topic_help(Some("navigation"))
+            .expect("shell navigation should render");
+        let pagination = catalog
+            .render_shell_topic_help(Some("pagination"))
+            .expect("shell pagination should render");
+        let completion = catalog
+            .render_shell_topic_help(Some("completion"))
+            .expect("shell completion should render");
+        let redirects = catalog
+            .render_shell_topic_help(Some("redirects"))
+            .expect("shell redirects should render");
+        let help = strip_ansi(&help);
+        let navigation = strip_ansi(&navigation);
+        let pagination = strip_ansi(&pagination);
+        let completion = strip_ansi(&completion);
+        let redirects = strip_ansi(&redirects);
 
-        assert!(help.contains("Type a scope name"));
-        assert!(help.contains("next to fetch the next page"));
-        assert!(help.contains("repl.enter_fetches_next_page"));
-        assert!(help.contains("Press Tab"));
-        assert!(help.contains("--option=<value>"));
-        assert!(help.contains("Append > <file>"));
-        assert!(help.contains(">> <file>"));
-        assert!(help.contains("help pipe"));
+        assert!(help.contains("help shell navigation"));
+        assert!(navigation.contains("Type a scope name"));
+        assert!(pagination.contains("next to fetch the next page"));
+        assert!(pagination.contains("repl.enter_fetches_next_page"));
+        assert!(completion.contains("Press Tab"));
+        assert!(completion.contains("--option=<value>"));
+        assert!(redirects.contains("Append > <file>"));
+        assert!(redirects.contains(">> <file>"));
     }
 
     #[test]
@@ -1015,21 +1172,22 @@ mod tests {
         let help = catalog
             .render_command_help(&["object".to_string(), "list".to_string()])
             .expect("help should render");
+        let plain = strip_ansi(&help);
 
-        assert!(help.contains("Where:"));
-        assert!(help.contains("Syntax: --where 'field operator value'"));
-        assert!(help.contains("Repeat --where to combine filters with AND."));
-        assert!(help.contains("json_data.<path>"));
-        assert!(help.contains("data.<path>"));
-        assert!(help.contains("json_data.contact equals Entry"));
-        assert!(help.contains("Result Limits:"));
-        assert!(help.contains("Use --limit <n> to cap the number of returned results."));
-        assert!(help.contains("Use --cursor <token> to continue from a previous page."));
-        assert!(help.contains("type next"));
-        assert!(help.contains("repl.enter_fetches_next_page"));
-        assert!(help.contains("Pipe:"));
-        assert!(help.contains("Use help pipe"));
-        assert!(!help.contains("VALUE/VAL <path>"));
+        assert!(plain.contains("Where:"));
+        assert!(plain.contains("Syntax: --where 'field operator value'"));
+        assert!(plain.contains("Repeat --where to combine filters with AND."));
+        assert!(plain.contains("json_data.<path>"));
+        assert!(plain.contains("data.<path>"));
+        assert!(plain.contains("json_data.contact equals Entry"));
+        assert!(plain.contains("Result Limits:"));
+        assert!(plain.contains("Use --limit <n> to cap the number of returned results."));
+        assert!(plain.contains("Use --cursor <token> to continue from a previous page."));
+        assert!(plain.contains("type next"));
+        assert!(plain.contains("repl.enter_fetches_next_page"));
+        assert!(plain.contains("Pipe:"));
+        assert!(plain.contains("Use help pipe"));
+        assert!(!plain.contains("VALUE/VAL <path>"));
     }
 
     #[test]
@@ -1132,6 +1290,74 @@ mod tests {
 
         exposed.sort();
         assert_eq!(exposed, allowed);
+    }
+
+    #[test]
+    fn audit_show_id_has_dynamic_completion() {
+        let catalog = crate::commands::build_command_catalog();
+        let audit_show = catalog
+            .resolve_command(&[], &["audit".to_string(), "show".to_string()])
+            .expect("audit show should resolve");
+        let id = audit_show
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--id"))
+            .expect("audit show should expose --id");
+
+        assert!(matches!(id.completion, super::CompletionSpec::Dynamic(_)));
+    }
+
+    #[test]
+    fn existing_entity_reference_options_have_dynamic_completion() {
+        let catalog = crate::commands::build_command_catalog();
+
+        for (path, option_name) in [
+            (&["group", "add_user"][..], "--groupname"),
+            (&["group", "add_user"][..], "--username"),
+            (&["group", "remove_user"][..], "--groupname"),
+            (&["group", "remove_user"][..], "--username"),
+            (&["group", "show"][..], "--groupname"),
+            (&["group", "modify"][..], "--groupname"),
+            (&["user", "show"][..], "--username"),
+            (&["user", "delete"][..], "--username"),
+            (&["user", "modify"][..], "--username"),
+            (&["user", "set-password"][..], "--username"),
+            (&["user", "token", "list"][..], "--username"),
+            (&["user", "token", "create"][..], "--username"),
+            (&["user", "token", "revoke"][..], "--username"),
+            (&["service-account", "show"][..], "--name"),
+            (&["service-account", "delete"][..], "--name"),
+            (&["service-account", "disable"][..], "--name"),
+            (&["service-account", "token", "list"][..], "--name"),
+            (&["service-account", "token", "create"][..], "--name"),
+            (&["service-account", "token", "revoke"][..], "--name"),
+            (&["remote-target", "show"][..], "--name"),
+            (&["remote-target", "update"][..], "--name"),
+            (&["remote-target", "delete"][..], "--name"),
+            (&["remote-target", "invoke"][..], "--name"),
+            (&["event-delivery", "show"][..], "--id"),
+            (&["event-delivery", "retry"][..], "--id"),
+            (&["event-delivery", "dead"][..], "--id"),
+            (&["audit", "resource"][..], "--name"),
+            (&["namespace", "principal-permissions"][..], "--principal"),
+        ] {
+            let command_path = path.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+            let resolved = catalog
+                .resolve_command(&[], &command_path)
+                .unwrap_or_else(|_| panic!("{command_path:?} should resolve"));
+            let option = resolved
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some(option_name))
+                .unwrap_or_else(|| panic!("{command_path:?} should expose {option_name}"));
+
+            assert!(
+                matches!(option.completion, super::CompletionSpec::Dynamic(_)),
+                "{command_path:?} {option_name} should have dynamic completion"
+            );
+        }
     }
 
     #[test]

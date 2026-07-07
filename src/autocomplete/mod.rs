@@ -10,8 +10,9 @@ mod sorts;
 
 pub use classes::classes;
 pub use events::{
-    audit_resources, event_actions, event_entity_types, event_sink_kinds, event_sinks,
-    event_subscriptions,
+    audit_event_ids, audit_resource_names, audit_resources, event_actions, event_delivery_ids,
+    event_entity_types, event_sink_kinds, event_sinks, event_subscriptions, principal_names,
+    remote_targets, service_accounts, users,
 };
 pub(crate) use filters::complete_where_clause;
 pub use filters::{
@@ -29,6 +30,7 @@ pub use shared::{
     bool, config_keys, config_values, file_paths, object_data_columns, output_formats,
     principal_kinds, remote_auth_types, remote_http_methods, remote_subject_kinds,
     remote_subject_types, report_content_types, search_kinds, task_kinds, task_statuses,
+    theme_names,
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{

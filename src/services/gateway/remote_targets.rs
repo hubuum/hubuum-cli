@@ -186,6 +186,18 @@ fn build_invocation_subject(
 }
 
 impl HubuumGateway {
+    pub fn list_remote_target_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .list_remote_targets(&ListQuery {
+                limit: Some(200),
+                ..ListQuery::default()
+            })?
+            .items
+            .into_iter()
+            .map(|target| target.0.name)
+            .collect())
+    }
+
     pub fn create_remote_target(
         &self,
         input: CreateRemoteTargetInput,

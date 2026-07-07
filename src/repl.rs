@@ -919,8 +919,8 @@ struct PipeCompletionContext<'a> {
 }
 
 const PIPE_STAGES: &[&str] = &[
-    "grep", "F", "reject", "P", "columns", "S", "sort", "L", "head", "tail", "C", "count", "VALUE",
-    "VAL",
+    "grep", "F", "V", "K", "?", "reject", "P", "columns", "S", "sort", "G", "A", "L", "head",
+    "tail", "C", "count", "U", "Z", "JQ", "VALUE", "VAL",
 ];
 
 fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompletionContext<'_>> {
@@ -1003,14 +1003,28 @@ fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompleti
 fn field_completion_stage(stage: &str) -> bool {
     matches!(
         stage,
-        "P" | "columns" | "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "reject"
+        "P" | "columns"
+            | "VAL"
+            | "VALUE"
+            | "S"
+            | "sort"
+            | "grep"
+            | "F"
+            | "V"
+            | "K"
+            | "?"
+            | "reject"
+            | "G"
+            | "U"
+            | "A"
     )
 }
 
 fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_space: bool) -> bool {
     match stage {
         "P" | "columns" => pipe_parts.len() >= 2 || ends_with_space,
-        "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "reject" => {
+        "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "V" | "K" | "?" | "reject" | "G" | "U"
+        | "A" => {
             (pipe_parts.len() == 1 && ends_with_space)
                 || (pipe_parts.len() == 2 && !ends_with_space)
         }

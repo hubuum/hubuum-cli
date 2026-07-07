@@ -24,9 +24,11 @@ use crate::theme::{paint, ThemeRole};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct OutputSnapshot {
     pub lines: Vec<String>,
+    pub semantic: Vec<OutputEnvelope>,
+    pub render_format: RenderFormat,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
     pub next_page_command: Option<String>,
@@ -134,7 +136,14 @@ impl OutputBuffer {
         self.pipeline.iter().any(|stage| {
             matches!(
                 stage,
-                PipeStage::Head(_) | PipeStage::Tail(_) | PipeStage::Count | PipeStage::Value(_)
+                PipeStage::Head { .. }
+                    | PipeStage::Tail(_)
+                    | PipeStage::Count
+                    | PipeStage::Group(_)
+                    | PipeStage::Aggregate(_)
+                    | PipeStage::CollapseGroups
+                    | PipeStage::Jq(_)
+                    | PipeStage::Value(_)
             )
         })
     }
@@ -150,11 +159,13 @@ impl OutputBuffer {
     }
 
     fn snapshot(&self) -> Result<OutputSnapshot, AppError> {
+        let mut semantic = Vec::new();
         let lines = if !self.semantic.is_empty() {
             let mut rendered = self.lines.clone();
             for envelope in &self.semantic {
                 let envelope = hubuum_filter::apply_pipeline(envelope.clone(), &self.pipeline)?;
                 rendered.extend(render_semantic(&envelope, self.render_format)?);
+                semantic.push(envelope);
             }
             rendered
         } else {
@@ -163,6 +174,8 @@ impl OutputBuffer {
 
         Ok(OutputSnapshot {
             lines,
+            semantic,
+            render_format: self.render_format,
             warnings: self.warnings.clone(),
             errors: self.errors.clone(),
             next_page_command: self.next_page_command.clone(),
@@ -301,7 +314,7 @@ pub fn pipeline_suppresses_pagination() -> Result<bool, AppError> {
         .pipeline_suppresses_pagination())
 }
 
-fn render_semantic(
+pub(crate) fn render_semantic(
     envelope: &OutputEnvelope,
     format: RenderFormat,
 ) -> Result<Vec<String>, AppError> {
@@ -315,6 +328,40 @@ fn render_semantic(
         RenderFormat::Csv => render_delimited(envelope, ','),
         RenderFormat::Tsv => render_delimited(envelope, '\t'),
     }
+}
+
+pub(crate) fn render_semantic_item(
+    value: &Value,
+    source_shape: OutputShape,
+    columns: &[String],
+    format: RenderFormat,
+) -> Result<String, AppError> {
+    let lines = match format {
+        RenderFormat::Text => match source_shape {
+            OutputShape::Rows | OutputShape::Detail | OutputShape::Message => {
+                render_detail_text(&OutputEnvelope::detail(value.clone(), columns.to_vec()))?
+            }
+            OutputShape::Values | OutputShape::Lines => vec![semantic_scalar(value)],
+            OutputShape::Groups => render_rows_text(&OutputEnvelope::rows(
+                hubuum_filter::group_summary_rows(value),
+                Vec::new(),
+            ))?,
+            OutputShape::Empty => Vec::new(),
+        },
+        RenderFormat::Json => serde_json::to_string_pretty(value)?
+            .lines()
+            .map(str::to_string)
+            .collect(),
+        RenderFormat::Jsonl => vec![serde_json::to_string(value)?],
+        RenderFormat::Csv => render_item_delimited(value, source_shape, columns, ',')?,
+        RenderFormat::Tsv => render_item_delimited(value, source_shape, columns, '\t')?,
+    };
+
+    Ok(if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    })
 }
 
 fn config_render_format() -> RenderFormat {
@@ -338,6 +385,10 @@ fn render_semantic_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppErr
             .iter()
             .map(semantic_scalar)
             .collect()),
+        OutputShape::Groups => render_rows_text(&OutputEnvelope::rows(
+            hubuum_filter::group_summary_rows(&envelope.value),
+            envelope.columns.clone(),
+        )),
     }
 }
 
@@ -420,6 +471,7 @@ fn render_delimited(envelope: &OutputEnvelope, delimiter: char) -> Result<Vec<St
             .into_iter()
             .map(|value| serde_json::json!({ "value": value }))
             .collect(),
+        OutputShape::Groups => hubuum_filter::group_summary_rows(&envelope.value),
         OutputShape::Empty | OutputShape::Lines => Vec::new(),
     };
 
@@ -444,6 +496,28 @@ fn render_delimited(envelope: &OutputEnvelope, delimiter: char) -> Result<Vec<St
         )
     }));
     Ok(lines)
+}
+
+fn render_item_delimited(
+    value: &Value,
+    source_shape: OutputShape,
+    columns: &[String],
+    delimiter: char,
+) -> Result<Vec<String>, AppError> {
+    let envelope = match source_shape {
+        OutputShape::Rows | OutputShape::Detail | OutputShape::Message => {
+            OutputEnvelope::detail(value.clone(), columns.to_vec())
+        }
+        OutputShape::Values | OutputShape::Lines => OutputEnvelope::rows(
+            vec![serde_json::json!({ "value": value })],
+            vec!["value".to_string()],
+        ),
+        OutputShape::Groups => {
+            OutputEnvelope::rows(hubuum_filter::group_summary_rows(value), columns.to_vec())
+        }
+        OutputShape::Empty => OutputEnvelope::empty(),
+    };
+    render_delimited(&envelope, delimiter)
 }
 
 fn join_delimited<'a>(values: impl IntoIterator<Item = &'a str>, delimiter: char) -> String {
@@ -668,8 +742,10 @@ mod tests {
             vec!["Name".to_string(), "hidden".to_string()],
         ))
         .expect("semantic output should be set");
-        set_pipeline(vec![PipeStage::Columns(vec!["Name".to_string()])])
-            .expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Columns(vec![
+            hubuum_filter::ProjectTerm::keep("Name"),
+        ])])
+        .expect("pipeline should set");
 
         let rendered = take_output().expect("snapshot").render();
 
@@ -685,8 +761,8 @@ mod tests {
         reset_output().expect("buffer should reset");
         set_render_format(super::RenderFormat::Json).expect("render format should set");
         set_pipeline(vec![PipeStage::Columns(vec![
-            "Name".to_string(),
-            "data.network.interfaces[*].ipv4".to_string(),
+            hubuum_filter::ProjectTerm::keep("Name"),
+            hubuum_filter::ProjectTerm::keep("data.network.interfaces[*].ipv4"),
         ])])
         .expect("pipeline should set");
         set_semantic_output(OutputEnvelope::rows(

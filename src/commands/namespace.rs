@@ -6,7 +6,9 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{groups, namespace_sort, namespace_where, namespaces, principal_kinds};
+use crate::autocomplete::{
+    groups, namespace_sort, namespace_where, namespaces, principal_kinds, principal_names,
+};
 use crate::domain::NamespacePermission;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -715,7 +717,12 @@ pub struct NamespacePrincipalPermissions {
         autocomplete = "principal_kinds"
     )]
     pub principal_kind: String,
-    #[option(short = "p", long = "principal", help = "Principal name")]
+    #[option(
+        short = "p",
+        long = "principal",
+        help = "Principal name",
+        autocomplete = "principal_names"
+    )]
     pub principal: String,
 }
 

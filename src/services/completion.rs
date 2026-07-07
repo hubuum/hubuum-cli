@@ -5,7 +5,8 @@ use tokio::runtime::Handle;
 
 use crate::config::get_config;
 use crate::errors::AppError;
-use crate::services::ListTasksInput;
+use crate::list_query::{ListQuery, SortClause, SortDirectionArg};
+use crate::services::{AuditListInput, AuditScope, ListTasksInput};
 
 use super::AppServices;
 
@@ -28,10 +29,15 @@ struct CompletionSnapshot {
     namespaces: Option<Vec<String>>,
     event_sinks: Option<Vec<String>>,
     report_templates: Option<Vec<String>>,
+    users: Option<Vec<String>>,
+    service_accounts: Option<Vec<String>>,
+    remote_targets: Option<Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
     event_subscriptions_by_namespace: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<serde_json::Value>>,
     task_ids: Option<Vec<CompletionItem>>,
+    audit_event_ids: Option<Vec<String>>,
+    event_delivery_ids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Default)]
@@ -46,6 +52,9 @@ enum CompletionKind {
     Namespaces,
     EventSinks,
     ReportTemplates,
+    Users,
+    ServiceAccounts,
+    RemoteTargets,
 }
 
 impl CompletionContext {
@@ -73,16 +82,24 @@ impl CompletionContext {
         self.complete(prefix, CompletionKind::ReportTemplates)
     }
 
+    pub fn users(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::Users)
+    }
+
+    pub fn service_accounts(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::ServiceAccounts)
+    }
+
+    pub fn remote_targets(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::RemoteTargets)
+    }
+
     pub fn objects_from_class(&self, prefix: &str, parts: &[String], source: &str) -> Vec<String> {
         if get_config().completion.disable_api_related {
             return Vec::new();
         }
 
-        let Some(class_name) = parts
-            .windows(2)
-            .find(|pair| pair[0] == source)
-            .map(|pair| pair[1].clone())
-        else {
+        let Some(class_name) = option_value(parts, source) else {
             return Vec::new();
         };
 
@@ -120,11 +137,7 @@ impl CompletionContext {
             return Vec::new();
         }
 
-        let Some(namespace) = parts
-            .windows(2)
-            .find(|pair| pair[0] == "--namespace")
-            .map(|pair| pair[1].clone())
-        else {
+        let Some(namespace) = option_value(parts, "--namespace") else {
             return Vec::new();
         };
 
@@ -162,6 +175,36 @@ impl CompletionContext {
                     .is_some_and(|description| description.starts_with("import "))
             })
             .collect()
+    }
+
+    pub fn audit_event_ids(&self, prefix: &str) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_audit_event_ids(self.services.gateway()),
+            )
+            .map(|ids| filter_prefix(&ids, prefix))
+            .unwrap_or_default()
+    }
+
+    pub fn event_delivery_ids(&self, prefix: &str) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_event_delivery_ids(self.services.gateway()),
+            )
+            .map(|ids| filter_prefix(&ids, prefix))
+            .unwrap_or_default()
     }
 
     pub fn class_schema(&self, class_name: &str) -> Option<Option<serde_json::Value>> {
@@ -218,6 +261,9 @@ impl CompletionStore {
                 CompletionKind::Namespaces => gateway.list_namespace_names(),
                 CompletionKind::EventSinks => gateway.list_event_sink_names(),
                 CompletionKind::ReportTemplates => gateway.list_report_template_names(),
+                CompletionKind::Users => gateway.list_user_names(),
+                CompletionKind::ServiceAccounts => gateway.list_service_account_names(),
+                CompletionKind::RemoteTargets => gateway.list_remote_target_names(),
             }
         })
         .await
@@ -232,6 +278,11 @@ impl CompletionStore {
                 CompletionKind::ReportTemplates => {
                     snapshot.report_templates = Some(fetched.clone())
                 }
+                CompletionKind::Users => snapshot.users = Some(fetched.clone()),
+                CompletionKind::ServiceAccounts => {
+                    snapshot.service_accounts = Some(fetched.clone())
+                }
+                CompletionKind::RemoteTargets => snapshot.remote_targets = Some(fetched.clone()),
             }
         }
 
@@ -361,6 +412,80 @@ impl CompletionStore {
         Ok(fetched)
     }
 
+    async fn load_audit_event_ids(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = &snapshot.audit_event_ids {
+                return Ok(cached.clone());
+            }
+        }
+
+        let fetched = tokio::task::spawn_blocking(move || {
+            let page = gateway.audit_events(
+                AuditScope::Global,
+                AuditListInput {
+                    limit: Some(50),
+                    sort: Some("-occurred_at".to_string()),
+                    ..AuditListInput::default()
+                },
+            )?;
+            Ok::<_, AppError>(
+                page.items
+                    .into_iter()
+                    .filter_map(|record| json_record_i64(&record, &["id", "event_id"]))
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.audit_event_ids = Some(fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
+    async fn load_event_delivery_ids(
+        &self,
+        gateway: Arc<super::gateway::HubuumGateway>,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = &snapshot.event_delivery_ids {
+                return Ok(cached.clone());
+            }
+        }
+
+        let fetched = tokio::task::spawn_blocking(move || {
+            let page = gateway.event_deliveries(&ListQuery {
+                limit: Some(50),
+                sorts: vec![SortClause {
+                    field: "updated_at".to_string(),
+                    direction: SortDirectionArg::Desc,
+                }],
+                ..ListQuery::default()
+            })?;
+            Ok::<_, AppError>(
+                page.items
+                    .into_iter()
+                    .filter_map(|record| json_record_i64(&record, &["id"]))
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.event_delivery_ids = Some(fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
     fn cached(&self, kind: CompletionKind) -> Option<Vec<String>> {
         let Ok(snapshot) = self.snapshot.read() else {
             return None;
@@ -372,6 +497,9 @@ impl CompletionStore {
             CompletionKind::Namespaces => snapshot.namespaces.clone(),
             CompletionKind::EventSinks => snapshot.event_sinks.clone(),
             CompletionKind::ReportTemplates => snapshot.report_templates.clone(),
+            CompletionKind::Users => snapshot.users.clone(),
+            CompletionKind::ServiceAccounts => snapshot.service_accounts.clone(),
+            CompletionKind::RemoteTargets => snapshot.remote_targets.clone(),
         }
     }
 }
@@ -392,6 +520,16 @@ fn filter_item_prefix(values: &[CompletionItem], prefix: &str) -> Vec<Completion
         .collect()
 }
 
+fn option_value(parts: &[String], long: &str) -> Option<String> {
+    parts.iter().enumerate().find_map(|(index, part)| {
+        if part == long {
+            parts.get(index + 1).cloned()
+        } else {
+            part.strip_prefix(&format!("{long}=")).map(str::to_string)
+        }
+    })
+}
+
 fn task_description(task: &crate::domain::TaskRecord) -> String {
     let mut parts = vec![task.0.kind.to_string(), task.0.status.to_string()];
     if let Some(summary) = task
@@ -404,6 +542,11 @@ fn task_description(task: &crate::domain::TaskRecord) -> String {
     }
     parts.push(task.0.created_at.to_string());
     parts.join("  ")
+}
+
+fn json_record_i64(record: &crate::domain::JsonRecord, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| record.value.get(*key).and_then(serde_json::Value::as_i64))
 }
 
 #[cfg(test)]

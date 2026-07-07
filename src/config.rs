@@ -136,6 +136,8 @@ pub struct RelationsConfig {
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub color: OutputColor,
+    pub theme: String,
+    pub theme_file: String,
     pub padding: i8,
     pub table_style: TableStyle,
     pub table_width: TableWidth,
@@ -161,6 +163,7 @@ enum ConfigValueKind {
     Protocol,
     OutputFormat,
     OutputColor,
+    ThemeName,
     TableStyle,
     TableWidth,
     TableWrap,
@@ -301,6 +304,20 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.theme",
+        cli_arg: Some("theme"),
+        env_var: "HUBUUM_CLI__OUTPUT__THEME",
+        value_kind: ConfigValueKind::ThemeName,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.theme_file",
+        cli_arg: Some("theme_file"),
+        env_var: "HUBUUM_CLI__OUTPUT__THEME_FILE",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.padding",
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__PADDING",
@@ -405,6 +422,8 @@ impl Default for AppConfig {
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
                 color: Defaults::OUTPUT_COLOR,
+                theme: Defaults::OUTPUT_THEME.to_string(),
+                theme_file: Defaults::OUTPUT_THEME_FILE.to_string(),
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
                 table_width: Defaults::OUTPUT_TABLE_WIDTH,
@@ -433,30 +452,45 @@ pub fn config_key_names() -> Vec<&'static str> {
         .collect()
 }
 
-pub fn config_value_candidates(key: &str) -> Vec<&'static str> {
+pub fn config_value_candidates(key: &str) -> Vec<String> {
     let Ok(descriptor) = descriptor_for_key(key) else {
         return Vec::new();
     };
 
     match descriptor.value_kind {
-        ConfigValueKind::Bool => vec!["true", "false"],
-        ConfigValueKind::Protocol => vec!["http", "https"],
-        ConfigValueKind::OutputFormat => vec!["text", "json"],
-        ConfigValueKind::OutputColor => vec!["auto", "always", "never"],
+        ConfigValueKind::Bool => strings(&["true", "false"]),
+        ConfigValueKind::Protocol => strings(&["http", "https"]),
+        ConfigValueKind::OutputFormat => strings(&["text", "json"]),
+        ConfigValueKind::OutputColor => strings(&["auto", "always", "never"]),
+        ConfigValueKind::ThemeName => theme_value_candidates(),
         ConfigValueKind::TableStyle => {
-            vec!["ascii", "compact", "dense", "markdown", "plain", "rounded"]
+            strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         }
-        ConfigValueKind::TableWidth => vec!["auto", "full"],
-        ConfigValueKind::TableWrap => vec!["auto", "never"],
-        ConfigValueKind::TableBands => vec!["auto", "always", "never"],
-        ConfigValueKind::EmptyResult => vec!["message", "silent"],
-        ConfigValueKind::ObjectListDataColumns => vec!["auto", "preview", "all"],
+        ConfigValueKind::TableWidth => strings(&["auto", "full"]),
+        ConfigValueKind::TableWrap => strings(&["auto", "never"]),
+        ConfigValueKind::TableBands => strings(&["auto", "always", "never"]),
+        ConfigValueKind::EmptyResult => strings(&["message", "silent"]),
+        ConfigValueKind::ObjectListDataColumns => strings(&["auto", "preview", "all"]),
         ConfigValueKind::StringListMap | ConfigValueKind::StringNestedListMap => Vec::new(),
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
         | ConfigValueKind::I8
         | ConfigValueKind::I32 => Vec::new(),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
+pub fn theme_value_candidates() -> Vec<String> {
+    let cfg = get_config();
+    let theme_file =
+        (!cfg.output.theme_file.is_empty()).then_some(Path::new(&cfg.output.theme_file));
+    match hubuum_theme::catalog(theme_file) {
+        Ok(catalog) => catalog.names().into_iter().map(str::to_string).collect(),
+        Err(_) => hubuum_theme::theme_names().into_iter().collect(),
     }
 }
 
@@ -624,6 +658,8 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
                 target.output.object_list_class_meta = source.output.object_list_class_meta.clone();
             }
             "output.color" => target.output.color = source.output.color,
+            "output.theme" => target.output.theme = source.output.theme.clone(),
+            "output.theme_file" => target.output.theme_file = source.output.theme_file.clone(),
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
             "output.table_wrap" => target.output.table_wrap = source.output.table_wrap.clone(),
@@ -642,6 +678,8 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         // Start with default values
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
         .set_default("output.color", Defaults::OUTPUT_COLOR.to_string())?
+        .set_default("output.theme", Defaults::OUTPUT_THEME)?
+        .set_default("output.theme_file", Defaults::OUTPUT_THEME_FILE)?
         .set_default("output.padding", Defaults::OUTPUT_PADDING)?
         .set_default(
             "output.table_style",
@@ -824,6 +862,9 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "background_poll_interval" => Some("--background-poll-interval"),
         "relations_ignore_same_class" => Some("--relations-ignore-same-class"),
         "relations_max_depth" => Some("--relations-max-depth"),
+        "color" => Some("--color"),
+        "theme" => Some("--theme"),
+        "theme_file" => Some("--theme-file"),
         "table_style" => Some("--table-style"),
         "table_width" => Some("--table-width"),
         "table_wrap" => Some("--table-wrap"),
@@ -857,6 +898,8 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "relations.max_depth" => ConfigValueRef::I32(config.relations.max_depth),
         "output.format" => ConfigValueRef::OutputFormat(&config.output.format),
         "output.color" => ConfigValueRef::OutputColor(&config.output.color),
+        "output.theme" => ConfigValueRef::String(&config.output.theme),
+        "output.theme_file" => ConfigValueRef::String(&config.output.theme_file),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
         "output.table_width" => ConfigValueRef::TableWidth(&config.output.table_width),
@@ -982,6 +1025,10 @@ fn parse_config_value(
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
+        ConfigValueKind::ThemeName => {
+            validate_theme_name_config_value(value)?;
+            toml::Value::String(value.to_string())
+        }
         ConfigValueKind::TableStyle => toml::Value::String(
             value
                 .parse::<TableStyle>()
@@ -1026,6 +1073,22 @@ fn parse_config_value(
         }
     };
     Ok(value)
+}
+
+fn validate_theme_name_config_value(value: &str) -> Result<(), AppError> {
+    let cfg = get_config();
+    let theme_file =
+        (!cfg.output.theme_file.is_empty()).then_some(Path::new(&cfg.output.theme_file));
+    let catalog = hubuum_theme::catalog(theme_file).map_err(|err| {
+        AppError::ConfigError(format!("Could not load configured theme file: {err}"))
+    })?;
+    if catalog.get(value).is_some() {
+        return Ok(());
+    }
+    Err(AppError::ConfigError(format!(
+        "Unknown theme: {value}. Use one of: {}",
+        catalog.names().join(", ")
+    )))
 }
 
 fn object_list_class_columns_key(key: &str) -> Option<&str> {
@@ -1185,6 +1248,8 @@ mod tests {
             "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
             "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
             "HUBUUM_CLI__OUTPUT__COLOR",
+            "HUBUUM_CLI__OUTPUT__THEME",
+            "HUBUUM_CLI__OUTPUT__THEME_FILE",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
             "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
             "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
@@ -1221,6 +1286,8 @@ mod tests {
         env::set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
         env::set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
         env::set_var("HUBUUM_CLI__OUTPUT__COLOR", "never");
+        env::set_var("HUBUUM_CLI__OUTPUT__THEME", "solarized-dark");
+        env::set_var("HUBUUM_CLI__OUTPUT__THEME_FILE", "/tmp/hubuum-themes.toml");
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_STYLE", "plain");
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_WIDTH", "100");
         env::set_var("HUBUUM_CLI__OUTPUT__TABLE_WRAP", "never");
@@ -1250,6 +1317,8 @@ mod tests {
         assert!(!cfg.relations.ignore_same_class);
         assert_eq!(cfg.relations.max_depth, 4);
         assert_eq!(cfg.output.color, crate::models::OutputColor::Never);
+        assert_eq!(cfg.output.theme, "solarized-dark");
+        assert_eq!(cfg.output.theme_file, "/tmp/hubuum-themes.toml");
         assert_eq!(cfg.output.table_style, TableStyle::Plain);
         assert_eq!(cfg.output.table_width, TableWidth::Fixed(100));
         assert_eq!(cfg.output.table_wrap, TableWrap::Never);
@@ -1352,6 +1421,8 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
             baseline.output.object_show_data
         );
         assert_eq!(cfg.output.color, baseline.output.color);
+        assert_eq!(cfg.output.theme, baseline.output.theme);
+        assert_eq!(cfg.output.theme_file, baseline.output.theme_file);
         assert_eq!(cfg.output.table_style, baseline.output.table_style);
         assert_eq!(cfg.output.table_width, baseline.output.table_width);
         assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
@@ -1370,19 +1441,20 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
     fn config_value_candidates_expose_enum_values() {
         assert_eq!(
             config_value_candidates("output.table_style"),
-            vec!["ascii", "compact", "dense", "markdown", "plain", "rounded"]
+            strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         );
         assert_eq!(
             config_value_candidates("output.table_bands"),
-            vec!["auto", "always", "never"]
+            strings(&["auto", "always", "never"])
         );
         assert_eq!(
             config_value_candidates("output.object_list_data_columns"),
-            vec!["auto", "preview", "all"]
+            strings(&["auto", "preview", "all"])
         );
+        assert!(config_value_candidates("output.theme").contains(&"hubuum-dark".to_string()));
         assert_eq!(
             config_value_candidates("server.hostname"),
-            Vec::<&str>::new()
+            Vec::<String>::new()
         );
     }
 

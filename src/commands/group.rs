@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::{group_sort, group_where};
+use crate::autocomplete::{group_sort, group_where, groups, users};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
@@ -119,9 +119,19 @@ impl CliCommand for GroupNew {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupAddUser {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
-    #[option(short = "u", long = "username", help = "Username to add to the group")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username to add to the group",
+        autocomplete = "users"
+    )]
     pub username: String,
 }
 impl CliCommand for GroupAddUser {
@@ -144,12 +154,18 @@ impl CliCommand for GroupAddUser {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupRemoveUser {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
     #[option(
         short = "u",
         long = "username",
-        help = "Username to remove from the group"
+        help = "Username to remove from the group",
+        autocomplete = "users"
     )]
     pub username: String,
 }
@@ -176,7 +192,12 @@ impl CliCommand for GroupRemoveUser {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupInfo {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
 }
 impl CliCommand for GroupInfo {
@@ -198,7 +219,12 @@ impl CliCommand for GroupInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupModify {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: Option<String>,
     #[option(short = "r", long = "rename", help = "Rename the group")]
     pub rename: Option<String>,

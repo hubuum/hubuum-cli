@@ -67,6 +67,8 @@ object list --json --class Hosts | P Name os_version data.network.interfaces[*].
 ```
 
 See [docs/output-pipeline.md](docs/output-pipeline.md) for the semantic output pipeline direction.
+See [docs/DSL.md](docs/DSL.md) for the full pipe DSL with Hubuum object examples.
+See [docs/themes.md](docs/themes.md) for color themes, custom theme files, and palette licensing.
 
 Rendered output can be redirected to a file from the REPL, one-shot commands, or scripts:
 
@@ -74,9 +76,12 @@ Rendered output can be redirected to a file from the REPL, one-shot commands, or
 config show --output json > config.json
 object list --class Hosts | P Name os_version > hosts.txt
 object list --json --class Hosts | P Name data.network.interfaces[*].ipv4 >> hosts.json
+object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json
+object list --class Hosts | VALUE Name > each:names/{value}.txt
+object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts
 ```
 
-Use `>` to create or truncate the target file and `>>` to append. Redirect paths support quoting, `~/...` expansion, and REPL file path completion. A trailing redirect is parsed only when the command before it is valid, so filter operators such as `--where age > 3` still work normally.
+Use `>` to create or truncate the target file and `>>` to append. Redirect paths support quoting, `~/...` expansion, and REPL file path completion. Use `each:<template>` to write one file per semantic row or value after pipe stages have run; placeholders such as `{Name}`, `{data.owner}`, `{value}`, and `{n}` can be used in the filename. A trailing redirect is parsed only when the command before it is valid, so filter operators such as `--where age > 3` still work normally.
 
 Machine-oriented output can be selected per command:
 

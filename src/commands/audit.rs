@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, render_list_page, CliCommand};
 use crate::autocomplete::{
-    audit_resources, classes, event_actions, namespaces, objects_from_class,
+    audit_event_ids, audit_resource_names, audit_resources, classes, event_actions, namespaces,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -116,7 +116,7 @@ impl CliCommand for AuditList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditShow {
-    #[option(long = "id", help = "Audit event ID")]
+    #[option(long = "id", help = "Audit event ID", autocomplete = "audit_event_ids")]
     pub id: Option<i64>,
 }
 
@@ -147,7 +147,7 @@ pub struct AuditResource {
     #[option(
         long = "name",
         help = "Resource name",
-        autocomplete = "objects_from_class"
+        autocomplete = "audit_resource_names"
     )]
     pub name: Option<String>,
     #[option(

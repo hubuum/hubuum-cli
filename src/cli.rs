@@ -11,7 +11,7 @@ pub fn build_cli() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .disable_version_flag(false)
         .after_help(
-            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli object list --json --class Hosts | P Name os_version > hosts.json\n  hubuum-cli config show >> config.log\n  hubuum-cli help --tree",
+            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli object list --json --class Hosts | P Name os_version > hosts.json\n  hubuum-cli object list --class Hosts | G os_version AS \"OS Version\" | A count AS Hosts\n  hubuum-cli object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json\n  hubuum-cli config show >> config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree",
         )
         .arg(
             Arg::new("config")
@@ -136,6 +136,20 @@ pub fn build_cli() -> Command {
                 .value_parser(["auto", "always", "never"])
                 .env("HUBUUM_CLI__OUTPUT__COLOR")
                 .help("Control colored output (auto, always, never)"),
+        )
+        .arg(
+            Arg::new("theme")
+                .long("theme")
+                .value_name("NAME")
+                .env("HUBUUM_CLI__OUTPUT__THEME")
+                .help("Set the color theme"),
+        )
+        .arg(
+            Arg::new("theme_file")
+                .long("theme-file")
+                .value_name("FILE")
+                .env("HUBUUM_CLI__OUTPUT__THEME_FILE")
+                .help("Load additional color themes from a TOML file"),
         )
         .arg(
             Arg::new("table_style")
@@ -328,6 +342,8 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--background-poll-interval"
             | "--relations-max-depth"
             | "--color"
+            | "--theme"
+            | "--theme-file"
             | "--table-style"
             | "--table-width"
             | "--table-wrap"
@@ -441,6 +457,12 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(color) = get_command_line_value::<String>(matches, "color") {
         config.output.color = color.parse().unwrap_or(crate::models::OutputColor::Auto);
     }
+    if let Some(theme) = get_command_line_value::<String>(matches, "theme") {
+        config.output.theme = theme.to_string();
+    }
+    if let Some(theme_file) = get_command_line_value::<String>(matches, "theme_file") {
+        config.output.theme_file = theme_file.to_string();
+    }
     if let Some(table_style) = get_command_line_value::<String>(matches, "table_style") {
         config.output.table_style = table_style.parse().unwrap_or(TableStyle::Rounded);
     }
@@ -515,12 +537,22 @@ mod tests {
     #[test]
     fn update_config_from_cli_applies_color_flag() {
         let matches = build_cli()
-            .try_get_matches_from(["hubuum-cli", "--color", "never"])
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--color",
+                "never",
+                "--theme",
+                "catppuccin-mocha",
+                "--theme-file",
+                "/tmp/themes.toml",
+            ])
             .expect("cli should parse");
         let mut config = AppConfig::default();
         update_config_from_cli(&mut config, &matches);
 
         assert_eq!(config.output.color, crate::models::OutputColor::Never);
+        assert_eq!(config.output.theme, "catppuccin-mocha");
+        assert_eq!(config.output.theme_file, "/tmp/themes.toml");
     }
 
     #[test]

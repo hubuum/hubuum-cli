@@ -25,6 +25,7 @@ mod search;
 mod service_account;
 mod task;
 mod task_submit;
+pub(crate) mod theme;
 mod user;
 
 pub use builder::build_command_catalog;

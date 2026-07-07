@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::event_sink::{id_or_pos, render_record, required_i64};
 use super::{build_list_query, render_list_page, CliCommand};
+use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::services::AppServices;
@@ -88,7 +89,11 @@ impl CliCommand for EventDeliveryList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryShow {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 
@@ -116,7 +121,11 @@ impl CliCommand for EventDeliveryHealth {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryRetry {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 
@@ -135,7 +144,11 @@ impl CliCommand for EventDeliveryRetry {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryDead {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 

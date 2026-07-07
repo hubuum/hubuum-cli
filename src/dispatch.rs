@@ -149,6 +149,9 @@ pub fn can_execute_offline(line: &str) -> bool {
         .is_some_and(|part| part == "help" || part == "?")
         || command_path_is(&parts, &["config", "show"])
         || command_path_is(&parts, &["config", "paths"])
+        || command_path_is(&parts, &["theme", "list"])
+        || command_path_is(&parts, &["theme", "show"])
+        || command_path_is(&parts, &["theme", "preview"])
 }
 
 pub fn execute_offline_line(
@@ -205,6 +208,21 @@ fn execute_offline_line_inner(
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(crate::commands::render_format(&tokens)?)?;
         crate::commands::config::render_config_paths(&tokens)?;
+    } else if command_path_is(&parts, &["theme", "list"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(crate::commands::render_format(&tokens)?)?;
+        crate::commands::theme::render_theme_list(&tokens)?;
+    } else if command_path_is(&parts, &["theme", "show"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(crate::commands::render_format(&tokens)?)?;
+        crate::commands::theme::render_theme_show(&tokens)?;
+    } else if command_path_is(&parts, &["theme", "preview"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(crate::commands::render_format(&tokens)?)?;
+        crate::commands::theme::render_theme_preview(&tokens)?;
     } else {
         catalog.resolve_command(&[], &parts)?;
         return Err(AppError::CommandNotFound(parts.join(" ")));
@@ -269,10 +287,10 @@ fn render_help_from_catalog(
 ) -> Result<CommandOutcome, AppError> {
     if parts.is_empty() {
         append_line(catalog.render_scope_help(&scope))?;
-    } else if parts == ["pipe"] {
-        append_line(catalog.render_pipe_topic_help())?;
-    } else if parts == ["shell"] {
-        append_line(catalog.render_shell_topic_help())?;
+    } else if parts.first().map(String::as_str) == Some("pipe") {
+        append_line(catalog.render_pipe_topic_help(parts.get(1).map(String::as_str))?)?;
+    } else if parts.first().map(String::as_str) == Some("shell") {
+        append_line(catalog.render_shell_topic_help(parts.get(1).map(String::as_str))?)?;
     } else if let Ok(resolved) = catalog.resolve_command(&scope, parts) {
         append_line(catalog.render_command_help(&resolved.command_path)?)?;
     } else if let Some(_nested_scope) = catalog.resolve_scope(&scope, parts) {
@@ -379,6 +397,7 @@ mod tests {
     };
     use crate::app::SharedSession;
     use crate::output::{append_line, reset_output, take_output};
+    use crate::redirection::RedirectTarget;
 
     #[test]
     #[serial]
@@ -454,6 +473,9 @@ mod tests {
         assert!(can_execute_offline("help --tree"));
         assert!(can_execute_offline("config show --key server.hostname"));
         assert!(can_execute_offline("config paths"));
+        assert!(can_execute_offline("theme list"));
+        assert!(can_execute_offline("theme preview hubuum-dark"));
+        assert!(!can_execute_offline("theme use hubuum-dark"));
         assert!(!can_execute_offline(
             "config set --key server.hostname --value localhost"
         ));
@@ -476,8 +498,8 @@ mod tests {
             .expect("offline redirect should execute");
 
         assert_eq!(
-            outcome.redirect.as_ref().map(|redirect| &redirect.path),
-            Some(&std::path::PathBuf::from("help.txt"))
+            outcome.redirect.as_ref().map(|redirect| &redirect.target),
+            Some(&RedirectTarget::File(std::path::PathBuf::from("help.txt")))
         );
         assert!(outcome
             .output
@@ -505,8 +527,8 @@ mod tests {
 
         assert_eq!(line, "object list --where age > 3");
         assert_eq!(
-            redirect.as_ref().map(|redirect| &redirect.path),
-            Some(&std::path::PathBuf::from("out.json"))
+            redirect.as_ref().map(|redirect| &redirect.target),
+            Some(&RedirectTarget::File(std::path::PathBuf::from("out.json")))
         );
     }
 }

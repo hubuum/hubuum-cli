@@ -41,6 +41,18 @@ pub struct NewTokenInput {
 }
 
 impl HubuumGateway {
+    pub fn list_user_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .list_users(&ListQuery {
+                limit: Some(200),
+                ..ListQuery::default()
+            })?
+            .items
+            .into_iter()
+            .map(|user| user.0.name)
+            .collect())
+    }
+
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
         // Create user with name/email/password
         let user = self

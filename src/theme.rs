@@ -1,17 +1,10 @@
+use std::path::{Path, PathBuf};
+
 use anstream::ColorChoice;
-use anstyle::{Ansi256Color, AnsiColor, Color, Style};
 
 use crate::models::OutputColor;
 
-#[derive(Debug, Clone, Copy)]
-pub enum ThemeRole {
-    Error,
-    Warning,
-    Muted,
-    Prompt,
-    Heading,
-    TableBand,
-}
+pub use hubuum_theme::ThemeRole;
 
 pub fn color_choice() -> ColorChoice {
     match crate::config::get_config().output.color {
@@ -27,25 +20,51 @@ pub fn paint(role: ThemeRole, text: impl AsRef<str>) -> String {
         return text.to_string();
     }
 
-    let style = role_style(role);
-    format!("{}{}{}", style.render(), text, style.render_reset())
+    match active_theme() {
+        Ok(theme) => hubuum_theme::paint(&theme, role, text),
+        Err(_) => text.to_string(),
+    }
 }
 
-fn role_style(role: ThemeRole) -> Style {
-    match role {
-        ThemeRole::Error => Style::new()
-            .bold()
-            .fg_color(Some(Color::Ansi(AnsiColor::Red))),
-        ThemeRole::Warning => Style::new()
-            .bold()
-            .fg_color(Some(Color::Ansi(AnsiColor::Yellow))),
-        ThemeRole::Muted => Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
-        ThemeRole::Prompt => Style::new()
-            .bold()
-            .fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
-        ThemeRole::Heading => Style::new()
-            .bold()
-            .fg_color(Some(Color::Ansi(AnsiColor::Green))),
-        ThemeRole::TableBand => Style::new().bg_color(Some(Color::Ansi256(Ansi256Color(236)))),
+pub fn paint_command(text: impl AsRef<str>) -> String {
+    paint(ThemeRole::Command, text)
+}
+
+pub fn active_theme() -> Result<hubuum_theme::Theme, hubuum_theme::ThemeError> {
+    let cfg = crate::config::get_config();
+    resolve_theme(
+        &cfg.output.theme,
+        theme_file_path(&cfg.output.theme_file).as_deref(),
+    )
+}
+
+pub fn available_themes() -> Result<hubuum_theme::ThemeCatalog, hubuum_theme::ThemeError> {
+    let cfg = crate::config::get_config();
+    hubuum_theme::catalog(theme_file_path(&cfg.output.theme_file).as_deref())
+}
+
+pub fn resolve_theme(
+    name: &str,
+    theme_file: Option<&Path>,
+) -> Result<hubuum_theme::Theme, hubuum_theme::ThemeError> {
+    match hubuum_theme::resolve_theme(name, theme_file) {
+        Ok(theme) => Ok(theme),
+        Err(_) => hubuum_theme::resolve_theme(hubuum_theme::DEFAULT_THEME, None),
     }
+}
+
+fn theme_file_path(path: &str) -> Option<PathBuf> {
+    (!path.is_empty()).then(|| expand_home(path))
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    if path == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(path));
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(path)
 }

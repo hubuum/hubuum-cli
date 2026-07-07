@@ -1108,13 +1108,59 @@ mod tests {
             let _ = init_config(AppConfig::default());
         });
         reset_output().expect("output should reset");
-        set_pipeline(vec![PipeStage::Head(10)]).expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Head {
+            count: 10,
+            offset: 0,
+        }])
+        .expect("pipeline should set");
         let tokens = CommandTokenizer::new("class list --limit 100", "list", &[])
             .expect("tokenization should succeed");
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }, DummyRow { id: 2 }],
             next_cursor: Some("abc123".to_string()),
             limit: Some(100),
+            returned_count: 100,
+        };
+
+        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+            .expect("text output should render");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert!(snapshot.next_page_command.is_none());
+        assert!(!snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Paginated results available.")));
+        assert!(!snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Returned 100 item")));
+    }
+
+    #[test]
+    #[serial]
+    fn grouped_pipeline_suppresses_pagination_footer() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        reset_output().expect("output should reset");
+        set_pipeline(vec![
+            PipeStage::Group(vec![hubuum_filter::GroupKey {
+                selector: "os_version".to_string(),
+                alias: "OS Version".to_string(),
+            }]),
+            PipeStage::Aggregate(hubuum_filter::AggregateSpec {
+                function: hubuum_filter::AggregateFunction::Count,
+                alias: "Hosts".to_string(),
+            }),
+        ])
+        .expect("pipeline should set");
+        let tokens = CommandTokenizer::new("object list --class Hosts", "list", &[])
+            .expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }, DummyRow { id: 2 }],
+            next_cursor: Some("abc123".to_string()),
+            limit: None,
             returned_count: 100,
         };
 

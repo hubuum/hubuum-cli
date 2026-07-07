@@ -11,6 +11,13 @@ pub fn output_formats(_ctx: &CompletionContext, prefix: &str, _parts: &[String])
     complete_values(&["text", "json", "jsonl", "csv", "tsv"], prefix)
 }
 
+pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    crate::config::theme_value_candidates()
+        .into_iter()
+        .filter(|value| value.starts_with(prefix))
+        .collect()
+}
+
 pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(
         &["import", "report", "export", "reindex", "remotecall"],
@@ -170,7 +177,6 @@ fn config_value_candidates_for_parts(prefix: &str, parts: &[String]) -> Vec<Stri
     config_value_candidates(key)
         .into_iter()
         .filter(|value| value.starts_with(prefix))
-        .map(str::to_string)
         .collect()
 }
 

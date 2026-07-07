@@ -7,11 +7,13 @@ command result
   -> intermediate JSON value
   -> optional pipe/DSL transforms
   -> final renderer: table, text, json, jsonl, csv, tsv
-  -> optional redirect sink: > file, >> file
+  -> optional redirect sink: > file, >> file, > each:<template>
 ```
 
 `crates/hubuum-filter` owns pipe parsing and semantic transforms. The CLI owns
 terminal rendering, config, command dispatch, and REPL behavior.
+
+See [DSL.md](DSL.md) for the delivered user-facing DSL spec and examples.
 
 ## User Model
 
@@ -63,19 +65,24 @@ types, terminal rendering, and REPL concerns outside that crate.
 Pipe stages now run on semantic data when commands use shared formatters:
 
 - `F field=value`, regex, existence, and comparison filters
+- `V pattern` value-only search and `K pattern` key-only search
 - `P field other.nested[]` projections
 - `S field`, `S !field`, and typed sorting for numbers, strings, and IPs
 - `VALUE field` for plain value extraction
-- `JQ` or jq-like transforms as a later optional stage
+- `G field`, `A count`, grouped `C`, `Z`, and `U field` collection stages
+- `JQ` jq-like transforms
 
 This also gives table rendering more control: projection changes visible
 columns before rendering, sorting works on values rather than glyphs, and JSON
 output can show the transformed payload without re-parsing terminal text.
 
-Redirects are handled by the CLI after final rendering. `>` writes the rendered
-snapshot to a file, and `>>` appends it. Redirect parsing is intentionally
-validated against the command before it, so selector and filter operators such
-as `--where age > 3` remain part of the command unless there is a valid trailing
+Redirects are handled by the CLI after pipe stages. `>` writes the rendered
+snapshot to a file, and `>>` appends it. `each:<template>` is a semantic redirect
+sink that writes one file per transformed row or value, with filename
+placeholders such as `{Name}`, `{data.owner}`, `{value}`, and `{n}` resolved
+before each item is rendered. Redirect parsing is intentionally validated
+against the command before it, so selector and filter operators such as
+`--where age > 3` remain part of the command unless there is a valid trailing
 redirect target.
 
 ## Remaining Transitional Boundaries

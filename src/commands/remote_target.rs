@@ -7,6 +7,7 @@ use super::{build_list_query, desired_format, render_list_page, CliCommand};
 use crate::autocomplete::{
     classes, namespaces, objects_from_class, objects_from_class_a, objects_from_class_b,
     remote_auth_types, remote_http_methods, remote_subject_kinds, remote_subject_types,
+    remote_targets,
 };
 use crate::catalog::CommandCatalogBuilder;
 
@@ -228,7 +229,12 @@ impl CliCommand for RemoteTargetList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RemoteTargetShow {
-    #[option(short = "n", long = "name", help = "Name of the remote target")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the remote target",
+        autocomplete = "remote_targets"
+    )]
     pub name: Option<String>,
 }
 
@@ -259,7 +265,12 @@ impl CliCommand for RemoteTargetShow {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RemoteTargetUpdate {
-    #[option(short = "n", long = "name", help = "Name of the remote target")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the remote target",
+        autocomplete = "remote_targets"
+    )]
     pub name: Option<String>,
     #[option(long = "rename", help = "New name")]
     pub rename: Option<String>,
@@ -388,7 +399,12 @@ impl CliCommand for RemoteTargetUpdate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RemoteTargetDelete {
-    #[option(short = "n", long = "name", help = "Name of the remote target")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the remote target",
+        autocomplete = "remote_targets"
+    )]
     pub name: Option<String>,
 }
 
@@ -420,7 +436,12 @@ impl CliCommand for RemoteTargetDelete {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct RemoteTargetInvoke {
-    #[option(short = "n", long = "name", help = "Name of the remote target")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the remote target",
+        autocomplete = "remote_targets"
+    )]
     pub name: Option<String>,
     #[option(
         long = "subject",

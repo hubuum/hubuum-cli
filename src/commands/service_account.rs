@@ -1,7 +1,7 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
-use crate::autocomplete::groups;
+use crate::autocomplete::{groups, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -186,7 +186,12 @@ impl CliCommand for ServiceAccountList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountShow {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
 }
 
@@ -219,7 +224,12 @@ impl CliCommand for ServiceAccountShow {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountDelete {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
 }
 
@@ -253,7 +263,12 @@ impl CliCommand for ServiceAccountDelete {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountDisable {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
 }
 
@@ -289,7 +304,12 @@ impl CliCommand for ServiceAccountDisable {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenList {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
 }
 
@@ -326,7 +346,12 @@ impl CliCommand for ServiceAccountTokenList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenCreate {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
     #[option(long = "token-name", help = "Token name")]
     pub token_name: Option<String>,
@@ -392,7 +417,12 @@ impl CliCommand for ServiceAccountTokenCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenRevoke {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
     #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
     pub token_id: i32,

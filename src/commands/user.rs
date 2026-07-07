@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 
-use crate::autocomplete::{user_sort, user_where};
+use crate::autocomplete::{user_sort, user_where, users};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
@@ -163,7 +163,12 @@ impl CliCommand for UserNew {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserDelete {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
 }
 
@@ -198,7 +203,12 @@ impl CliCommand for UserDelete {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserInfo {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
     #[option(short = "e", long = "email", help = "Email address for the user")]
     pub email: Option<String>,
@@ -304,7 +314,12 @@ impl CliCommand for UserList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserModify {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
     #[option(short = "r", long = "rename", help = "Rename the user")]
     pub rename: Option<String>,
@@ -371,7 +386,12 @@ where
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserSetPassword {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
     #[option(short = "p", long = "password", help = "New password")]
     pub password: String,
@@ -409,7 +429,12 @@ impl CliCommand for UserSetPassword {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserTokenList {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
 }
 
@@ -446,7 +471,12 @@ impl CliCommand for UserTokenList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserTokenCreate {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
     #[option(short = "n", long = "name", help = "Token name")]
     pub name: Option<String>,
@@ -512,7 +542,12 @@ impl CliCommand for UserTokenCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserTokenRevoke {
-    #[option(short = "u", long = "username", help = "Username of the user")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
     pub username: Option<String>,
     #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
     pub token_id: i32,

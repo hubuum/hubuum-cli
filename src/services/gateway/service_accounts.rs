@@ -17,6 +17,18 @@ pub struct CreateServiceAccountInput {
 }
 
 impl HubuumGateway {
+    pub fn list_service_account_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .list_service_accounts(&ListQuery {
+                limit: Some(200),
+                ..ListQuery::default()
+            })?
+            .items
+            .into_iter()
+            .map(|account| account.0.name)
+            .collect())
+    }
+
     pub fn create_service_account(
         &self,
         input: CreateServiceAccountInput,
