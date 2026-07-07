@@ -63,9 +63,20 @@ For shared table/detail output, pipes run against semantic JSON before rendering
 ```text
 config show | F output | P key value | S key
 config show | VALUE key | C
+object list --json --class Hosts | P Name os_version data.network.interfaces[*].ipv4
 ```
 
 See [docs/output-pipeline.md](docs/output-pipeline.md) for the semantic output pipeline direction.
+
+Rendered output can be redirected to a file from the REPL, one-shot commands, or scripts:
+
+```text
+config show --output json > config.json
+object list --class Hosts | P Name os_version > hosts.txt
+object list --json --class Hosts | P Name data.network.interfaces[*].ipv4 >> hosts.json
+```
+
+Use `>` to create or truncate the target file and `>>` to append. Redirect paths support quoting, `~/...` expansion, and REPL file path completion. A trailing redirect is parsed only when the command before it is valid, so filter operators such as `--where age > 3` still work normally.
 
 Machine-oriented output can be selected per command:
 

@@ -7,6 +7,7 @@ command result
   -> intermediate JSON value
   -> optional pipe/DSL transforms
   -> final renderer: table, text, json, jsonl, csv, tsv
+  -> optional redirect sink: > file, >> file
 ```
 
 `crates/hubuum-filter` owns pipe parsing and semantic transforms. The CLI owns
@@ -70,6 +71,12 @@ Pipe stages now run on semantic data when commands use shared formatters:
 This also gives table rendering more control: projection changes visible
 columns before rendering, sorting works on values rather than glyphs, and JSON
 output can show the transformed payload without re-parsing terminal text.
+
+Redirects are handled by the CLI after final rendering. `>` writes the rendered
+snapshot to a file, and `>>` appends it. Redirect parsing is intentionally
+validated against the command before it, so selector and filter operators such
+as `--where age > 3` remain part of the command unless there is a valid trailing
+redirect target.
 
 ## Remaining Transitional Boundaries
 

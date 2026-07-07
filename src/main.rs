@@ -23,6 +23,7 @@ mod json_schema;
 mod list_query;
 mod models;
 mod output;
+mod redirection;
 mod repl;
 mod services;
 mod suggestions;
@@ -96,10 +97,7 @@ fn render_dispatch_result(
     result: Result<catalog::CommandOutcome, AppError>,
 ) -> bool {
     match result {
-        Ok(outcome) => {
-            render_outcome(session, outcome);
-            true
-        }
+        Ok(outcome) => render_outcome(session, outcome),
         Err(err) => {
             render_snapshot(dispatch::render_error(err));
             false
@@ -114,7 +112,9 @@ fn render_script_result(
     match outcomes {
         Ok(outcomes) => {
             for outcome in outcomes {
-                render_outcome(session, outcome);
+                if !render_outcome(session, outcome) {
+                    return false;
+                }
             }
             true
         }
@@ -144,10 +144,22 @@ async fn execute_offline_script(
         .collect()
 }
 
-fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) {
+fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) -> bool {
     dispatch::apply_scope_action(session, &outcome.scope_action);
     dispatch::apply_output_state(session, &outcome.output);
-    render_snapshot(outcome.output);
+    match outcome.redirect {
+        Some(redirect) => match redirection::write_output(&outcome.output, &redirect) {
+            Ok(()) => true,
+            Err(err) => {
+                render_snapshot(dispatch::render_error(err));
+                false
+            }
+        },
+        None => {
+            render_snapshot(outcome.output);
+            true
+        }
+    }
 }
 
 fn render_snapshot(snapshot: output::OutputSnapshot) {

@@ -112,7 +112,11 @@ fn run_thread(
                 match result {
                     Ok(outcome) => {
                         let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
-                        apply_outcome(&session, outcome);
+                        if let Err(err) = apply_outcome(&session, outcome) {
+                            let _ = crate::output::print_rendered(
+                                &dispatch::render_error(err).render(),
+                            );
+                        }
                         if exit_repl {
                             break;
                         }
@@ -188,12 +192,15 @@ impl Drop for BackgroundGuard {
     }
 }
 
-fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) {
+fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) -> Result<(), AppError> {
     dispatch::apply_scope_action(session, &outcome.scope_action);
     dispatch::apply_output_state(session, &outcome.output);
-    if !outcome.output.is_empty() {
-        let _ = crate::output::print_rendered(&outcome.output.render());
+    if let Some(redirect) = outcome.redirect {
+        crate::redirection::write_output(&outcome.output, &redirect)?;
+    } else if !outcome.output.is_empty() {
+        crate::output::print_rendered(&outcome.output.render())?;
     }
+    Ok(())
 }
 
 struct ReplPrompt {
@@ -246,6 +253,14 @@ impl Completer for ReplCompleter {
         }
         if let Some(suggestions) = self.pipe_suggestions(prefix_line, pos) {
             return suggestions;
+        }
+        if let Some((prefix, replacement_start)) =
+            crate::redirection::redirect_completion_context(prefix_line, pos)
+        {
+            return crate::autocomplete::file_paths(&self.completion, prefix, &[])
+                .into_iter()
+                .map(|value| dynamic_value_suggestion(value, replacement_start, pos))
+                .collect();
         }
         let ends_with_space = prefix_line.ends_with(' ');
         let (start, word) = prefix_line

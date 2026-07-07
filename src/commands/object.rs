@@ -1006,11 +1006,11 @@ fn render_object_list_page(
     class_filter: Option<&str>,
     data_columns: Option<&str>,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
-        OutputFormat::Json => {
+    match (desired_format(tokens), crate::output::has_pipeline()?) {
+        (OutputFormat::Json, false) => {
             crate::list_query::render_paged_result(tokens, objects, OutputFormat::Json)
         }
-        OutputFormat::Text => {
+        (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
             let columns = object_list_columns(services, objects, class_filter, data_columns)?;
             let rows = objects
                 .items

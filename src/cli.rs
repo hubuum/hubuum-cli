@@ -11,7 +11,7 @@ pub fn build_cli() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .disable_version_flag(false)
         .after_help(
-            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli help --tree",
+            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli object list --json --class Hosts | P Name os_version > hosts.json\n  hubuum-cli config show >> config.log\n  hubuum-cli help --tree",
         )
         .arg(
             Arg::new("config")

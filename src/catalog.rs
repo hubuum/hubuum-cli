@@ -93,6 +93,7 @@ pub struct CommandInvocation {
 #[derive(Debug, Clone, Default)]
 pub struct CommandOutcome {
     pub output: OutputSnapshot,
+    pub redirect: Option<crate::redirection::OutputRedirect>,
     pub scope_action: ScopeAction,
 }
 
@@ -647,6 +648,10 @@ fn render_shell_topic_help() -> String {
     line!("  Pipe stages and supported field names complete after |.");
     line!("  API-backed completions can be disabled with --completion-api-disable true.");
     line!("");
+    line!(paint(ThemeRole::Heading, "Redirects:"));
+    line!("  Append > <file> to write rendered output, or >> <file> to append.");
+    line!("  Redirect paths complete like normal file path arguments.");
+    line!("");
     line!(paint(ThemeRole::Heading, "Pipes:"));
     line!("  Append | stages after commands to filter or reshape output before rendering.");
     line!("  Use help pipe for pipeline syntax and examples.");
@@ -809,6 +814,7 @@ mod tests {
             Ok(super::CommandOutcome {
                 output: Default::default(),
                 scope_action: ScopeAction::None,
+                ..Default::default()
             })
         }
     }
@@ -988,6 +994,8 @@ mod tests {
         assert!(help.contains("repl.enter_fetches_next_page"));
         assert!(help.contains("Press Tab"));
         assert!(help.contains("--option=<value>"));
+        assert!(help.contains("Append > <file>"));
+        assert!(help.contains(">> <file>"));
         assert!(help.contains("help pipe"));
     }
 

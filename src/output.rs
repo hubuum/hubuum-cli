@@ -118,6 +118,10 @@ impl OutputBuffer {
         self.pipeline = stages;
     }
 
+    fn has_pipeline(&self) -> bool {
+        !self.pipeline.is_empty()
+    }
+
     fn set_render_format(&mut self, format: RenderFormat) {
         self.render_format = format;
     }
@@ -265,6 +269,13 @@ pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {
         .map_err(|_| AppError::LockError)?
         .set_pipeline(stages);
     Ok(())
+}
+
+pub fn has_pipeline() -> Result<bool, AppError> {
+    Ok(OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .has_pipeline())
 }
 
 pub fn set_render_format(format: RenderFormat) -> Result<(), AppError> {
@@ -609,7 +620,10 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
 mod tests {
     use serial_test::serial;
 
-    use super::{append_line, reset_output, set_pipeline, set_semantic_output, take_output};
+    use super::{
+        append_line, reset_output, set_pipeline, set_render_format, set_semantic_output,
+        take_output,
+    };
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableStyle};
     use hubuum_filter::{OutputEnvelope, PipeStage};
@@ -661,6 +675,43 @@ mod tests {
 
         assert!(rendered.contains("Returned 1 item(s)"));
         assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains("secret"));
+    }
+
+    #[test]
+    #[serial]
+    fn json_rendering_applies_projection_to_semantic_rows_before_rendering() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_render_format(super::RenderFormat::Json).expect("render format should set");
+        set_pipeline(vec![PipeStage::Columns(vec![
+            "Name".to_string(),
+            "data.network.interfaces[*].ipv4".to_string(),
+        ])])
+        .expect("pipeline should set");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![serde_json::json!({
+                "Name": "host-1",
+                "data": {
+                    "network": {
+                        "interfaces": [
+                            {"ipv4": "127.0.0.1"},
+                            {"ipv4": "127.0.0.2"}
+                        ]
+                    }
+                },
+                "hidden": "secret"
+            })],
+            vec!["Name".to_string(), "hidden".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert!(rendered.contains("\"Name\": \"host-1\""));
+        assert!(rendered.contains("\"data.network.interfaces[*].ipv4\""));
+        assert!(rendered.contains("\"127.0.0.1\""));
+        assert!(rendered.contains("\"127.0.0.2\""));
         assert!(!rendered.contains("secret"));
     }
 

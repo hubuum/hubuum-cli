@@ -15,6 +15,8 @@
   and resolved relation paths.
 - Reduced relation hydration overhead by batching related class-relation lookups instead of
   repeatedly fetching the same relation ids.
+- Added rendered output redirects with `>` and `>>`, including REPL file path completion and
+  support for redirecting piped JSON projections.
 
 ## [0.0.1] - 2026-03-12
 

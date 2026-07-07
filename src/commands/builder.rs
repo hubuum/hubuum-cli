@@ -125,6 +125,7 @@ where
             Ok(CommandOutcome {
                 output: take_output()?,
                 scope_action: ScopeAction::None,
+                ..Default::default()
             })
         })
         .await

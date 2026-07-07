@@ -17,6 +17,17 @@ pub async fn execute_line(
     session: &SharedSession,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
+    let (line, redirect) = prepare_redirect(&app.catalog, &session.scope(), line)?;
+    let mut outcome = execute_line_inner(app, session, &line).await?;
+    outcome.redirect = redirect;
+    Ok(outcome)
+}
+
+async fn execute_line_inner(
+    app: Arc<AppRuntime>,
+    session: &SharedSession,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
     reset_output()?;
     let (mut line, pipeline) = process_filter(line)?;
     let mut parts = shlex::split(&line)
@@ -47,6 +58,7 @@ pub async fn execute_line(
             } else {
                 ScopeAction::ExitScope
             },
+            ..Default::default()
         });
     }
 
@@ -59,6 +71,7 @@ pub async fn execute_line(
             } else {
                 ScopeAction::ExitScope
             },
+            ..Default::default()
         });
     }
 
@@ -68,6 +81,7 @@ pub async fn execute_line(
         return Ok(CommandOutcome {
             output: Default::default(),
             scope_action: ScopeAction::Enter(next_scope),
+            ..Default::default()
         });
     }
 
@@ -122,7 +136,12 @@ pub async fn execute_script(
 }
 
 pub fn can_execute_offline(line: &str) -> bool {
-    let Ok(parts) = invocation_parts(line) else {
+    let line = match crate::redirection::split_redirect_candidate(line) {
+        Ok(Some(candidate)) => candidate.line,
+        Ok(None) => line.to_string(),
+        Err(_) => return false,
+    };
+    let Ok(parts) = invocation_parts(&line) else {
         return false;
     };
     parts
@@ -133,6 +152,16 @@ pub fn can_execute_offline(line: &str) -> bool {
 }
 
 pub fn execute_offline_line(
+    catalog: &CommandCatalog,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
+    let (line, redirect) = prepare_redirect(catalog, &[], line)?;
+    let mut outcome = execute_offline_line_inner(catalog, &line)?;
+    outcome.redirect = redirect;
+    Ok(outcome)
+}
+
+fn execute_offline_line_inner(
     catalog: &CommandCatalog,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
@@ -160,6 +189,7 @@ pub fn execute_offline_line(
             return Ok(CommandOutcome {
                 output: take_output()?,
                 scope_action: ScopeAction::None,
+                ..Default::default()
             });
         }
         return render_help_from_catalog(catalog, Vec::new(), &parts[1..]);
@@ -183,6 +213,7 @@ pub fn execute_offline_line(
     Ok(CommandOutcome {
         output: take_output()?,
         scope_action: ScopeAction::None,
+        ..Default::default()
     })
 }
 
@@ -255,7 +286,51 @@ fn render_help_from_catalog(
     Ok(CommandOutcome {
         output: take_output()?,
         scope_action: ScopeAction::None,
+        ..Default::default()
     })
+}
+
+fn prepare_redirect(
+    catalog: &CommandCatalog,
+    scope: &[String],
+    line: &str,
+) -> Result<(String, Option<crate::redirection::OutputRedirect>), AppError> {
+    let Some(candidate) = crate::redirection::split_redirect_candidate(line)? else {
+        return Ok((line.to_string(), None));
+    };
+
+    if parses_as_command(catalog, scope, &candidate.line) {
+        Ok((candidate.line, Some(candidate.redirect)))
+    } else {
+        Ok((line.to_string(), None))
+    }
+}
+
+fn parses_as_command(catalog: &CommandCatalog, scope: &[String], line: &str) -> bool {
+    let Ok((line, _pipeline)) = process_filter(line) else {
+        return false;
+    };
+    let Ok(parts) = invocation_parts(&line) else {
+        return false;
+    };
+
+    if parts.is_empty() || is_help_alias(&parts) {
+        return true;
+    }
+    if matches!(
+        parts.first().map(String::as_str),
+        Some("next" | "exit" | "quit" | "..")
+    ) {
+        return true;
+    }
+    if catalog.resolve_scope(scope, &parts).is_some() {
+        return true;
+    }
+
+    let Ok(resolved) = catalog.resolve_command(scope, &parts) else {
+        return false;
+    };
+    tokenizer_for_resolved(&line, &resolved).is_ok()
 }
 
 fn process_filter(line: &str) -> Result<(String, Vec<hubuum_filter::PipeStage>), AppError> {
@@ -300,7 +375,7 @@ mod tests {
 
     use super::{
         apply_output_state, can_execute_offline, execute_offline_line, is_help_alias,
-        process_filter,
+        prepare_redirect, process_filter,
     };
     use crate::app::SharedSession;
     use crate::output::{append_line, reset_output, take_output};
@@ -392,5 +467,46 @@ mod tests {
             .expect_err("mistyped offline command should fail");
 
         assert!(err.to_string().contains("Did you mean 'class'?"));
+    }
+
+    #[test]
+    fn offline_redirect_is_attached_and_removed_from_command() {
+        let catalog = crate::commands::build_command_catalog();
+        let outcome = execute_offline_line(&catalog, "help > help.txt")
+            .expect("offline redirect should execute");
+
+        assert_eq!(
+            outcome.redirect.as_ref().map(|redirect| &redirect.path),
+            Some(&std::path::PathBuf::from("help.txt"))
+        );
+        assert!(outcome
+            .output
+            .lines
+            .iter()
+            .any(|line| line.contains("Commands:")));
+    }
+
+    #[test]
+    fn redirect_detection_does_not_consume_filter_operator() {
+        let catalog = crate::commands::build_command_catalog();
+        let (line, redirect) = prepare_redirect(&catalog, &[], "object list --where age > 3")
+            .expect("redirect preparation should succeed");
+
+        assert_eq!(line, "object list --where age > 3");
+        assert!(redirect.is_none());
+    }
+
+    #[test]
+    fn redirect_detection_accepts_redirect_after_filter_operator() {
+        let catalog = crate::commands::build_command_catalog();
+        let (line, redirect) =
+            prepare_redirect(&catalog, &[], "object list --where age > 3 > out.json")
+                .expect("redirect preparation should succeed");
+
+        assert_eq!(line, "object list --where age > 3");
+        assert_eq!(
+            redirect.as_ref().map(|redirect| &redirect.path),
+            Some(&std::path::PathBuf::from("out.json"))
+        );
     }
 }
