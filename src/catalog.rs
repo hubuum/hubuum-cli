@@ -1044,14 +1044,21 @@ mod tests {
         let catalog = crate::commands::build_command_catalog();
         let help = catalog.render_scope_help(&[]);
         let plain = strip_ansi(&help);
+        let collection_scope = catalog
+            .resolve_scope(&[], &["collection".to_string()])
+            .expect("collection scope");
 
         assert!(plain.contains("class"));
         assert!(plain.contains("create, delete, list, modify, show"));
         assert!(plain.contains("object"));
         assert!(plain.contains("create, delete, list, modify, show"));
         assert!(plain.contains("event-subscription create, delete, list, show, update"));
-        assert!(plain.contains("collection         permissions, create, delete, list, modify"));
-        assert!(plain.contains("                   principal-permissions, show"));
+        assert!(plain.contains("collection"));
+        assert!(plain.contains("principal-permissions"));
+        assert_eq!(
+            super::scope_command_summary(collection_scope),
+            "permissions, create, delete, list, modify, principal-permissions, show"
+        );
         assert!(plain.contains("relation"));
         assert!(plain.contains("class, object"));
         assert!(plain.contains("Pipe:"));
@@ -1131,6 +1138,22 @@ mod tests {
                 "  collection         permissions, create, delete, list, modify, principal-permissions, show"
             ]
         );
+    }
+
+    #[test]
+    fn scope_summary_wraps_at_a_fixed_narrow_width() {
+        let name_width = "event-subscription".len();
+        let lines = super::render_scope_summary_at_width(
+            "collection",
+            "permissions, create, delete, list, modify, principal-permissions, show",
+            name_width,
+            60,
+        );
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("permissions, create, delete, list"));
+        assert!(lines[1].starts_with(&" ".repeat(2 + name_width + 1)));
+        assert_eq!(lines[1].trim(), "modify, principal-permissions, show");
     }
 
     #[test]
