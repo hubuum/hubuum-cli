@@ -58,6 +58,55 @@ fn value_and_key_search_have_distinct_scope() {
 }
 
 #[test]
+fn quick_search_includes_hidden_semantic_values() {
+    let filtered = apply_pipeline(host_rows(), &[PipeStage::Grep("129.240".to_string())])
+        .expect("quick search");
+    let rows = filtered.value.as_array().expect("rows");
+
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .all(|row| row.get("Match") == Some(&json!("value"))));
+}
+
+#[test]
+fn jq_supports_documented_map_projection() {
+    let transformed = apply_pipeline(
+        host_rows(),
+        &[PipeStage::Jq("map({Name, os_version})".to_string())],
+    )
+    .expect("jq map projection");
+
+    assert_eq!(transformed.shape, OutputShape::Rows);
+    assert!(transformed.columns.is_empty());
+    assert_eq!(
+        transformed.value,
+        json!([
+            {"Name": "host-a", "os_version": "26.1"},
+            {"Name": "host-b", "os_version": "26.1"},
+            {"Name": "host-c", "os_version": "25.9"}
+        ])
+    );
+}
+
+#[test]
+fn jq_collects_multiple_outputs_as_semantic_values() {
+    let transformed = apply_pipeline(host_rows(), &[PipeStage::Jq(".[] | .Name".to_string())])
+        .expect("jq value stream");
+
+    assert_eq!(transformed.shape, OutputShape::Values);
+    assert_eq!(transformed.value, json!(["host-a", "host-b", "host-c"]));
+}
+
+#[test]
+fn jq_reports_invalid_expressions() {
+    let error = apply_pipeline(host_rows(), &[PipeStage::Jq("map(".to_string())])
+        .expect_err("invalid jq should fail");
+
+    assert!(error.to_string().contains("JQ error"));
+}
+
+#[test]
 fn grouping_aggregates_and_count_use_host_examples() {
     let grouped = apply_pipeline(
         host_rows(),

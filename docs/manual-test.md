@@ -74,11 +74,13 @@ Run semantic pipeline checks against real object output:
 
 ```text
 object list --class Hosts | P Name os_version data.network.interfaces[*].ipv4
-object list --class Hosts | F os_version contains 26
+object list --class Hosts | F os_version 26
+object list --class Hosts | F data.cpu.cores>=8
 object list --class Hosts | V 129.240
 object list --class Hosts | K ipv4
 object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num | L 10
 object list --class Hosts | VALUE Name | C
+object list --json --class Hosts | JQ 'map({Name, os_version})' | L 5
 ```
 
 Run redirect checks in a temporary directory:
@@ -86,15 +88,29 @@ Run redirect checks in a temporary directory:
 ```text
 config show --output json > /tmp/hubuum-config.json
 object list --class Hosts | P Name os_version > /tmp/hubuum-hosts.txt
-object list --class Hosts | VALUE Name > each:/tmp/hubuum-host-names/{value}.txt
+object list --class Hosts | VALUE Name > each:/tmp/hubuum-host-{value}.txt
+```
+
+From a POSIX shell, verify direct application-level redirects and color
+handling (the operators are escaped so the shell does not consume them):
+
+```sh
+hubuum-cli --color auto help \> /tmp/hubuum-help.txt
+hubuum-cli config show \> each:/tmp/hubuum-config-{n}.txt
 ```
 
 Expected results:
 
 - Pipes operate on structured output, not rendered table glyphs.
+- Broad `F` searches can match hidden semantic values, while `F field regex`
+  limits the search to one selector.
+- `F data.cpu.cores>=8` is evaluated as a comparison and does not create a file
+  named `8`.
+- The documented JQ map expression returns only `Name` and `os_version`.
 - Grouped aggregate output suppresses cursor pagination prompts after terminal grouping stages.
 - `>` truncates, `>>` appends, and `each:<template>` creates one file per semantic row or value.
 - Field placeholders in `each:<template>` are sanitized before writing.
+- `/tmp/hubuum-help.txt` contains no ANSI escape sequences under `--color auto`.
 
 ## Exports
 
@@ -234,7 +250,7 @@ Check collection permissions:
 ```text
 collection permissions list cli-smoke
 collection permissions set cli-smoke --group admins --ReadCollection --ReadClass --ReadObject
-collection principal-permissions cli-smoke --principal-id <principal-id>
+collection principal-permissions cli-smoke --principal-kind group --principal admins
 ```
 
 Check user, group, and service account command help and list output:
@@ -307,6 +323,7 @@ help collection
 help export
 help pipe group
 help pipe redirects
+help pipe jq
 help shell completion
 ```
 

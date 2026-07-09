@@ -521,6 +521,30 @@ mod tests {
     }
 
     #[test]
+    fn redirect_detection_does_not_consume_embedded_pipeline_comparison() {
+        let catalog = crate::commands::build_command_catalog();
+        let command = "object list | F age>3";
+        let (line, redirect) =
+            prepare_redirect(&catalog, &[], command).expect("redirect preparation should succeed");
+
+        assert_eq!(line, command);
+        assert!(redirect.is_none());
+    }
+
+    #[test]
+    fn redirect_detection_accepts_redirect_after_embedded_pipeline_comparison() {
+        let catalog = crate::commands::build_command_catalog();
+        let (line, redirect) = prepare_redirect(&catalog, &[], "object list | F age>3 > out.json")
+            .expect("redirect preparation should succeed");
+
+        assert_eq!(line, "object list | F age>3");
+        assert_eq!(
+            redirect.as_ref().map(|redirect| &redirect.target),
+            Some(&RedirectTarget::File(std::path::PathBuf::from("out.json")))
+        );
+    }
+
+    #[test]
     fn redirect_detection_accepts_redirect_after_filter_operator() {
         let catalog = crate::commands::build_command_catalog();
         let (line, redirect) =

@@ -13,12 +13,16 @@ command output
 The DSL is useful when a command already returns the right kind of data and you
 want a smaller local view without adding another API flag.
 
+Examples below use REPL/script syntax. In a POSIX shell, escape or quote `|`,
+`>`, and `>>` so those standalone operator arguments reach Hubuum CLI, for
+example `hubuum-cli config show \| F output \> output.txt`.
+
 ## Quick Recipes
 
-Keep Host objects whose visible or hidden semantic data mentions an OS version:
+Keep Host objects whose OS version contains `26`:
 
 ```text
-object list --class Hosts | F os_version contains 26
+object list --class Hosts | F os_version 26
 ```
 
 Show a few Host fields:
@@ -59,19 +63,24 @@ object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json
 
 ## Search And Filter
 
-Bare text is a broad quick search over keys and values:
+Bare text and the one-argument `F` form are broad quick searches over key paths
+and all semantic values, including values not selected as visible table
+columns. Matches found only in hidden values are reported as `value` in the
+Match column when visible-column metadata causes that column to be generated.
 
 ```text
 object list --class Hosts | 129.240
 ```
 
-`F` filters by a pattern or field predicate:
+The two-argument `F <field> <regex>` form searches one field. Compact embedded
+operators provide equality, regex, and numeric/string comparisons without
+being confused with a standalone redirect operator:
 
 ```text
 object list --class Hosts | F 129.240
-object list --class Hosts | F os_version contains 26
+object list --class Hosts | F os_version 26
 object list --class Hosts | F data.cpu.cores>=8
-object list --class Hosts | F data.network.interfaces[*].ipv4 matches '^129\.240\.'
+object list --class Hosts | F data.network.interfaces[*].ipv4 '^129\.240\.'
 ```
 
 `V` searches values only:
@@ -89,7 +98,7 @@ object list --class Hosts | K ipv4
 `reject` removes matching rows:
 
 ```text
-object list --class Hosts | reject os_version contains '^9'
+object list --class Hosts | reject os_version '^9'
 ```
 
 `?` removes empty values, or keeps rows where a selector is truthy:
@@ -150,7 +159,7 @@ object list --class Hosts | tail 5
 Count rows:
 
 ```text
-object list --class Hosts | F os_version contains 26 | C
+object list --class Hosts | F os_version 26 | C
 ```
 
 ## Grouping And Aggregates
@@ -205,11 +214,17 @@ object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 
 ## JQ
 
-`JQ` applies a jq-like expression to the current semantic payload:
+`JQ` evaluates a jq-compatible expression against the current semantic payload
+using the in-process `jaq` interpreter:
 
 ```text
 object list --json --class Hosts | JQ 'map({Name, os_version})'
+object list --json --class Hosts | JQ '.[] | .Name'
 ```
+
+Zero jq outputs become empty semantic output, one output keeps its natural
+shape, and multiple outputs are collected into semantic rows or values. JQ
+clears the existing visible-column metadata and infers the result shape.
 
 Prefer built-in stages for common filtering, grouping, and projection because
 they preserve Hubuum table metadata and completions.
@@ -246,11 +261,24 @@ object list --class Hosts | VALUE Name > each:names/{value}.txt
 
 `each:<template>` writes one file per semantic row or value. Placeholders use
 the same field names as the current output, plus `{value}` for `VALUE` output
-and `{n}` for a 1-based item number.
+and `{n}` for a 1-based item number. It requires structured semantic output;
+parent directories must already exist. Duplicate generated paths are rejected
+before any files are written, and placeholder values are sanitized for paths.
 
 Redirect paths support quoting, `~/...` expansion, and REPL file path
-completion. Redirect parsing is checked against the command first, so command
-filters such as `--where age > 3` are not mistaken for output redirects.
+completion. The `>` and `>>` operators must be standalone,
+whitespace-delimited tokens. Compact comparisons such as `F age>3` remain
+filter expressions, and command filters such as `--where age > 3` are retained
+when the command before `>` would otherwise be invalid.
+
+Redirect files honor the configured color mode. `auto` and `never` strip ANSI
+styling from non-terminal files; `always` preserves it. In one-shot POSIX shell
+commands, escape application-level operators, for example:
+
+```sh
+hubuum-cli object list --class Hosts \| P Name os_version \> hosts.txt
+hubuum-cli object list --class Hosts \| VALUE Name \> each:/tmp/host-{value}.txt
+```
 
 ## Help
 

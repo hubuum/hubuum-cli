@@ -48,6 +48,36 @@ fn direct_help_and_config_paths_do_not_require_login() {
 }
 
 #[test]
+fn direct_command_redirects_to_an_unstyled_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("help.txt");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", ">", path.to_str().expect("UTF-8 path")])
+        .assert()
+        .success();
+
+    let output = std::fs::read_to_string(path).expect("redirected help");
+    assert!(output.contains("Available commands"));
+    assert!(!output.contains('\x1b'));
+}
+
+#[test]
+fn direct_command_supports_each_redirects() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let template = format!("each:{}/{{n}}.txt", dir.path().display());
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["config", "show", ">", &template])
+        .assert()
+        .success();
+
+    let first =
+        std::fs::read_to_string(dir.path().join("1.txt")).expect("first per-item redirect output");
+    assert!(first.contains("key"));
+}
+
+#[test]
 fn hidden_command_alias_still_works() {
     cargo_bin_cmd!("hubuum-cli")
         .args(["--command", "help"])
@@ -101,6 +131,16 @@ fn offline_config_show_supports_semantic_pipeline_projection() {
         .success()
         .stdout(predicate::str::contains("key"))
         .stdout(predicate::str::contains("output."));
+}
+
+#[test]
+fn offline_config_show_supports_documented_jq_transforms() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["--command", "config show | JQ 'map({key, value})' | L 1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("key"))
+        .stdout(predicate::str::contains("value"));
 }
 
 #[test]

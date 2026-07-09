@@ -543,7 +543,7 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     ));
     line!(paint_command("  object list --class Hosts | V 129.240"));
     line!(paint_command(
-        "  object list --class Hosts | F os_version contains 26"
+        "  object list --class Hosts | F os_version 26"
     ));
     line!(paint_command(
         "  object list --class Hosts | P Name os_version | S os_version | L 10"
@@ -619,6 +619,13 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
                 line!(
                     "  each: templates accept field placeholders such as {Name}, {value}, and {n}."
                 );
+                line!("  Redirect operators must be standalone, whitespace-delimited tokens.");
+                line!("  Parent directories must already exist.");
+                line!("  File redirects honor output.color; auto and never strip ANSI styling.");
+                line!(format!(
+                    "  In a POSIX one-shot command, escape operators, for example {}.",
+                    paint_command("hubuum-cli help \\> help.txt")
+                ));
                 line!("  Redirect paths complete like normal file path arguments.");
             }
             _ => return Err(AppError::CommandNotFound(format!("shell {topic}"))),
@@ -1144,7 +1151,8 @@ mod tests {
 
         assert!(help.contains("help pipe search"));
         assert!(help.contains("help pipe group"));
-        assert!(search.contains("F os_version contains 26"));
+        assert!(search.contains("F os_version 26"));
+        assert!(search.contains("F data.cpu.cores>=8"));
         assert!(search.contains("K ipv4"));
         assert!(group.contains("G os_version AS"));
         assert!(group.contains("A count AS Hosts"));
@@ -1182,6 +1190,8 @@ mod tests {
         assert!(completion.contains("--option=<value>"));
         assert!(redirects.contains("Append > <file>"));
         assert!(redirects.contains(">> <file>"));
+        assert!(redirects.contains("standalone, whitespace-delimited"));
+        assert!(redirects.contains("auto and never strip ANSI"));
     }
 
     #[test]

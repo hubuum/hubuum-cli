@@ -11,7 +11,7 @@ pub fn build_cli() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .disable_version_flag(false)
         .after_help(
-            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli object list --json --class Hosts | P Name os_version > hosts.json\n  hubuum-cli object list --class Hosts | G os_version AS \"OS Version\" | A count AS Hosts\n  hubuum-cli object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json\n  hubuum-cli config show >> config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree",
+            "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli config show \\| P key value \\| L 5\n  hubuum-cli object list --class Hosts \\| G os_version AS \"OS Version\" \\| A count AS Hosts\n  hubuum-cli object list --json --class Hosts \\| P Name os_version \\> each:/tmp/host-{Name}.json\n  hubuum-cli config show '>>' config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree\n\nIn POSIX shells, escape or quote |, >, and >> so the operators reach Hubuum CLI.",
         )
         .arg(
             Arg::new("config")
@@ -375,8 +375,8 @@ fn parse_boolish(value: &str) -> Option<bool> {
 fn join_command_args(args: &[String]) -> String {
     args.iter()
         .map(|arg| {
-            if arg == "|" {
-                return "|".to_string();
+            if matches!(arg.as_str(), "|" | ">" | ">>") {
+                return arg.clone();
             }
             shlex::try_quote(arg)
                 .map(|quoted| quoted.into_owned())
@@ -627,6 +627,21 @@ mod tests {
         assert_eq!(
             startup.mode,
             StartupMode::Command("object list --class Hosts | tornar".to_string())
+        );
+    }
+
+    #[test]
+    fn split_startup_args_preserves_redirect_tokens_for_direct_command() {
+        let truncate = split_startup_args(["hubuum-cli", "help", ">", "help.txt"]);
+        assert_eq!(
+            truncate.mode,
+            StartupMode::Command("help > help.txt".to_string())
+        );
+
+        let append = split_startup_args(["hubuum-cli", "config", "show", ">>", "config.log"]);
+        assert_eq!(
+            append.mode,
+            StartupMode::Command("config show >> config.log".to_string())
         );
     }
 

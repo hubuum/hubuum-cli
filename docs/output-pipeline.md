@@ -64,13 +64,14 @@ types, terminal rendering, and REPL concerns outside that crate.
 
 Pipe stages now run on semantic data when commands use shared formatters:
 
-- `F field=value`, regex, existence, and comparison filters
+- `F pattern`, `F field regex`, and compact equality/comparison filters such as
+  `F field=value` or `F field>=8`
 - `V pattern` value-only search and `K pattern` key-only search
 - `P field other.nested[]` projections
 - `S field`, `S !field`, and typed sorting for numbers, strings, and IPs
 - `VALUE field` for plain value extraction
 - `G field`, `A count`, grouped `C`, `Z`, and `U field` collection stages
-- `JQ` jq-like transforms
+- `JQ` jq-compatible transforms evaluated by the in-process `jaq` interpreter
 
 This also gives table rendering more control: projection changes visible
 columns before rendering, sorting works on values rather than glyphs, and JSON
@@ -80,10 +81,17 @@ Redirects are handled by the CLI after pipe stages. `>` writes the rendered
 snapshot to a file, and `>>` appends it. `each:<template>` is a semantic redirect
 sink that writes one file per transformed row or value, with filename
 placeholders such as `{Name}`, `{data.owner}`, `{value}`, and `{n}` resolved
-before each item is rendered. Redirect parsing is intentionally validated
-against the command before it, so selector and filter operators such as
-`--where age > 3` remain part of the command unless there is a valid trailing
-redirect target.
+before each item is rendered. Parent directories must already exist, and
+duplicate generated paths fail before writing. Redirect output uses the same
+color choice as terminal output: `auto` and `never` strip ANSI from files,
+while `always` retains it.
+
+Redirect operators are standalone, whitespace-delimited tokens. Compact DSL
+comparisons such as `F age>3` are not redirect candidates. Redirect parsing is
+also validated against the preceding command, so command filters such as
+`--where age > 3` remain part of the command when truncating at `>` would make
+the command invalid. POSIX one-shot invocations must escape or quote `|`, `>`,
+and `>>` so the shell passes them to the CLI.
 
 ## Remaining Boundaries
 

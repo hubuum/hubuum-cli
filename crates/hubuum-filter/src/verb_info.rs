@@ -117,7 +117,7 @@ pub fn verb_summaries() -> &'static [VerbSummary] {
         VerbSummary {
             names: "JQ",
             topic: "jq",
-            summary: "Apply a jq-like expression.",
+            summary: "Apply a jq-compatible expression.",
         },
     ]
 }
@@ -125,7 +125,7 @@ pub fn verb_summaries() -> &'static [VerbSummary] {
 pub fn topic_help(topic: &str) -> Option<&'static str> {
     match topic {
         "search" => Some(
-            "Search stages:\n  | pattern - keep rows where keys or values match a regex.\n  | F <pattern> - same as bare search, useful when the pattern looks like syntax.\n  | F <field> <regex> - keep rows where one selector matches a regex.\n  | V <pattern> - search scalar values only, ignoring key names.\n  | K <pattern> - search key paths only and project matching keys.\n  | reject <expr> - remove rows matching the expression.\n  | ? [field] - keep truthy rows, or rows where a selector has a non-empty value.\n\nExamples:\n  object list --class Hosts | F os_version contains 26\n  object list --class Hosts | V 129.240\n  object list --class Hosts | K ipv4\n  object list --class Hosts | ? data.network.interfaces[]",
+            "Search stages:\n  | pattern - keep rows where key paths or visible or hidden values match a regex.\n  | F <pattern> - same as bare search, useful when the pattern looks like syntax.\n  | F <field> <regex> - keep rows where one selector matches a regex.\n  | F <field><op><value> - compact =, !=, ~, >, >=, <, or <= predicate.\n  | V <pattern> - search scalar values only, ignoring key names.\n  | K <pattern> - search key paths only and project matching keys.\n  | reject <pattern> - remove rows matching a broad pattern.\n  | reject <field> <regex> - remove rows where one selector matches.\n  | ? [field] - keep truthy rows, or rows where a selector has a non-empty value.\n\nExamples:\n  object list --class Hosts | F os_version 26\n  object list --class Hosts | F data.cpu.cores>=8\n  object list --class Hosts | V 129.240\n  object list --class Hosts | K ipv4\n  object list --class Hosts | ? data.network.interfaces[]",
         ),
         "project" => Some(
             "Projection stages:\n  | P <field> [field...] - keep selected fields as table columns.\n  | P <field> !<field> - keep selected fields and drop excluded fields.\n  | VALUE <path> - extract selector matches as a value list.\n  | VAL <path> - short alias for VALUE.\n\nExamples:\n  object list --class Hosts | P Name os_version data.network.interfaces[*].ipv4\n  object list --class Hosts | P Name data !data.secrets\n  object list --class Hosts | VALUE data.network.interfaces[*].ipv4",
@@ -143,10 +143,10 @@ pub fn topic_help(topic: &str) -> Option<&'static str> {
             "Selectors:\n  name                         field lookup\n  data.owner                   dotted path\n  data.network.interfaces[0]   array index\n  data.network.interfaces[-1]  negative index\n  data.network.interfaces[*]   fan out array\n  data.network.interfaces[]    fan out array\n  data.network.interfaces[:2]  slice",
         ),
         "jq" => Some(
-            "JQ stage:\n  | JQ <expression> - run a jq-like transform against the current semantic payload.\n\nExample:\n  object list --class Hosts --json | JQ 'map({Name, os_version})'\n\nJQ runs against the current semantic payload after earlier pipe stages.",
+            "JQ stage:\n  | JQ <expression> - run a jq-compatible transform with the in-process jaq interpreter.\n\nExamples:\n  object list --class Hosts --json | JQ 'map({Name, os_version})'\n  object list --class Hosts --json | JQ '.[] | .Name'\n\nJQ runs against the semantic payload after earlier stages.\nZero outputs become empty output. One output is shaped from its JSON type.\nMultiple outputs become semantic rows or values. Existing column metadata is cleared.",
         ),
         "redirects" => Some(
-            "Redirects:\n  > <file> - write rendered output to a file.\n  >> <file> - append rendered output to a file.\n  > each:<template> - write one file per semantic row or value.\n\nExamples:\n  object list --class Hosts | P Name os_version > hosts.txt\n  object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json",
+            "Redirects:\n  > <file> - write rendered output to a file.\n  >> <file> - append rendered output to a file.\n  > each:<template> - write one file per semantic row or value.\n\nOperators must be standalone, whitespace-delimited tokens.\nParent directories must exist. Compact comparisons such as F age>3 are not redirects.\nFile output follows the configured color mode: auto and never strip ANSI; always preserves it.\n\nExamples (REPL/script syntax):\n  object list --class Hosts | P Name os_version > hosts.txt\n  object list --json --class Hosts | P Name os_version > each:/tmp/host-{Name}.json\n\nIn a POSIX one-shot command, escape or quote |, >, and >>.\nThis lets the shell pass those operators to Hubuum CLI.",
         ),
         _ => None,
     }

@@ -21,6 +21,17 @@ hubuum-cli config paths
 hubuum-cli help --tree
 ```
 
+In a POSIX shell, quote or escape application-level pipe and redirect operators
+so the shell passes them to Hubuum CLI as standalone arguments:
+
+```sh
+hubuum-cli config show \| F output \| L 5
+hubuum-cli help \> help.txt
+hubuum-cli config show \> each:/tmp/hubuum-config-{n}.txt
+```
+
+Operators do not need escaping inside the REPL or a Hubuum CLI script file.
+
 Run commands from a script file:
 
 ```sh
@@ -73,6 +84,7 @@ For shared table/detail output, pipes run against semantic JSON before rendering
 ```text
 config show | F output | P key value | S key
 config show | VALUE key | C
+config show | JQ 'map({key, value})' | L 5
 object list --json --class Hosts | P Name os_version data.network.interfaces[*].ipv4
 ```
 
@@ -81,18 +93,31 @@ See [docs/DSL.md](docs/DSL.md) for the full pipe DSL with Hubuum object examples
 See [docs/themes.md](docs/themes.md) for color themes, custom theme files, and palette licensing.
 See [docs/manual-test.md](docs/manual-test.md) for a current manual smoke-test checklist.
 
-Rendered output can be redirected to a file from the REPL, one-shot commands, or scripts:
+Rendered output can be redirected to a file from the REPL, one-shot commands,
+or scripts. These examples use REPL/script syntax:
 
 ```text
 config show --output json > config.json
 object list --class Hosts | P Name os_version > hosts.txt
-object list --json --class Hosts | P Name data.network.interfaces[*].ipv4 >> hosts.json
+object list --output jsonl --class Hosts | P Name data.network.interfaces[*].ipv4 >> hosts.jsonl
 object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json
 object list --class Hosts | VALUE Name > each:names/{value}.txt
-object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts
 ```
 
-Use `>` to create or truncate the target file and `>>` to append. Redirect paths support quoting, `~/...` expansion, and REPL file path completion. Use `each:<template>` to write one file per semantic row or value after pipe stages have run; placeholders such as `{Name}`, `{data.owner}`, `{value}`, and `{n}` can be used in the filename. A trailing redirect is parsed only when the command before it is valid, so filter operators such as `--where age > 3` still work normally.
+Use `>` to create or truncate the target file and `>>` to append. Operators
+must be standalone, whitespace-delimited tokens. Redirect paths support
+quoting, `~/...` expansion, and REPL file path completion. Parent directories
+must already exist.
+
+Use `each:<template>` to write one file per semantic row or value after pipe
+stages have run; placeholders such as `{Name}`, `{data.owner}`, `{value}`, and
+`{n}` can be used in the filename. A trailing redirect is accepted only when
+the preceding command is valid. Compact pipeline comparisons such as
+`F age>3` are therefore distinct from redirects, while command filters such as
+`--where age > 3` continue to work normally.
+
+Redirect files honor `output.color`: `auto` and `never` remove ANSI styling
+from files, while `always` preserves it.
 
 Machine-oriented output can be selected per command:
 

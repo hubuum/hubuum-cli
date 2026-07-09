@@ -417,7 +417,7 @@ fn quick_filter_match(value: &Value, columns: &[String], regex: &Regex) -> Filte
     }
 
     FilterMatch {
-        matched: !hits.is_empty(),
+        matched: !hits.is_empty() || value_search_match(value, regex),
         hits,
     }
 }

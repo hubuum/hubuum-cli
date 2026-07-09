@@ -1,5 +1,8 @@
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use anstream::{AutoStream, ColorChoice};
 
 use crate::errors::AppError;
 use crate::output::OutputSnapshot;
@@ -88,6 +91,15 @@ pub fn write_output(snapshot: &OutputSnapshot, redirect: &OutputRedirect) -> Res
 }
 
 fn write_file(content: &str, path: &Path, append: bool) -> Result<(), AppError> {
+    write_file_with_color_choice(content, path, append, crate::theme::color_choice())
+}
+
+fn write_file_with_color_choice(
+    content: &str,
+    path: &Path,
+    append: bool,
+    color_choice: ColorChoice,
+) -> Result<(), AppError> {
     let mut options = std::fs::OpenOptions::new();
     options.create(true).write(true);
     if append {
@@ -96,7 +108,10 @@ fn write_file(content: &str, path: &Path, append: bool) -> Result<(), AppError> 
         options.truncate(true);
     }
 
-    std::io::Write::write_all(&mut options.open(path)?, content.as_bytes())?;
+    let file = options.open(path)?;
+    let mut stream = AutoStream::new(file, color_choice);
+    stream.write_all(content.as_bytes())?;
+    stream.flush()?;
     Ok(())
 }
 
@@ -338,11 +353,14 @@ fn final_redirect_operator(line: &str) -> Option<(usize, usize)> {
                 if iter.peek().is_some_and(|(_, next)| *next == '=') {
                     continue;
                 }
-                if iter.peek().is_some_and(|(_, next)| *next == '>') {
+                let operator_len = if iter.peek().is_some_and(|(_, next)| *next == '>') {
                     iter.next();
-                    candidate = Some((index, 2));
+                    2
                 } else {
-                    candidate = Some((index, 1));
+                    1
+                };
+                if has_token_boundaries(line, index, operator_len) {
+                    candidate = Some((index, operator_len));
                 }
             }
             _ => {}
@@ -350,6 +368,17 @@ fn final_redirect_operator(line: &str) -> Option<(usize, usize)> {
     }
 
     candidate
+}
+
+fn has_token_boundaries(line: &str, start: usize, len: usize) -> bool {
+    line[..start]
+        .chars()
+        .next_back()
+        .is_some_and(char::is_whitespace)
+        && line[start + len..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace)
 }
 
 fn expand_user_template(template: &str) -> String {
@@ -373,9 +402,11 @@ fn expand_user_path(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        redirect_completion_context, split_redirect_candidate, write_output, RedirectTarget,
+        redirect_completion_context, split_redirect_candidate, write_file_with_color_choice,
+        write_output, RedirectTarget,
     };
     use crate::output::{OutputSnapshot, RenderFormat};
+    use anstream::ColorChoice;
 
     #[test]
     fn splits_trailing_redirects() {
@@ -427,6 +458,50 @@ mod tests {
             split_redirect_candidate("object list --where name equals 'a > b'")
                 .expect("redirect parse should succeed")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn ignores_embedded_pipeline_comparisons() {
+        for line in [
+            "object list | F age>3",
+            "object list | F age> 3",
+            "object list | F age >3",
+        ] {
+            assert!(
+                split_redirect_candidate(line)
+                    .expect("redirect parse should succeed")
+                    .is_none(),
+                "comparison was treated as a redirect: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn file_redirects_apply_color_choice() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("output.txt");
+        let styled = "\x1b[31mred\x1b[0m\n";
+
+        write_file_with_color_choice(styled, &path, false, ColorChoice::Auto)
+            .expect("auto redirect");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("auto output"),
+            "red\n"
+        );
+
+        write_file_with_color_choice(styled, &path, false, ColorChoice::Never)
+            .expect("never redirect");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("never output"),
+            "red\n"
+        );
+
+        write_file_with_color_choice(styled, &path, false, ColorChoice::Always)
+            .expect("always redirect");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("always output"),
+            styled
         );
     }
 
