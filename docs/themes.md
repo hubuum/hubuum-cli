@@ -11,8 +11,42 @@ sources. The current bundled external palettes are:
 - Solarized Dark and Light, from Solarized under the
   [MIT license](https://github.com/altercation/solarized/blob/master/LICENSE).
 
-First-party `hubuum-dark` and `hubuum-light` themes are distributed under this
-project's MIT license.
+First-party themes are distributed under this project's MIT license.
+
+## Bundled Themes
+
+Themes intended for dark terminal backgrounds:
+
+| Name | Character |
+| --- | --- |
+| `hubuum-dark` | Restrained ANSI defaults |
+| `catppuccin-mocha` | Soft pastels |
+| `solarized-dark` | Classic low-contrast Solarized |
+| `aurora-night` | Icy blue, teal, and aurora green |
+| `synthwave-sunset` | Neon cyan, magenta, and violet |
+| `ember-forge` | Copper, amber, and cooling teal |
+| `phosphor-green` | Green-screen terminal glow |
+| `signal-high-contrast` | Bright, highly separated status colors |
+| `rose-pink` | Layered rose and hot-pink tones |
+| `ocean-blue` | Deep navy through bright sky blue |
+| `royal-purple` | Aubergine, violet, and pale lavender |
+| `emerald-green` | Forest shadows and vivid emerald |
+| `lagoon-cyan` | Deep teal through luminous cyan |
+
+Themes intended for light terminal backgrounds:
+
+| Name | Character |
+| --- | --- |
+| `hubuum-light` | Restrained light defaults |
+| `catppuccin-latte` | Soft light pastels |
+| `solarized-light` | Classic Solarized light |
+| `arctic-day` | Crisp blue and teal |
+| `inkstone-light` | Neutral editorial ink tones |
+
+The single-color families keep errors red and warnings yellow. Their remaining
+roles progress from dark table bands through muted mid-tones to saturated
+commands and lighter bold headings, so the chosen color remains recognizable
+without obscuring semantic status.
 
 ## Selecting Themes
 

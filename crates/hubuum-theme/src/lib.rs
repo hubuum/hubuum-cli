@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -259,6 +259,18 @@ pub fn builtin_themes() -> Vec<Theme> {
         catppuccin_latte(),
         solarized_dark(),
         solarized_light(),
+        aurora_night(),
+        synthwave_sunset(),
+        ember_forge(),
+        arctic_day(),
+        inkstone_light(),
+        phosphor_green(),
+        signal_high_contrast(),
+        rose_pink(),
+        ocean_blue(),
+        royal_purple(),
+        emerald_green(),
+        lagoon_cyan(),
     ]
 }
 
@@ -533,10 +545,244 @@ fn solarized_light() -> Theme {
     )
 }
 
+fn aurora_night() -> Theme {
+    theme(
+        "aurora-night",
+        "Aurora Night",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x6b, 0x81, true)),
+            (ThemeRole::Warning, role_hex(0xff, 0xd1, 0x66, true)),
+            (ThemeRole::Muted, role_hex(0x6b, 0x72, 0x80, false)),
+            (ThemeRole::Prompt, role_hex(0x5e, 0xea, 0xd4, true)),
+            (ThemeRole::Heading, role_hex(0x93, 0xc5, 0xfd, true)),
+            (ThemeRole::Command, role_hex(0xa7, 0xf3, 0xd0, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0x17, 0x20, 0x33)), false),
+            ),
+        ],
+    )
+}
+
+fn synthwave_sunset() -> Theme {
+    theme(
+        "synthwave-sunset",
+        "Synthwave Sunset",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x5c, 0x8a, true)),
+            (ThemeRole::Warning, role_hex(0xff, 0xd1, 0x66, true)),
+            (ThemeRole::Muted, role_hex(0x76, 0x6b, 0x91, false)),
+            (ThemeRole::Prompt, role_hex(0x45, 0xe7, 0xff, true)),
+            (ThemeRole::Heading, role_hex(0xff, 0x7e, 0xdb, true)),
+            (ThemeRole::Command, role_hex(0xc4, 0xa7, 0xff, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0x2a, 0x17, 0x38)), false),
+            ),
+        ],
+    )
+}
+
+fn ember_forge() -> Theme {
+    theme(
+        "ember-forge",
+        "Ember Forge",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x6b, 0x5e, true)),
+            (ThemeRole::Warning, role_hex(0xf6, 0xc4, 0x53, true)),
+            (ThemeRole::Muted, role_hex(0x7b, 0x74, 0x70, false)),
+            (ThemeRole::Prompt, role_hex(0x6f, 0xd3, 0xc7, true)),
+            (ThemeRole::Heading, role_hex(0xff, 0x9f, 0x68, true)),
+            (ThemeRole::Command, role_hex(0xf2, 0xc0, 0x78, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0x31, 0x24, 0x1f)), false),
+            ),
+        ],
+    )
+}
+
+fn arctic_day() -> Theme {
+    theme(
+        "arctic-day",
+        "Arctic Day",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xb4, 0x23, 0x18, true)),
+            (ThemeRole::Warning, role_hex(0x8a, 0x61, 0x00, true)),
+            (ThemeRole::Muted, role_hex(0x64, 0x74, 0x8b, false)),
+            (ThemeRole::Prompt, role_hex(0x03, 0x69, 0xa1, true)),
+            (ThemeRole::Heading, role_hex(0x0f, 0x76, 0x6e, true)),
+            (ThemeRole::Command, role_hex(0x1d, 0x4e, 0xd8, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0xe4, 0xf0, 0xf5)), false),
+            ),
+        ],
+    )
+}
+
+fn inkstone_light() -> Theme {
+    theme(
+        "inkstone-light",
+        "Inkstone Light",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0x9f, 0x1d, 0x20, true)),
+            (ThemeRole::Warning, role_hex(0x7a, 0x57, 0x00, true)),
+            (ThemeRole::Muted, role_hex(0x6b, 0x6f, 0x76, false)),
+            (ThemeRole::Prompt, role_hex(0x00, 0x5f, 0x73, true)),
+            (ThemeRole::Heading, role_hex(0x20, 0x25, 0x2b, true)),
+            (ThemeRole::Command, role_hex(0x3f, 0x4b, 0x59, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0xe9, 0xec, 0xef)), false),
+            ),
+        ],
+    )
+}
+
+fn phosphor_green() -> Theme {
+    theme(
+        "phosphor-green",
+        "Phosphor Green",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x6b, 0x6b, true)),
+            (ThemeRole::Warning, role_hex(0xff, 0xd1, 0x66, true)),
+            (ThemeRole::Muted, role_hex(0x50, 0x70, 0x5b, false)),
+            (ThemeRole::Prompt, role_hex(0x70, 0xff, 0x9b, true)),
+            (ThemeRole::Heading, role_hex(0xb7, 0xff, 0xca, true)),
+            (ThemeRole::Command, role_hex(0x7d, 0xff, 0xa3, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0x10, 0x22, 0x18)), false),
+            ),
+        ],
+    )
+}
+
+fn signal_high_contrast() -> Theme {
+    theme(
+        "signal-high-contrast",
+        "Signal High Contrast",
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x70, 0x70, true)),
+            (ThemeRole::Warning, role_hex(0xff, 0xe0, 0x66, true)),
+            (ThemeRole::Muted, role_hex(0xa8, 0xb0, 0xbd, false)),
+            (ThemeRole::Prompt, role_hex(0x6e, 0xe7, 0xff, true)),
+            (ThemeRole::Heading, role_hex(0xff, 0xff, 0xff, true)),
+            (ThemeRole::Command, role_hex(0x8c, 0xff, 0x9b, false)),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(ColorSpec::rgb(0x20, 0x24, 0x2b)), false),
+            ),
+        ],
+    )
+}
+
+fn rose_pink() -> Theme {
+    color_family_theme(
+        "rose-pink",
+        "Rose Pink",
+        ColorSpec::rgb(0x9d, 0x66, 0x82),
+        ColorSpec::rgb(0xff, 0x8f, 0xcf),
+        ColorSpec::rgb(0xff, 0xc2, 0xe5),
+        ColorSpec::rgb(0xf4, 0x72, 0xb6),
+        ColorSpec::rgb(0x2b, 0x18, 0x24),
+    )
+}
+
+fn ocean_blue() -> Theme {
+    color_family_theme(
+        "ocean-blue",
+        "Ocean Blue",
+        ColorSpec::rgb(0x64, 0x7a, 0x99),
+        ColorSpec::rgb(0x60, 0xa5, 0xfa),
+        ColorSpec::rgb(0xbf, 0xdb, 0xfe),
+        ColorSpec::rgb(0x7d, 0xd3, 0xfc),
+        ColorSpec::rgb(0x17, 0x23, 0x3a),
+    )
+}
+
+fn royal_purple() -> Theme {
+    color_family_theme(
+        "royal-purple",
+        "Royal Purple",
+        ColorSpec::rgb(0x79, 0x69, 0x8f),
+        ColorSpec::rgb(0xc0, 0x84, 0xfc),
+        ColorSpec::rgb(0xe9, 0xd5, 0xff),
+        ColorSpec::rgb(0xa7, 0x8b, 0xfa),
+        ColorSpec::rgb(0x25, 0x1a, 0x35),
+    )
+}
+
+fn emerald_green() -> Theme {
+    color_family_theme(
+        "emerald-green",
+        "Emerald Green",
+        ColorSpec::rgb(0x5f, 0x80, 0x6f),
+        ColorSpec::rgb(0x6e, 0xe7, 0xb7),
+        ColorSpec::rgb(0xbb, 0xf7, 0xd0),
+        ColorSpec::rgb(0x34, 0xd3, 0x99),
+        ColorSpec::rgb(0x14, 0x2a, 0x22),
+    )
+}
+
+fn lagoon_cyan() -> Theme {
+    color_family_theme(
+        "lagoon-cyan",
+        "Lagoon Cyan",
+        ColorSpec::rgb(0x57, 0x7d, 0x83),
+        ColorSpec::rgb(0x67, 0xe8, 0xf9),
+        ColorSpec::rgb(0xcf, 0xfa, 0xfe),
+        ColorSpec::rgb(0x22, 0xd3, 0xee),
+        ColorSpec::rgb(0x10, 0x29, 0x2d),
+    )
+}
+
+fn color_family_theme(
+    name: &str,
+    display_name: &str,
+    muted: ColorSpec,
+    prompt: ColorSpec,
+    heading: ColorSpec,
+    command: ColorSpec,
+    table_band: ColorSpec,
+) -> Theme {
+    theme(
+        name,
+        display_name,
+        first_party_license(),
+        &[
+            (ThemeRole::Error, role_hex(0xff, 0x6b, 0x6b, true)),
+            (ThemeRole::Warning, role_hex(0xff, 0xd1, 0x66, true)),
+            (ThemeRole::Muted, RoleStyle::new(Some(muted), None, false)),
+            (ThemeRole::Prompt, RoleStyle::new(Some(prompt), None, true)),
+            (
+                ThemeRole::Heading,
+                RoleStyle::new(Some(heading), None, true),
+            ),
+            (
+                ThemeRole::Command,
+                RoleStyle::new(Some(command), None, false),
+            ),
+            (
+                ThemeRole::TableBand,
+                RoleStyle::new(None, Some(table_band), false),
+            ),
+        ],
+    )
+}
+
 fn first_party_license() -> ThemeLicense {
     ThemeLicense {
         name: "MIT".to_string(),
-        source: Some("https://github.com/unioslo/hubuum-cli-rs/blob/main/LICENSE".to_string()),
+        source: Some("https://github.com/hubuum/hubuum-cli/blob/main/LICENSE".to_string()),
     }
 }
 
@@ -610,9 +856,9 @@ fn ansi_name(color: AnsiColor) -> &'static str {
 }
 
 pub fn assert_external_palettes_are_mit() {
-    let allowed = HashSet::from(["hubuum-dark", "hubuum-light"]);
+    let first_party = first_party_license();
     for theme in builtin_themes() {
-        if allowed.contains(theme.name.as_str()) {
+        if theme.license == first_party {
             continue;
         }
         assert_eq!(
@@ -644,6 +890,57 @@ mod tests {
                     theme.name
                 );
             }
+        }
+    }
+
+    #[test]
+    fn creative_first_party_themes_are_bundled() {
+        let names = theme_names()
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        for expected in [
+            "aurora-night",
+            "synthwave-sunset",
+            "ember-forge",
+            "arctic-day",
+            "inkstone-light",
+            "phosphor-green",
+            "signal-high-contrast",
+            "rose-pink",
+            "ocean-blue",
+            "royal-purple",
+            "emerald-green",
+            "lagoon-cyan",
+        ] {
+            assert!(
+                names.contains(expected),
+                "missing built-in theme {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn color_family_themes_keep_semantic_status_colors() {
+        let expected_error = Some(ColorSpec::rgb(0xff, 0x6b, 0x6b));
+        let expected_warning = Some(ColorSpec::rgb(0xff, 0xd1, 0x66));
+
+        for name in [
+            "rose-pink",
+            "ocean-blue",
+            "royal-purple",
+            "emerald-green",
+            "lagoon-cyan",
+        ] {
+            let theme = resolve_theme(name, None).expect("color family theme");
+            assert_eq!(theme.roles[&ThemeRole::Error].fg, expected_error, "{name}");
+            assert_eq!(
+                theme.roles[&ThemeRole::Warning].fg,
+                expected_warning,
+                "{name}"
+            );
+            assert!(theme.roles[&ThemeRole::Error].bold, "{name}");
+            assert!(theme.roles[&ThemeRole::Warning].bold, "{name}");
+            assert!(theme.roles[&ThemeRole::Heading].bold, "{name}");
         }
     }
 
