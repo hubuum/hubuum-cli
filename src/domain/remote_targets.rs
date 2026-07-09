@@ -18,7 +18,7 @@ impl DetailRenderable for RemoteTargetRecord {
         let mut rows = vec![
             ("ID", self.0.id.to_string()),
             ("Name", self.0.name.clone()),
-            ("Namespace ID", self.0.namespace_id.to_string()),
+            ("Collection ID", self.0.collection_id.to_string()),
             ("Description", self.0.description.clone()),
             ("Method", format!("{:?}", self.0.method)),
             ("URL", self.0.url_template.clone()),
@@ -62,14 +62,14 @@ impl DetailRenderable for RemoteTargetRecord {
 
 impl crate::formatting::TableRenderable for RemoteTargetRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["ID", "Name", "Namespace ID", "Method", "URL", "Enabled"]
+        vec!["ID", "Name", "Collection ID", "Method", "URL", "Enabled"]
     }
 
     fn row(&self) -> Vec<String> {
         vec![
             self.0.id.to_string(),
             self.0.name.clone(),
-            self.0.namespace_id.to_string(),
+            self.0.collection_id.to_string(),
             format!("{:?}", self.0.method),
             self.0.url_template.clone(),
             self.0.enabled.to_string(),

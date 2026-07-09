@@ -69,7 +69,7 @@ impl DetailRenderable for TaskQueueStateRecord {
             ),
             ("Cancelled", state.cancelled_tasks.to_string()),
             ("Import Tasks", state.import_tasks.to_string()),
-            ("Report Tasks", state.report_tasks.to_string()),
+            ("Export Tasks", state.export_tasks.to_string()),
             ("Export Tasks", state.export_tasks.to_string()),
             ("Reindex Tasks", state.reindex_tasks.to_string()),
             ("Task Events", state.total_task_events.to_string()),

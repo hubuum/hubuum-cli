@@ -1,8 +1,8 @@
 use hubuum_client::{
     client::sync::{EventListRequest, HistoryRequest},
     types::SortDirection,
-    HubuumDateTime, NewEventSink, NewEventSubscription, QueryFilter, UpdateEventSink,
-    UpdateEventSubscription,
+    FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, QueryFilter,
+    UpdateEventSink, UpdateEventSubscription,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -22,7 +22,7 @@ pub struct AuditListInput {
     pub action: Option<String>,
     pub actor_kind: Option<String>,
     pub actor_user_id: Option<i32>,
-    pub namespace_id: Option<i32>,
+    pub collection_id: Option<i32>,
     pub occurred_after: Option<String>,
     pub occurred_before: Option<String>,
     pub limit: Option<usize>,
@@ -33,7 +33,7 @@ pub struct AuditListInput {
 #[derive(Debug, Clone)]
 pub enum AuditScope {
     Global,
-    Namespace(i32),
+    Collection(i32),
     Class(i32),
     Object { class_id: i32, object_id: i32 },
     User(i32),
@@ -69,25 +69,25 @@ impl HubuumGateway {
         Ok(self
             .client
             .event_sinks()
-            .find()
-            .execute()?
+            .query()
+            .list()?
             .into_iter()
             .map(|sink| sink.name)
             .collect())
     }
 
     pub fn event_sink_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.event_sinks().select_by_name(name)?.id())
+        Ok(self.client.event_sinks().get_by_name(name)?.id().get())
     }
 
-    pub fn list_event_subscription_names_for_namespace(
+    pub fn list_event_subscription_names_for_collection(
         &self,
-        namespace: &str,
+        collection: &str,
     ) -> Result<Vec<String>, AppError> {
-        let namespace_id = self.namespace_id(namespace)?;
+        let collection_id = self.collection_id(collection)?;
         Ok(self
             .client
-            .event_subscriptions(namespace_id)
+            .event_subscriptions(collection_id)
             .query()
             .limit(200)
             .page()?
@@ -97,12 +97,12 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn namespace_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        self.namespace_id(name)
+    pub fn collection_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        self.collection_id(name)
     }
 
     pub fn user_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.users().select_by_name(name)?.id())
+        Ok(self.client.users().get_by_name(name)?.id().into())
     }
 
     pub fn audit_scope_by_name(
@@ -113,28 +113,34 @@ impl HubuumGateway {
     ) -> Result<AuditScope, AppError> {
         let name = name.ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
         match resource {
-            "namespace" => Ok(AuditScope::Namespace(self.namespace_id(name)?)),
-            "class" => Ok(AuditScope::Class(self.class_handle_by_name(name)?.id())),
+            "collection" => Ok(AuditScope::Collection(self.collection_id(name)?)),
+            "class" => Ok(AuditScope::Class(
+                self.class_handle_by_name(name)?.id().into(),
+            )),
             "object" => {
                 let class_name = class_name
                     .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
                 let object = self.object_handle_by_name(class_name, name)?;
                 Ok(AuditScope::Object {
                     class_id: object.resource().hubuum_class_id,
-                    object_id: object.id(),
+                    object_id: object.id().into(),
                 })
             }
             "user" => Ok(AuditScope::User(
-                self.client.users().select_by_name(name)?.id(),
+                self.client.users().get_by_name(name)?.id().into(),
             )),
             "group" => Ok(AuditScope::Group(
-                self.client.groups().select_by_name(name)?.id(),
+                self.client.groups().get_by_name(name)?.id().into(),
             )),
             "template" => Ok(AuditScope::Template(
-                self.client.templates().select_by_name(name)?.id(),
+                self.client
+                    .export_templates()
+                    .get_by_name(name)?
+                    .id()
+                    .into(),
             )),
             "remote-target" => Ok(AuditScope::RemoteTarget(
-                self.client.remote_targets().select_by_name(name)?.id(),
+                self.client.remote_targets().get_by_name(name)?.id().get(),
             )),
             other => Err(AppError::InvalidOption(format!("resource={other}"))),
         }
@@ -147,7 +153,7 @@ impl HubuumGateway {
     ) -> Result<PagedResult<JsonRecord>, AppError> {
         let request = match scope {
             AuditScope::Global => self.client.events(),
-            AuditScope::Namespace(id) => self.client.namespace_events(id),
+            AuditScope::Collection(id) => self.client.collection_events(id),
             AuditScope::Class(id) => self.client.class_events(id),
             AuditScope::Object {
                 class_id,
@@ -251,7 +257,7 @@ impl HubuumGateway {
     fn resolve_history_scope(&self, scope: HistoryScope) -> Result<HistoryScope, AppError> {
         match scope {
             HistoryScope::ClassName(class_name) => Ok(HistoryScope::Class(
-                self.class_handle_by_name(&class_name)?.id(),
+                self.class_handle_by_name(&class_name)?.id().into(),
             )),
             HistoryScope::ObjectName {
                 class_name,
@@ -260,7 +266,7 @@ impl HubuumGateway {
                 let object = self.object_handle_by_name(&class_name, &object_name)?;
                 Ok(HistoryScope::Object {
                     class_id: object.resource().hubuum_class_id,
-                    object_id: object.id(),
+                    object_id: object.id().into(),
                 })
             }
             other => Ok(other),
@@ -275,7 +281,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
         let page = apply_query_paging(
-            self.client.event_sinks().find().filters(filters),
+            self.client.event_sinks().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -287,7 +293,7 @@ impl HubuumGateway {
         JsonRecord::from_serializable(
             self.client
                 .event_sinks()
-                .select_by_name(name)?
+                .get_by_name(name)?
                 .resource()
                 .clone(),
         )
@@ -304,20 +310,20 @@ impl HubuumGateway {
         name: &str,
         input: UpdateEventSink,
     ) -> Result<JsonRecord, AppError> {
-        let sink = self.client.event_sinks().select_by_name(name)?;
+        let sink = self.client.event_sinks().get_by_name(name)?;
         JsonRecord::from_serializable(self.client.event_sinks().update_raw(sink.id(), input)?)
             .map_err(AppError::from)
     }
 
     pub fn delete_event_sink_by_name(&self, name: &str) -> Result<(), AppError> {
-        let sink = self.client.event_sinks().select_by_name(name)?;
+        let sink = self.client.event_sinks().get_by_name(name)?;
         self.client.event_sinks().delete(sink.id())?;
         Ok(())
     }
 
     pub fn event_subscriptions(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         query: &ListQuery,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
@@ -325,7 +331,7 @@ impl HubuumGateway {
         let filters = self.resolve_event_filters(&validated)?;
         let page = apply_cursor_request_paging(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .query()
                 .filters(filters),
             query,
@@ -337,12 +343,12 @@ impl HubuumGateway {
 
     pub fn event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_id: i32,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .get(subscription_id)?,
         )
         .map_err(AppError::from)
@@ -350,21 +356,21 @@ impl HubuumGateway {
 
     pub fn event_subscription_by_name(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         name: &str,
     ) -> Result<JsonRecord, AppError> {
-        let subscription = self.event_subscription_id_by_name(namespace_id, name)?;
-        self.event_subscription(namespace_id, subscription)
+        let subscription = self.event_subscription_id_by_name(collection_id, name)?;
+        self.event_subscription(collection_id, subscription)
     }
 
     pub fn create_event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         input: NewEventSubscription,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .create(input)?,
         )
         .map_err(AppError::from)
@@ -372,15 +378,15 @@ impl HubuumGateway {
 
     pub fn update_event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_name: &str,
         input: UpdateEventSubscription,
     ) -> Result<JsonRecord, AppError> {
         let subscription_id =
-            self.event_subscription_id_by_name(namespace_id, subscription_name)?;
+            self.event_subscription_id_by_name(collection_id, subscription_name)?;
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .update(subscription_id, input)?,
         )
         .map_err(AppError::from)
@@ -388,35 +394,35 @@ impl HubuumGateway {
 
     pub fn delete_event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_id: i32,
     ) -> Result<(), AppError> {
         self.client
-            .event_subscriptions(namespace_id)
+            .event_subscriptions(collection_id)
             .delete(subscription_id)?;
         Ok(())
     }
 
     pub fn delete_event_subscription_by_name(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_name: &str,
     ) -> Result<(), AppError> {
         let subscription_id =
-            self.event_subscription_id_by_name(namespace_id, subscription_name)?;
-        self.delete_event_subscription(namespace_id, subscription_id)
+            self.event_subscription_id_by_name(collection_id, subscription_name)?;
+        self.delete_event_subscription(collection_id, subscription_id)
     }
 
     fn event_subscription_id_by_name(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         name: &str,
     ) -> Result<i32, AppError> {
         let page = self
             .client
-            .event_subscriptions(namespace_id)
+            .event_subscriptions(collection_id)
             .query()
-            .add_filter_equals("name", name)
+            .filter("name", FilterOperator::Equals { is_negated: false }, name)
             .limit(2)
             .page()?;
         match page.items.as_slice() {
@@ -495,8 +501,8 @@ fn apply_audit_input(
     if let Some(actor_user_id) = input.actor_user_id {
         request = request.actor_user_id(actor_user_id);
     }
-    if let Some(namespace_id) = input.namespace_id {
-        request = request.namespace_id(namespace_id);
+    if let Some(collection_id) = input.collection_id {
+        request = request.collection_id(collection_id);
     }
     if let Some(occurred_after) = &input.occurred_after {
         request = request.occurred_after(occurred_after);

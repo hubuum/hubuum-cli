@@ -1,13 +1,13 @@
-use crate::domain::ReportTemplateRecord;
+use crate::domain::ExportTemplateRecord;
 
 use super::{DetailRenderable, TableRenderable};
 
-impl DetailRenderable for ReportTemplateRecord {
+impl DetailRenderable for ExportTemplateRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
         vec![
             ("Name", self.name.clone()),
             ("Description", self.description.clone()),
-            ("Namespace", self.namespace.clone()),
+            ("Collection", self.collection.clone()),
             ("Content-Type", self.content_type.clone()),
             ("Template", self.template.clone()),
             ("Created", self.created_at.clone()),
@@ -16,13 +16,13 @@ impl DetailRenderable for ReportTemplateRecord {
     }
 }
 
-impl TableRenderable for ReportTemplateRecord {
+impl TableRenderable for ExportTemplateRecord {
     fn headers() -> Vec<&'static str> {
         vec![
             "id",
             "Name",
             "Description",
-            "Namespace",
+            "Collection",
             "Content-Type",
             "Created",
             "Updated",
@@ -34,7 +34,7 @@ impl TableRenderable for ReportTemplateRecord {
             self.id.to_string(),
             self.name.clone(),
             self.description.clone(),
-            self.namespace.clone(),
+            self.collection.clone(),
             self.content_type.clone(),
             self.created_at.clone(),
             self.updated_at.clone(),

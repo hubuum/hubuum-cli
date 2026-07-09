@@ -24,16 +24,9 @@ pub struct CompletionContext {
 
 #[derive(Clone, Default)]
 struct CompletionSnapshot {
-    groups: Option<Vec<String>>,
-    classes: Option<Vec<String>>,
-    namespaces: Option<Vec<String>>,
-    event_sinks: Option<Vec<String>>,
-    report_templates: Option<Vec<String>>,
-    users: Option<Vec<String>>,
-    service_accounts: Option<Vec<String>>,
-    remote_targets: Option<Vec<String>>,
+    simple_sources: HashMap<CompletionKind, Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
-    event_subscriptions_by_namespace: HashMap<String, Vec<String>>,
+    event_subscriptions_by_collection: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<serde_json::Value>>,
     task_ids: Option<Vec<CompletionItem>>,
     audit_event_ids: Option<Vec<String>>,
@@ -45,13 +38,13 @@ pub(crate) struct CompletionStore {
     snapshot: Arc<RwLock<CompletionSnapshot>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum CompletionKind {
     Groups,
     Classes,
-    Namespaces,
+    Collections,
     EventSinks,
-    ReportTemplates,
+    ExportTemplates,
     Users,
     ServiceAccounts,
     RemoteTargets,
@@ -70,16 +63,16 @@ impl CompletionContext {
         self.complete(prefix, CompletionKind::Classes)
     }
 
-    pub fn namespaces(&self, prefix: &str) -> Vec<String> {
-        self.complete(prefix, CompletionKind::Namespaces)
+    pub fn collections(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::Collections)
     }
 
     pub fn event_sinks(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::EventSinks)
     }
 
-    pub fn report_templates(&self, prefix: &str) -> Vec<String> {
-        self.complete(prefix, CompletionKind::ReportTemplates)
+    pub fn export_templates(&self, prefix: &str) -> Vec<String> {
+        self.complete(prefix, CompletionKind::ExportTemplates)
     }
 
     pub fn users(&self, prefix: &str) -> Vec<String> {
@@ -128,7 +121,7 @@ impl CompletionContext {
             .unwrap_or_default()
     }
 
-    pub fn event_subscriptions_from_namespace(
+    pub fn event_subscriptions_from_collection(
         &self,
         prefix: &str,
         parts: &[String],
@@ -137,7 +130,7 @@ impl CompletionContext {
             return Vec::new();
         }
 
-        let Some(namespace) = option_value(parts, "--namespace") else {
+        let Some(collection) = option_value(parts, "--collection") else {
             return Vec::new();
         };
 
@@ -145,7 +138,7 @@ impl CompletionContext {
             .block_on(
                 self.services
                     .completion_store()
-                    .load_event_subscriptions_for_namespace(self.services.gateway(), namespace),
+                    .load_event_subscriptions_for_collection(self.services.gateway(), collection),
             )
             .map(|values| filter_prefix(&values, prefix))
             .unwrap_or_default()
@@ -258,9 +251,9 @@ impl CompletionStore {
             match kind {
                 CompletionKind::Groups => gateway.list_group_names(),
                 CompletionKind::Classes => gateway.list_class_names(),
-                CompletionKind::Namespaces => gateway.list_namespace_names(),
+                CompletionKind::Collections => gateway.list_collection_names(),
                 CompletionKind::EventSinks => gateway.list_event_sink_names(),
-                CompletionKind::ReportTemplates => gateway.list_report_template_names(),
+                CompletionKind::ExportTemplates => gateway.list_export_template_names(),
                 CompletionKind::Users => gateway.list_user_names(),
                 CompletionKind::ServiceAccounts => gateway.list_service_account_names(),
                 CompletionKind::RemoteTargets => gateway.list_remote_target_names(),
@@ -270,20 +263,7 @@ impl CompletionStore {
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
         if let Ok(mut snapshot) = self.snapshot.write() {
-            match kind {
-                CompletionKind::Groups => snapshot.groups = Some(fetched.clone()),
-                CompletionKind::Classes => snapshot.classes = Some(fetched.clone()),
-                CompletionKind::Namespaces => snapshot.namespaces = Some(fetched.clone()),
-                CompletionKind::EventSinks => snapshot.event_sinks = Some(fetched.clone()),
-                CompletionKind::ReportTemplates => {
-                    snapshot.report_templates = Some(fetched.clone())
-                }
-                CompletionKind::Users => snapshot.users = Some(fetched.clone()),
-                CompletionKind::ServiceAccounts => {
-                    snapshot.service_accounts = Some(fetched.clone())
-                }
-                CompletionKind::RemoteTargets => snapshot.remote_targets = Some(fetched.clone()),
-            }
+            snapshot.simple_sources.insert(kind, fetched.clone());
         }
 
         Ok(fetched)
@@ -326,27 +306,27 @@ impl CompletionStore {
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
     }
 
-    async fn load_event_subscriptions_for_namespace(
+    async fn load_event_subscriptions_for_collection(
         &self,
         gateway: Arc<super::gateway::HubuumGateway>,
-        namespace: String,
+        collection: String,
     ) -> Result<Vec<String>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
-            if let Some(cached) = snapshot.event_subscriptions_by_namespace.get(&namespace) {
+            if let Some(cached) = snapshot.event_subscriptions_by_collection.get(&collection) {
                 return Ok(cached.clone());
             }
         }
 
-        let cache_key = namespace.clone();
+        let cache_key = collection.clone();
         let fetched = tokio::task::spawn_blocking(move || {
-            gateway.list_event_subscription_names_for_namespace(&namespace)
+            gateway.list_event_subscription_names_for_collection(&collection)
         })
         .await
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
         if let Ok(mut snapshot) = self.snapshot.write() {
             snapshot
-                .event_subscriptions_by_namespace
+                .event_subscriptions_by_collection
                 .insert(cache_key, fetched.clone());
         }
 
@@ -491,16 +471,7 @@ impl CompletionStore {
             return None;
         };
 
-        match kind {
-            CompletionKind::Groups => snapshot.groups.clone(),
-            CompletionKind::Classes => snapshot.classes.clone(),
-            CompletionKind::Namespaces => snapshot.namespaces.clone(),
-            CompletionKind::EventSinks => snapshot.event_sinks.clone(),
-            CompletionKind::ReportTemplates => snapshot.report_templates.clone(),
-            CompletionKind::Users => snapshot.users.clone(),
-            CompletionKind::ServiceAccounts => snapshot.service_accounts.clone(),
-            CompletionKind::RemoteTargets => snapshot.remote_targets.clone(),
-        }
+        snapshot.simple_sources.get(&kind).cloned()
     }
 }
 

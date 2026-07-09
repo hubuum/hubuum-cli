@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use hubuum_client::{
-    ReportContentType, ReportInclude, ReportIncludeRelatedObject, ReportLimits,
-    ReportMissingDataPolicy, ReportOutputRequest, ReportRelationContext, ReportRequest,
-    ReportScope, ReportScopeKind, ReportTemplateKind, ReportTemplatePatch, ReportTemplatePost,
+    ClassId, ExportContentType, ExportInclude, ExportIncludeRelatedObject, ExportLimits,
+    ExportMissingDataPolicy, ExportRelationContext, ExportRequest, ExportScope, ExportScopeKind,
+    ExportTemplateKind, ExportTemplatePatch, ExportTemplatePost, ExportTemplateRunRequest,
+    ObjectId, ResourceId,
 };
 
-use crate::domain::{ReportTemplateRecord, TaskRecord};
+use crate::domain::{ExportTemplateRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -18,25 +19,25 @@ use crate::list_query::{
 use super::{shared::find_entities_by_ids, HubuumGateway};
 
 #[derive(Debug, Clone)]
-pub struct CreateReportTemplateInput {
+pub struct CreateExportTemplateInput {
     pub name: String,
-    pub namespace: String,
+    pub collection: String,
     pub description: String,
     pub content_type: String,
     pub template: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct UpdateReportTemplateInput {
+pub struct UpdateExportTemplateInput {
     pub name: String,
     pub rename: Option<String>,
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     pub description: Option<String>,
     pub template: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct RunReportInput {
+pub struct RunExportInput {
     pub template: Option<String>,
     pub scope_kind: String,
     pub class_name: Option<String>,
@@ -49,7 +50,7 @@ pub struct RunReportInput {
     pub include_related: Vec<String>,
 }
 
-/// Parse a single --include-related spec into (key, ReportIncludeRelatedObject).
+/// Parse a single --include-related spec into (key, ExportIncludeRelatedObject).
 ///
 /// Format: `<key>:<class_name>[:<max_depth>]`
 /// - `<key>`: arbitrary string (map key for the related object set)
@@ -62,13 +63,13 @@ pub struct RunReportInput {
 fn parse_include_related_spec(
     gateway: &HubuumGateway,
     spec: &str,
-) -> Result<(String, ReportIncludeRelatedObject), AppError> {
+) -> Result<(String, ExportIncludeRelatedObject), AppError> {
     let (key, class_name, max_depth) = parse_include_related_spec_parts(spec)?;
-    let class_id = gateway.class_handle_by_name(&class_name)?.id();
+    let class_id = gateway.class_handle_by_name(&class_name)?.id().into();
 
     Ok((
         key,
-        ReportIncludeRelatedObject {
+        ExportIncludeRelatedObject {
             class_id,
             class_relation_id: None,
             direction: None,
@@ -119,29 +120,29 @@ fn parse_include_related_spec_parts(spec: &str) -> Result<(String, String, Optio
 }
 
 impl HubuumGateway {
-    pub fn list_report_template_names(&self) -> Result<Vec<String>, AppError> {
+    pub fn list_export_template_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
             .client
-            .templates()
-            .find()
-            .execute()?
+            .export_templates()
+            .query()
+            .list()?
             .into_iter()
             .map(|template| template.name)
             .collect())
     }
 
-    pub fn list_report_templates(
+    pub fn list_export_templates(
         &self,
         query: &ListQuery,
-    ) -> Result<PagedResult<ReportTemplateRecord>, AppError> {
-        let validated = validate_filter_clauses(&query.filters, REPORT_FILTER_SPECS)?;
-        let validated_sorts = validate_sort_clauses(&query.sorts, REPORT_SORT_SPECS)?;
+    ) -> Result<PagedResult<ExportTemplateRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, EXPORT_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, EXPORT_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
         let page = apply_query_paging(
-            self.client.templates().find().filters(filters),
+            self.client.export_templates().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -155,50 +156,51 @@ impl HubuumGateway {
             });
         }
 
-        let namespacemap =
-            find_entities_by_ids(&self.client.namespaces(), page.items.iter(), |template| {
-                template.namespace_id
+        let collectionmap =
+            find_entities_by_ids(&self.client.collections(), page.items.iter(), |template| {
+                template.collection_id
             })?;
 
         Ok(PagedResult::from_page(page, query.limit, |template| {
-            ReportTemplateRecord::new(&template, &namespacemap)
+            ExportTemplateRecord::new(&template, &collectionmap)
         }))
     }
 
-    pub fn report_template(&self, name: &str) -> Result<ReportTemplateRecord, AppError> {
-        let template = self.client.templates().select_by_name(name)?;
-        let namespace = self
+    pub fn export_template(&self, name: &str) -> Result<ExportTemplateRecord, AppError> {
+        let template = self.client.export_templates().get_by_name(name)?;
+        let collection = self
             .client
-            .namespaces()
-            .select(template.resource().namespace_id)?;
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
+            .collections()
+            .get(template.resource().collection_id)?;
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
 
-        Ok(ReportTemplateRecord::new(
+        Ok(ExportTemplateRecord::new(
             template.resource(),
-            &namespacemap,
+            &collectionmap,
         ))
     }
 
-    pub fn create_report_template(
+    pub fn create_export_template(
         &self,
-        input: CreateReportTemplateInput,
-    ) -> Result<ReportTemplateRecord, AppError> {
-        let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
-        let content_type = ReportContentType::from_str(&input.content_type).map_err(|_| {
+        input: CreateExportTemplateInput,
+    ) -> Result<ExportTemplateRecord, AppError> {
+        let collection = self.client.collections().get_by_name(&input.collection)?;
+        let content_type = ExportContentType::from_str(&input.content_type).map_err(|_| {
             AppError::ParseError(format!("Invalid content type: {}", input.content_type))
         })?;
 
         let template = self
             .client
-            .templates()
+            .export_templates()
             .create()
-            .params(ReportTemplatePost {
-                namespace_id: namespace.id(),
+            .params(ExportTemplatePost {
+                collection_id: collection.id().into(),
                 name: input.name,
                 description: input.description,
                 content_type,
                 template: input.template,
-                kind: ReportTemplateKind::Report,
+                kind: ExportTemplateKind::Export,
                 scope_kind: None,
                 class_id: None,
                 default_query: None,
@@ -209,26 +211,33 @@ impl HubuumGateway {
             })
             .send()?;
 
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
-        Ok(ReportTemplateRecord::new(&template, &namespacemap))
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        Ok(ExportTemplateRecord::new(&template, &collectionmap))
     }
 
-    pub fn update_report_template(
+    pub fn update_export_template(
         &self,
-        input: UpdateReportTemplateInput,
-    ) -> Result<ReportTemplateRecord, AppError> {
-        let template = self.client.templates().select_by_name(&input.name)?;
-        let namespace_id = match input.namespace {
-            Some(namespace) => Some(self.client.namespaces().select_by_name(&namespace)?.id()),
+        input: UpdateExportTemplateInput,
+    ) -> Result<ExportTemplateRecord, AppError> {
+        let template = self.client.export_templates().get_by_name(&input.name)?;
+        let collection_id: Option<i32> = match input.collection {
+            Some(collection) => Some(
+                self.client
+                    .collections()
+                    .get_by_name(&collection)?
+                    .id()
+                    .into(),
+            ),
             None => None,
         };
 
         let updated = self
             .client
-            .templates()
+            .export_templates()
             .update(template.id())
-            .params(ReportTemplatePatch {
-                namespace_id,
+            .params(ExportTemplatePatch {
+                collection_id,
                 name: input.rename,
                 description: input.description,
                 template: input.template,
@@ -243,30 +252,31 @@ impl HubuumGateway {
             })
             .send()?;
 
-        let namespace = self.client.namespaces().select(updated.namespace_id)?;
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
-        Ok(ReportTemplateRecord::new(&updated, &namespacemap))
+        let collection = self.client.collections().get(updated.collection_id)?;
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        Ok(ExportTemplateRecord::new(&updated, &collectionmap))
     }
 
-    pub fn delete_report_template(&self, name: &str) -> Result<(), AppError> {
-        let template = self.client.templates().select_by_name(name)?;
-        self.client.templates().delete(template.id())?;
+    pub fn delete_export_template(&self, name: &str) -> Result<(), AppError> {
+        let template = self.client.export_templates().get_by_name(name)?;
+        self.client.export_templates().delete(template.id())?;
         Ok(())
     }
 
-    fn build_report_request(&self, input: RunReportInput) -> Result<ReportRequest, AppError> {
-        let scope_kind = ReportScopeKind::from_str(&input.scope_kind).map_err(|_| {
-            AppError::ParseError(format!("Invalid report scope: {}", input.scope_kind))
+    fn build_export_request(&self, input: &RunExportInput) -> Result<ExportRequest, AppError> {
+        let scope_kind = ExportScopeKind::from_str(&input.scope_kind).map_err(|_| {
+            AppError::ParseError(format!("Invalid export scope: {}", input.scope_kind))
         })?;
 
         let class_id = match &input.class_name {
-            Some(name) => Some(self.client.classes().select_by_name(name)?.id()),
+            Some(name) => Some(self.client.classes().get_by_name(name)?.id()),
             None => None,
         };
 
         let object_id = match (&input.class_name, &input.object_name) {
             (Some(class_name), Some(object_name)) => {
-                let class = self.client.classes().select_by_name(class_name)?;
+                let class = self.client.classes().get_by_name(class_name)?;
                 Some(class.object_by_name(object_name)?.id())
             }
             (None, Some(_)) => {
@@ -275,17 +285,10 @@ impl HubuumGateway {
             _ => None,
         };
 
-        validate_report_scope(&scope_kind, class_id, object_id)?;
+        validate_export_scope(&scope_kind, class_id, object_id)?;
 
-        let template_id = match input.template {
-            Some(template_name) => {
-                Some(self.client.templates().select_by_name(&template_name)?.id())
-            }
-            None => None,
-        };
-
-        let missing_data_policy = match input.missing_data_policy {
-            Some(policy) => Some(ReportMissingDataPolicy::from_str(&policy).map_err(|_| {
+        let missing_data_policy = match &input.missing_data_policy {
+            Some(policy) => Some(ExportMissingDataPolicy::from_str(policy).map_err(|_| {
                 AppError::ParseError(format!("Invalid missing data policy: {policy}"))
             })?),
             None => None,
@@ -293,7 +296,7 @@ impl HubuumGateway {
 
         let relation_context = input
             .relation_depth
-            .map(|depth| ReportRelationContext { depth: Some(depth) });
+            .map(|depth| ExportRelationContext { depth: Some(depth) });
 
         let include = if !input.include_related.is_empty() {
             let mut related_objects = HashMap::new();
@@ -301,16 +304,16 @@ impl HubuumGateway {
                 let (key, obj) = parse_include_related_spec(self, spec)?;
                 related_objects.insert(key, obj);
             }
-            Some(ReportInclude {
+            Some(ExportInclude {
                 related_objects: Some(related_objects),
             })
         } else {
             None
         };
 
-        Ok(ReportRequest {
+        Ok(ExportRequest {
             limits: if input.max_items.is_some() || input.max_output_bytes.is_some() {
-                Some(ReportLimits {
+                Some(ExportLimits {
                     max_items: input.max_items,
                     max_output_bytes: input.max_output_bytes,
                 })
@@ -318,27 +321,63 @@ impl HubuumGateway {
                 None
             },
             missing_data_policy,
-            output: template_id.map(|template_id| ReportOutputRequest {
-                template_id: Some(template_id),
-            }),
-            query: input.query,
-            scope: ReportScope {
-                class_id,
+            query: input.query.clone(),
+            scope: ExportScope {
+                class_id: class_id.map(ResourceId::get),
                 kind: scope_kind,
-                object_id,
+                object_id: object_id.map(ResourceId::get),
             },
             include,
             relation_context,
         })
     }
 
-    pub fn submit_report(&self, input: RunReportInput) -> Result<TaskRecord, AppError> {
-        let request = self.build_report_request(input)?;
-        Ok(TaskRecord(self.client.reports().submit(request).send()?))
+    pub fn submit_export(&self, input: RunExportInput) -> Result<TaskRecord, AppError> {
+        if let Some(template_name) = &input.template {
+            let template = self.client.export_templates().get_by_name(template_name)?;
+            let class = match &input.class_name {
+                Some(class_name) => Some(self.client.classes().get_by_name(class_name)?),
+                None => None,
+            };
+            let object_id = match (&class, &input.object_name) {
+                (Some(class), Some(object_name)) => Some(class.object_by_name(object_name)?.id()),
+                (None, Some(_)) => return Err(AppError::MissingOptions(vec!["class".to_string()])),
+                _ => None,
+            };
+            let missing_data_policy = match &input.missing_data_policy {
+                Some(policy) => Some(ExportMissingDataPolicy::from_str(policy).map_err(|_| {
+                    AppError::ParseError(format!("Invalid missing data policy: {policy}"))
+                })?),
+                None => None,
+            };
+            let limits = if input.max_items.is_some() || input.max_output_bytes.is_some() {
+                Some(ExportLimits {
+                    max_items: input.max_items,
+                    max_output_bytes: input.max_output_bytes,
+                })
+            } else {
+                None
+            };
+            let request = ExportTemplateRunRequest {
+                query: input.query,
+                object_id: object_id.map(ResourceId::get),
+                missing_data_policy,
+                limits,
+            };
+            return Ok(TaskRecord(
+                self.client
+                    .export_templates()
+                    .submit_export(template.id(), request)
+                    .send()?,
+            ));
+        }
+
+        let request = self.build_export_request(&input)?;
+        Ok(TaskRecord(self.client.exports().submit(request).send()?))
     }
 }
 
-pub(crate) const REPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
+pub(crate) const EXPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
     FilterFieldSpec::new(
         "id",
         "id",
@@ -358,12 +397,12 @@ pub(crate) const REPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace",
-        "namespace_id",
+        "collection",
+        "collection_id",
         FilterOperatorProfile::EqualityOnly,
         FilterValueProfile::String,
     )
-    .resolver(FilterValueResolver::NamespaceNameToId),
+    .resolver(FilterValueResolver::CollectionNameToId),
     FilterFieldSpec::new(
         "content_type",
         "content_type",
@@ -384,43 +423,43 @@ pub(crate) const REPORT_FILTER_SPECS: &[FilterFieldSpec] = &[
     ),
 ];
 
-pub(crate) const REPORT_SORT_SPECS: &[SortFieldSpec] = &[
+pub(crate) const EXPORT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),
-    SortFieldSpec::new("namespace", "namespace_id"),
+    SortFieldSpec::new("collection", "collection_id"),
     SortFieldSpec::new("content_type", "content_type"),
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
 
-fn validate_report_scope(
-    scope_kind: &ReportScopeKind,
-    class_id: Option<i32>,
-    object_id: Option<i32>,
+fn validate_export_scope(
+    scope_kind: &ExportScopeKind,
+    class_id: Option<ClassId>,
+    object_id: Option<ObjectId>,
 ) -> Result<(), AppError> {
     match scope_kind {
-        ReportScopeKind::Namespaces => {
+        ExportScopeKind::Collections => {
             if class_id.is_some() || object_id.is_some() {
                 return Err(AppError::ParseError(
-                    "namespace reports do not take class or object".to_string(),
+                    "collection exports do not take class or object".to_string(),
                 ));
             }
         }
-        ReportScopeKind::Classes
-        | ReportScopeKind::ObjectsInClass
-        | ReportScopeKind::ClassRelations
-        | ReportScopeKind::ObjectRelations => {
+        ExportScopeKind::Classes
+        | ExportScopeKind::ObjectsInClass
+        | ExportScopeKind::ClassRelations
+        | ExportScopeKind::ObjectRelations => {
             if class_id.is_none() {
                 return Err(AppError::MissingOptions(vec!["class".to_string()]));
             }
             if object_id.is_some() {
                 return Err(AppError::ParseError(
-                    "this report scope does not take an object".to_string(),
+                    "this export scope does not take an object".to_string(),
                 ));
             }
         }
-        ReportScopeKind::RelatedObjects => {
+        ExportScopeKind::RelatedObjects => {
             if class_id.is_none() {
                 return Err(AppError::MissingOptions(vec!["class".to_string()]));
             }

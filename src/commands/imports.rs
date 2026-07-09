@@ -1,14 +1,14 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
-    ClassKey, ImportAtomicity, ImportCollisionPolicy, ImportMode, ImportPermissionPolicy,
-    ImportRequest, NamespaceKey,
+    ClassKey, CollectionKey, ImportAtomicity, ImportCollisionPolicy, ImportMode,
+    ImportPermissionPolicy, ImportRequest,
 };
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{build_list_query, option_or_pos, render_list_page, render_task_record, CliCommand};
-use crate::autocomplete::{file_paths, import_result_sort, namespaces};
+use crate::autocomplete::{collections, file_paths, import_result_sort};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::services::CompletionContext;
@@ -25,9 +25,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Submit an import request"),
                     long_about: Some(
-                        "Submit an import request from a local JSON file or HTTP(S) URL. CLI policy flags override the request mode. --namespace rewrites the import to reuse an existing namespace and removes namespace creation/permission entries.",
+                        "Submit an import request from a local JSON file or HTTP(S) URL. CLI policy flags override the request mode. --collection rewrites the import to reuse an existing collection and removes collection creation/permission entries.",
                     ),
-                    examples: Some("--file import.json --namespace Math --collision-policy overwrite\n--http https://example.com/import.json --atomicity best_effort"),
+                    examples: Some("--file import.json --collection Math --collision-policy overwrite\n--http https://example.com/import.json --atomicity best_effort"),
                 },
             ),
         )
@@ -72,11 +72,11 @@ pub struct ImportSubmit {
     pub http: Option<String>,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Existing namespace to reuse for all import namespace references",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Existing collection to reuse for all import collection references",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(
         long = "atomicity",
         help = "Import atomicity: strict or best_effort",
@@ -113,8 +113,8 @@ impl CliCommand for ImportSubmit {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let opts = parse_task_submit_options(tokens)?;
-        if let Some(namespace) = &query.namespace {
-            services.gateway().get_namespace(namespace)?;
+        if let Some(collection) = &query.collection {
+            services.gateway().get_collection(collection)?;
         }
         let request = import_request(&query)?;
         let task = services.gateway().submit_import(SubmitImportInput {
@@ -145,8 +145,8 @@ fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
     }?;
     let mut request = serde_json::from_str::<ImportRequest>(&body)?;
     apply_mode_overrides(&mut request, query);
-    if let Some(namespace) = &query.namespace {
-        apply_existing_namespace_override(&mut request, namespace);
+    if let Some(collection) = &query.collection {
+        apply_existing_collection_override(&mut request, collection);
     }
     Ok(request)
 }
@@ -176,18 +176,19 @@ fn apply_mode_overrides(request: &mut ImportRequest, query: &ImportSubmit) {
     }
 }
 
-fn apply_existing_namespace_override(request: &mut ImportRequest, namespace: &str) {
-    let namespace_key = NamespaceKey {
-        name: namespace.to_string(),
+fn apply_existing_collection_override(request: &mut ImportRequest, collection: &str) {
+    let collection_key = CollectionKey {
+        name: collection.to_string(),
+        path: None,
     };
 
     for class in &mut request.graph.classes {
-        class.namespace_ref = None;
-        class.namespace_key = Some(namespace_key.clone());
+        class.collection_ref = None;
+        class.collection_key = Some(collection_key.clone());
     }
     for object in &mut request.graph.objects {
         if let Some(class_key) = &mut object.class_key {
-            rewrite_class_key_namespace(class_key, namespace_key.clone());
+            rewrite_class_key_collection(class_key, collection_key.clone());
         }
     }
     for relation in &mut request.graph.class_relations {
@@ -195,7 +196,7 @@ fn apply_existing_namespace_override(request: &mut ImportRequest, namespace: &st
             .into_iter()
             .flatten()
         {
-            rewrite_class_key_namespace(class_key, namespace_key.clone());
+            rewrite_class_key_collection(class_key, collection_key.clone());
         }
     }
     for relation in &mut request.graph.object_relations {
@@ -204,17 +205,17 @@ fn apply_existing_namespace_override(request: &mut ImportRequest, namespace: &st
             .flatten()
         {
             if let Some(class_key) = &mut object_key.class_key {
-                rewrite_class_key_namespace(class_key, namespace_key.clone());
+                rewrite_class_key_collection(class_key, collection_key.clone());
             }
         }
     }
-    request.graph.namespaces.clear();
-    request.graph.namespace_permissions.clear();
+    request.graph.collections.clear();
+    request.graph.collection_permissions.clear();
 }
 
-fn rewrite_class_key_namespace(class_key: &mut ClassKey, namespace_key: NamespaceKey) {
-    class_key.namespace_ref = None;
-    class_key.namespace_key = Some(namespace_key);
+fn rewrite_class_key_collection(class_key: &mut ClassKey, collection_key: CollectionKey) {
+    class_key.collection_ref = None;
+    class_key.collection_key = Some(collection_key);
 }
 
 fn import_atomicity(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -356,16 +357,16 @@ mod tests {
     }
 
     #[test]
-    fn import_submit_parses_policy_and_namespace_options() {
+    fn import_submit_parses_policy_and_collection_options() {
         let tokens = CommandTokenizer::new(
-            "import submit --file payload.json --namespace Math --atomicity best_effort --collision-policy overwrite --permission-policy continue",
+            "import submit --file payload.json --collection Math --atomicity best_effort --collision-policy overwrite --permission-policy continue",
             "submit",
             &command_options::<ImportSubmit>(),
         )
         .expect("tokens should parse");
 
         let query = ImportSubmit::parse_tokens(&tokens).expect("query should parse");
-        assert_eq!(query.namespace.as_deref(), Some("Math"));
+        assert_eq!(query.collection.as_deref(), Some("Math"));
         assert_eq!(query.atomicity, Some(ImportAtomicity::BestEffort));
         assert_eq!(
             query.collision_policy,
@@ -401,13 +402,13 @@ mod tests {
     }
 
     #[test]
-    fn import_request_rewrites_to_existing_namespace_override() {
+    fn import_request_rewrites_to_existing_collection_override() {
         let body = r#"{
             "version": 1,
             "dry_run": null,
             "mode": null,
             "graph": {
-                "namespaces": [
+                "collections": [
                     {
                         "ref": "ns:math",
                         "name": "Math",
@@ -421,8 +422,8 @@ mod tests {
                         "description": "Hosts",
                         "json_schema": null,
                         "validate_schema": null,
-                        "namespace_ref": "ns:math",
-                        "namespace_key": null
+                        "collection_ref": "ns:math",
+                        "collection_key": null
                     }
                 ],
                 "objects": [
@@ -434,16 +435,16 @@ mod tests {
                         "class_ref": null,
                         "class_key": {
                             "name": "Hosts",
-                            "namespace_ref": "ns:math",
-                            "namespace_key": null
+                            "collection_ref": "ns:math",
+                            "collection_key": null
                         }
                     }
                 ],
-                "namespace_permissions": [
+                "collection_permissions": [
                     {
                         "ref": null,
-                        "namespace_ref": "ns:math",
-                        "namespace_key": null,
+                        "collection_ref": "ns:math",
+                        "collection_key": null,
                         "group_key": { "groupname": "admins" },
                         "permissions": [],
                         "replace_existing": false
@@ -453,17 +454,17 @@ mod tests {
         }"#;
         let query = ImportSubmit {
             http: Some(body.to_string()),
-            namespace: Some("Math".to_string()),
+            collection: Some("Math".to_string()),
             ..ImportSubmit::default()
         };
 
         let request = import_request(&query).expect("request should parse");
-        assert!(request.graph.namespaces.is_empty());
-        assert!(request.graph.namespace_permissions.is_empty());
-        assert_eq!(request.graph.classes[0].namespace_ref, None);
+        assert!(request.graph.collections.is_empty());
+        assert!(request.graph.collection_permissions.is_empty());
+        assert_eq!(request.graph.classes[0].collection_ref, None);
         assert_eq!(
             request.graph.classes[0]
-                .namespace_key
+                .collection_key
                 .as_ref()
                 .map(|key| key.name.as_str()),
             Some("Math")
@@ -472,14 +473,14 @@ mod tests {
             request.graph.objects[0]
                 .class_key
                 .as_ref()
-                .and_then(|key| key.namespace_ref.as_ref()),
+                .and_then(|key| key.collection_ref.as_ref()),
             None
         );
         assert_eq!(
             request.graph.objects[0]
                 .class_key
                 .as_ref()
-                .and_then(|key| key.namespace_key.as_ref())
+                .and_then(|key| key.collection_key.as_ref())
                 .map(|key| key.name.as_str()),
             Some("Math")
         );

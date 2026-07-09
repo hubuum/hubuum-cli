@@ -1,8 +1,8 @@
-use hubuum_client::{NamespacePatch, NamespacePost};
+use hubuum_client::{CollectionPatch, CollectionPost};
 
 use crate::domain::{
-    GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
-    NamespaceRecord,
+    CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
+    GroupPermissionsSummary,
 };
 use crate::errors::AppError;
 use crate::list_query::{
@@ -13,57 +13,58 @@ use crate::list_query::{
 use super::HubuumGateway;
 
 #[derive(Debug, Clone)]
-pub struct CreateNamespaceInput {
+pub struct CreateCollectionInput {
     pub name: String,
     pub description: String,
     pub owner: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct NamespaceUpdateInput {
+pub struct CollectionUpdateInput {
     pub name: String,
     pub rename: Option<String>,
     pub description: Option<String>,
 }
 
 impl HubuumGateway {
-    pub fn list_namespace_names(&self) -> Result<Vec<String>, AppError> {
+    pub fn list_collection_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
             .client
-            .namespaces()
-            .find()
-            .execute()?
+            .collections()
+            .query()
+            .list()?
             .into_iter()
-            .map(|namespace| namespace.name)
+            .map(|collection| collection.name)
             .collect())
     }
 
-    pub fn create_namespace(
+    pub fn create_collection(
         &self,
-        input: CreateNamespaceInput,
-    ) -> Result<NamespaceRecord, AppError> {
-        let group = self.client.groups().select_by_name(&input.owner)?;
-        let namespace = self.client.namespaces().create_raw(NamespacePost {
+        input: CreateCollectionInput,
+    ) -> Result<CollectionRecord, AppError> {
+        let group = self.client.groups().get_by_name(&input.owner)?;
+        let collection = self.client.collections().create_raw(CollectionPost {
             name: input.name,
             description: input.description,
-            group_id: group.id(),
+            group_id: group.id().into(),
+            parent_collection_id: None,
         })?;
-        Ok(NamespaceRecord::from(namespace))
+        Ok(CollectionRecord::from(collection))
     }
 
-    pub fn list_namespaces(
+    pub fn list_collections(
         &self,
         query: &ListQuery,
-    ) -> Result<PagedResult<NamespaceRecord>, AppError> {
-        let validated = validate_filter_clauses(&query.filters, NAMESPACE_FILTER_SPECS)?;
-        let validated_sorts = validate_sort_clauses(&query.sorts, NAMESPACE_SORT_SPECS)?;
+    ) -> Result<PagedResult<CollectionRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, COLLECTION_FILTER_SPECS)?;
+        let validated_sorts = validate_sort_clauses(&query.sorts, COLLECTION_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = apply_query_paging(
-            self.client.namespaces().find().filters(filters),
+            self.client.collections().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -71,46 +72,42 @@ impl HubuumGateway {
         Ok(PagedResult::from_page(
             page,
             query.limit,
-            NamespaceRecord::from,
+            CollectionRecord::from,
         ))
     }
 
-    pub fn get_namespace(&self, name: &str) -> Result<NamespaceRecord, AppError> {
-        let namespace = self.client.namespaces().select_by_name(name)?;
-        Ok(NamespaceRecord::from(namespace.resource()))
+    pub fn get_collection(&self, name: &str) -> Result<CollectionRecord, AppError> {
+        let collection = self.client.collections().get_by_name(name)?;
+        Ok(CollectionRecord::from(collection.resource()))
     }
 
-    pub fn delete_namespace(&self, name: &str) -> Result<(), AppError> {
-        let namespace = self.client.namespaces().select_by_name(name)?;
-        self.client.namespaces().delete(namespace.id())?;
+    pub fn delete_collection(&self, name: &str) -> Result<(), AppError> {
+        let collection = self.client.collections().get_by_name(name)?;
+        self.client.collections().delete(collection.id())?;
         Ok(())
     }
 
-    pub fn update_namespace(
+    pub fn update_collection(
         &self,
-        input: NamespaceUpdateInput,
-    ) -> Result<NamespaceRecord, AppError> {
-        let namespace = self.client.namespaces().select_by_name(&input.name)?;
-        let updated = self.client.namespaces().update_raw(
-            namespace.id(),
-            NamespacePatch {
+        input: CollectionUpdateInput,
+    ) -> Result<CollectionRecord, AppError> {
+        let collection = self.client.collections().get_by_name(&input.name)?;
+        let updated = self.client.collections().update_raw(
+            collection.id(),
+            CollectionPatch {
                 name: input.rename,
                 description: input.description,
             },
         )?;
 
-        Ok(NamespaceRecord::from(updated))
+        Ok(CollectionRecord::from(updated))
     }
 
-    pub fn list_namespace_permissions(
+    pub fn list_collection_permissions(
         &self,
         name: &str,
-    ) -> Result<NamespacePermissionsView, AppError> {
-        let permissions = self
-            .client
-            .namespaces()
-            .select_by_name(name)?
-            .permissions()?;
+    ) -> Result<CollectionPermissionsView, AppError> {
+        let permissions = self.client.collections().get_by_name(name)?.permissions()?;
         let entries = permissions
             .iter()
             .cloned()
@@ -121,19 +118,19 @@ impl HubuumGateway {
             .map(GroupPermissionsSummary::from)
             .collect::<Vec<_>>();
 
-        Ok(NamespacePermissionsView { entries, summary })
+        Ok(CollectionPermissionsView { entries, summary })
     }
 
-    pub fn grant_namespace_permissions(
+    pub fn grant_collection_permissions(
         &self,
-        namespace_name: &str,
+        collection_name: &str,
         group_name: &str,
-        permissions: &[NamespacePermission],
+        permissions: &[CollectionPermission],
     ) -> Result<(), AppError> {
-        let namespace = self.client.namespaces().select_by_name(namespace_name)?;
-        let group = self.client.groups().select_by_name(group_name)?;
-        namespace.grant_permissions(
-            group.id(),
+        let collection = self.client.collections().get_by_name(collection_name)?;
+        let group = self.client.groups().get_by_name(group_name)?;
+        collection.grant_permissions(
+            group.id().into(),
             permissions
                 .iter()
                 .map(|permission| permission.api_name())
@@ -142,13 +139,13 @@ impl HubuumGateway {
         Ok(())
     }
 
-    pub fn principal_namespace_permissions(
+    pub fn principal_collection_permissions(
         &self,
-        namespace: &str,
+        collection: &str,
         principal_id: i32,
     ) -> Result<Vec<GroupPermissionsRecord>, AppError> {
-        let ns = self.client.namespaces().select_by_name(namespace)?;
-        Ok(ns
+        let collection = self.client.collections().get_by_name(collection)?;
+        Ok(collection
             .principal_permissions(principal_id)?
             .into_iter()
             .map(GroupPermissionsRecord::from)
@@ -156,7 +153,7 @@ impl HubuumGateway {
     }
 }
 
-pub(crate) const NAMESPACE_FILTER_SPECS: &[FilterFieldSpec] = &[
+pub(crate) const COLLECTION_FILTER_SPECS: &[FilterFieldSpec] = &[
     FilterFieldSpec::new(
         "id",
         "id",
@@ -189,7 +186,7 @@ pub(crate) const NAMESPACE_FILTER_SPECS: &[FilterFieldSpec] = &[
     ),
 ];
 
-pub(crate) const NAMESPACE_SORT_SPECS: &[SortFieldSpec] = &[
+pub(crate) const COLLECTION_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),

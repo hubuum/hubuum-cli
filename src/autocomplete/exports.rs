@@ -1,16 +1,16 @@
 use crate::services::CompletionContext;
 
-pub fn report_templates(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    ctx.report_templates(prefix)
+pub fn export_templates(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    ctx.export_templates(prefix)
 }
 
-pub fn report_scope_kinds(
+pub fn export_scope_kinds(
     _ctx: &CompletionContext,
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
     [
-        "namespaces",
+        "collections",
         "classes",
         "objects_in_class",
         "class_relations",
@@ -23,7 +23,7 @@ pub fn report_scope_kinds(
     .collect()
 }
 
-pub fn report_missing_data_policies(
+pub fn export_missing_data_policies(
     _ctx: &CompletionContext,
     prefix: &str,
     _parts: &[String],

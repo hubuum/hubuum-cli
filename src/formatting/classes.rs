@@ -10,7 +10,7 @@ impl DetailRenderable for ClassRecord {
         vec![
             ("Name", class.name.clone()),
             ("Description", class.description.clone()),
-            ("Namespace", class.namespace.name.clone()),
+            ("Collection", class.collection.name.clone()),
             ("Schema", schema),
             (
                 "Validate",
@@ -30,7 +30,7 @@ impl TableRenderable for ClassRecord {
             "id",
             "Name",
             "Description",
-            "Namespace",
+            "Collection",
             "Schema",
             "Validate",
             "Created",
@@ -44,7 +44,7 @@ impl TableRenderable for ClassRecord {
             class.id.to_string(),
             class.name.clone(),
             class.description.clone(),
-            class.namespace.name.clone(),
+            class.collection.name.clone(),
             schema_label(class.json_schema.as_ref()),
             class
                 .validate_schema

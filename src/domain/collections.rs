@@ -1,18 +1,18 @@
-use hubuum_client::{GroupPermissionsResult, Namespace};
+use hubuum_client::{Collection, GroupPermissionsResult};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter};
 
-transparent_record!(NamespaceRecord, Namespace);
+transparent_record!(CollectionRecord, Collection);
 transparent_record!(GroupPermissionsRecord, GroupPermissionsResult);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NamespacePermissionsView {
+pub struct CollectionPermissionsView {
     pub entries: Vec<GroupPermissionsRecord>,
     pub summary: Vec<GroupPermissionsSummary>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, EnumIter, Display)]
-pub enum NamespacePermission {
+pub enum CollectionPermission {
     ReadCollection,
     UpdateCollection,
     DeleteCollection,
@@ -44,7 +44,7 @@ pub enum NamespacePermission {
     ExecuteRemoteTarget,
 }
 
-impl NamespacePermission {
+impl CollectionPermission {
     pub fn api_name(self) -> String {
         self.to_string()
     }
@@ -53,7 +53,7 @@ impl NamespacePermission {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupPermissionsSummary {
     pub group: String,
-    pub namespace: String,
+    pub collection: String,
     pub class: String,
     pub object: String,
     pub class_relation: String,
@@ -75,11 +75,11 @@ impl From<GroupPermissionsResult> for GroupPermissionsSummary {
         let permission = value.permission;
         Self {
             group: value.group.groupname,
-            namespace: enabled(&[
-                ("read", permission.has_read_namespace),
-                ("update", permission.has_update_namespace),
-                ("delete", permission.has_delete_namespace),
-                ("delegate", permission.has_delegate_namespace),
+            collection: enabled(&[
+                ("read", permission.has_read_collection),
+                ("update", permission.has_update_collection),
+                ("delete", permission.has_delete_collection),
+                ("delegate", permission.has_delegate_collection),
             ]),
             class: enabled(&[
                 ("create", permission.has_create_class),

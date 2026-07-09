@@ -550,8 +550,8 @@ mod tests {
                 events: format!("/api/v1/tasks/{task_id}/events"),
                 import_url: Some(format!("/api/v1/imports/{task_id}")),
                 import_results: Some(format!("/api/v1/imports/{task_id}/results")),
-                report: None,
-                report_output: None,
+                export: None,
+                export_output: None,
             },
             details: None,
         })

@@ -2,9 +2,11 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, option_or_pos, render_list_page, CliCommand};
+use super::{
+    desired_format, option_or_pos, render_json_record, render_list_page, required_i64, CliCommand,
+};
 use crate::autocomplete::{
-    audit_event_ids, audit_resource_names, audit_resources, classes, event_actions, namespaces,
+    audit_event_ids, audit_resource_names, audit_resources, classes, collections, event_actions,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -49,9 +51,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Show audit events for a resource"),
                     long_about: Some(
-                        "Lists audit events scoped to a resource such as a namespace, class, object, user, group, template, or remote target.",
+                        "Lists audit events scoped to a resource such as a collection, class, object, user, group, template, or remote target.",
                     ),
-                    examples: Some("--resource namespace --name Math\n--resource object --class Hosts --name adlet.uio.no"),
+                    examples: Some("--resource collection --name Math\n--resource object --class Hosts --name adlet.uio.no"),
                 },
             ),
         );
@@ -70,11 +72,11 @@ pub struct AuditList {
     #[option(long = "actor-user", help = "Actor user name")]
     pub actor_user: Option<String>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(long = "occurred-after", help = "Lower occurred_at bound")]
     pub occurred_after: Option<String>,
     #[option(long = "occurred-before", help = "Upper occurred_at bound")]
@@ -98,10 +100,10 @@ impl CliCommand for AuditList {
                 .as_deref()
                 .map(|name| services.gateway().user_id_by_name(name))
                 .transpose()?,
-            namespace_id: query
-                .namespace
+            collection_id: query
+                .collection
                 .as_deref()
-                .map(|name| services.gateway().namespace_id_by_name(name))
+                .map(|name| services.gateway().collection_id_by_name(name))
                 .transpose()?,
             occurred_after: query.occurred_after,
             occurred_before: query.occurred_before,
@@ -127,12 +129,7 @@ impl CliCommand for AuditShow {
         let event = services
             .gateway()
             .audit_event_by_id(required_i64(query.id, "id")?)?;
-
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&event)?)?,
-            OutputFormat::Text => event.format_noreturn()?,
-        }
-        Ok(())
+        render_json_record(tokens, &event)
     }
 }
 
@@ -140,7 +137,7 @@ impl CliCommand for AuditShow {
 pub struct AuditResource {
     #[option(
         long = "resource",
-        help = "Resource: namespace,class,object,user,group,template,remote-target",
+        help = "Resource: collection,class,object,user,group,template,remote-target",
         autocomplete = "audit_resources"
     )]
     pub resource: String,
@@ -163,11 +160,11 @@ pub struct AuditResource {
     )]
     pub action: Option<String>,
     #[option(
-        long = "namespace",
-        help = "Namespace name filter",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name filter",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(long = "limit", help = "Maximum number of results")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -occurred_at")]
@@ -188,10 +185,10 @@ impl CliCommand for AuditResource {
             scope,
             AuditListInput {
                 action: query.action,
-                namespace_id: query
-                    .namespace
+                collection_id: query
+                    .collection
                     .as_deref()
-                    .map(|name| services.gateway().namespace_id_by_name(name))
+                    .map(|name| services.gateway().collection_id_by_name(name))
                     .transpose()?,
                 limit: query.limit,
                 sort: query.sort,
@@ -206,8 +203,4 @@ impl CliCommand for AuditResource {
         }
         Ok(())
     }
-}
-
-fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
-    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
 }

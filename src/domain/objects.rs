@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hubuum_client::{Class, Namespace, Object};
+use hubuum_client::{Class, Collection, Object};
 use serde::{Deserialize, Serialize};
 
 use super::RelatedObjectTreeNode;
@@ -12,7 +12,7 @@ pub struct ResolvedObjectRecord {
     pub id: i32,
     pub name: String,
     pub description: String,
-    pub namespace: String,
+    pub collection: String,
     pub class: String,
     pub data: Option<serde_json::Value>,
     pub created_at: String,
@@ -23,11 +23,11 @@ impl ResolvedObjectRecord {
     pub fn new(
         object: &Object,
         classmap: &HashMap<i32, Class>,
-        namespacemap: &HashMap<i32, Namespace>,
+        collectionmap: &HashMap<i32, Collection>,
     ) -> Self {
-        let namespace = namespacemap
-            .get(&object.namespace_id)
-            .map(|namespace| namespace.name.clone())
+        let collection = collectionmap
+            .get(&object.collection_id)
+            .map(|collection| collection.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 
         let class = classmap
@@ -36,10 +36,10 @@ impl ResolvedObjectRecord {
             .unwrap_or_else(|| "<unknown>".to_string());
 
         Self {
-            id: object.id,
+            id: object.id.into(),
             name: object.name.clone(),
             description: object.description.clone(),
-            namespace,
+            collection,
             class,
             data: object.data.clone(),
             created_at: object.created_at.to_string(),

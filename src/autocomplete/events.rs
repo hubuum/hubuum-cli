@@ -17,7 +17,7 @@ pub fn remote_targets(ctx: &CompletionContext, prefix: &str, _parts: &[String]) 
 }
 
 pub fn event_subscriptions(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
-    ctx.event_subscriptions_from_namespace(prefix, parts)
+    ctx.event_subscriptions_from_collection(prefix, parts)
 }
 
 pub fn event_sink_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -31,12 +31,12 @@ pub fn event_entity_types(
 ) -> Vec<String> {
     complete_csv_values(
         &[
-            "namespace",
+            "collection",
             "class",
             "object",
             "group",
             "user",
-            "report_template",
+            "export_template",
             "remote_target",
             "task",
             "event_sink",
@@ -70,7 +70,7 @@ pub fn event_actions(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) 
 pub fn audit_resources(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(
         &[
-            "namespace",
+            "collection",
             "class",
             "object",
             "user",
@@ -96,12 +96,12 @@ pub fn audit_resource_names(
     parts: &[String],
 ) -> Vec<String> {
     match option_value(parts, "--resource").as_deref() {
-        Some("namespace") => ctx.namespaces(prefix),
+        Some("collection") => ctx.collections(prefix),
         Some("class") => ctx.classes(prefix),
         Some("object") => ctx.objects_from_class(prefix, parts, "--class"),
         Some("user") => ctx.users(prefix),
         Some("group") => ctx.groups(prefix),
-        Some("template") => ctx.report_templates(prefix),
+        Some("template") => ctx.export_templates(prefix),
         Some("remote-target") => ctx.remote_targets(prefix),
         _ => Vec::new(),
     }

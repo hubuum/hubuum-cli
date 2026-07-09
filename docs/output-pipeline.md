@@ -18,12 +18,12 @@ See [DSL.md](DSL.md) for the delivered user-facing DSL spec and examples.
 ## User Model
 
 Users should be able to ask small local questions without adding one more API
-flag for every report shape:
+flag for every output shape:
 
 ```text
 object list --class Hosts | F contact | L 5
-object list --class Hosts | P name json_data.contact | S !name
-object show --class Hosts host-1 | VALUE json_data.contact.email
+object list --class Hosts | P Name data.owner | S !Name
+object show --class Hosts host-1 | VALUE data.owner.email
 ```
 
 Short aliases should stay consistent with their long names:
@@ -34,7 +34,7 @@ Short aliases should stay consistent with their long names:
 - `L` / `head`: limit rows
 - `C` / `count`: count rows
 
-The legacy shorthand remains valid:
+The bare-search shorthand remains valid:
 
 ```text
 object list --class Hosts | contact
@@ -85,7 +85,7 @@ against the command before it, so selector and filter operators such as
 `--where age > 3` remain part of the command unless there is a valid trailing
 redirect target.
 
-## Remaining Transitional Boundaries
+## Remaining Boundaries
 
 - Some command-specific branches still append direct rendered lines. Those
   branches continue to support conservative line stages: `grep`, `reject`,

@@ -1,10 +1,10 @@
 use serde::Serialize;
 
-use crate::domain::{ImportResultRecord, ReportOutput};
+use crate::domain::{ExportOutput, ImportResultRecord};
 
 #[derive(Debug, Clone, Serialize)]
 pub enum TaskOutput {
-    Report(ReportOutput),
+    Export(ExportOutput),
     ImportResults(Vec<ImportResultRecord>),
     None,
 }
@@ -13,11 +13,11 @@ impl TaskOutput {
     pub fn render_lines(&self) -> Vec<String> {
         match self {
             TaskOutput::None => Vec::new(),
-            TaskOutput::Report(report) => match report {
-                ReportOutput::Json { body } => {
+            TaskOutput::Export(export) => match export {
+                ExportOutput::Json { body } => {
                     vec![serde_json::to_string_pretty(body).unwrap_or_else(|_| "{}".to_string())]
                 }
-                ReportOutput::Rendered(rendered) => {
+                ExportOutput::Rendered(rendered) => {
                     vec![rendered.body.clone()]
                 }
             },

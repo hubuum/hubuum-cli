@@ -11,7 +11,7 @@ command output
 ```
 
 The DSL is useful when a command already returns the right kind of data and you
-want a smaller local report without adding another API flag.
+want a smaller local view without adding another API flag.
 
 ## Quick Recipes
 
@@ -37,6 +37,12 @@ Group Hosts by OS version and count them:
 
 ```text
 object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts
+```
+
+Sort aggregate output by the aggregate number:
+
+```text
+object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num
 ```
 
 Extract only IPv4 values:
@@ -130,6 +136,7 @@ Use casts when text ordering is not right:
 ```text
 object list --class Hosts | S data.cpu.cores AS num
 object list --class Hosts | S data.network.interfaces[0].ipv4 AS ip
+object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num
 ```
 
 Limit rows:
@@ -169,6 +176,13 @@ object list --class Hosts | G os_version AS "OS Version" | A sum(data.cpu.cores)
 object list --class Hosts | G os_version AS "OS Version" | A avg(data.cpu.cores) AS "Average Cores"
 object list --class Hosts | G os_version AS "OS Version" | A min(Name) AS First
 object list --class Hosts | G os_version AS "OS Version" | A max(Name) AS Last
+```
+
+Aggregates are ordinary output columns, so later stages can sort, project, or
+redirect them:
+
+```text
+object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num | L 10
 ```
 
 `C` after grouping returns one count row per group:
@@ -227,11 +241,16 @@ Redirects run after pipe stages:
 object list --class Hosts | P Name os_version > hosts.txt
 object list --class Hosts | P Name os_version >> hosts.txt
 object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json
+object list --class Hosts | VALUE Name > each:names/{value}.txt
 ```
 
 `each:<template>` writes one file per semantic row or value. Placeholders use
 the same field names as the current output, plus `{value}` for `VALUE` output
 and `{n}` for a 1-based item number.
+
+Redirect paths support quoting, `~/...` expansion, and REPL file path
+completion. Redirect parsing is checked against the command first, so command
+filters such as `--where age > 3` are not mistaken for output redirects.
 
 ## Help
 
@@ -248,4 +267,3 @@ help pipe selectors
 help pipe redirects
 help pipe jq
 ```
-

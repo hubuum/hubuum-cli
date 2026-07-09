@@ -111,8 +111,8 @@ impl DetailRenderable for PrincipalPermissionsRecord {
         };
 
         vec![
-            ("Namespace ID", perms.namespace_id.to_string()),
-            ("Namespace", perms.namespace_name.clone()),
+            ("Collection ID", perms.collection_id.to_string()),
+            ("Collection", perms.collection_name.clone()),
             ("Groups", groups_str),
             ("Permissions", unique_perms.join(", ")),
         ]
@@ -121,7 +121,7 @@ impl DetailRenderable for PrincipalPermissionsRecord {
 
 impl TableRenderable for PrincipalPermissionsRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["Namespace ID", "Namespace", "Groups", "Permissions"]
+        vec!["Collection ID", "Collection", "Groups", "Permissions"]
     }
 
     fn row(&self) -> Vec<String> {
@@ -150,8 +150,8 @@ impl TableRenderable for PrincipalPermissionsRecord {
         };
 
         vec![
-            perms.namespace_id.to_string(),
-            perms.namespace_name.clone(),
+            perms.collection_id.to_string(),
+            perms.collection_name.clone(),
             groups_str,
             unique_perms.join(", "),
         ]

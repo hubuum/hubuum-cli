@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::formatting::{DetailRenderable, TableRenderable};
+use crate::errors::AppError;
+use crate::formatting::{OutputFormatter, TableRenderable};
+use crate::output::set_semantic_output;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRecord {
@@ -83,18 +85,6 @@ impl TableRenderable for JsonRecord {
     }
 }
 
-impl DetailRenderable for JsonRecord {
-    fn detail_rows(&self) -> Vec<(&'static str, String)> {
-        match &self.value {
-            Value::Object(map) => map
-                .iter()
-                .map(|(key, value)| (leak_key(key), json_summary(value)))
-                .collect(),
-            _ => vec![("value", json_summary(&self.value))],
-        }
-    }
-}
-
 impl JsonRecord {
     fn is_history_record(&self) -> bool {
         self.value.get("history_id").is_some()
@@ -114,8 +104,27 @@ fn json_summary(value: &Value) -> String {
     }
 }
 
-fn leak_key(key: &str) -> &'static str {
-    Box::leak(key.to_string().into_boxed_str())
+impl OutputFormatter for JsonRecord {
+    fn format(&self) -> Result<Self, AppError> {
+        let (value, columns) = match &self.value {
+            Value::Object(map) => {
+                let mut object = serde_json::Map::new();
+                let mut columns = Vec::with_capacity(map.len());
+                for (key, value) in map {
+                    columns.push(key.clone());
+                    object.insert(key.clone(), Value::String(json_summary(value)));
+                }
+                (Value::Object(object), columns)
+            }
+            value => (
+                serde_json::json!({ "value": json_summary(value) }),
+                vec!["value".to_string()],
+            ),
+        };
+
+        set_semantic_output(hubuum_filter::OutputEnvelope::detail(value, columns))?;
+        Ok(self.clone())
+    }
 }
 
 trait DashFallback {

@@ -4,7 +4,7 @@ mod gateway;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hubuum_client::{Authenticated, SyncClient};
+use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 use tokio::runtime::Handle;
 
 use crate::background::BackgroundManager;
@@ -14,13 +14,13 @@ pub use completion::CompletionContext;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
-    AuditListInput, AuditScope, ClassUpdateInput, CreateClassInput, CreateGroupInput,
-    CreateNamespaceInput, CreateObjectInput, CreateRemoteTargetInput, CreateReportTemplateInput,
-    CreateServiceAccountInput, CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope,
-    HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NamespaceUpdateInput, NewTokenInput,
-    ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RelationTraversalOptions, RemoteAuthConfigInput, RunReportInput, SearchInput, SearchKind,
-    SubmitImportInput, TaskLookupInput, UpdateRemoteTargetInput, UpdateReportTemplateInput,
+    AuditListInput, AuditScope, ClassUpdateInput, CollectionUpdateInput, CreateClassInput,
+    CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
+    CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
+    HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
+    NewTokenInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions, RemoteAuthConfigInput, RunExportInput, SearchInput, SearchKind,
+    SubmitImportInput, TaskLookupInput, UpdateExportTemplateInput, UpdateRemoteTargetInput,
     UserFilter, UserUpdateInput,
 };
 
@@ -40,7 +40,7 @@ pub struct AppServices {
 
 impl AppServices {
     pub fn new(
-        client: Arc<SyncClient<Authenticated>>,
+        client: Arc<BlockingClient<Authenticated>>,
         runtime: Handle,
         background_poll_interval: Duration,
     ) -> Self {

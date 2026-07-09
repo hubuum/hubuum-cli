@@ -19,31 +19,32 @@ macro_rules! transparent_record {
 }
 
 mod classes;
+mod collections;
 mod events;
+mod exports;
 mod groups;
 mod identity;
 mod imports;
-mod namespaces;
 mod objects;
 mod relations;
 mod remote_targets;
-mod reports;
 mod search;
 mod task_output;
 mod tasks;
 mod users;
 
 pub use classes::{ClassRecord, ClassShowRecord};
+pub use collections::{
+    CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
+    GroupPermissionsSummary,
+};
 pub use events::JsonRecord;
+pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
     MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,
 };
 pub use imports::ImportResultRecord;
-pub use namespaces::{
-    GroupPermissionsRecord, GroupPermissionsSummary, NamespacePermission, NamespacePermissionsView,
-    NamespaceRecord,
-};
 pub use objects::{ObjectRecord, ObjectShowRecord, ResolvedObjectRecord};
 pub use relations::{
     build_related_class_tree, build_related_object_tree, RelatedClassTreeNode,
@@ -52,7 +53,6 @@ pub use relations::{
     ResolvedRelatedObjectRecord,
 };
 pub use remote_targets::RemoteTargetRecord;
-pub use reports::{ReportOutput, ReportTemplateRecord};
 pub use search::{
     SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,
     SearchResultsRecord, SearchStreamEvent,

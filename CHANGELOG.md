@@ -17,6 +17,10 @@
   repeatedly fetching the same relation ids.
 - Added rendered output redirects with `>` and `>>`, including REPL file path completion and
   support for redirecting piped JSON projections.
+- Updated to `hubuum_client` 0.2.0 and made the CLI vocabulary match the current Hubuum API:
+  `collection` replaces namespace commands and `export` replaces report commands.
+- Added semantic `each:<template>` redirects, aggregate sorting support, themes, and expanded
+  pipe DSL help topics.
 
 ## [0.0.1] - 2026-03-12
 

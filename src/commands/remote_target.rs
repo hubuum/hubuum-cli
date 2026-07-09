@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
+};
 use crate::autocomplete::{
-    classes, namespaces, objects_from_class, objects_from_class_a, objects_from_class_b,
+    classes, collections, objects_from_class, objects_from_class_a, objects_from_class_b,
     remote_auth_types, remote_http_methods, remote_subject_kinds, remote_subject_types,
     remote_targets,
 };
@@ -97,11 +99,11 @@ pub struct RemoteTargetCreate {
     #[option(short = "n", long = "name", help = "Name of the remote target")]
     pub name: String,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: String,
+    pub collection: String,
     #[option(short = "d", long = "description", help = "Description")]
     pub description: String,
     #[option(
@@ -115,7 +117,7 @@ pub struct RemoteTargetCreate {
     pub url_template: String,
     #[option(
         long = "subject-types",
-        help = "Allowed subject types (comma-separated: namespace,class,object,class_relation,object_relation)",
+        help = "Allowed subject types (comma-separated: collection,class,object,class_relation,object_relation)",
         autocomplete = "remote_subject_types"
     )]
     pub allowed_subject_types: String,
@@ -177,7 +179,7 @@ impl CliCommand for RemoteTargetCreate {
         let target = services
             .gateway()
             .create_remote_target(CreateRemoteTargetInput {
-                namespace: new.namespace,
+                collection: new.collection,
                 name: new.name,
                 description: new.description,
                 method: new.method,
@@ -240,19 +242,10 @@ pub struct RemoteTargetShow {
 
 impl CliCommand for RemoteTargetShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
+        let new = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(new.name, tokens, 0, "name")?;
 
-        if new.name.is_none() {
-            if let Some(pos0) = tokens.get_positionals().first() {
-                new.name = Some(pos0.clone());
-            } else {
-                return Err(AppError::MissingOptions(vec!["name".to_string()]));
-            }
-        }
-
-        let target = services
-            .gateway()
-            .remote_target(new.name.as_ref().unwrap())?;
+        let target = services.gateway().remote_target(&name)?;
 
         match desired_format(tokens) {
             OutputFormat::Json => target.format_json_noreturn()?,
@@ -277,11 +270,11 @@ pub struct RemoteTargetUpdate {
     #[option(short = "d", long = "description", help = "Description")]
     pub description: Option<String>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(
         short = "m",
         long = "method",
@@ -331,19 +324,8 @@ pub struct RemoteTargetUpdate {
 
 impl CliCommand for RemoteTargetUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-
-        if query.name.is_none() {
-            if let Some(pos0) = tokens.get_positionals().first() {
-                query.name = Some(pos0.clone());
-            } else {
-                return Err(AppError::MissingOptions(vec!["name".to_string()]));
-            }
-        }
-
-        let name = query
-            .name
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let auth_config = if query.auth_type.is_some()
             || query.auth_secret.is_some()
@@ -376,7 +358,7 @@ impl CliCommand for RemoteTargetUpdate {
                 name,
                 rename: query.rename,
                 description: query.description,
-                namespace: query.namespace,
+                collection: query.collection,
                 method: query.method,
                 url_template: query.url_template,
                 allowed_subject_types: subject_types,
@@ -410,17 +392,8 @@ pub struct RemoteTargetDelete {
 
 impl CliCommand for RemoteTargetDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
-
-        if new.name.is_none() {
-            if let Some(pos0) = tokens.get_positionals().first() {
-                new.name = Some(pos0.clone());
-            } else {
-                return Err(AppError::MissingOptions(vec!["name".to_string()]));
-            }
-        }
-
-        let target_name = new.name.as_ref().unwrap().clone();
+        let new = Self::parse_tokens(tokens)?;
+        let target_name = required_option_or_pos(new.name, tokens, 0, "name")?;
         services.gateway().delete_remote_target(&target_name)?;
 
         let message = format!("Remote target '{}' deleted", target_name);
@@ -445,16 +418,16 @@ pub struct RemoteTargetInvoke {
     pub name: Option<String>,
     #[option(
         long = "subject",
-        help = "Subject kind: namespace, class, object, class_relation, object_relation",
+        help = "Subject kind: collection, class, object, class_relation, object_relation",
         autocomplete = "remote_subject_kinds"
     )]
     pub subject_kind: String,
     #[option(
-        long = "namespace",
-        help = "Namespace subject",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection subject",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(
         long = "class",
         help = "Class subject or object class",
@@ -505,15 +478,8 @@ pub struct RemoteTargetInvoke {
 
 impl CliCommand for RemoteTargetInvoke {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
-
-        if new.name.is_none() {
-            if let Some(pos0) = tokens.get_positionals().first() {
-                new.name = Some(pos0.clone());
-            } else {
-                return Err(AppError::MissingOptions(vec!["name".to_string()]));
-            }
-        }
+        let new = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(new.name, tokens, 0, "name")?;
 
         let parameters = new
             .parameters
@@ -528,10 +494,10 @@ impl CliCommand for RemoteTargetInvoke {
             .map_err(|e| AppError::ParseError(format!("Invalid body JSON: {}", e)))?;
 
         let task = services.gateway().invoke_remote_target(
-            new.name.as_ref().unwrap(),
+            &name,
             InvokeRemoteTargetInput {
                 subject_kind: new.subject_kind,
-                namespace: new.namespace,
+                collection: new.collection,
                 class: new.class,
                 object: new.object,
                 class_a: new.class_a,

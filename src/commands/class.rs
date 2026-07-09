@@ -2,10 +2,13 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::autocomplete::{bool, class_sort, class_where, classes, namespaces};
+use crate::autocomplete::{bool, class_sort, class_where, classes, collections};
 use crate::config::get_config;
 use crate::domain::ClassShowRecord;
 use crate::errors::AppError;
@@ -26,8 +29,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     about: Some("Create a new class"),
                     long_about: Some("Create a new class with the specified properties."),
                     examples: Some(
-                        r#"-n MyClass -N namespace_1 -d "My class description"
---name MyClass --namespace namespace_1 --description 'My class' --schema '{\"type\": \"object\"}'"#,
+                        r#"-n MyClass -N collection_1 -d "My class description"
+--name MyClass --collection collection_1 --description 'My class' --schema '{\"type\": \"object\"}'"#,
                     ),
                 },
             ),
@@ -75,15 +78,11 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     long_about: Some("Update an existing class by name."),
                     examples: Some(
                         r#"modify my-class --rename new-class
-modify --name my-class --description "Updated description" --namespace other-ns"#,
+modify --name my-class --description "Updated description" --collection other-ns"#,
                     ),
                 },
             ),
         );
-}
-
-trait GetClassname {
-    fn classname(&self) -> Option<String>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -92,11 +91,11 @@ pub struct ClassNew {
     pub name: String,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: String,
+    pub collection: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
     #[option(
@@ -120,7 +119,7 @@ impl CliCommand for ClassNew {
         let new = Self::parse_tokens(tokens)?;
         let result = services.gateway().create_class(CreateClassInput {
             name: new.name,
-            namespace: new.namespace,
+            collection: new.collection,
             description: new.description,
             json_schema: new.json_schema,
             validate_schema: new.validate_schema,
@@ -132,12 +131,6 @@ impl CliCommand for ClassNew {
         }
 
         Ok(())
-    }
-}
-
-impl GetClassname for &ClassInfo {
-    fn classname(&self) -> Option<String> {
-        self.name.clone()
     }
 }
 
@@ -165,11 +158,11 @@ pub struct ClassInfo {
 
 impl CliCommand for ClassInfo {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = classname_or_pos(&query, tokens, 0)?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
         let config = get_config();
         let details = services.gateway().class_show_details(
-            &query.name.clone().unwrap(),
+            &name,
             &RelationTraversalOptions {
                 include_self_class: query
                     .include_self_class
@@ -213,10 +206,7 @@ pub struct ClassDelete {
 impl CliCommand for ClassDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let name = match classname_or_pos(&query, tokens, 0)? {
-            Some(name) => name,
-            None => return Err(AppError::MissingOptions(vec!["name".to_string()])),
-        };
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         services.gateway().delete_class(&name)?;
 
@@ -228,12 +218,6 @@ impl CliCommand for ClassDelete {
         }
 
         Ok(())
-    }
-}
-
-impl GetClassname for &ClassDelete {
-    fn classname(&self) -> Option<String> {
-        self.name.clone()
     }
 }
 
@@ -250,11 +234,11 @@ pub struct ClassModify {
     pub rename: Option<String>,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Move the class to another namespace",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Move the class to another collection",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(
         short = "d",
         long = "description",
@@ -277,25 +261,15 @@ pub struct ClassModify {
     pub validate_schema: Option<bool>,
 }
 
-impl GetClassname for &ClassModify {
-    fn classname(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ClassModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = classname_or_pos(&query, tokens, 0)?;
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let updated = services.gateway().update_class(ClassUpdateInput {
             name,
             rename: query.rename,
-            namespace: query.namespace,
+            collection: query.collection,
             description: query.description,
             json_schema: query.json_schema,
             validate_schema: query.validate_schema,
@@ -363,24 +337,6 @@ impl CliCommand for ClassList {
     }
 }
 
-fn classname_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetClassname,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.classname().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    };
-    Ok(query.classname().clone())
-}
-
 #[cfg(test)]
 mod tests {
     use serial_test::serial;
@@ -399,7 +355,7 @@ mod tests {
                     "id": 1,
                     "name": "Jacks",
                     "description": "",
-                    "namespace": {
+                    "collection": {
                         "id": 1,
                         "name": "default",
                         "description": "",
@@ -417,7 +373,7 @@ mod tests {
             related_classes: vec![RelatedClassTreeNode {
                 id: 2,
                 name: "Rooms".to_string(),
-                namespace: "default".to_string(),
+                collection: "default".to_string(),
                 depth: 1,
                 children: vec![],
             }],

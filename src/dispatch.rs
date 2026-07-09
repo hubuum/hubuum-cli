@@ -257,7 +257,9 @@ pub fn render_error(err: AppError) -> crate::output::OutputSnapshot {
         AppError::EntityNotFound(entity) => {
             add_warning(entity).expect("warning should be added");
         }
-        AppError::ApiError(ApiError::HttpWithBody { status, message }) => {
+        AppError::ApiError(ApiError::HttpWithBody {
+            status, message, ..
+        }) => {
             add_error(format!("API Error: Status {status} - {message}"))
                 .expect("error should be added");
         }

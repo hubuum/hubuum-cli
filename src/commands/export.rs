@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
+};
 use crate::autocomplete::{
-    classes, namespaces, objects_from_class, report_content_types, report_missing_data_policies,
-    report_scope_kinds, report_sort, report_templates, report_where,
+    classes, collections, export_content_types, export_missing_data_policies, export_scope_kinds,
+    export_sort, export_templates, export_where, objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -14,76 +16,76 @@ use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::services::{
-    AppServices, CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput,
+    AppServices, CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput,
 };
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "list",
-                ReportList::default(),
+                ExportList::default(),
                 CommandDocs {
-                    about: Some("List available report templates"),
+                    about: Some("List available export templates"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "show",
-                ReportShow::default(),
+                ExportShow::default(),
                 CommandDocs {
-                    about: Some("Show report template details"),
+                    about: Some("Show export template details"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "create",
-                ReportCreate::default(),
+                ExportCreate::default(),
                 CommandDocs {
-                    about: Some("Create a report template"),
+                    about: Some("Create an export template"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "modify",
-                ReportModify::default(),
+                ExportModify::default(),
                 CommandDocs {
-                    about: Some("Modify a report template"),
+                    about: Some("Modify an export template"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "delete",
-                ReportDelete::default(),
+                ExportDelete::default(),
                 CommandDocs {
-                    about: Some("Delete a report template"),
+                    about: Some("Delete an export template"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["report"],
+            &["export"],
             catalog_command(
                 "run",
-                ReportRun::default(),
+                ExportRun::default(),
                 CommandDocs {
-                    about: Some("Run a report"),
+                    about: Some("Run an export"),
                     long_about: Some(
-                        "Run a report for a given scope, optionally using a named report template.",
+                        "Run an export for a given scope, optionally using a named export template.",
                     ),
                     ..CommandDocs::default()
                 },
@@ -91,24 +93,20 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
-trait GetReportName {
-    fn report_name(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportList {
+pub struct ExportList {
     #[option(
         long = "where",
         help = "Filter clause: 'field op value'",
         nargs = 3,
-        autocomplete = "report_where"
+        autocomplete = "export_where"
     )]
     pub where_clauses: Vec<String>,
     #[option(
         long = "sort",
         help = "Sort clause: 'field asc|desc'",
         nargs = 2,
-        autocomplete = "report_sort"
+        autocomplete = "export_sort"
     )]
     pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
@@ -117,7 +115,7 @@ pub struct ReportList {
     pub cursor: Option<String>,
 }
 
-impl CliCommand for ReportList {
+impl CliCommand for ExportList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -127,42 +125,31 @@ impl CliCommand for ReportList {
             query.cursor,
             [],
         )?;
-        let reports = services.gateway().list_report_templates(&list_query)?;
-        render_list_page(tokens, &reports)
+        let exports = services.gateway().list_export_templates(&list_query)?;
+        render_list_page(tokens, &exports)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportShow {
+pub struct ExportShow {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the report template",
-        autocomplete = "report_templates"
+        help = "Name of the export template",
+        autocomplete = "export_templates"
     )]
     pub name: Option<String>,
 }
 
-impl GetReportName for &ReportShow {
-    fn report_name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for ReportShow {
+impl CliCommand for ExportShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = report_name_or_pos(&query, tokens, 0)?;
-        let report = services.gateway().report_template(
-            &query
-                .name
-                .clone()
-                .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?,
-        )?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
+        let export = services.gateway().export_template(&name)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&report)?)?,
-            OutputFormat::Text => report.format_noreturn()?,
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Text => export.format_noreturn()?,
         }
 
         Ok(())
@@ -170,27 +157,27 @@ impl CliCommand for ReportShow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportCreate {
-    #[option(short = "n", long = "name", help = "Name of the report template")]
+pub struct ExportCreate {
+    #[option(short = "n", long = "name", help = "Name of the export template")]
     pub name: String,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Namespace containing the report template",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection containing the export template",
+        autocomplete = "collections"
     )]
-    pub namespace: String,
+    pub collection: String,
     #[option(
         short = "d",
         long = "description",
-        help = "Description of the report template"
+        help = "Description of the export template"
     )]
     pub description: String,
     #[option(
         short = "c",
         long = "content-type",
         help = "Rendered content type (application/json, text/plain, text/html, text/csv)",
-        autocomplete = "report_content_types"
+        autocomplete = "export_content_types"
     )]
     pub content_type: String,
     #[option(
@@ -204,23 +191,23 @@ pub struct ReportCreate {
     pub file: Option<String>,
 }
 
-impl CliCommand for ReportCreate {
+impl CliCommand for ExportCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let template = read_template_source(query.template, query.file)?;
-        let report = services
+        let export = services
             .gateway()
-            .create_report_template(CreateReportTemplateInput {
+            .create_export_template(CreateExportTemplateInput {
                 name: query.name,
-                namespace: query.namespace,
+                collection: query.collection,
                 description: query.description,
                 content_type: query.content_type,
                 template,
             })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&report)?)?,
-            OutputFormat::Text => report.format_noreturn()?,
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Text => export.format_noreturn()?,
         }
 
         Ok(())
@@ -228,27 +215,27 @@ impl CliCommand for ReportCreate {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportModify {
+pub struct ExportModify {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the report template",
-        autocomplete = "report_templates"
+        help = "Name of the export template",
+        autocomplete = "export_templates"
     )]
     pub name: Option<String>,
-    #[option(short = "r", long = "rename", help = "Rename the report template")]
+    #[option(short = "r", long = "rename", help = "Rename the export template")]
     pub rename: Option<String>,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Move the report template to another namespace",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Move the export template to another collection",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(
         short = "d",
         long = "description",
-        help = "Description of the report template"
+        help = "Description of the export template"
     )]
     pub description: Option<String>,
     #[option(
@@ -262,33 +249,24 @@ pub struct ReportModify {
     pub file: Option<String>,
 }
 
-impl GetReportName for &ReportModify {
-    fn report_name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for ReportModify {
+impl CliCommand for ExportModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = report_name_or_pos(&query, tokens, 0)?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
         let template = read_optional_template_source(query.template, query.file)?;
-        let report = services
+        let export = services
             .gateway()
-            .update_report_template(UpdateReportTemplateInput {
-                name: query
-                    .name
-                    .clone()
-                    .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?,
+            .update_export_template(UpdateExportTemplateInput {
+                name,
                 rename: query.rename,
-                namespace: query.namespace,
+                collection: query.collection,
                 description: query.description,
                 template,
             })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&report)?)?,
-            OutputFormat::Text => report.format_noreturn()?,
+            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Text => export.format_noreturn()?,
         }
 
         Ok(())
@@ -296,33 +274,23 @@ impl CliCommand for ReportModify {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportDelete {
+pub struct ExportDelete {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the report template",
-        autocomplete = "report_templates"
+        help = "Name of the export template",
+        autocomplete = "export_templates"
     )]
     pub name: Option<String>,
 }
 
-impl GetReportName for &ReportDelete {
-    fn report_name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for ReportDelete {
+impl CliCommand for ExportDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = report_name_or_pos(&query, tokens, 0)?;
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
-        services.gateway().delete_report_template(&name)?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
+        services.gateway().delete_export_template(&name)?;
 
-        let message = format!("Report template '{name}' deleted");
+        let message = format!("Export template '{name}' deleted");
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
@@ -333,42 +301,42 @@ impl CliCommand for ReportDelete {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ReportRun {
+pub struct ExportRun {
     #[option(
         short = "t",
         long = "template",
-        help = "Named report template to use",
-        autocomplete = "report_templates"
+        help = "Named export template to use",
+        autocomplete = "export_templates"
     )]
     pub template: Option<String>,
     #[option(
         short = "s",
         long = "scope",
-        help = "Report scope kind",
-        autocomplete = "report_scope_kinds"
+        help = "Export scope kind",
+        autocomplete = "export_scope_kinds"
     )]
     pub scope: String,
     #[option(
         short = "c",
         long = "class",
-        help = "Class name for scoped reports",
+        help = "Class name for scoped exports",
         autocomplete = "classes"
     )]
     pub class: Option<String>,
     #[option(
         short = "o",
         long = "object",
-        help = "Object name for scoped reports",
+        help = "Object name for scoped exports",
         autocomplete = "objects_from_class"
     )]
     pub object: Option<String>,
-    #[option(short = "q", long = "query", help = "Optional report query expression")]
+    #[option(short = "q", long = "query", help = "Optional export query expression")]
     pub query: Option<String>,
     #[option(
         short = "m",
         long = "missing-data-policy",
         help = "Missing data policy",
-        autocomplete = "report_missing_data_policies"
+        autocomplete = "export_missing_data_policies"
     )]
     pub missing_data_policy: Option<String>,
     #[option(short = "I", long = "max-items", help = "Maximum number of items")]
@@ -394,11 +362,11 @@ pub struct ReportRun {
     pub poll_interval: Option<u64>,
 }
 
-impl CliCommand for ReportRun {
+impl CliCommand for ExportRun {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let opts = parse_task_submit_options(tokens)?;
-        let input = RunReportInput {
+        let input = RunExportInput {
             template: query.template,
             scope_kind: query.scope,
             class_name: query.class,
@@ -410,33 +378,15 @@ impl CliCommand for ReportRun {
             relation_depth: query.relation_depth,
             include_related: query.include_related,
         };
-        let task = services.gateway().submit_report(input)?;
+        let task = services.gateway().submit_export(input)?;
         run_task_backed(
             services,
             tokens,
-            format!("report {}", task.0.id),
+            format!("export {}", task.0.id),
             opts,
             task,
         )
     }
-}
-
-fn report_name_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetReportName,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.report_name().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    }
-    Ok(query.report_name().clone())
 }
 
 fn read_template_source(

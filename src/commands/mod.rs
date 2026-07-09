@@ -6,21 +6,21 @@ use std::str::FromStr;
 mod audit;
 mod builder;
 mod class;
+mod collection;
 pub(crate) mod config;
 mod event_delivery;
 mod event_sink;
 mod event_subscription;
+mod export;
 mod group;
 mod help;
 mod history;
 mod imports;
 mod jobs;
 mod me;
-mod namespace;
 mod object;
 mod relations;
 mod remote_target;
-mod report;
 mod search;
 mod service_account;
 mod task;
@@ -354,6 +354,57 @@ where
         .transpose()
 }
 
+pub fn required_option_or_pos<T>(
+    value: Option<T>,
+    tokens: &CommandTokenizer,
+    pos: usize,
+    name: &str,
+) -> Result<T, AppError>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    required_option(option_or_pos(value, tokens, pos, name)?, name)
+}
+
+pub fn first_positional_or<T>(
+    value: Option<T>,
+    tokens: &CommandTokenizer,
+    name: &str,
+) -> Result<Option<T>, AppError>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    option_or_pos(value, tokens, 0, name)
+}
+
+pub fn name_or_first_pos(name: Option<String>, tokens: &CommandTokenizer) -> Option<String> {
+    name.or_else(|| tokens.get_positionals().first().cloned())
+}
+
+pub fn required_option<T>(value: Option<T>, name: &str) -> Result<T, AppError> {
+    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
+}
+
+pub fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, AppError> {
+    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
+}
+
+pub fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
+    required_option(value, name)
+}
+
+pub fn render_json_record(
+    tokens: &CommandTokenizer,
+    record: &crate::domain::JsonRecord,
+) -> Result<(), AppError> {
+    match desired_format(tokens) {
+        OutputFormat::Json => record.format_json_noreturn(),
+        OutputFormat::Text => record.format_noreturn(),
+    }
+}
+
 fn parse_positional<T>(value: &str, name: &str) -> Result<T, AppError>
 where
     T: FromStr,
@@ -425,7 +476,9 @@ pub fn want_help(tokens: &CommandTokenizer) -> bool {
 mod tests {
     use std::any::TypeId;
 
-    use super::{validate_unknown_options, CliOption, CommandArgs};
+    use super::{
+        option_or_pos, required_option_or_pos, validate_unknown_options, CliOption, CommandArgs,
+    };
     use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
 
@@ -464,5 +517,46 @@ mod tests {
             .expect_err("unknown option should fail validation");
 
         assert!(err.to_string().contains("Did you mean '--limit'?"));
+    }
+
+    #[test]
+    fn option_or_pos_prefers_explicit_option() {
+        let tokens =
+            CommandTokenizer::new("dummy show positional", "show", &[]).expect("tokenization");
+
+        let value = option_or_pos(Some("explicit".to_string()), &tokens, 0, "name")
+            .expect("option should parse");
+
+        assert_eq!(value.as_deref(), Some("explicit"));
+    }
+
+    #[test]
+    fn required_option_or_pos_uses_positional_value() {
+        let tokens =
+            CommandTokenizer::new("dummy show positional", "show", &[]).expect("tokenization");
+
+        let value: String =
+            required_option_or_pos(None, &tokens, 0, "name").expect("positional should parse");
+
+        assert_eq!(value, "positional");
+    }
+
+    #[test]
+    fn required_option_or_pos_exports_missing_value() {
+        let tokens = CommandTokenizer::new("dummy show", "show", &[]).expect("tokenization");
+
+        let err = required_option_or_pos::<String>(None, &tokens, 0, "name")
+            .expect_err("missing required value should fail");
+
+        assert!(matches!(err, AppError::MissingOptions(options) if options == vec!["name"]));
+    }
+
+    #[test]
+    fn option_or_pos_exports_invalid_positional_value() {
+        let tokens = CommandTokenizer::new("dummy show nope", "show", &[]).expect("tokenization");
+
+        let err = option_or_pos::<i64>(None, &tokens, 0, "id").expect_err("invalid id should fail");
+
+        assert!(err.to_string().contains("id has invalid value 'nope'"));
     }
 }

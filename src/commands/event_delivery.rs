@@ -2,8 +2,10 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::event_sink::{id_or_pos, render_record, required_i64};
-use super::{build_list_query, render_list_page, CliCommand};
+use super::{
+    build_list_query, first_positional_or, render_json_record, render_list_page, required_i64,
+    CliCommand,
+};
 use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -100,8 +102,8 @@ pub struct EventDeliveryShow {
 impl CliCommand for EventDeliveryShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()
@@ -115,7 +117,7 @@ pub struct EventDeliveryHealth {}
 
 impl CliCommand for EventDeliveryHealth {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        render_record(tokens, &services.gateway().event_delivery_health()?)
+        render_json_record(tokens, &services.gateway().event_delivery_health()?)
     }
 }
 
@@ -132,8 +134,8 @@ pub struct EventDeliveryRetry {
 impl CliCommand for EventDeliveryRetry {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()
@@ -155,8 +157,8 @@ pub struct EventDeliveryDead {
 impl CliCommand for EventDeliveryDead {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()

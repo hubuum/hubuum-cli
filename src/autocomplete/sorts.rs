@@ -47,8 +47,8 @@ pub fn group_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> V
     complete_for_path(ctx, &["group", "list"], prefix)
 }
 
-pub fn namespace_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["namespace", "list"], prefix)
+pub fn collection_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_for_path(ctx, &["collection", "list"], prefix)
 }
 
 pub fn object_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -87,8 +87,8 @@ pub fn relation_object_direct_sort(
     complete_for_path(ctx, &["relation", "object", "direct"], prefix)
 }
 
-pub fn report_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["report", "list"], prefix)
+pub fn export_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_for_path(ctx, &["export", "list"], prefix)
 }
 
 pub fn user_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {

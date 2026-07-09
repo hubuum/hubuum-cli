@@ -57,7 +57,7 @@ impl HubuumGateway {
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
         let task = self.client.tasks().get(task_id)?;
         Ok(match task.kind {
-            TaskKind::Report => TaskOutput::Report(self.client.reports().output(task_id)?.into()),
+            TaskKind::Export => TaskOutput::Export(self.client.exports().output(task_id)?.into()),
             TaskKind::Import => {
                 let results: Vec<ImportResultRecord> = self
                     .client
@@ -69,7 +69,7 @@ impl HubuumGateway {
                     .collect();
                 TaskOutput::ImportResults(results)
             }
-            // RemoteCall results are not fetchable in 0.0.3; see Task 3.4
+            // RemoteCall task output is not exposed by the current client API.
             _ => TaskOutput::None,
         })
     }
@@ -105,12 +105,11 @@ impl HubuumGateway {
 fn parse_task_kind(s: &str) -> Result<TaskKind, AppError> {
     match s.to_lowercase().as_str() {
         "import" => Ok(TaskKind::Import),
-        "report" => Ok(TaskKind::Report),
         "export" => Ok(TaskKind::Export),
         "reindex" => Ok(TaskKind::Reindex),
         "remotecall" => Ok(TaskKind::RemoteCall),
         _ => Err(AppError::InvalidOption(format!(
-            "Invalid task kind '{}'. Valid values: import, report, export, reindex, remotecall",
+            "Invalid task kind '{}'. Valid values: import, export, reindex, remotecall",
             s
         ))),
     }
@@ -147,7 +146,6 @@ mod tests {
     #[test]
     fn parse_task_kind_accepts_valid_lowercase() {
         assert!(matches!(parse_task_kind("import"), Ok(TaskKind::Import)));
-        assert!(matches!(parse_task_kind("report"), Ok(TaskKind::Report)));
         assert!(matches!(parse_task_kind("export"), Ok(TaskKind::Export)));
         assert!(matches!(parse_task_kind("reindex"), Ok(TaskKind::Reindex)));
         assert!(matches!(

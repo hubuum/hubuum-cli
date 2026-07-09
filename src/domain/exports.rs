@@ -1,32 +1,32 @@
 use std::collections::HashMap;
 
-use hubuum_client::{Namespace, ReportResult, ReportTemplate};
+use hubuum_client::{Collection, ExportResult, ExportTemplate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReportTemplateRecord {
+pub struct ExportTemplateRecord {
     pub id: i32,
     pub name: String,
     pub description: String,
-    pub namespace: String,
+    pub collection: String,
     pub content_type: String,
     pub template: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-impl ReportTemplateRecord {
-    pub fn new(template: &ReportTemplate, namespacemap: &HashMap<i32, Namespace>) -> Self {
-        let namespace = namespacemap
-            .get(&template.namespace_id)
-            .map(|namespace| namespace.name.clone())
+impl ExportTemplateRecord {
+    pub fn new(template: &ExportTemplate, collectionmap: &HashMap<i32, Collection>) -> Self {
+        let collection = collectionmap
+            .get(&template.collection_id)
+            .map(|collection| collection.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 
         Self {
-            id: template.id,
+            id: template.id.into(),
             name: template.name.clone(),
             description: template.description.clone(),
-            namespace,
+            collection,
             content_type: template.content_type.to_string(),
             template: template.template.clone(),
             created_at: template.created_at.to_string(),
@@ -36,25 +36,25 @@ impl ReportTemplateRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenderedReport {
+pub struct RenderedExport {
     pub content_type: String,
     pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ReportOutput {
+pub enum ExportOutput {
     Json {
-        body: hubuum_client::ReportJsonResponse,
+        body: hubuum_client::ExportJsonResponse,
     },
-    Rendered(RenderedReport),
+    Rendered(RenderedExport),
 }
 
-impl From<ReportResult> for ReportOutput {
-    fn from(value: ReportResult) -> Self {
+impl From<ExportResult> for ExportOutput {
+    fn from(value: ExportResult) -> Self {
         match value {
-            ReportResult::Json(body) => Self::Json { body },
-            ReportResult::Rendered { content_type, body } => Self::Rendered(RenderedReport {
+            ExportResult::Json(body) => Self::Json { body },
+            ExportResult::Rendered { content_type, body } => Self::Rendered(RenderedExport {
                 content_type: content_type.to_string(),
                 body,
             }),

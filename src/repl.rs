@@ -1082,14 +1082,14 @@ fn object_list_projection_fields(
         "id".to_string(),
         "Name".to_string(),
         "Description".to_string(),
-        "Namespace".to_string(),
+        "Collection".to_string(),
         "Class".to_string(),
         "Data".to_string(),
         "Created".to_string(),
         "Updated".to_string(),
         "name".to_string(),
         "description".to_string(),
-        "namespace".to_string(),
+        "collection".to_string(),
         "class".to_string(),
         "data".to_string(),
         "created_at".to_string(),
@@ -1369,14 +1369,14 @@ mod tests {
 
     #[test]
     fn completion_context_uses_parent_path_for_partial_word() {
-        let parts = vec!["namespace".to_string(), "mod".to_string()];
+        let parts = vec!["collection".to_string(), "mod".to_string()];
         let context = completion_context_parts(&parts, false);
         assert_eq!(context, &parts[..1]);
     }
 
     #[test]
     fn completion_context_keeps_full_path_after_space() {
-        let parts = vec!["namespace".to_string()];
+        let parts = vec!["collection".to_string()];
         let context = completion_context_parts(&parts, true);
         assert_eq!(context, &parts[..]);
     }
@@ -1384,7 +1384,7 @@ mod tests {
     #[test]
     fn option_value_completion_stops_after_trailing_space() {
         let parts = vec![
-            "namespace".to_string(),
+            "collection".to_string(),
             "modify".to_string(),
             "--name".to_string(),
             "UiO-wide".to_string(),
@@ -1395,7 +1395,7 @@ mod tests {
     #[test]
     fn option_value_completion_runs_while_typing_value() {
         let parts = vec![
-            "namespace".to_string(),
+            "collection".to_string(),
             "modify".to_string(),
             "--name".to_string(),
             "Ui".to_string(),
@@ -1439,41 +1439,41 @@ mod tests {
 
     #[test]
     fn option_suggestion_renders_one_entry_for_short_and_long_aliases() {
-        let option = test_option(Some("-n"), Some("--name"), false, "Name of the namespace");
+        let option = test_option(Some("-n"), Some("--name"), false, "Name of the collection");
         let suggestion = option_suggestion(&option, "-", 0, 1).expect("suggestion");
 
         assert_eq!(suggestion.value, "-n");
         assert_eq!(
             suggestion.description.as_deref(),
-            Some("--name  <string>  Name of the namespace")
+            Some("--name  <string>  Name of the collection")
         );
     }
 
     #[test]
     fn option_suggestion_prefers_long_alias_for_long_prefixes() {
-        let option = test_option(Some("-n"), Some("--name"), false, "Name of the namespace");
+        let option = test_option(Some("-n"), Some("--name"), false, "Name of the collection");
         let suggestion = option_suggestion(&option, "--n", 0, 3).expect("suggestion");
 
         assert_eq!(suggestion.value, "--name");
         assert_eq!(
             suggestion.description.as_deref(),
-            Some("-n  <string>  Name of the namespace")
+            Some("-n  <string>  Name of the collection")
         );
     }
 
     #[test]
     fn quoted_where_context_extracts_open_clause_contents() {
-        let context = quoted_where_context("namespace list --where 'name ic")
+        let context = quoted_where_context("collection list --where 'name ic")
             .expect("quoted where should be detected");
 
-        assert_eq!(context.command_prefix, "namespace list --where");
+        assert_eq!(context.command_prefix, "collection list --where");
         assert_eq!(context.clause_prefix, "name ic");
-        assert_eq!(context.start, "namespace list --where '".len());
+        assert_eq!(context.start, "collection list --where '".len());
     }
 
     #[test]
     fn quoted_where_context_ignores_closed_quotes() {
-        assert!(quoted_where_context("namespace list --where 'name icontains foo'").is_none());
+        assert!(quoted_where_context("collection list --where 'name icontains foo'").is_none());
     }
 
     #[test]
@@ -1563,7 +1563,7 @@ mod tests {
     #[test]
     fn clause_option_context_accepts_inline_where_values() {
         let parts = vec![
-            "namespace".to_string(),
+            "collection".to_string(),
             "list".to_string(),
             "--where=na".to_string(),
         ];
@@ -1571,8 +1571,8 @@ mod tests {
             &parts,
             "--where",
             3,
-            "namespace list ".len(),
-            "namespace list --where=na".len(),
+            "collection list ".len(),
+            "collection list --where=na".len(),
             "--where=na",
             false,
         )
@@ -1580,7 +1580,7 @@ mod tests {
 
         assert_eq!(context.clause_prefix, "na");
         assert_eq!(context.prefix, "na");
-        assert_eq!(context.replacement_start, "namespace list --where=".len());
+        assert_eq!(context.replacement_start, "collection list --where=".len());
         assert!(!context.is_complete);
     }
 

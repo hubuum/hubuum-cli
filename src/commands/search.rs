@@ -25,7 +25,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             CommandDocs {
                 about: Some("Run a unified search"),
                 long_about: Some(
-                    "Search across namespaces, classes, and objects. Pass the query as the first positional argument or with --query. Use --stream to consume the server-sent event variant of the endpoint.",
+                    "Search across collections, classes, and objects. Pass the query as the first positional argument or with --query. Use --stream to consume the server-sent event variant of the endpoint.",
                 ),
                 examples: Some(
                     r#"server
@@ -44,7 +44,7 @@ pub struct SearchCommand {
     #[option(
         short = "k",
         long = "kind",
-        help = "Restrict to namespace, class, or object (repeatable)",
+        help = "Restrict to collection, class, or object (repeatable)",
         autocomplete = "search_kinds"
     )]
     pub kinds: Vec<SearchKind>,
@@ -54,10 +54,10 @@ pub struct SearchCommand {
     )]
     pub limit_per_kind: Option<usize>,
     #[option(
-        long = "cursor-namespaces",
-        help = "Cursor for the next namespace result page"
+        long = "cursor-collections",
+        help = "Cursor for the next collection result page"
     )]
-    pub cursor_namespaces: Option<String>,
+    pub cursor_collections: Option<String>,
     #[option(
         long = "cursor-classes",
         help = "Cursor for the next class result page"
@@ -102,7 +102,7 @@ impl CliCommand for SearchCommand {
             query: query_string,
             kinds: query.kinds,
             limit_per_kind: query.limit_per_kind,
-            cursor_namespaces: query.cursor_namespaces,
+            cursor_collections: query.cursor_collections,
             cursor_classes: query.cursor_classes,
             cursor_objects: query.cursor_objects,
             search_class_schema: query.search_class_schema.unwrap_or(false),
@@ -131,8 +131,8 @@ fn render_search_response(
     append_line(format!("Query: {}", response.query))?;
     render_search_results(&response.results)?;
     append_line(format!(
-        "Returned {} namespace(s), {} class(es), {} object(s)",
-        response.results.namespaces.len(),
+        "Returned {} collection(s), {} class(es), {} object(s)",
+        response.results.collections.len(),
         response.results.classes.len(),
         response.results.objects.len()
     ))?;
@@ -186,7 +186,7 @@ fn render_search_stream(
 fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> {
     let mut rendered_any = false;
 
-    rendered_any |= render_group("Namespaces", &results.namespaces)?;
+    rendered_any |= render_group("Collections", &results.collections)?;
     rendered_any |= render_group("Classes", &results.classes)?;
     rendered_any |= render_group("Objects", &results.objects)?;
 
@@ -198,7 +198,7 @@ fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> 
 }
 
 fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
-    let rendered_any = render_group("Namespaces", &batch.namespaces)?
+    let rendered_any = render_group("Collections", &batch.collections)?
         | render_group("Classes", &batch.classes)?
         | render_group("Objects", &batch.objects)?;
 
@@ -231,7 +231,7 @@ fn next_from_stream(events: &[SearchStreamEvent]) -> SearchCursorSet {
         };
 
         match batch.kind.as_str() {
-            "namespaces" => next.namespaces = batch.next.clone(),
+            "collections" => next.collections = batch.next.clone(),
             "classes" => next.classes = batch.next.clone(),
             "objects" => next.objects = batch.next.clone(),
             _ => {}
@@ -274,12 +274,12 @@ fn next_cursor_command(tokens: &CommandTokenizer, next: &SearchCursorSet) -> Str
     crate::command_line::rebuild_with_replaced_options(
         tokens,
         &[
-            "--cursor-namespaces",
+            "--cursor-collections",
             "--cursor-classes",
             "--cursor-objects",
         ],
         [
-            ("--cursor-namespaces", next.namespaces.as_deref()),
+            ("--cursor-collections", next.collections.as_deref()),
             ("--cursor-classes", next.classes.as_deref()),
             ("--cursor-objects", next.objects.as_deref()),
         ],
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn parse_tokens_accepts_repeatable_kind_values() {
         let tokens = CommandTokenizer::new(
-            "search --query server --kind namespace --kind object",
+            "search --query server --kind collection --kind object",
             "search",
             &command_options::<SearchCommand>(),
         )
@@ -343,7 +343,7 @@ mod tests {
         let parsed = SearchCommand::parse_tokens(&tokens).expect("parse should succeed");
         assert_eq!(
             parsed.kinds,
-            vec![SearchKind::Namespace, SearchKind::Object]
+            vec![SearchKind::Collection, SearchKind::Object]
         );
     }
 }

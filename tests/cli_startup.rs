@@ -28,8 +28,8 @@ fn direct_help_and_config_paths_do_not_require_login() {
         .args(["help", "pipe"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("grep <field> <regex>"))
-        .stdout(predicate::str::contains("P os_version 26"));
+        .stdout(predicate::str::contains("grep os_version"))
+        .stdout(predicate::str::contains("V 129.240"));
 
     cargo_bin_cmd!("hubuum-cli")
         .args(["help", "shell"])

@@ -255,12 +255,19 @@ impl CommandCatalog {
         if !scope_spec.commands.is_empty() {
             lines.push(String::new());
             lines.push(paint(ThemeRole::Heading, "Commands:"));
+            let command_width = scope_spec
+                .commands
+                .keys()
+                .map(String::len)
+                .max()
+                .unwrap_or(0)
+                .max(16);
             for command in scope_spec.commands.values() {
                 let about = command.about.clone().unwrap_or_default();
                 if about.is_empty() {
                     lines.push(format!("  {}", command.name));
                 } else {
-                    lines.push(format!("  {:<16} {}", command.name, about));
+                    lines.push(format!("  {:<command_width$}  {}", command.name, about));
                 }
             }
         }
@@ -532,11 +539,9 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     line!("");
     line!("Examples:");
     line!(paint_command(
-        "  object list --class Hosts | grep <field> <regex>"
+        "  object list --class Hosts | grep os_version"
     ));
-    line!(paint_command(
-        "  object list --class Hosts | P os_version 26"
-    ));
+    line!(paint_command("  object list --class Hosts | V 129.240"));
     line!(paint_command(
         "  object list --class Hosts | F os_version contains 26"
     ));
@@ -565,7 +570,7 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
                 line!(format!(
                     "  Type a scope name to enter it, for example {} or {}.",
                     paint_command("object"),
-                    paint_command("namespace")
+                    paint_command("collection")
                 ));
                 line!("  Type a nested scope name to descend further.");
                 line!(format!(
@@ -663,9 +668,9 @@ fn colorize_help_commands(text: &str) -> String {
     text.lines()
         .map(|line| {
             let trimmed = line.trim_start();
-            if is_command_help_line(trimmed) {
+            if let Some((command, description)) = command_help_fragment(trimmed) {
                 let indent_len = line.len() - trimmed.len();
-                if let Some((command, description)) = trimmed.split_once(" - ") {
+                if let Some(description) = description {
                     format!(
                         "{}{} - {}",
                         &line[..indent_len],
@@ -673,7 +678,7 @@ fn colorize_help_commands(text: &str) -> String {
                         description
                     )
                 } else {
-                    format!("{}{}", &line[..indent_len], paint_command(trimmed))
+                    format!("{}{}", &line[..indent_len], paint_command(command))
                 }
             } else {
                 line.to_string()
@@ -683,13 +688,23 @@ fn colorize_help_commands(text: &str) -> String {
         .join("\n")
 }
 
+fn command_help_fragment(trimmed: &str) -> Option<(&str, Option<&str>)> {
+    if !is_command_help_line(trimmed) {
+        return None;
+    }
+
+    match trimmed.split_once(" - ") {
+        Some((command, description)) => Some((command, Some(description))),
+        None => Some((trimmed, None)),
+    }
+}
+
+const PIPE_TOPIC_COMMAND_PREFIXES: &[&str] = &["|", ">>", ">", "object ", "help ", "? "];
+
 fn is_command_help_line(trimmed: &str) -> bool {
-    trimmed.starts_with('|')
-        || trimmed.starts_with('>')
-        || trimmed.starts_with(">>")
-        || trimmed.starts_with("object ")
-        || trimmed.starts_with("help ")
-        || trimmed.starts_with("? ")
+    PIPE_TOPIC_COMMAND_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
 }
 
 fn render_where_help(command_path: &[String]) -> Option<String> {
@@ -1028,7 +1043,7 @@ mod tests {
         assert!(plain.contains("object"));
         assert!(plain.contains("create, delete, list, modify, show"));
         assert!(plain.contains("event-subscription create, delete, list, show, update"));
-        assert!(plain.contains("namespace          permissions, create, delete, list, modify"));
+        assert!(plain.contains("collection         permissions, create, delete, list, modify"));
         assert!(plain.contains("                   principal-permissions, show"));
         assert!(plain.contains("relation"));
         assert!(plain.contains("class, object"));
@@ -1062,6 +1077,19 @@ mod tests {
     }
 
     #[test]
+    fn pipe_topic_colorization_splits_command_fragments_from_descriptions() {
+        assert_eq!(
+            super::command_help_fragment("| F <field> <regex> - keep matching rows"),
+            Some(("| F <field> <regex>", Some("keep matching rows")))
+        );
+        assert_eq!(
+            super::command_help_fragment("object list --class Hosts | C"),
+            Some(("object list --class Hosts | C", None))
+        );
+        assert_eq!(super::command_help_fragment("Examples:"), None);
+    }
+
+    #[test]
     fn audit_help_exposes_working_commands_and_hides_unsupported_filters() {
         let catalog = crate::commands::build_command_catalog();
         let scope_help = catalog.render_scope_help(&["audit".to_string()]);
@@ -1084,7 +1112,7 @@ mod tests {
     #[test]
     fn scope_summary_uses_one_line_when_terminal_is_wide_enough() {
         let lines = super::render_scope_summary_at_width(
-            "namespace",
+            "collection",
             "permissions, create, delete, list, modify, principal-permissions, show",
             "event-subscription".len(),
             120,
@@ -1093,7 +1121,7 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "  namespace          permissions, create, delete, list, modify, principal-permissions, show"
+                "  collection         permissions, create, delete, list, modify, principal-permissions, show"
             ]
         );
     }
@@ -1210,10 +1238,10 @@ mod tests {
         for path in [
             vec!["class", "list"],
             vec!["group", "list"],
-            vec!["namespace", "list"],
+            vec!["collection", "list"],
             vec!["object", "list"],
             vec!["user", "list"],
-            vec!["report", "list"],
+            vec!["export", "list"],
             vec!["relation", "class", "list"],
             vec!["relation", "class", "direct"],
             vec!["relation", "object", "list"],
@@ -1340,7 +1368,7 @@ mod tests {
             (&["event-delivery", "retry"][..], "--id"),
             (&["event-delivery", "dead"][..], "--id"),
             (&["audit", "resource"][..], "--name"),
-            (&["namespace", "principal-permissions"][..], "--principal"),
+            (&["collection", "principal-permissions"][..], "--principal"),
         ] {
             let command_path = path.iter().map(|part| part.to_string()).collect::<Vec<_>>();
             let resolved = catalog
@@ -1461,10 +1489,10 @@ mod tests {
             super::CompletionSpec::Dynamic(_)
         ));
 
-        let report_create = catalog
-            .resolve_command(&[], &["report".to_string(), "create".to_string()])
-            .expect("report create should resolve");
-        let content_type = report_create
+        let export_create = catalog
+            .resolve_command(&[], &["export".to_string(), "create".to_string()])
+            .expect("export create should resolve");
+        let content_type = export_create
             .command
             .options
             .iter()
@@ -1528,7 +1556,7 @@ mod tests {
                         | "--task"
                         | "--class-id"
                         | "--object-id"
-                        | "--namespace-id"
+                        | "--collection-id"
                         | "--owner-group-id"
                         | "--sink-id"
                         | "--relation-id"

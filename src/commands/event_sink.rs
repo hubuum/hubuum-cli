@@ -4,12 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
+    CliCommand,
+};
 use crate::autocomplete::{event_sink_kinds, event_sinks};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
-use crate::models::OutputFormat;
+use crate::formatting::append_json_message;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -95,11 +97,11 @@ pub struct EventSinkShow {
 impl CliCommand for EventSinkShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(query.name, tokens);
+        query.name = name_or_first_pos(query.name, tokens);
         let sink = services
             .gateway()
-            .event_sink_by_name(required_string(query.name.as_deref(), "name")?)?;
-        render_record(tokens, &sink)
+            .event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
+        render_json_record(tokens, &sink)
     }
 }
 
@@ -131,7 +133,7 @@ impl CliCommand for EventSinkCreate {
             enabled: query.enabled.or(Some(true)),
             secret_ref: query.secret_ref,
         })?;
-        render_record(tokens, &sink)
+        render_json_record(tokens, &sink)
     }
 }
 
@@ -164,7 +166,7 @@ pub struct EventSinkUpdate {
 impl CliCommand for EventSinkUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.current_name = name_or_pos(query.current_name, tokens);
+        query.current_name = name_or_first_pos(query.current_name, tokens);
         if query.clear_secret_ref.unwrap_or(false) {
             return Err(AppError::InvalidOption(
                 "clear-secret-ref is not exposed by the official hubuum_client update type yet"
@@ -172,7 +174,7 @@ impl CliCommand for EventSinkUpdate {
             ));
         }
         let sink = services.gateway().update_event_sink(
-            required_string(query.current_name.as_deref(), "name")?,
+            required_str(query.current_name.as_deref(), "name")?,
             UpdateEventSink {
                 name: query.name,
                 kind: query
@@ -185,7 +187,7 @@ impl CliCommand for EventSinkUpdate {
                 secret_ref: query.secret_ref,
             },
         )?;
-        render_record(tokens, &sink)
+        render_json_record(tokens, &sink)
     }
 }
 
@@ -198,16 +200,12 @@ pub struct EventSinkDelete {
 impl CliCommand for EventSinkDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(query.name, tokens);
+        query.name = name_or_first_pos(query.name, tokens);
         services
             .gateway()
-            .delete_event_sink_by_name(required_string(query.name.as_deref(), "name")?)?;
+            .delete_event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
         append_json_message("event sink deleted")
     }
-}
-
-pub(super) fn name_or_pos(name: Option<String>, tokens: &CommandTokenizer) -> Option<String> {
-    name.or_else(|| tokens.get_positionals().first().cloned())
 }
 
 pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, AppError> {
@@ -226,37 +224,4 @@ pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, 
 
 pub(super) fn parse_event_sink_kind(value: &str) -> Result<EventSinkKind, AppError> {
     serde_json::from_value(Value::String(value.to_string())).map_err(AppError::from)
-}
-
-pub(super) fn id_or_pos<T>(id: Option<T>, tokens: &CommandTokenizer) -> Result<Option<T>, AppError>
-where
-    T: std::str::FromStr,
-    AppError: From<<T as std::str::FromStr>::Err>,
-{
-    if id.is_some() {
-        return Ok(id);
-    }
-    tokens
-        .get_positionals()
-        .first()
-        .map(|value| value.parse().map_err(AppError::from))
-        .transpose()
-}
-
-pub(super) fn required_string<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, AppError> {
-    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
-}
-
-pub(super) fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
-    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
-}
-
-pub(super) fn render_record(
-    tokens: &CommandTokenizer,
-    record: &crate::domain::JsonRecord,
-) -> Result<(), AppError> {
-    match desired_format(tokens) {
-        OutputFormat::Json => record.format_json_noreturn(),
-        OutputFormat::Text => record.format_noreturn(),
-    }
 }

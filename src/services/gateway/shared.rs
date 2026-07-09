@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use hubuum_client::{
     client::{sync::Handle as SyncHandle, sync::Resource, GetID},
-    ApiError as ClientApiError, ApiResource, Class, ClassRelation, FilterOperator, Namespace,
-    Object, ObjectRelation, QueryFilter,
+    ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, FilterOperator,
+    Object, ObjectRelation, QueryFilter, ResourceId,
 };
 
 use crate::errors::AppError;
@@ -24,12 +24,12 @@ impl HubuumGateway {
         Ok((
             self.client
                 .classes()
-                .select_by_name(class_from)?
+                .get_by_name(class_from)?
                 .resource()
                 .clone(),
             self.client
                 .classes()
-                .select_by_name(class_to)?
+                .get_by_name(class_to)?
                 .resource()
                 .clone(),
         ))
@@ -41,7 +41,7 @@ impl HubuumGateway {
     {
         classes
             .into_iter()
-            .map(|class| (class.id, class.clone()))
+            .map(|class| (class.id.into(), class.clone()))
             .collect()
     }
 
@@ -98,10 +98,18 @@ impl HubuumGateway {
         Ok(self
             .client
             .class_relation()
-            .find()
-            .add_filter_equals("from_classes", class_from_id)
-            .add_filter_equals("to_classes", class_to_id)
-            .execute_expecting_single_result()?)
+            .query()
+            .filter(
+                "from_classes",
+                FilterOperator::Equals { is_negated: false },
+                class_from_id,
+            )
+            .filter(
+                "to_classes",
+                FilterOperator::Equals { is_negated: false },
+                class_to_id,
+            )
+            .one()?)
     }
 
     pub(super) fn find_class_relation_between(
@@ -122,7 +130,7 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<hubuum_client::client::sync::Handle<Class>, AppError> {
-        Ok(self.client.classes().select_by_name(class_name)?)
+        Ok(self.client.classes().get_by_name(class_name)?)
     }
 
     pub(super) fn object_handle_by_name(
@@ -137,10 +145,14 @@ impl HubuumGateway {
                 let matches = self
                     .client
                     .objects(class.id())
-                    .find()
-                    .add_filter_startswith("name", object_name)
+                    .query()
+                    .filter(
+                        "name",
+                        FilterOperator::StartsWith { is_negated: false },
+                        object_name,
+                    )
                     .limit(2)
-                    .execute()?;
+                    .list()?;
                 match matches.as_slice() {
                     [object] => Ok(SyncHandle::new(class.client().clone(), object.clone())),
                     [] => Err(AppError::EntityNotFound(format!(
@@ -155,18 +167,18 @@ impl HubuumGateway {
         }
     }
 
-    pub(super) fn namespace_id(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.namespaces().select_by_name(name)?.id())
+    pub(super) fn collection_id(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self.client.collections().get_by_name(name)?.id().into())
     }
 
-    pub(super) fn namespace_map_from_ids<I>(
+    pub(super) fn collection_map_from_ids<I>(
         &self,
-        namespace_ids: I,
-    ) -> Result<HashMap<i32, Namespace>, AppError>
+        collection_ids: I,
+    ) -> Result<HashMap<i32, Collection>, AppError>
     where
         I: IntoIterator<Item = i32>,
     {
-        fetch_entities_for_ids(&self.client.namespaces(), unique_ids(namespace_ids))
+        fetch_entities_for_ids(&self.client.collections(), unique_ids(collection_ids))
     }
 
     pub(super) fn resolve_validated_filter(
@@ -175,7 +187,9 @@ impl HubuumGateway {
     ) -> Result<QueryFilter, AppError> {
         let resolved_value = match clause.spec.resolver {
             FilterValueResolver::None => clause.value.clone(),
-            FilterValueResolver::NamespaceNameToId => self.namespace_id(&clause.value)?.to_string(),
+            FilterValueResolver::CollectionNameToId => {
+                self.collection_id(&clause.value)?.to_string()
+            }
         };
 
         let mut resolved = clause.clone();
@@ -246,10 +260,14 @@ where
             .collect::<Vec<_>>()
             .join(",");
         let results = resource
-            .find()
-            .add_filter("id", FilterOperator::Equals { is_negated: false }, joined)
-            .execute()?;
-        entities.extend(results.into_iter().map(|entity| (entity.id(), entity)));
+            .query()
+            .filter("id", FilterOperator::Equals { is_negated: false }, joined)
+            .list()?;
+        entities.extend(
+            results
+                .into_iter()
+                .map(|entity| (entity.id().get(), entity)),
+        );
     }
 
     Ok(entities)

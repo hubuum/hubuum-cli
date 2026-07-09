@@ -489,7 +489,7 @@ mod tests {
         let options = vec![where_opt, opt("limit", None, Some("--limit"), false)];
 
         let tokens = CommandTokenizer::new(
-            "namespace list --where description icontains foo --limit 10",
+            "collection list --where description icontains foo --limit 10",
             "list",
             &options,
         )
@@ -508,7 +508,7 @@ mod tests {
         where_opt.nargs = Some(3);
         let options = vec![where_opt, opt("json", Some("-j"), Some("--json"), true)];
 
-        let err = CommandTokenizer::new("namespace list --where --json", "list", &options)
+        let err = CommandTokenizer::new("collection list --where --json", "list", &options)
             .expect_err("missing fixed-arity value should fail");
 
         match err {
@@ -527,7 +527,7 @@ mod tests {
         let options = vec![where_opt];
 
         let tokens = CommandTokenizer::new(
-            "namespace list --where name contains foo --where description contains bar",
+            "collection list --where name contains foo --where description contains bar",
             "list",
             &options,
         )
@@ -549,7 +549,7 @@ mod tests {
         let options = vec![sort_opt];
 
         let tokens = CommandTokenizer::new(
-            "namespace list --sort name asc --sort created_at desc",
+            "collection list --sort name asc --sort created_at desc",
             "list",
             &options,
         )
@@ -568,7 +568,7 @@ mod tests {
         let options = vec![where_opt];
 
         let tokens = CommandTokenizer::new(
-            "namespace list --where description contains 'bar baz'",
+            "collection list --where description contains 'bar baz'",
             "list",
             &options,
         )

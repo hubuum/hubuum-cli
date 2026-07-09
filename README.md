@@ -1,6 +1,7 @@
 # A CLI for Hubuum
 
-This CLI interface against [Hubuum](https://github.com/hubuum/hubuum) is still in pre-release state and under heavy development.
+This CLI interface for [Hubuum](https://github.com/hubuum/hubuum) is still in
+pre-release state and under heavy development.
 
 ## Usage
 
@@ -14,6 +15,8 @@ Run one command and exit:
 
 ```sh
 hubuum-cli object list --limit 5
+hubuum-cli collection list
+hubuum-cli export list
 hubuum-cli config paths
 hubuum-cli help --tree
 ```
@@ -38,6 +41,13 @@ Colored output defaults to terminal-aware `auto` mode and can be controlled per 
 hubuum-cli --color never help
 hubuum-cli --color always config paths
 ```
+
+The current command vocabulary follows the Hubuum API:
+
+- `collection` replaces the older namespace terminology.
+- `export` replaces the older report terminology.
+- `task list --kind export` filters export tasks.
+- `search --limit-per-kind` limits each result family independently.
 
 Output pipes now support small in-process transformations in both the REPL and one-shot command mode.
 The old shorthand still works:
@@ -69,6 +79,7 @@ object list --json --class Hosts | P Name os_version data.network.interfaces[*].
 See [docs/output-pipeline.md](docs/output-pipeline.md) for the semantic output pipeline direction.
 See [docs/DSL.md](docs/DSL.md) for the full pipe DSL with Hubuum object examples.
 See [docs/themes.md](docs/themes.md) for color themes, custom theme files, and palette licensing.
+See [docs/manual-test.md](docs/manual-test.md) for a current manual smoke-test checklist.
 
 Rendered output can be redirected to a file from the REPL, one-shot commands, or scripts:
 
@@ -106,6 +117,6 @@ Related config keys are `output.table_style`, `output.table_width`, `output.tabl
 Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.
 
 ```sh
-hubuum-cli object create --name item-1 --class Device --namespace main --description "imported" --data file://payload.json
-hubuum-cli class create --name Device --namespace main --description "devices" --schema https://example.com/schema.json
+hubuum-cli object create --name item-1 --class Device --collection main --description "imported" --data file://payload.json
+hubuum-cli class create --name Device --collection main --description "devices" --schema https://example.com/schema.json
 ```

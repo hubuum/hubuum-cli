@@ -1,7 +1,9 @@
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use hubuum_client::{Authenticated, Credentials, SyncClient, Token, Unauthenticated};
+use hubuum_client::{
+    blocking::Client as BlockingClient, Authenticated, Credentials, Token, Unauthenticated,
+};
 use log::debug;
 use tracing_subscriber::EnvFilter;
 
@@ -99,17 +101,15 @@ pub fn load_app_config(matches: &clap::ArgMatches) -> Result<Arc<AppConfig>, App
     Ok(Arc::new(config))
 }
 
-pub async fn login(config: Arc<AppConfig>) -> Result<Arc<SyncClient<Authenticated>>, AppError> {
+pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
     tokio::task::spawn_blocking(move || {
         let baseurl = hubuum_client::BaseUrl::from_str(&format!(
             "{}://{}:{}",
             config.server.protocol, config.server.hostname, config.server.port
         ))?;
 
-        let client = hubuum_client::SyncClient::new_with_certificate_validation(
-            baseurl,
-            config.server.ssl_validation,
-        );
+        let client =
+            BlockingClient::new_with_certificate_validation(baseurl, config.server.ssl_validation);
 
         authenticate(
             client,
@@ -124,11 +124,11 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<SyncClient<Authenticate
 }
 
 fn authenticate(
-    client: hubuum_client::SyncClient<Unauthenticated>,
+    client: BlockingClient<Unauthenticated>,
     hostname: &str,
     username: &str,
     password: Option<String>,
-) -> Result<SyncClient<Authenticated>, AppError> {
+) -> Result<BlockingClient<Authenticated>, AppError> {
     let token = files::get_token_from_tokenfile(hostname, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");

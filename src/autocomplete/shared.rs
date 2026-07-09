@@ -19,10 +19,7 @@ pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
 }
 
 pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_values(
-        &["import", "report", "export", "reindex", "remotecall"],
-        prefix,
-    )
+    complete_values(&["import", "export", "reindex", "remotecall"], prefix)
 }
 
 pub fn task_statuses(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -59,7 +56,7 @@ pub fn remote_subject_types(
 ) -> Vec<String> {
     complete_csv_values(
         &[
-            "namespace",
+            "collection",
             "class",
             "object",
             "class_relation",
@@ -76,7 +73,7 @@ pub fn remote_subject_kinds(
 ) -> Vec<String> {
     complete_values(
         &[
-            "namespace",
+            "collection",
             "class",
             "object",
             "class_relation",
@@ -86,7 +83,7 @@ pub fn remote_subject_kinds(
     )
 }
 
-pub fn report_content_types(
+pub fn export_content_types(
     _ctx: &CompletionContext,
     prefix: &str,
     _parts: &[String],
@@ -98,7 +95,7 @@ pub fn report_content_types(
 }
 
 pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_values(&["namespace", "class", "object"], prefix)
+    complete_values(&["collection", "class", "object"], prefix)
 }
 
 pub fn principal_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -328,14 +325,14 @@ fn object_list_class_column_values(
         "id".to_string(),
         "Name".to_string(),
         "Description".to_string(),
-        "Namespace".to_string(),
+        "Collection".to_string(),
         "Class".to_string(),
         "Data".to_string(),
         "Created".to_string(),
         "Updated".to_string(),
         "name".to_string(),
         "description".to_string(),
-        "namespace".to_string(),
+        "collection".to_string(),
         "class".to_string(),
         "data".to_string(),
         "created_at".to_string(),

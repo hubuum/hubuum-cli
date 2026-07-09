@@ -16,7 +16,10 @@ use crate::services::{AppServices, CreateUserInput, NewTokenInput, UserFilter, U
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
@@ -125,10 +128,6 @@ modify --username alice --email alice@example.com"#,
         );
 }
 
-trait GetUsername {
-    fn username(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserNew {
     #[option(short = "u", long = "username", help = "Username of the user")]
@@ -172,22 +171,10 @@ pub struct UserDelete {
     pub username: Option<String>,
 }
 
-impl GetUsername for &UserDelete {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
         services.gateway().delete_user(&username)?;
 
         let message = format!("User '{}' deleted", username);
@@ -218,17 +205,15 @@ pub struct UserInfo {
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
-impl GetUsername for &UserInfo {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserInfo {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-
-        query.username = username_or_pos(&query, tokens, 0)?;
+        query.username = Some(required_option_or_pos(
+            query.username,
+            tokens,
+            0,
+            "username",
+        )?);
 
         let user = services.gateway().find_user(UserFilter {
             username: query.username,
@@ -327,21 +312,10 @@ pub struct UserModify {
     pub email: Option<String>,
 }
 
-impl GetUsername for &UserModify {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
         let user = services.gateway().update_user(UserUpdateInput {
             username,
             rename: query.rename,
@@ -366,24 +340,6 @@ pub fn generate_random_password(length: usize) -> String {
         .collect()
 }
 
-fn username_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetUsername,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.username().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["username".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    };
-    Ok(query.username().clone())
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserSetPassword {
     #[option(
@@ -397,21 +353,10 @@ pub struct UserSetPassword {
     pub password: String,
 }
 
-impl GetUsername for &UserSetPassword {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserSetPassword {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
         services
             .gateway()
@@ -438,21 +383,10 @@ pub struct UserTokenList {
     pub username: Option<String>,
 }
 
-impl GetUsername for &UserTokenList {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserTokenList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
         let token_list = services.gateway().user_tokens(&username)?;
 
@@ -496,21 +430,10 @@ pub struct UserTokenCreate {
     pub expires_at: Option<String>,
 }
 
-impl GetUsername for &UserTokenCreate {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserTokenCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
         let raw_token = services.gateway().user_token_create(
             &username,
@@ -553,21 +476,10 @@ pub struct UserTokenRevoke {
     pub token_id: i32,
 }
 
-impl GetUsername for &UserTokenRevoke {
-    fn username(&self) -> Option<String> {
-        self.username.clone()
-    }
-}
-
 impl CliCommand for UserTokenRevoke {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.username = username_or_pos(&query, tokens, 0)?;
-
-        let username = query
-            .username
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["username".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
         services
             .gateway()

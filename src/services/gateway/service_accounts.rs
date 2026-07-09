@@ -60,7 +60,7 @@ impl HubuumGateway {
 
         let mut query_op = self.client.service_accounts().query();
         for filter in filters {
-            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+            query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
@@ -72,22 +72,27 @@ impl HubuumGateway {
     }
 
     pub fn service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let sa = self.client.service_accounts().select_by_name(name)?;
+        let sa = self.client.service_accounts().get_by_name(name)?;
         Ok(ServiceAccountRecord::from(sa.resource().clone()))
     }
 
     pub fn service_account_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.service_accounts().select_by_name(name)?.id())
+        Ok(self
+            .client
+            .service_accounts()
+            .get_by_name(name)?
+            .id()
+            .into())
     }
 
     pub fn delete_service_account(&self, name: &str) -> Result<(), AppError> {
-        let sa = self.client.service_accounts().select_by_name(name)?;
+        let sa = self.client.service_accounts().get_by_name(name)?;
         self.client.service_accounts().delete(sa.id())?;
         Ok(())
     }
 
     pub fn disable_service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         let disabled = handle.disable()?;
         Ok(ServiceAccountRecord::from(disabled))
     }
@@ -96,7 +101,7 @@ impl HubuumGateway {
         &self,
         name: &str,
     ) -> Result<Vec<PrincipalTokenRecord>, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         let tokens = handle.tokens()?;
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
@@ -106,7 +111,7 @@ impl HubuumGateway {
         name: &str,
         input: NewTokenInput,
     ) -> Result<String, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         let mut req = hubuum_client::NewTokenRequest::new();
 
         if let Some(n) = input.name {
@@ -142,7 +147,7 @@ impl HubuumGateway {
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         handle.token_revoke(token_id)?;
         Ok(())
     }

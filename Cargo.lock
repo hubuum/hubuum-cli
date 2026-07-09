@@ -572,7 +572,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -655,7 +655,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -937,7 +937,6 @@ version = "0.1.0"
 dependencies = [
  "anstream",
  "anstyle",
- "anyhow",
  "assert_cmd",
  "async-trait",
  "chrono",
@@ -952,7 +951,6 @@ dependencies = [
  "hubuum_client",
  "jqesque",
  "jsonpath-rust",
- "lazy_static",
  "log",
  "once_cell",
  "portable-pty",
@@ -999,11 +997,10 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.0.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7034b3d3cd081cdd55c4a5b21aade545355948f8a4b8daa7e016e9e0c44fb4c"
+checksum = "8b5b43a85f32511cf26eed34bf436aa836a0f3e51a5bb0a1bbb8502aa879db6f"
 dependencies = [
- "async-trait",
  "chrono",
  "hubuum_client_derive",
  "log",
@@ -1020,9 +1017,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client_derive"
-version = "0.0.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79090fb4762562dad01ec06010d6337ce5856f78564aac243862de980ae5a0ef"
+checksum = "c647fe1297e43a7782a267a0c0809c3d3e2bfdf117cae9c975e17f50dbdbb283"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1527,7 +1524,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2054,7 +2051,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2111,7 +2108,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2573,7 +2570,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3128,7 +3125,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

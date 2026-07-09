@@ -78,7 +78,7 @@ pub enum FilterValueProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterValueResolver {
     None,
-    NamespaceNameToId,
+    CollectionNameToId,
 }
 
 #[derive(Debug, Clone)]

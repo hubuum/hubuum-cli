@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hubuum_client::{ObjectPatch, ObjectPost};
+use hubuum_client::{FilterOperator, ObjectPatch, ObjectPost};
 
 use crate::domain::{build_related_object_tree, ObjectShowRecord, ResolvedObjectRecord};
 use crate::errors::AppError;
@@ -16,7 +16,7 @@ use super::{shared::find_entities_by_ids, HubuumGateway, RelationTraversalOption
 pub struct CreateObjectInput {
     pub name: String,
     pub class_name: String,
-    pub namespace: String,
+    pub collection: String,
     pub description: String,
     pub data: Option<serde_json::Value>,
 }
@@ -26,7 +26,7 @@ pub struct ObjectUpdateInput {
     pub name: String,
     pub class_name: String,
     pub rename: Option<String>,
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     pub reclass: Option<String>,
     pub description: Option<String>,
     pub data: Option<serde_json::Value>,
@@ -34,12 +34,12 @@ pub struct ObjectUpdateInput {
 
 impl HubuumGateway {
     pub fn list_object_names_for_class(&self, class_name: &str) -> Result<Vec<String>, AppError> {
-        let class = self.client.classes().select_by_name(class_name)?;
+        let class = self.client.classes().get_by_name(class_name)?;
         Ok(self
             .client
             .objects(class.id())
-            .find()
-            .execute()?
+            .query()
+            .list()?
             .into_iter()
             .map(|object| object.name)
             .collect())
@@ -50,14 +50,18 @@ impl HubuumGateway {
         class_name: &str,
         prefix: &str,
     ) -> Result<Vec<String>, AppError> {
-        let class = self.client.classes().select_by_name(class_name)?;
+        let class = self.client.classes().get_by_name(class_name)?;
         Ok(self
             .client
             .objects(class.id())
-            .find()
-            .add_filter_startswith("name", prefix)
+            .query()
+            .filter(
+                "name",
+                FilterOperator::StartsWith { is_negated: false },
+                prefix,
+            )
             .limit(100)
-            .execute()?
+            .list()?
             .into_iter()
             .map(|object| object.name)
             .collect())
@@ -67,21 +71,26 @@ impl HubuumGateway {
         &self,
         input: CreateObjectInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
-        let class = self.client.classes().select_by_name(&input.class_name)?;
+        let collection = self.client.collections().get_by_name(&input.collection)?;
+        let class = self.client.classes().get_by_name(&input.class_name)?;
 
         let object = self.client.objects(class.id()).create_raw(ObjectPost {
             name: input.name,
-            hubuum_class_id: class.id(),
-            namespace_id: namespace.id(),
+            hubuum_class_id: class.id().into(),
+            collection_id: collection.id().into(),
             description: input.description,
             data: input.data,
         })?;
 
-        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
+        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
 
-        Ok(ResolvedObjectRecord::new(&object, &classmap, &namespacemap))
+        Ok(ResolvedObjectRecord::new(
+            &object,
+            &classmap,
+            &collectionmap,
+        ))
     }
 
     pub fn object_details(
@@ -89,20 +98,21 @@ impl HubuumGateway {
         class_name: &str,
         object_name: &str,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client.classes().select_by_name(class_name)?;
+        let class = self.client.classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
-        let namespace = self
+        let collection = self
             .client
-            .namespaces()
-            .select(object.resource().namespace_id)?;
+            .collections()
+            .get(object.resource().collection_id)?;
 
-        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
+        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
 
         Ok(ResolvedObjectRecord::new(
             object.resource(),
             &classmap,
-            &namespacemap,
+            &collectionmap,
         ))
     }
 
@@ -112,19 +122,20 @@ impl HubuumGateway {
         object_name: &str,
         options: &RelationTraversalOptions,
     ) -> Result<ObjectShowRecord, AppError> {
-        let class = self.client.classes().select_by_name(class_name)?;
+        let class = self.client.classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
-        let namespace = self
+        let collection = self
             .client
-            .namespaces()
-            .select(object.resource().namespace_id)?;
+            .collections()
+            .get(object.resource().collection_id)?;
 
-        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
-        let object_record = ResolvedObjectRecord::new(object.resource(), &classmap, &namespacemap);
+        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let object_record = ResolvedObjectRecord::new(object.resource(), &classmap, &collectionmap);
         let related_graph = object
             .related_graph()
-            .add_filter(
+            .filter(
                 "depth",
                 hubuum_client::FilterOperator::Lte { is_negated: false },
                 options.max_depth,
@@ -137,11 +148,11 @@ impl HubuumGateway {
                 .map(|related_object| related_object.hubuum_class_id)
                 .collect::<Vec<_>>(),
         )?;
-        let graph_namespace_map = self.namespace_map_from_ids(
+        let graph_collection_map = self.collection_map_from_ids(
             related_graph
                 .objects
                 .iter()
-                .map(|related_object| related_object.namespace_id)
+                .map(|related_object| related_object.collection_id)
                 .collect::<Vec<_>>(),
         )?;
 
@@ -150,16 +161,16 @@ impl HubuumGateway {
             related_objects: build_related_object_tree(
                 &related_graph.objects,
                 &graph_class_map,
-                &graph_namespace_map,
-                object.id(),
-                class.id(),
+                &graph_collection_map,
+                object.id().into(),
+                class.id().into(),
                 !options.include_self_class,
             ),
         })
     }
 
     pub fn delete_object(&self, class_name: &str, object_name: &str) -> Result<(), AppError> {
-        let class = self.client.classes().select_by_name(class_name)?;
+        let class = self.client.classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
         self.client.objects(class.id()).delete(object.id())?;
         Ok(())
@@ -175,7 +186,7 @@ impl HubuumGateway {
             .iter()
             .find(|clause| clause.spec.public_name == "class")
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let class = self.client.classes().select_by_name(&class_filter.value)?;
+        let class = self.client.classes().get_by_name(&class_filter.value)?;
 
         let filters = validated
             .iter()
@@ -184,7 +195,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = apply_query_paging(
-            self.client.objects(class.id()).find().filters(filters),
+            self.client.objects(class.id()).query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -201,13 +212,13 @@ impl HubuumGateway {
         let classmap = find_entities_by_ids(&self.client.classes(), page.items.iter(), |object| {
             object.hubuum_class_id
         })?;
-        let namespacemap =
-            find_entities_by_ids(&self.client.namespaces(), page.items.iter(), |object| {
-                object.namespace_id
+        let collectionmap =
+            find_entities_by_ids(&self.client.collections(), page.items.iter(), |object| {
+                object.collection_id
             })?;
 
         Ok(PagedResult::from_page(page, query.limit, |object| {
-            ResolvedObjectRecord::new(&object, &classmap, &namespacemap)
+            ResolvedObjectRecord::new(&object, &classmap, &collectionmap)
         }))
     }
 
@@ -215,7 +226,7 @@ impl HubuumGateway {
         &self,
         input: ObjectUpdateInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client.classes().select_by_name(&input.class_name)?;
+        let class = self.client.classes().get_by_name(&input.class_name)?;
         let object = class.object_by_name(&input.name)?;
 
         let mut patch = ObjectPatch {
@@ -223,13 +234,13 @@ impl HubuumGateway {
             ..ObjectPatch::default()
         };
 
-        if let Some(namespace) = input.namespace {
-            let namespace = self.client.namespaces().select_by_name(&namespace)?;
-            patch.namespace_id = Some(namespace.id());
+        if let Some(collection) = input.collection {
+            let collection = self.client.collections().get_by_name(&collection)?;
+            patch.collection_id = Some(collection.id().into());
         }
         if let Some(reclass) = input.reclass {
-            let reclass = self.client.classes().select_by_name(&reclass)?;
-            patch.hubuum_class_id = Some(reclass.id());
+            let reclass = self.client.classes().get_by_name(&reclass)?;
+            patch.hubuum_class_id = Some(reclass.id().into());
         }
         if let Some(rename) = input.rename {
             patch.name = Some(rename);
@@ -242,12 +253,17 @@ impl HubuumGateway {
             .client
             .objects(class.id())
             .update_raw(object.id(), patch)?;
-        let namespace = self.client.namespaces().select(result.namespace_id)?;
+        let collection = self.client.collections().get(result.collection_id)?;
 
-        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
-        let namespacemap = HashMap::from([(namespace.id(), namespace.resource().clone())]);
+        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
+        let collectionmap =
+            HashMap::from([(collection.id().into(), collection.resource().clone())]);
 
-        Ok(ResolvedObjectRecord::new(&result, &classmap, &namespacemap))
+        Ok(ResolvedObjectRecord::new(
+            &result,
+            &classmap,
+            &collectionmap,
+        ))
     }
 }
 
@@ -277,12 +293,12 @@ pub(crate) const OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace",
-        "namespace_id",
+        "collection",
+        "collection_id",
         FilterOperatorProfile::EqualityOnly,
         FilterValueProfile::String,
     )
-    .resolver(FilterValueResolver::NamespaceNameToId),
+    .resolver(FilterValueResolver::CollectionNameToId),
     FilterFieldSpec::new(
         "created_at",
         "created_at",
@@ -316,7 +332,7 @@ pub(crate) const OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),
-    SortFieldSpec::new("namespace", "namespace_id"),
+    SortFieldSpec::new("collection", "collection_id"),
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];

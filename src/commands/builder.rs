@@ -24,10 +24,10 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::jobs::register_commands(&mut builder);
     commands::class::register_commands(&mut builder);
     commands::config::register_commands(&mut builder);
-    commands::namespace::register_commands(&mut builder);
+    commands::collection::register_commands(&mut builder);
     commands::user::register_commands(&mut builder);
     commands::group::register_commands(&mut builder);
-    commands::report::register_commands(&mut builder);
+    commands::export::register_commands(&mut builder);
     commands::imports::register_commands(&mut builder);
     commands::task::register_commands(&mut builder);
     commands::theme::register_commands(&mut builder);

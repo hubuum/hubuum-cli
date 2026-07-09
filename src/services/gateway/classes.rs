@@ -13,7 +13,7 @@ use super::{HubuumGateway, RelationTraversalOptions};
 #[derive(Debug, Clone)]
 pub struct CreateClassInput {
     pub name: String,
-    pub namespace: String,
+    pub collection: String,
     pub description: String,
     pub json_schema: Option<serde_json::Value>,
     pub validate_schema: Option<bool>,
@@ -23,7 +23,7 @@ pub struct CreateClassInput {
 pub struct ClassUpdateInput {
     pub name: String,
     pub rename: Option<String>,
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     pub description: Option<String>,
     pub json_schema: Option<serde_json::Value>,
     pub validate_schema: Option<bool>,
@@ -34,8 +34,8 @@ impl HubuumGateway {
         Ok(self
             .client
             .classes()
-            .find()
-            .execute()?
+            .query()
+            .list()?
             .into_iter()
             .map(|class| class.name)
             .collect())
@@ -45,17 +45,17 @@ impl HubuumGateway {
         Ok(self
             .client
             .classes()
-            .select_by_name(name)?
+            .get_by_name(name)?
             .resource()
             .json_schema
             .clone())
     }
 
     pub fn create_class(&self, input: CreateClassInput) -> Result<ClassRecord, AppError> {
-        let namespace = self.client.namespaces().select_by_name(&input.namespace)?;
+        let collection = self.client.collections().get_by_name(&input.collection)?;
         let class = self.client.classes().create_raw(ClassPost {
             name: input.name,
-            namespace_id: namespace.id(),
+            collection_id: collection.id().into(),
             description: input.description,
             json_schema: input.json_schema,
             validate_schema: input.validate_schema,
@@ -68,7 +68,7 @@ impl HubuumGateway {
         name: &str,
         options: &RelationTraversalOptions,
     ) -> Result<ClassShowRecord, AppError> {
-        let class = self.client.classes().select_by_name(name)?;
+        let class = self.client.classes().get_by_name(name)?;
         let objects = class
             .objects()?
             .into_iter()
@@ -76,17 +76,17 @@ impl HubuumGateway {
             .collect();
         let related_graph = class
             .related_graph()
-            .add_filter(
+            .filter(
                 "depth",
                 hubuum_client::FilterOperator::Lte { is_negated: false },
                 options.max_depth,
             )
             .fetch()?;
-        let namespace_map = self.namespace_map_from_ids(
+        let collection_map = self.collection_map_from_ids(
             related_graph
                 .classes
                 .iter()
-                .map(|related_class| related_class.namespace_id)
+                .map(|related_class| related_class.collection_id)
                 .collect::<Vec<_>>(),
         )?;
 
@@ -95,31 +95,36 @@ impl HubuumGateway {
             objects,
             related_classes: build_related_class_tree(
                 &related_graph.classes,
-                &namespace_map,
-                class.id(),
+                &collection_map,
+                class.id().into(),
                 !options.include_self_class,
             ),
         })
     }
 
     pub fn delete_class(&self, name: &str) -> Result<(), AppError> {
-        self.client.classes().select_by_name(name)?.delete()?;
+        self.client.classes().get_by_name(name)?.delete()?;
         Ok(())
     }
 
     pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
-        let class = self.client.classes().select_by_name(&input.name)?;
+        let class = self.client.classes().get_by_name(&input.name)?;
 
-        let namespace_id = match input.namespace {
-            Some(namespace) => self.client.namespaces().select_by_name(&namespace)?.id(),
-            None => class.resource().namespace.id,
+        let collection_id: i32 = match input.collection {
+            Some(collection) => self
+                .client
+                .collections()
+                .get_by_name(&collection)?
+                .id()
+                .into(),
+            None => class.resource().collection.id.into(),
         };
 
         let updated = self.client.classes().update_raw(
             class.id(),
             ClassPatch {
                 name: input.rename,
-                namespace_id,
+                collection_id,
                 description: input.description,
                 json_schema: input.json_schema,
                 validate_schema: input.validate_schema,
@@ -138,7 +143,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = apply_query_paging(
-            self.client.classes().find().filters(filters),
+            self.client.classes().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -167,12 +172,12 @@ pub(crate) const CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace",
-        "namespace",
+        "collection",
+        "collection",
         FilterOperatorProfile::EqualityOnly,
         FilterValueProfile::String,
     )
-    .resolver(FilterValueResolver::NamespaceNameToId),
+    .resolver(FilterValueResolver::CollectionNameToId),
     FilterFieldSpec::new(
         "validate_schema",
         "validate_schema",
@@ -204,7 +209,7 @@ pub(crate) const CLASS_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),
-    SortFieldSpec::new("namespace", "namespace"),
+    SortFieldSpec::new("collection", "collection"),
     SortFieldSpec::new("validate_schema", "validate_schema"),
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),

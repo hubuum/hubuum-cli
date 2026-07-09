@@ -3,169 +3,169 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
+};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::autocomplete::{
-    groups, namespace_sort, namespace_where, namespaces, principal_kinds, principal_names,
+    collection_sort, collection_where, collections, groups, principal_kinds, principal_names,
 };
-use crate::domain::NamespacePermission;
+use crate::domain::CollectionPermission;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_json, append_line};
-use crate::services::{AppServices, CreateNamespaceInput, NamespaceUpdateInput};
+use crate::services::{AppServices, CollectionUpdateInput, CreateCollectionInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "create",
-                NamespaceNew::default(),
+                CollectionNew::default(),
                 CommandDocs {
-                    about: Some("Create a namespace"),
+                    about: Some("Create a collection"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "list",
-                NamespaceList::default(),
+                CollectionList::default(),
                 CommandDocs {
-                    about: Some("List namespaces"),
+                    about: Some("List collections"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "delete",
-                NamespaceDelete::default(),
+                CollectionDelete::default(),
                 CommandDocs {
-                    about: Some("Delete a namespace"),
+                    about: Some("Delete a collection"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "show",
-                NamespaceInfo::default(),
+                CollectionInfo::default(),
                 CommandDocs {
-                    about: Some("Show namespace details"),
+                    about: Some("Show collection details"),
                     ..CommandDocs::default()
                 },
             ),
         )
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "modify",
-                NamespaceModify::default(),
+                CollectionModify::default(),
                 CommandDocs {
-                    about: Some("Modify a namespace"),
-                    long_about: Some("Update an existing namespace by name."),
+                    about: Some("Modify a collection"),
+                    long_about: Some("Update an existing collection by name."),
                     examples: Some(
-                        r#"modify my-namespace --rename other-ns
-modify --name my-namespace --description "Updated description""#,
+                        r#"modify my-collection --rename other-ns
+modify --name my-collection --description "Updated description""#,
                     ),
                 },
             ),
         )
         .add_command(
-            &["namespace", "permissions"],
+            &["collection", "permissions"],
             catalog_command(
                 "list",
-                NamespacePermissions::default(),
+                CollectionPermissions::default(),
                 CommandDocs {
-                    about: Some("List permissions for a namespace"),
+                    about: Some("List permissions for a collection"),
                     long_about: Some(
-                        "Show namespace permissions for a single namespace. Pass the namespace as the first positional argument or with --name.",
+                        "Show collection permissions for a single collection. Pass the collection as the first positional argument or with --name.",
                     ),
                     examples: Some(
-                        r#"list my-namespace
-list --name my-namespace"#,
+                        r#"list my-collection
+list --name my-collection"#,
                     ),
                 },
             ),
         )
         .add_command(
-            &["namespace", "permissions"],
+            &["collection", "permissions"],
             catalog_command(
                 "set",
-                NamespacePermissionsSet::default(),
+                CollectionPermissionsSet::default(),
                 CommandDocs {
-                    about: Some("Grant permissions on a namespace"),
+                    about: Some("Grant permissions on a collection"),
                     long_about: Some(
-                        "Grant namespace permissions to a group. Pass the namespace as the first positional argument or with --name, then select permissions with --all or individual permission flags.",
+                        "Grant collection permissions to a group. Pass the collection as the first positional argument or with --name, then select permissions with --all or individual permission flags.",
                     ),
                     examples: Some(
-                        r#"set my-namespace --group editors --all
-set --name my-namespace --group readers --ReadCollection --ReadClass --ReadObject"#,
+                        r#"set my-collection --group editors --all
+set --name my-collection --group readers --ReadCollection --ReadClass --ReadObject"#,
                     ),
                 },
             ),
         )
         .add_command(
-            &["namespace"],
+            &["collection"],
             catalog_command(
                 "principal-permissions",
-                NamespacePrincipalPermissions::default(),
+                CollectionPrincipalPermissions::default(),
                 CommandDocs {
-                    about: Some("List principal permissions for a namespace"),
+                    about: Some("List principal permissions for a collection"),
                     long_about: Some(
-                        "Show namespace permissions for a given principal. Pass the namespace as the first positional argument or with --name, and identify the principal with --principal-kind and --principal.",
+                        "Show collection permissions for a given principal. Pass the collection as the first positional argument or with --name, and identify the principal with --principal-kind and --principal.",
                     ),
                     examples: Some(
-                        r#"principal-permissions my-namespace --principal-kind group --principal admins
-principal-permissions --name my-namespace --principal-kind user --principal alice"#,
+                        r#"principal-permissions my-collection --principal-kind group --principal admins
+principal-permissions --name my-collection --principal-kind user --principal alice"#,
                     ),
                 },
             ),
         );
 }
 
-trait GetNamespace {
-    fn namespace(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespaceNew {
-    #[option(short = "n", long = "name", help = "Name of the namespace")]
+pub struct CollectionNew {
+    #[option(short = "n", long = "name", help = "Name of the collection")]
     pub name: String,
     #[option(
         short = "d",
         long = "description",
-        help = "Description of the namespace"
+        help = "Description of the collection"
     )]
     pub description: String,
     #[option(
         short = "o",
         long = "owner",
-        help = "Name of the group owning namespace"
+        help = "Name of the group owning collection"
     )]
     pub owner: String,
 }
 
-impl CliCommand for NamespaceNew {
+impl CliCommand for CollectionNew {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;
-        let namespace = services.gateway().create_namespace(CreateNamespaceInput {
-            name: new.name,
-            description: new.description,
-            owner: new.owner,
-        })?;
+        let collection = services
+            .gateway()
+            .create_collection(CreateCollectionInput {
+                name: new.name,
+                description: new.description,
+                owner: new.owner,
+            })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn()?,
+            OutputFormat::Json => collection.format_json_noreturn()?,
+            OutputFormat::Text => collection.format_noreturn()?,
         }
 
         Ok(())
@@ -173,27 +173,27 @@ impl CliCommand for NamespaceNew {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespaceList {
-    #[option(short = "n", long = "name", help = "Name of the namespace")]
+pub struct CollectionList {
+    #[option(short = "n", long = "name", help = "Name of the collection")]
     pub name: Option<String>,
     #[option(
         short = "d",
         long = "description",
-        help = "Description of the namespace"
+        help = "Description of the collection"
     )]
     pub description: Option<String>,
     #[option(
         long = "where",
         help = "Filter clause: 'field op value'",
         nargs = 3,
-        autocomplete = "namespace_where"
+        autocomplete = "collection_where"
     )]
     pub where_clauses: Vec<String>,
     #[option(
         long = "sort",
         help = "Sort clause: 'field asc|desc'",
         nargs = 2,
-        autocomplete = "namespace_sort"
+        autocomplete = "collection_sort"
     )]
     pub sort_clauses: Vec<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
@@ -202,7 +202,7 @@ pub struct NamespaceList {
     pub cursor: Option<String>,
 }
 
-impl CliCommand for NamespaceList {
+impl CliCommand for CollectionList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -229,45 +229,31 @@ impl CliCommand for NamespaceList {
             .into_iter()
             .flatten(),
         )?;
-        let namespaces = services.gateway().list_namespaces(&list_query)?;
-        render_list_page(tokens, &namespaces)
+        let collections = services.gateway().list_collections(&list_query)?;
+        render_list_page(tokens, &collections)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespaceInfo {
+pub struct CollectionInfo {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
 }
 
-impl GetNamespace for &NamespaceInfo {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespaceInfo {
+impl CliCommand for CollectionInfo {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
-
-        new.name = namespace_or_pos(&new, tokens, 0)?;
-
-        if new.name.is_none() {
-            return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
-        }
-
-        let namespace = services
-            .gateway()
-            .get_namespace(new.name.as_ref().unwrap())?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
+        let collection = services.gateway().get_collection(&name)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn()?,
+            OutputFormat::Json => collection.format_json_noreturn()?,
+            OutputFormat::Text => collection.format_noreturn()?,
         }
 
         Ok(())
@@ -275,36 +261,23 @@ impl CliCommand for NamespaceInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespaceDelete {
+pub struct CollectionDelete {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
 }
 
-impl GetNamespace for &NamespaceDelete {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespaceDelete {
+impl CliCommand for CollectionDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
+        let query = Self::parse_tokens(tokens)?;
+        let collection_name = required_option_or_pos(query.name, tokens, 0, "collection")?;
+        services.gateway().delete_collection(&collection_name)?;
 
-        new.name = namespace_or_pos(&new, tokens, 0)?;
-
-        if new.name.is_none() {
-            return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
-        }
-
-        let namespace_name = new.name.as_ref().unwrap().clone();
-        services.gateway().delete_namespace(&namespace_name)?;
-
-        let message = format!("Namespace '{}' deleted", namespace_name);
+        let message = format!("Collection '{}' deleted", collection_name);
 
         match desired_format(tokens) {
             OutputFormat::Json => append_json_message(&message)?,
@@ -316,48 +289,40 @@ impl CliCommand for NamespaceDelete {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespaceModify {
+pub struct CollectionModify {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
-    #[option(short = "r", long = "rename", help = "Rename the namespace")]
+    #[option(short = "r", long = "rename", help = "Rename the collection")]
     pub rename: Option<String>,
     #[option(
         short = "d",
         long = "description",
-        help = "Description of the namespace"
+        help = "Description of the collection"
     )]
     pub description: Option<String>,
 }
 
-impl GetNamespace for &NamespaceModify {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespaceModify {
+impl CliCommand for CollectionModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = namespace_or_pos(&query, tokens, 0)?;
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["namespace".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
 
-        let namespace = services.gateway().update_namespace(NamespaceUpdateInput {
-            name,
-            rename: query.rename,
-            description: query.description,
-        })?;
+        let collection = services
+            .gateway()
+            .update_collection(CollectionUpdateInput {
+                name,
+                rename: query.rename,
+                description: query.description,
+            })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => namespace.format_json_noreturn()?,
-            OutputFormat::Text => namespace.format_noreturn()?,
+            OutputFormat::Json => collection.format_json_noreturn()?,
+            OutputFormat::Text => collection.format_noreturn()?,
         }
 
         Ok(())
@@ -365,36 +330,24 @@ impl CliCommand for NamespaceModify {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespacePermissions {
+pub struct CollectionPermissions {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
 }
 
-impl GetNamespace for &NamespacePermissions {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespacePermissions {
+impl CliCommand for CollectionPermissions {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
 
-        new.name = namespace_or_pos(&new, tokens, 0)?;
+        let permissions = services.gateway().list_collection_permissions(&name)?;
 
-        let name = match &new.name {
-            Some(name) => name,
-            None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
-        };
-
-        let permissions = services.gateway().list_namespace_permissions(name)?;
-
-        let empty_message = format!("No permissions found for namespace '{name}'");
+        let empty_message = format!("No permissions found for collection '{name}'");
 
         match (desired_format(tokens), permissions.entries.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
@@ -408,12 +361,12 @@ impl CliCommand for NamespacePermissions {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespacePermissionsSet {
+pub struct CollectionPermissionsSet {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
 
@@ -435,231 +388,214 @@ pub struct NamespacePermissionsSet {
 
     #[option(
         long = "ReadCollection",
-        help = "Grant ReadCollection permissions on the namespace to the group",
+        help = "Grant ReadCollection permissions on the collection to the group",
         flag = true
     )]
     pub read_collection: Option<bool>,
 
     #[option(
         long = "UpdateCollection",
-        help = "Grant UpdateCollection permissions on the namespace to the group",
+        help = "Grant UpdateCollection permissions on the collection to the group",
         flag = true
     )]
     pub update_collection: Option<bool>,
 
     #[option(
         long = "DeleteCollection",
-        help = "Grant DeleteCollection permissions on the namespace to the group",
+        help = "Grant DeleteCollection permissions on the collection to the group",
         flag = true
     )]
     pub delete_collection: Option<bool>,
 
     #[option(
         long = "DelegateCollection",
-        help = "Grant DelegateCollection permissions on the namespace to the group",
+        help = "Grant DelegateCollection permissions on the collection to the group",
         flag = true
     )]
     pub delegate_collection: Option<bool>,
 
     #[option(
         long = "CreateClass",
-        help = "Grant CreateClass permissions on the namespace to the group",
+        help = "Grant CreateClass permissions on the collection to the group",
         flag = true
     )]
     pub create_class: Option<bool>,
 
     #[option(
         long = "ReadClass",
-        help = "Grant ReadClass permissions on the namespace to the group",
+        help = "Grant ReadClass permissions on the collection to the group",
         flag = true
     )]
     pub read_class: Option<bool>,
 
     #[option(
         long = "UpdateClass",
-        help = "Grant UpdateClass permissions on the namespace to the group",
+        help = "Grant UpdateClass permissions on the collection to the group",
         flag = true
     )]
     pub update_class: Option<bool>,
 
     #[option(
         long = "DeleteClass",
-        help = "Grant DeleteClass permissions on the namespace to the group",
+        help = "Grant DeleteClass permissions on the collection to the group",
         flag = true
     )]
     pub delete_class: Option<bool>,
 
     #[option(
         long = "CreateObject",
-        help = "Grant CreateObject permissions on the namespace to the group",
+        help = "Grant CreateObject permissions on the collection to the group",
         flag = true
     )]
     pub create_object: Option<bool>,
 
     #[option(
         long = "ReadObject",
-        help = "Grant ReadObject permissions on the namespace to the group",
+        help = "Grant ReadObject permissions on the collection to the group",
         flag = true
     )]
     pub read_object: Option<bool>,
 
     #[option(
         long = "UpdateObject",
-        help = "Grant UpdateObject permissions on the namespace to the group",
+        help = "Grant UpdateObject permissions on the collection to the group",
         flag = true
     )]
     pub update_object: Option<bool>,
 
     #[option(
         long = "DeleteObject",
-        help = "Grant DeleteObject permissions on the namespace to the group",
+        help = "Grant DeleteObject permissions on the collection to the group",
         flag = true
     )]
     pub delete_object: Option<bool>,
 
     #[option(
         long = "CreateClassRelation",
-        help = "Grant CreateClassRelation permissions on the namespace to the group",
+        help = "Grant CreateClassRelation permissions on the collection to the group",
         flag = true
     )]
     pub create_class_relation: Option<bool>,
 
     #[option(
         long = "ReadClassRelation",
-        help = "Grant ReadClassRelation permissions on the namespace to the group",
+        help = "Grant ReadClassRelation permissions on the collection to the group",
         flag = true
     )]
     pub read_class_relation: Option<bool>,
 
     #[option(
         long = "UpdateClassRelation",
-        help = "Grant UpdateClassRelation permissions on the namespace to the group",
+        help = "Grant UpdateClassRelation permissions on the collection to the group",
         flag = true
     )]
     pub update_class_relation: Option<bool>,
 
     #[option(
         long = "DeleteClassRelation",
-        help = "Grant DeleteClassRelation permissions on the namespace to the group",
+        help = "Grant DeleteClassRelation permissions on the collection to the group",
         flag = true
     )]
     pub delete_class_relation: Option<bool>,
 
     #[option(
         long = "CreateObjectRelation",
-        help = "Grant CreateObjectRelation permissions on the namespace to the group",
+        help = "Grant CreateObjectRelation permissions on the collection to the group",
         flag = true
     )]
     pub create_object_relation: Option<bool>,
 
     #[option(
         long = "ReadObjectRelation",
-        help = "Grant ReadObjectRelation permissions on the namespace to the group",
+        help = "Grant ReadObjectRelation permissions on the collection to the group",
         flag = true
     )]
     pub read_object_relation: Option<bool>,
 
     #[option(
         long = "UpdateObjectRelation",
-        help = "Grant UpdateObjectRelation permissions on the namespace to the group",
+        help = "Grant UpdateObjectRelation permissions on the collection to the group",
         flag = true
     )]
     pub update_object_relation: Option<bool>,
 
     #[option(
         long = "DeleteObjectRelation",
-        help = "Grant DeleteObjectRelation permissions on the namespace to the group",
+        help = "Grant DeleteObjectRelation permissions on the collection to the group",
         flag = true
     )]
     pub delete_object_relation: Option<bool>,
 }
 
-impl GetNamespace for &NamespacePermissionsSet {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespacePermissionsSet {
+impl CliCommand for CollectionPermissionsSet {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        // 1) parse the raw args
-        let mut new = Self::parse_tokens(tokens)?;
+        let new = Self::parse_tokens(tokens)?;
+        let collection = required_option_or_pos(new.name, tokens, 0, "collection")?;
 
-        // 2) figure out namespace (or positional)
-        new.name = namespace_or_pos(&new, tokens, 0)?;
-        if new.name.is_none() {
-            return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
-        }
-
-        // 3) collect all Permission enum variants into a Vec<Permission>
-        //
-        //    assume you have:
-        //      #[derive(EnumIter, AsRefStr)] // or similar
-        //      enum Permission { ReadObject, CreateObject, … }
-        //
-        let perms: Vec<NamespacePermission> = if new.all.is_some() {
-            NamespacePermission::iter().collect()
+        // Collect the explicit permission flags into the enum values expected by the API.
+        let perms: Vec<CollectionPermission> = if new.all.is_some() {
+            CollectionPermission::iter().collect()
         } else {
             let mut v = Vec::new();
             if new.read_collection.is_some() {
-                v.push(NamespacePermission::ReadCollection);
+                v.push(CollectionPermission::ReadCollection);
             }
             if new.update_collection.is_some() {
-                v.push(NamespacePermission::UpdateCollection);
+                v.push(CollectionPermission::UpdateCollection);
             }
             if new.delete_collection.is_some() {
-                v.push(NamespacePermission::DeleteCollection);
+                v.push(CollectionPermission::DeleteCollection);
             }
             if new.delegate_collection.is_some() {
-                v.push(NamespacePermission::DelegateCollection);
+                v.push(CollectionPermission::DelegateCollection);
             }
             if new.create_class.is_some() {
-                v.push(NamespacePermission::CreateClass);
+                v.push(CollectionPermission::CreateClass);
             }
             if new.read_class.is_some() {
-                v.push(NamespacePermission::ReadClass);
+                v.push(CollectionPermission::ReadClass);
             }
             if new.update_class.is_some() {
-                v.push(NamespacePermission::UpdateClass);
+                v.push(CollectionPermission::UpdateClass);
             }
             if new.delete_class.is_some() {
-                v.push(NamespacePermission::DeleteClass);
+                v.push(CollectionPermission::DeleteClass);
             }
             if new.create_object.is_some() {
-                v.push(NamespacePermission::CreateObject);
+                v.push(CollectionPermission::CreateObject);
             }
             if new.read_object.is_some() {
-                v.push(NamespacePermission::ReadObject);
+                v.push(CollectionPermission::ReadObject);
             }
             if new.update_object.is_some() {
-                v.push(NamespacePermission::UpdateObject);
+                v.push(CollectionPermission::UpdateObject);
             }
             if new.delete_object.is_some() {
-                v.push(NamespacePermission::DeleteObject);
+                v.push(CollectionPermission::DeleteObject);
             }
             if new.create_class_relation.is_some() {
-                v.push(NamespacePermission::CreateClassRelation);
+                v.push(CollectionPermission::CreateClassRelation);
             }
             if new.read_class_relation.is_some() {
-                v.push(NamespacePermission::ReadClassRelation);
+                v.push(CollectionPermission::ReadClassRelation);
             }
             if new.update_class_relation.is_some() {
-                v.push(NamespacePermission::UpdateClassRelation);
+                v.push(CollectionPermission::UpdateClassRelation);
             }
             if new.delete_class_relation.is_some() {
-                v.push(NamespacePermission::DeleteClassRelation);
+                v.push(CollectionPermission::DeleteClassRelation);
             }
             if new.create_object_relation.is_some() {
-                v.push(NamespacePermission::CreateObjectRelation);
+                v.push(CollectionPermission::CreateObjectRelation);
             }
             if new.read_object_relation.is_some() {
-                v.push(NamespacePermission::ReadObjectRelation);
+                v.push(CollectionPermission::ReadObjectRelation);
             }
             if new.update_object_relation.is_some() {
-                v.push(NamespacePermission::UpdateObjectRelation);
+                v.push(CollectionPermission::UpdateObjectRelation);
             }
             if new.delete_object_relation.is_some() {
-                v.push(NamespacePermission::DeleteObjectRelation);
+                v.push(CollectionPermission::DeleteObjectRelation);
             }
             v
         };
@@ -668,12 +604,9 @@ impl CliCommand for NamespacePermissionsSet {
             return Err(AppError::MissingOptions(vec!["permission".to_string()]));
         }
 
-        // 4) turn them into strings (or send the enum directly if your API accepts it)
-        services.gateway().grant_namespace_permissions(
-            new.name.as_ref().unwrap(),
-            &new.group,
-            &perms,
-        )?;
+        services
+            .gateway()
+            .grant_collection_permissions(&collection, &new.group, &perms)?;
 
         let perm_string = if new.all.is_some() {
             "all permissions".to_string()
@@ -686,10 +619,8 @@ impl CliCommand for NamespacePermissionsSet {
         };
 
         let message = format!(
-            "Granted {} to group '{}' on namespace '{}'",
-            perm_string,
-            new.group,
-            new.name.as_ref().unwrap()
+            "Granted {} to group '{}' on collection '{}'",
+            perm_string, new.group, collection
         );
 
         match desired_format(tokens) {
@@ -702,12 +633,12 @@ impl CliCommand for NamespacePermissionsSet {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct NamespacePrincipalPermissions {
+pub struct CollectionPrincipalPermissions {
     #[option(
         short = "n",
         long = "name",
-        help = "Name of the namespace",
-        autocomplete = "namespaces"
+        help = "Name of the collection",
+        autocomplete = "collections"
     )]
     pub name: Option<String>,
 
@@ -726,30 +657,18 @@ pub struct NamespacePrincipalPermissions {
     pub principal: String,
 }
 
-impl GetNamespace for &NamespacePrincipalPermissions {
-    fn namespace(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
-impl CliCommand for NamespacePrincipalPermissions {
+impl CliCommand for CollectionPrincipalPermissions {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut new = Self::parse_tokens(tokens)?;
-
-        new.name = namespace_or_pos(&new, tokens, 0)?;
-
-        let name = match &new.name {
-            Some(name) => name,
-            None => return Err(AppError::MissingOptions(vec!["namespace".to_string()])),
-        };
+        let new = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(new.name, tokens, 0, "collection")?;
 
         let principal_id = principal_id_by_name(services, &new.principal_kind, &new.principal)?;
         let permissions = services
             .gateway()
-            .principal_namespace_permissions(name, principal_id)?;
+            .principal_collection_permissions(&name, principal_id)?;
 
         let empty_message = format!(
-            "No permissions found for principal '{}' in namespace '{}'",
+            "No permissions found for principal '{}' in collection '{}'",
             new.principal, name
         );
 
@@ -778,22 +697,4 @@ fn principal_id_by_name(services: &AppServices, kind: &str, name: &str) -> Resul
         "service-account" => services.gateway().service_account_id_by_name(name),
         other => Err(AppError::InvalidOption(format!("principal-kind={other}"))),
     }
-}
-
-fn namespace_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetNamespace,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.namespace().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["namespace".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    };
-    Ok(query.namespace().clone())
 }

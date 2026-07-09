@@ -11,7 +11,10 @@ use crate::services::{AppServices, CreateServiceAccountInput, NewTokenInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
@@ -105,10 +108,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
-trait GetName {
-    fn name(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountCreate {
     #[option(short = "n", long = "name", help = "Name of the service account")]
@@ -195,21 +194,10 @@ pub struct ServiceAccountShow {
     pub name: Option<String>,
 }
 
-impl GetName for &ServiceAccountShow {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let sa = services.gateway().service_account(&name)?;
 
@@ -233,21 +221,10 @@ pub struct ServiceAccountDelete {
     pub name: Option<String>,
 }
 
-impl GetName for &ServiceAccountDelete {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         services.gateway().delete_service_account(&name)?;
 
@@ -272,21 +249,10 @@ pub struct ServiceAccountDisable {
     pub name: Option<String>,
 }
 
-impl GetName for &ServiceAccountDisable {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountDisable {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let sa = services.gateway().disable_service_account(&name)?;
 
@@ -313,21 +279,10 @@ pub struct ServiceAccountTokenList {
     pub name: Option<String>,
 }
 
-impl GetName for &ServiceAccountTokenList {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountTokenList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let token_list = services.gateway().service_account_tokens(&name)?;
 
@@ -371,21 +326,10 @@ pub struct ServiceAccountTokenCreate {
     pub expires_at: Option<String>,
 }
 
-impl GetName for &ServiceAccountTokenCreate {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountTokenCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let raw_token = services.gateway().service_account_token_create(
             &name,
@@ -428,21 +372,10 @@ pub struct ServiceAccountTokenRevoke {
     pub token_id: i32,
 }
 
-impl GetName for &ServiceAccountTokenRevoke {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountTokenRevoke {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         services
             .gateway()
@@ -459,22 +392,4 @@ impl CliCommand for ServiceAccountTokenRevoke {
 
         Ok(())
     }
-}
-
-fn name_or_pos<N>(
-    query: N,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    N: GetName,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.name().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    }
-    Ok(query.name().clone())
 }

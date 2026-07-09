@@ -14,7 +14,7 @@ use super::HubuumGateway;
 
 #[derive(Debug, Clone)]
 pub struct CreateRemoteTargetInput {
-    pub namespace: String,
+    pub collection: String,
     pub name: String,
     pub description: String,
     pub method: String,
@@ -33,7 +33,7 @@ pub struct UpdateRemoteTargetInput {
     pub name: String,
     pub rename: Option<String>,
     pub description: Option<String>,
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     pub method: Option<String>,
     pub url_template: Option<String>,
     pub allowed_subject_types: Option<Vec<String>>,
@@ -56,7 +56,7 @@ pub enum RemoteAuthConfigInput {
 #[derive(Debug, Clone)]
 pub struct InvokeRemoteTargetInput {
     pub subject_kind: String,
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     pub class: Option<String>,
     pub object: Option<String>,
     pub class_a: Option<String>,
@@ -82,13 +82,13 @@ fn parse_method(method_str: &str) -> Result<RemoteHttpMethod, AppError> {
 
 fn parse_subject_type(type_str: &str) -> Result<RemoteTargetSubjectType, AppError> {
     match type_str.to_lowercase().as_str() {
-        "namespace" => Ok(RemoteTargetSubjectType::Namespace),
+        "collection" => Ok(RemoteTargetSubjectType::Collection),
         "class" => Ok(RemoteTargetSubjectType::Class),
         "object" => Ok(RemoteTargetSubjectType::Object),
         "class_relation" | "classrelation" => Ok(RemoteTargetSubjectType::ClassRelation),
         "object_relation" | "objectrelation" => Ok(RemoteTargetSubjectType::ObjectRelation),
         _ => Err(AppError::ParseError(format!(
-            "Invalid subject type '{}'. Valid values: namespace, class, object, class_relation, object_relation",
+            "Invalid subject type '{}'. Valid values: collection, class, object, class_relation, object_relation",
             type_str
         ))),
     }
@@ -112,18 +112,18 @@ fn build_invocation_subject(
     input: &InvokeRemoteTargetInput,
 ) -> Result<RemoteInvocationSubject, AppError> {
     match input.subject_kind.to_lowercase().as_str() {
-        "namespace" => {
-            let namespace_id = gateway.namespace_id(input.namespace.as_deref().ok_or_else(|| {
-                AppError::MissingOptions(vec!["namespace".to_string()])
+        "collection" => {
+            let collection_id = gateway.collection_id(input.collection.as_deref().ok_or_else(|| {
+                AppError::MissingOptions(vec!["collection".to_string()])
             })?)?;
-            Ok(RemoteInvocationSubject::Namespace { namespace_id })
+            Ok(RemoteInvocationSubject::Collection { collection_id })
         }
         "class" => {
             let class_id = gateway
                 .class_handle_by_name(input.class.as_deref().ok_or_else(|| {
                     AppError::MissingOptions(vec!["class".to_string()])
                 })?)?
-                .id();
+                .id().into();
             Ok(RemoteInvocationSubject::Class { class_id })
         }
         "object" => {
@@ -139,7 +139,7 @@ fn build_invocation_subject(
                     .ok_or_else(|| AppError::MissingOptions(vec!["object".to_string()]))?,
             )?;
             let class_id = object.resource().hubuum_class_id;
-            let object_id = object.id();
+            let object_id = object.id().into();
             Ok(RemoteInvocationSubject::Object { class_id, object_id })
         }
         "class_relation" | "classrelation" => {
@@ -179,7 +179,7 @@ fn build_invocation_subject(
             Ok(RemoteInvocationSubject::ObjectRelation { relation_id })
         }
         _ => Err(AppError::ParseError(format!(
-            "Invalid subject kind '{}'. Valid values: namespace, class, object, class_relation, object_relation",
+            "Invalid subject kind '{}'. Valid values: collection, class, object, class_relation, object_relation",
             input.subject_kind
         ))),
     }
@@ -210,7 +210,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let new_target = NewRemoteTarget {
-            namespace_id: self.namespace_id(&input.namespace)?,
+            collection_id: self.collection_id(&input.collection)?,
             name: input.name,
             description: input.description,
             method,
@@ -221,7 +221,10 @@ impl HubuumGateway {
             class_id: input
                 .class
                 .as_deref()
-                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
+                .map(|class| {
+                    self.class_handle_by_name(class)
+                        .map(|handle| handle.id().into())
+                })
                 .transpose()?,
             enabled: input.enabled,
             headers_template: input.headers_template,
@@ -249,7 +252,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = apply_query_paging(
-            self.client.remote_targets().find().filters(filters),
+            self.client.remote_targets().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -262,7 +265,7 @@ impl HubuumGateway {
     }
 
     pub fn remote_target(&self, name: &str) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client.remote_targets().select_by_name(name)?;
+        let target = self.client.remote_targets().get_by_name(name)?;
         Ok(RemoteTargetRecord::from(target.resource()))
     }
 
@@ -270,7 +273,7 @@ impl HubuumGateway {
         &self,
         input: UpdateRemoteTargetInput,
     ) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client.remote_targets().select_by_name(&input.name)?;
+        let target = self.client.remote_targets().get_by_name(&input.name)?;
 
         let method = input.method.as_ref().map(|m| parse_method(m)).transpose()?;
         let allowed_subject_types = input
@@ -287,10 +290,10 @@ impl HubuumGateway {
         let update = UpdateRemoteTarget {
             name: input.rename,
             description: input.description,
-            namespace_id: input
-                .namespace
+            collection_id: input
+                .collection
                 .as_deref()
-                .map(|namespace| self.namespace_id(namespace))
+                .map(|collection| self.collection_id(collection))
                 .transpose()?,
             method,
             url_template: input.url_template,
@@ -301,7 +304,10 @@ impl HubuumGateway {
             class_id: input
                 .class
                 .as_deref()
-                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
+                .map(|class| {
+                    self.class_handle_by_name(class)
+                        .map(|handle| handle.id().into())
+                })
                 .transpose()?,
             enabled: input.enabled,
             timeout_ms: input.timeout_ms,
@@ -317,7 +323,7 @@ impl HubuumGateway {
     }
 
     pub fn delete_remote_target(&self, name: &str) -> Result<(), AppError> {
-        let target = self.client.remote_targets().select_by_name(name)?;
+        let target = self.client.remote_targets().get_by_name(name)?;
         self.client.remote_targets().delete(target.id())?;
         Ok(())
     }
@@ -327,7 +333,7 @@ impl HubuumGateway {
         name: &str,
         input: InvokeRemoteTargetInput,
     ) -> Result<TaskRecord, AppError> {
-        let handle = self.client.remote_targets().select_by_name(name)?;
+        let handle = self.client.remote_targets().get_by_name(name)?;
         let subject = build_invocation_subject(self, &input)?;
         let mut req = RemoteTargetInvokeRequest::new(subject);
         if let Some(p) = input.parameters {
@@ -354,8 +360,8 @@ pub(crate) const REMOTE_TARGET_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace_id",
-        "namespace_id",
+        "collection_id",
+        "collection_id",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
@@ -370,6 +376,6 @@ pub(crate) const REMOTE_TARGET_FILTER_SPECS: &[FilterFieldSpec] = &[
 pub(crate) const REMOTE_TARGET_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
-    SortFieldSpec::new("namespace_id", "namespace_id"),
+    SortFieldSpec::new("collection_id", "collection_id"),
     SortFieldSpec::new("enabled", "enabled"),
 ];

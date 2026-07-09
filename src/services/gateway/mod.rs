@@ -1,13 +1,13 @@
 mod classes;
+mod collections;
 mod events;
+mod exports;
 mod groups;
 mod identity;
 mod imports;
-mod namespaces;
 mod objects;
 mod relations;
 mod remote_targets;
-mod reports;
 mod search;
 mod service_accounts;
 mod shared;
@@ -16,22 +16,22 @@ mod users;
 
 use std::sync::Arc;
 
-use hubuum_client::{Authenticated, SyncClient};
+use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 
 use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
 pub use classes::{ClassUpdateInput, CreateClassInput};
+pub use collections::{CollectionUpdateInput, CreateCollectionInput};
 pub use events::{AuditListInput, AuditScope, HistoryInput, HistoryScope};
+pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
-pub use namespaces::{CreateNamespaceInput, NamespaceUpdateInput};
 pub use objects::{CreateObjectInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,
 };
-pub use reports::{CreateReportTemplateInput, RunReportInput, UpdateReportTemplateInput};
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
 pub use tasks::{ListTasksInput, TaskLookupInput};
@@ -39,11 +39,11 @@ pub use users::{CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
 pub struct HubuumGateway {
-    pub(super) client: Arc<SyncClient<Authenticated>>,
+    pub(super) client: Arc<BlockingClient<Authenticated>>,
 }
 
 impl HubuumGateway {
-    pub fn new(client: Arc<SyncClient<Authenticated>>) -> Self {
+    pub fn new(client: Arc<BlockingClient<Authenticated>>) -> Self {
         Self { client }
     }
 }
@@ -58,8 +58,8 @@ pub(crate) fn filter_specs_for_command_path(
         [scope, command] if scope == "group" && command == "list" => {
             Some(groups::GROUP_FILTER_SPECS)
         }
-        [scope, command] if scope == "namespace" && command == "list" => {
-            Some(namespaces::NAMESPACE_FILTER_SPECS)
+        [scope, command] if scope == "collection" && command == "list" => {
+            Some(collections::COLLECTION_FILTER_SPECS)
         }
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_FILTER_SPECS)
@@ -94,8 +94,8 @@ pub(crate) fn filter_specs_for_command_path(
         {
             Some(relations::RELATED_OBJECT_FILTER_SPECS)
         }
-        [scope, command] if scope == "report" && command == "list" => {
-            Some(reports::REPORT_FILTER_SPECS)
+        [scope, command] if scope == "export" && command == "list" => {
+            Some(exports::EXPORT_FILTER_SPECS)
         }
         [scope, command] if scope == "remote-target" && command == "list" => {
             Some(remote_targets::REMOTE_TARGET_FILTER_SPECS)
@@ -113,8 +113,8 @@ pub(crate) fn sort_specs_for_command_path(
             Some(classes::CLASS_SORT_SPECS)
         }
         [scope, command] if scope == "group" && command == "list" => Some(groups::GROUP_SORT_SPECS),
-        [scope, command] if scope == "namespace" && command == "list" => {
-            Some(namespaces::NAMESPACE_SORT_SPECS)
+        [scope, command] if scope == "collection" && command == "list" => {
+            Some(collections::COLLECTION_SORT_SPECS)
         }
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_SORT_SPECS)
@@ -139,8 +139,8 @@ pub(crate) fn sort_specs_for_command_path(
         {
             Some(relations::OBJECT_RELATION_SORT_SPECS)
         }
-        [scope, command] if scope == "report" && command == "list" => {
-            Some(reports::REPORT_SORT_SPECS)
+        [scope, command] if scope == "export" && command == "list" => {
+            Some(exports::EXPORT_SORT_SPECS)
         }
         [scope, command] if scope == "remote-target" && command == "list" => {
             Some(remote_targets::REMOTE_TARGET_SORT_SPECS)

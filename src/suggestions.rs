@@ -91,7 +91,7 @@ mod tests {
         assert_eq!(
             did_you_mean(
                 "obj",
-                ["namespace", "object", "object-relation"].map(str::to_string)
+                ["collection", "object", "object-relation"].map(str::to_string)
             )
             .as_deref(),
             Some("object")

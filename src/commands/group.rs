@@ -2,7 +2,10 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
 use crate::autocomplete::{group_sort, group_where, groups, users};
 use crate::catalog::CommandCatalogBuilder;
 
@@ -86,10 +89,6 @@ modify --groupname my-group --description "Updated description""#,
                 },
             ),
         );
-}
-
-trait GetGroupname {
-    fn groupname(&self) -> Option<String>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -232,20 +231,10 @@ pub struct GroupModify {
     pub description: Option<String>,
 }
 
-impl GetGroupname for &GroupModify {
-    fn groupname(&self) -> Option<String> {
-        self.groupname.clone()
-    }
-}
-
 impl CliCommand for GroupModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.groupname = groupname_or_pos(&query, tokens, 0)?;
-        let groupname = query
-            .groupname
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["groupname".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let groupname = required_option_or_pos(query.groupname, tokens, 0, "groupname")?;
 
         let group = services.gateway().update_group(GroupUpdateInput {
             groupname,
@@ -308,24 +297,6 @@ impl CliCommand for GroupList {
         let groups = services.gateway().list_groups(&list_query)?;
         render_list_page(tokens, &groups)
     }
-}
-
-fn groupname_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetGroupname,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.groupname().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["groupname".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    }
-    Ok(query.groupname().clone())
 }
 
 #[cfg(test)]

@@ -33,7 +33,7 @@ impl HubuumGateway {
     }
 
     pub fn group_id_by_name(&self, group_name: &str) -> Result<i32, AppError> {
-        Ok(self.client.groups().select_by_name(group_name)?.id())
+        Ok(self.client.groups().get_by_name(group_name)?.id().into())
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
@@ -50,21 +50,21 @@ impl HubuumGateway {
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().select_by_name(group_name)?;
-        let principal_id = self.client.users().select_by_name(username)?.id();
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self.client.users().get_by_name(username)?.id().into();
         group.add_member(principal_id)?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().select_by_name(group_name)?;
-        let principal_id = self.client.users().select_by_name(username)?.id();
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self.client.users().get_by_name(username)?.id().into();
         group.remove_member(principal_id)?;
         Ok(())
     }
 
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
-        let handle = self.client.groups().select_by_name(group_name)?;
+        let handle = self.client.groups().get_by_name(group_name)?;
         let members = handle
             .members()?
             .into_iter()
@@ -78,7 +78,7 @@ impl HubuumGateway {
     }
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
-        let handle = self.client.groups().select_by_name(&input.groupname)?;
+        let handle = self.client.groups().get_by_name(&input.groupname)?;
         let updated = self
             .client
             .groups()
@@ -102,7 +102,7 @@ impl HubuumGateway {
 
         let mut query_op = self.client.groups().query();
         for filter in filters {
-            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+            query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;

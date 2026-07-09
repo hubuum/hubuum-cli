@@ -12,7 +12,7 @@ use super::{
     CliCommand,
 };
 use crate::autocomplete::{
-    classes, namespaces, object_data_columns, object_sort, object_where, objects_from_class,
+    classes, collections, object_data_columns, object_sort, object_where, objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
@@ -49,8 +49,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                         "Create a new object in a specific class with the specified properties.",
                     ),
                     examples: Some(
-                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data '{"key": "val"}'"#,
+                        r#"-n MyObject -c MyClaass -N collection_1 -d "My object description"
+--name MyObject --class MyClass --collection collection_1 --description 'My object' --data '{"key": "val"}'"#,
                     ),
                 },
             ),
@@ -102,8 +102,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                         "Modify an object in a specific class with the specified properties.",
                     ),
                     examples: Some(
-                        r#"-n MyObject -c MyClaass -N namespace_1 -d "My object description"
---name MyObject --class MyClass --namespace namespace_1 --description 'My object' --data foo.bar=4"#,
+                        r#"-n MyObject -c MyClaass -N collection_1 -d "My object description"
+--name MyObject --class MyClass --collection collection_1 --description 'My object' --data foo.bar=4"#,
                     ),
                 },
             ),
@@ -134,11 +134,11 @@ pub struct ObjectNew {
     pub class: String,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: String,
+    pub collection: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
     #[option(
@@ -156,7 +156,7 @@ impl CliCommand for ObjectNew {
         let object = services.gateway().create_object(CreateObjectInput {
             name: new.name,
             class_name: new.class,
-            namespace: new.namespace,
+            collection: new.collection,
             description: new.description,
             data: new.data,
         })?;
@@ -640,7 +640,7 @@ mod tests {
                 id: 1,
                 name: "Entry".to_string(),
                 description: String::new(),
-                namespace: "default".to_string(),
+                collection: "default".to_string(),
                 class: "Contacts".to_string(),
                 data: Some(json!({"email": "a@example.com"})),
                 created_at: "2024-01-01 00:00:00".to_string(),
@@ -650,13 +650,13 @@ mod tests {
                 id: 2,
                 class: "Jacks".to_string(),
                 name: "BL14=521.A7-UD7056".to_string(),
-                namespace: "default".to_string(),
+                collection: "default".to_string(),
                 depth: 1,
                 children: vec![RelatedObjectTreeNode {
                     id: 3,
                     class: "Rooms".to_string(),
                     name: "B701".to_string(),
-                    namespace: "default".to_string(),
+                    collection: "default".to_string(),
                     depth: 2,
                     children: vec![],
                 }],
@@ -691,7 +691,7 @@ mod tests {
             id,
             name: format!("host-{id}"),
             description: String::new(),
-            namespace: "Math".to_string(),
+            collection: "Math".to_string(),
             class: "Hosts".to_string(),
             data: Some(data),
             created_at: "2026-07-05 03:44:41".to_string(),
@@ -1038,7 +1038,7 @@ impl ObjectListColumns {
         if !self.compact_base {
             columns.extend([
                 "Description".to_string(),
-                "Namespace".to_string(),
+                "Collection".to_string(),
                 "Class".to_string(),
             ]);
         }
@@ -1256,8 +1256,8 @@ fn object_list_row(
         serde_json::Value::String(object.description.clone()),
     );
     row.insert(
-        "Namespace".to_string(),
-        serde_json::Value::String(object.namespace.clone()),
+        "Collection".to_string(),
+        serde_json::Value::String(object.collection.clone()),
     );
     row.insert(
         "Class".to_string(),
@@ -1315,8 +1315,8 @@ fn object_data_column_label(key: &str) -> String {
     }
 
     match key {
-        "id" | "name" | "description" | "namespace" | "class" | "created_at" | "updated_at"
-        | "Name" | "Description" | "Namespace" | "Class" | "Data" | "Created" | "Updated" => {
+        "id" | "name" | "description" | "collection" | "class" | "created_at" | "updated_at"
+        | "Name" | "Description" | "Collection" | "Class" | "Data" | "Created" | "Updated" => {
             format!("data.{key}")
         }
         _ => key.to_string(),
@@ -1416,11 +1416,11 @@ pub struct ObjectModify {
     pub reclass: Option<String>,
     #[option(
         short = "N",
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(short = "d", long = "description", help = "Description of the object")]
     pub description: Option<String>,
     #[option(
@@ -1452,7 +1452,7 @@ impl CliCommand for ObjectModify {
             name: new.name,
             class_name: new.class,
             rename: new.rename,
-            namespace: new.namespace,
+            collection: new.collection,
             reclass: new.reclass,
             description: new.description,
             data,
