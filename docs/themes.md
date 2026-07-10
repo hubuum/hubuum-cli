@@ -62,6 +62,11 @@ Preview a theme without changing config:
 hubuum-cli theme preview catppuccin-mocha
 ```
 
+The preview includes a dense table with alternating row bands. The selected
+theme's `table_band` role controls the shaded rows, independently of the active
+theme and the configured table style. Normal command output applies that role
+only to dense tables when `output.table_bands` is `auto` or `always`.
+
 Persist a theme and reload the current REPL session:
 
 ```console

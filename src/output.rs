@@ -551,6 +551,14 @@ fn display_columns(envelope: &OutputEnvelope, rows: &[Value]) -> Vec<String> {
 }
 
 fn render_dense_rows(rows: &[Value], columns: &[String]) -> Vec<String> {
+    render_dense_rows_with_band(rows, columns, apply_row_band)
+}
+
+fn render_dense_rows_with_band(
+    rows: &[Value],
+    columns: &[String],
+    mut band_row: impl FnMut(usize, String) -> String,
+) -> Vec<String> {
     let headers = column_headers(columns);
     let widths = dense_widths(rows, columns, &headers);
     let mut lines = Vec::with_capacity(rows.len() + 1);
@@ -568,9 +576,31 @@ fn render_dense_rows(rows: &[Value], columns: &[String]) -> Vec<String> {
                 .map(String::as_str),
             &widths,
         );
-        lines.push(apply_row_band(index, line));
+        lines.push(band_row(index, line));
     }
     lines
+}
+
+pub(crate) fn render_dense_theme_preview(theme: &hubuum_theme::Theme) -> Vec<String> {
+    let rows = vec![
+        serde_json::json!({"Name": "edge-gateway-01", "os_version": "Debian 13", "status": "Ready"}),
+        serde_json::json!({"Name": "build-runner-04", "os_version": "Ubuntu 26.04", "status": "Busy"}),
+        serde_json::json!({"Name": "storage-node-02", "os_version": "Rocky 10", "status": "Ready"}),
+        serde_json::json!({"Name": "lab-console-07", "os_version": "Fedora 44", "status": "Offline"}),
+    ];
+    let columns = vec![
+        "Name".to_string(),
+        "os_version".to_string(),
+        "status".to_string(),
+    ];
+
+    render_dense_rows_with_band(&rows, &columns, |index, line| {
+        if index % 2 == 1 {
+            hubuum_theme::paint(theme, ThemeRole::TableBand, line)
+        } else {
+            line
+        }
+    })
 }
 
 fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<usize> {
@@ -878,6 +908,21 @@ mod tests {
 
         assert!(!rendered.contains("\x1b[48;5;236m"));
         assert!(rendered.contains("beta"));
+    }
+
+    #[test]
+    fn dense_theme_preview_bands_alternating_rows() {
+        let theme = hubuum_theme::resolve_theme("rose-pink", None).expect("rose-pink theme");
+        let lines = super::render_dense_theme_preview(&theme);
+
+        assert_eq!(lines.len(), 5);
+        assert!(lines[0].contains("Name"));
+        assert!(!lines[1].contains('\u{1b}'));
+        assert!(lines[2].contains('\u{1b}'));
+        assert!(!lines[3].contains('\u{1b}'));
+        assert!(lines[4].contains('\u{1b}'));
+        assert!(lines[2].contains("build-runner-04"));
+        assert!(lines[4].contains("lab-console-07"));
     }
 
     #[test]

@@ -8,9 +8,9 @@ use crate::catalog::CommandCatalogBuilder;
 use crate::config::{reload_runtime_config, set_persisted_value};
 use crate::errors::AppError;
 use crate::models::OutputFormat;
-use crate::output::{append_line, set_semantic_output};
+use crate::output::{append_line, append_lines, render_dense_theme_preview, set_semantic_output};
 use crate::services::AppServices;
-use crate::theme::{paint, paint_command, ThemeRole};
+use crate::theme::{paint_command, ThemeRole};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -161,7 +161,8 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
         .cloned()
         .ok_or_else(|| unknown_theme(&name))?;
 
-    append_line(paint(
+    append_line(hubuum_theme::paint(
+        &theme,
         ThemeRole::Heading,
         format!("Theme: {}", theme.display_name),
     ))?;
@@ -199,11 +200,13 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
         "  {}",
         hubuum_theme::paint(&theme, ThemeRole::Muted, "Muted status text")
     ))?;
+    append_line("")?;
     append_line(hubuum_theme::paint(
         &theme,
-        ThemeRole::TableBand,
-        "  Name              os_version",
+        ThemeRole::Heading,
+        "Dense table with alternating row bands",
     ))?;
+    append_lines(&render_dense_theme_preview(&theme))?;
     Ok(())
 }
 

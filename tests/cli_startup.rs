@@ -48,6 +48,22 @@ fn direct_help_and_config_paths_do_not_require_login() {
 }
 
 #[test]
+fn theme_preview_includes_a_dense_banded_table() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["--color", "never", "theme", "preview", "rose-pink"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Dense table with alternating row bands",
+        ))
+        .stdout(predicate::str::contains(
+            "Name            | os_version   | status",
+        ))
+        .stdout(predicate::str::contains("edge-gateway-01"))
+        .stdout(predicate::str::contains("lab-console-07"));
+}
+
+#[test]
 fn direct_command_redirects_to_an_unstyled_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("help.txt");
