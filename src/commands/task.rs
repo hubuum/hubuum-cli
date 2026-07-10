@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -136,7 +137,7 @@ impl CliCommand for TaskQueue {
         let state = services.gateway().task_queue_state()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&state)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
             OutputFormat::Text => state.format_noreturn()?,
         }
 
@@ -193,7 +194,7 @@ impl CliCommand for TaskOutputCmd {
         let output = services.gateway().task_output(task_id)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
                     append_line(line)?;

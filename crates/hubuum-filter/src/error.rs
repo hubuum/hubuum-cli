@@ -1,3 +1,4 @@
+use regex::Error as RegexError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -9,7 +10,7 @@ pub enum PipelineError {
     Parse(String),
 
     #[error("Regular expression error: {0}")]
-    Regex(#[from] regex::Error),
+    Regex(#[from] RegexError),
 
     #[error("JQ error: {0}")]
     Jq(String),

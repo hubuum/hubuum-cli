@@ -1,6 +1,9 @@
+use std::fmt::{Display as FmtDisplay, Formatter, Result as FmtResult};
+use std::str::FromStr;
+
 use config::Value;
+use serde::de::Error as DeserializeError;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{fmt, str::FromStr};
 use strum::{Display, EnumString};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -29,8 +32,8 @@ impl From<Protocol> for Value {
     }
 }
 
-impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl FmtDisplay for Protocol {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Protocol::Http => write!(f, "http"),
             Protocol::Https => write!(f, "https"),
@@ -128,12 +131,12 @@ impl<'de> Deserialize<'de> for TableWidth {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        value.parse().map_err(serde::de::Error::custom)
+        value.parse().map_err(DeserializeError::custom)
     }
 }
 
-impl fmt::Display for TableWidth {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl FmtDisplay for TableWidth {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::Auto => write!(f, "auto"),
             Self::Full => write!(f, "full"),
@@ -178,12 +181,12 @@ impl<'de> Deserialize<'de> for TableWrap {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        value.parse().map_err(serde::de::Error::custom)
+        value.parse().map_err(DeserializeError::custom)
     }
 }
 
-impl fmt::Display for TableWrap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl FmtDisplay for TableWrap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::Auto => write!(f, "auto"),
             Self::Never => write!(f, "never"),

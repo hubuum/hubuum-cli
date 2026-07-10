@@ -101,7 +101,7 @@ impl DetailRenderable for PrincipalPermissionsRecord {
             .collect();
 
         let unique_perms: Vec<String> = {
-            let mut set = std::collections::HashSet::new();
+            let mut set = HashSet::new();
             for p in all_perms {
                 set.insert(p);
             }
@@ -140,7 +140,7 @@ impl TableRenderable for PrincipalPermissionsRecord {
             .collect();
 
         let unique_perms: Vec<String> = {
-            let mut set = std::collections::HashSet::new();
+            let mut set = HashSet::new();
             for p in all_perms {
                 set.insert(p);
             }
@@ -157,3 +157,4 @@ impl TableRenderable for PrincipalPermissionsRecord {
         ]
     }
 }
+use std::collections::HashSet;

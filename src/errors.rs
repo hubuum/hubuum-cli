@@ -1,4 +1,13 @@
+use std::io::Error as StdIoError;
+use std::num::ParseIntError;
+use std::str::ParseBoolError;
+
+use config::ConfigError;
 use hubuum_client::ApiError;
+use hubuum_filter::PipelineError as FilterPipelineError;
+use jqesque::JqesqueError;
+use regex::Error as RegexError;
+use serde_json::Error as JsonError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -22,13 +31,13 @@ pub enum AppError {
     PopulatedFlagOptions(Vec<String>),
 
     #[error("Integer parse error: {0}")]
-    ParseIntError(#[from] std::num::ParseIntError),
+    ParseIntError(#[from] ParseIntError),
 
     #[error("JSON parse error: {0}")]
-    ParseJsonError(#[from] serde_json::Error),
+    ParseJsonError(#[from] JsonError),
 
     #[error("Boolean parse error: {0}")]
-    ParseBoolError(#[from] std::str::ParseBoolError),
+    ParseBoolError(#[from] ParseBoolError),
 
     #[error("Missing required options: {0:?}")]
     MissingOptions(Vec<String>),
@@ -37,16 +46,16 @@ pub enum AppError {
     DuplicateOptions(Vec<String>),
 
     #[error("IO error: {0:?}")]
-    IoError(#[from] std::io::Error),
+    IoError(#[from] StdIoError),
 
     #[error("HTTP Error: {0}")]
     HttpError(String),
 
     #[error("Regular expression error: {0}")]
-    RegexError(#[from] regex::Error),
+    RegexError(#[from] RegexError),
 
     #[error(transparent)]
-    PipelineError(#[from] hubuum_filter::PipelineError),
+    PipelineError(#[from] FilterPipelineError),
 
     #[error("File locking error")]
     LockError,
@@ -59,7 +68,7 @@ pub enum AppError {
     ConfigError(String),
 
     #[error("Failed to initialize configuration: {0}")]
-    ConfigurationError(#[from] config::ConfigError),
+    ConfigurationError(#[from] ConfigError),
 
     #[error("REPL error: {0}")]
     ReplError(String),
@@ -83,7 +92,7 @@ pub enum AppError {
     Quiet,
 
     #[error("Jqesque error: {0}")]
-    JqesqueError(#[from] jqesque::JqesqueError),
+    JqesqueError(#[from] JqesqueError),
 
     #[error("Error parsing JSONPath: {0}")]
     JsonPathError(String),

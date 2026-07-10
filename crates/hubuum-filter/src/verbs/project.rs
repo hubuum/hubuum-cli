@@ -86,16 +86,25 @@ fn project_group_rows(
     let groups = array_values(&envelope.value)?
         .into_iter()
         .map(|mut group| {
-            if let Some(rows) = group.get_mut("rows").and_then(Value::as_array_mut) {
-                *rows = std::mem::take(rows)
-                    .into_iter()
-                    .map(|row| project_value(&row, terms))
-                    .collect();
+            let mut summary = Map::new();
+            if let Some(values) = group.get("groups").and_then(Value::as_object) {
+                summary.extend(values.clone());
+            }
+            if let Some(values) = group.get("aggregates").and_then(Value::as_object) {
+                summary.extend(values.clone());
+            }
+
+            if let Some(group) = group.as_object_mut() {
+                group.insert(
+                    "groups".to_string(),
+                    project_value(&Value::Object(summary), terms),
+                );
+                group.insert("aggregates".to_string(), Value::Object(Map::new()));
             }
             group
         })
         .collect::<Vec<_>>();
-    Ok(OutputEnvelope::groups(groups, envelope.columns))
+    Ok(OutputEnvelope::groups(groups, output_columns(terms)))
 }
 
 fn group_rows(envelope: &OutputEnvelope) -> Result<Vec<Value>, PipelineError> {

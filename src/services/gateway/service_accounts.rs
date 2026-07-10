@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions, ServiceAccountPost};
 use std::str::FromStr;
 
 use crate::domain::{PrincipalTokenRecord, ServiceAccountRecord};
@@ -37,7 +39,7 @@ impl HubuumGateway {
             .client
             .service_accounts()
             .create()
-            .params(hubuum_client::ServiceAccountPost {
+            .params(ServiceAccountPost {
                 name: input.name,
                 description: input.description,
                 owner_group_id: input.owner_group_id,
@@ -112,7 +114,7 @@ impl HubuumGateway {
         input: NewTokenInput,
     ) -> Result<String, AppError> {
         let handle = self.client.service_accounts().get_by_name(name)?;
-        let mut req = hubuum_client::NewTokenRequest::new();
+        let mut req = NewTokenRequest::new();
 
         if let Some(n) = input.name {
             req = req.name(n);
@@ -121,21 +123,21 @@ impl HubuumGateway {
             req = req.description(d);
         }
         if let Some(exp_str) = input.expires_at.as_deref() {
-            let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
+            let dt = DateTime::parse_from_rfc3339(exp_str)
                 .map_err(|e| {
                     AppError::CommandExecutionError(format!(
                         "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
                     ))
                 })?
-                .with_timezone(&chrono::Utc);
-            req = req.expires_at(hubuum_client::HubuumDateTime(dt));
+                .with_timezone(&Utc);
+            req = req.expires_at(HubuumDateTime(dt));
         }
         if !input.scopes.is_empty() {
             let scopes: Result<Vec<_>, _> = input
                 .scopes
                 .iter()
                 .map(|s| {
-                    hubuum_client::Permissions::from_str(s).map_err(|_| {
+                    Permissions::from_str(s).map_err(|_| {
                         AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
                     })
                 })

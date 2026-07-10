@@ -1,18 +1,27 @@
+use std::fs::File;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use clap::ArgMatches;
 use hubuum_client::{
-    blocking::Client as BlockingClient, Authenticated, Credentials, Token, Unauthenticated,
+    blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, Token, Unauthenticated,
 };
 use log::debug;
+use rpassword::prompt_password;
+use tokio::task::spawn_blocking;
+use tracing_subscriber::fmt as tracing_fmt;
 use tracing_subscriber::EnvFilter;
 
 use crate::catalog::CommandCatalog;
-use crate::config::{self, AppConfig};
+use crate::cli::{get_cli_config_path, update_config_from_cli};
+use crate::config::{
+    get_config, init_config, init_config_state, inspect_config_state, load_config, AppConfig,
+};
 use crate::errors::AppError;
-use crate::files::{self, get_log_file};
+use crate::files::{get_log_file, get_token_from_tokenfile, write_token_to_tokenfile};
 use crate::models::TokenEntry;
 use crate::services::AppServices;
+use crate::theme::{paint, ThemeRole};
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -80,30 +89,30 @@ impl SharedSession {
 
 pub fn init_logging() -> Result<(), AppError> {
     let file = get_log_file()?;
-    let file = std::fs::File::create(file)?;
-    tracing_subscriber::fmt()
+    let file = File::create(file)?;
+    tracing_fmt()
         .with_writer(file)
         .with_env_filter(EnvFilter::from_default_env())
         .init();
     Ok(())
 }
 
-pub fn load_app_config(matches: &clap::ArgMatches) -> Result<Arc<AppConfig>, AppError> {
-    let cli_config_path = crate::cli::get_cli_config_path(matches);
-    let mut config = config::load_config(cli_config_path)?;
-    crate::cli::update_config_from_cli(&mut config, matches);
-    config::init_config_state(config::inspect_config_state(
+pub fn load_app_config(matches: &ArgMatches) -> Result<Arc<AppConfig>, AppError> {
+    let cli_config_path = get_cli_config_path(matches);
+    let mut config = load_config(cli_config_path)?;
+    update_config_from_cli(&mut config, matches);
+    init_config_state(inspect_config_state(
         &config,
-        crate::cli::get_cli_config_path(matches),
+        get_cli_config_path(matches),
         matches,
     ))?;
-    config::init_config(config.clone())?;
+    init_config(config.clone())?;
     Ok(Arc::new(config))
 }
 
 pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
-    tokio::task::spawn_blocking(move || {
-        let baseurl = hubuum_client::BaseUrl::from_str(&format!(
+    spawn_blocking(move || {
+        let baseurl = BaseUrl::from_str(&format!(
             "{}://{}:{}",
             config.server.protocol, config.server.hostname, config.server.port
         ))?;
@@ -129,7 +138,7 @@ fn authenticate(
     username: &str,
     password: Option<String>,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
-    let token = files::get_token_from_tokenfile(hostname, username)?;
+    let token = get_token_from_tokenfile(hostname, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");
         if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
@@ -139,12 +148,12 @@ fn authenticate(
 
     let password = match password {
         Some(password) => password,
-        None => rpassword::prompt_password(format!("Password for {username} @ {hostname}: "))?,
+        None => prompt_password(format!("Password for {username} @ {hostname}: "))?,
     };
 
     let client = client.login(Credentials::new(username.to_string(), password))?;
 
-    files::write_token_to_tokenfile(TokenEntry {
+    write_token_to_tokenfile(TokenEntry {
         hostname: hostname.to_string(),
         username: username.to_string(),
         token: client.get_token().to_string(),
@@ -167,7 +176,7 @@ impl AppRuntime {
     }
 
     pub fn prompt(&self, session: &SharedSession) -> String {
-        let config = crate::config::get_config();
+        let config = get_config();
         let base = format!(
             "{}@{}:{}",
             config.server.username, config.server.hostname, config.server.port
@@ -193,7 +202,7 @@ impl AppRuntime {
             .map(|badge| format!("{badge} "))
             .unwrap_or_default();
         let pagination = pagination.unwrap_or_default();
-        let base = crate::theme::paint(crate::theme::ThemeRole::Prompt, base);
+        let base = paint(ThemeRole::Prompt, base);
         if scope.is_empty() {
             format!("{status}{background}{base}{pagination} > ")
         } else {

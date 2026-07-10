@@ -2,6 +2,7 @@ use hubuum_client::{
     NewRemoteTarget, RemoteAuthConfig, RemoteHttpMethod, RemoteInvocationSubject,
     RemoteTargetInvokeRequest, RemoteTargetSubjectType, UpdateRemoteTarget,
 };
+use serde_json::Value;
 
 use crate::domain::{RemoteTargetRecord, TaskRecord};
 use crate::errors::AppError;
@@ -10,7 +11,7 @@ use crate::list_query::{
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
-use super::HubuumGateway;
+use super::{HubuumGateway, RelationTarget};
 
 #[derive(Debug, Clone)]
 pub struct CreateRemoteTargetInput {
@@ -24,7 +25,7 @@ pub struct CreateRemoteTargetInput {
     pub body_template: Option<String>,
     pub class: Option<String>,
     pub enabled: Option<bool>,
-    pub headers_template: Option<serde_json::Value>,
+    pub headers_template: Option<Value>,
     pub timeout_ms: Option<i32>,
 }
 
@@ -41,7 +42,7 @@ pub struct UpdateRemoteTargetInput {
     pub body_template: Option<String>,
     pub class: Option<String>,
     pub enabled: Option<bool>,
-    pub headers_template: Option<serde_json::Value>,
+    pub headers_template: Option<Value>,
     pub timeout_ms: Option<i32>,
 }
 
@@ -63,8 +64,8 @@ pub struct InvokeRemoteTargetInput {
     pub class_b: Option<String>,
     pub object_a: Option<String>,
     pub object_b: Option<String>,
-    pub parameters: Option<serde_json::Value>,
-    pub body_override: Option<serde_json::Value>,
+    pub parameters: Option<Value>,
+    pub body_override: Option<Value>,
 }
 
 fn parse_method(method_str: &str) -> Result<RemoteHttpMethod, AppError> {
@@ -157,7 +158,7 @@ fn build_invocation_subject(
             Ok(RemoteInvocationSubject::ClassRelation { relation_id })
         }
         "object_relation" | "objectrelation" => {
-            let relation = gateway.get_object_relation_v2(&crate::services::RelationTarget {
+            let relation = gateway.get_object_relation_v2(&RelationTarget {
                 class_a: input
                     .class_a
                     .clone()

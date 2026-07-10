@@ -1,6 +1,8 @@
 use regex::Regex;
 use serde_json::{Map, Value};
+use shlex::split;
 use std::cmp::Ordering;
+use std::mem::take;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
@@ -185,7 +187,7 @@ pub(crate) fn truthy_envelope(
 
 impl SemanticFilter {
     fn parse(expression: &str) -> Result<Self, PipelineError> {
-        let parts = shlex::split(expression).unwrap_or_else(|| {
+        let parts = split(expression).unwrap_or_else(|| {
             expression
                 .split_whitespace()
                 .map(str::to_string)
@@ -313,7 +315,7 @@ fn filter_group_rows(
             let Some(rows) = group.get_mut("rows").and_then(Value::as_array_mut) else {
                 return Ok(group);
             };
-            let row_envelope = OutputEnvelope::rows(std::mem::take(rows), Vec::new());
+            let row_envelope = OutputEnvelope::rows(take(rows), Vec::new());
             let row_envelope = filter_envelope(row_envelope, expression, invert)?;
             *rows = array_values(&row_envelope.value)?;
             Ok(group)

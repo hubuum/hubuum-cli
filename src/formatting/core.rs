@@ -1,4 +1,7 @@
 use serde::Serialize;
+use serde_json::{json, to_value, Map, Value};
+
+use hubuum_filter::OutputEnvelope;
 
 use crate::{errors::AppError, output::set_semantic_output};
 
@@ -30,16 +33,13 @@ where
     T: DetailRenderable + Serialize + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        let mut object = serde_json::Map::new();
+        let mut object = Map::new();
         let mut columns = Vec::new();
         for (key, value) in self.detail_rows() {
             columns.push(key.to_string());
-            object.insert(key.to_string(), serde_json::Value::String(value));
+            object.insert(key.to_string(), Value::String(value));
         }
-        set_semantic_output(hubuum_filter::OutputEnvelope::detail(
-            serde_json::Value::Object(object),
-            columns,
-        ))?;
+        set_semantic_output(OutputEnvelope::detail(Value::Object(object), columns))?;
         Ok(self.clone())
     }
 }
@@ -56,21 +56,21 @@ where
         let rows = self
             .iter()
             .map(|row| {
-                let mut object = match serde_json::to_value(row)? {
-                    serde_json::Value::Object(object) => object,
+                let mut object = match to_value(row)? {
+                    Value::Object(object) => object,
                     value => {
-                        let mut object = serde_json::Map::new();
+                        let mut object = Map::new();
                         object.insert("value".to_string(), value);
                         object
                     }
                 };
                 for (column, value) in columns.iter().zip(row.row()) {
-                    object.insert(column.clone(), serde_json::Value::String(value));
+                    object.insert(column.clone(), Value::String(value));
                 }
-                Ok(serde_json::Value::Object(object))
+                Ok(Value::Object(object))
             })
             .collect::<Result<Vec<_>, AppError>>()?;
-        set_semantic_output(hubuum_filter::OutputEnvelope::rows(rows, columns))?;
+        set_semantic_output(OutputEnvelope::rows(rows, columns))?;
         Ok(self.clone())
     }
 }
@@ -79,8 +79,8 @@ pub fn append_json_message<V>(value: V) -> Result<(), AppError>
 where
     V: Serialize,
 {
-    let message = serde_json::json!({ "message": value });
-    set_semantic_output(hubuum_filter::OutputEnvelope::message(message))?;
+    let message = json!({ "message": value });
+    set_semantic_output(OutputEnvelope::message(message))?;
     Ok(())
 }
 
@@ -88,10 +88,7 @@ pub fn append_json<T>(value: &T) -> Result<(), AppError>
 where
     T: Serialize + ?Sized,
 {
-    set_semantic_output(hubuum_filter::OutputEnvelope::detail(
-        serde_json::to_value(value)?,
-        Vec::new(),
-    ))?;
+    set_semantic_output(OutputEnvelope::detail(to_value(value)?, Vec::new()))?;
     Ok(())
 }
 

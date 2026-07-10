@@ -1,9 +1,12 @@
 use log::trace;
 
 use std::collections::HashMap;
+use std::fs::read_to_string;
 
 use crate::commands::CliOption;
 use crate::errors::AppError;
+use reqwest::blocking::get;
+use shlex::split;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionOccurrence {
@@ -31,7 +34,24 @@ struct OptionParseSpec {
 
 impl CommandTokenizer {
     pub fn new(input: &str, cmd_name: &str, option_defs: &[CliOption]) -> Result<Self, AppError> {
-        let tokens = shlex::split(input).ok_or(AppError::InvalidInput)?;
+        Self::new_with_value_source_resolution(input, cmd_name, option_defs, true)
+    }
+
+    pub(crate) fn new_without_value_source_resolution(
+        input: &str,
+        cmd_name: &str,
+        option_defs: &[CliOption],
+    ) -> Result<Self, AppError> {
+        Self::new_with_value_source_resolution(input, cmd_name, option_defs, false)
+    }
+
+    fn new_with_value_source_resolution(
+        input: &str,
+        cmd_name: &str,
+        option_defs: &[CliOption],
+        resolve_value_sources: bool,
+    ) -> Result<Self, AppError> {
+        let tokens = split(input).ok_or(AppError::InvalidInput)?;
         let option_lookup = Self::build_option_lookup(option_defs);
         let mut tokenizer = CommandTokenizer {
             raw_tokens: tokens.clone(),
@@ -58,7 +78,8 @@ impl CommandTokenizer {
                 if tokenizer.command.is_empty() {
                     return Err(AppError::InvalidInput);
                 }
-                let consumed = tokenizer.parse_option(&tokens, idx, &option_lookup)?;
+                let consumed =
+                    tokenizer.parse_option(&tokens, idx, &option_lookup, resolve_value_sources)?;
                 idx += consumed;
                 continue;
             }
@@ -138,6 +159,7 @@ impl CommandTokenizer {
         tokens: &[String],
         idx: usize,
         option_lookup: &HashMap<String, OptionParseSpec>,
+        resolve_value_sources: bool,
     ) -> Result<usize, AppError> {
         let token = tokens.get(idx).ok_or(AppError::InvalidInput)?;
         let (key, inline_value) = Self::split_option_token(token)?;
@@ -197,7 +219,7 @@ impl CommandTokenizer {
             }
         };
 
-        let value = if parse_spec.value_source {
+        let value = if parse_spec.value_source && resolve_value_sources {
             self.convert_file_and_http_values(&value)?
         } else {
             value
@@ -305,14 +327,14 @@ impl CommandTokenizer {
 
     fn convert_file_and_http_values(&self, value: &str) -> Result<String, AppError> {
         let val = if value.starts_with("http://") || value.starts_with("https://") {
-            reqwest::blocking::get(value)
+            get(value)
                 .map_err(|e| AppError::HttpError(e.to_string()))?
                 .text()
                 .map_err(|e| AppError::HttpError(e.to_string()))?
                 .trim_end()
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
-            std::fs::read_to_string(stripped)
+            read_to_string(stripped)
                 .map_err(AppError::IoError)?
                 .trim_end()
                 .to_string()
@@ -374,10 +396,12 @@ fn token_key(token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
+    use std::fs::write;
 
     use super::CommandTokenizer;
     use crate::commands::CliOption;
     use crate::errors::AppError;
+    use tempfile::tempdir;
 
     fn opt(name: &str, short: Option<&str>, long: Option<&str>, flag: bool) -> CliOption {
         CliOption {
@@ -623,9 +647,9 @@ mod tests {
 
     #[test]
     fn value_source_option_loads_file_values() {
-        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let dir = tempdir().expect("temp dir should be created");
         let path = dir.path().join("payload.json");
-        std::fs::write(&path, "{\"name\":\"from-file\"}\n").expect("payload should be written");
+        write(&path, "{\"name\":\"from-file\"}\n").expect("payload should be written");
         let options = vec![value_source_opt("data", None, Some("--data"))];
 
         let tokens = CommandTokenizer::new(
@@ -638,6 +662,23 @@ mod tests {
         assert_eq!(
             tokens.get_options().get("data"),
             Some(&"{\"name\":\"from-file\"}".to_string())
+        );
+    }
+
+    #[test]
+    fn validation_tokenizer_does_not_load_value_sources() {
+        let options = vec![value_source_opt("data", None, Some("--data"))];
+
+        let tokens = CommandTokenizer::new_without_value_source_resolution(
+            "object create --data file:///definitely/not/read.json",
+            "create",
+            &options,
+        )
+        .expect("validation tokenization should not read the file");
+
+        assert_eq!(
+            tokens.get_options().get("data"),
+            Some(&"file:///definitely/not/read.json".to_string())
         );
     }
 }

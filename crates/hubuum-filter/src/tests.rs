@@ -1,6 +1,6 @@
 use crate::{
-    apply_pipeline, group_summary_rows, split_pipeline, AggregateFunction, OutputEnvelope,
-    OutputShape, PipeStage, ProjectTerm, SortCast,
+    apply_pipeline, group_summary_rows, split_pipeline, AggregateFunction, AggregateSpec, GroupKey,
+    OutputEnvelope, OutputShape, PipeStage, ProjectTerm, SortCast,
 };
 use serde_json::json;
 
@@ -111,11 +111,11 @@ fn grouping_aggregates_and_count_use_host_examples() {
     let grouped = apply_pipeline(
         host_rows(),
         &[
-            PipeStage::Group(vec![crate::GroupKey {
+            PipeStage::Group(vec![GroupKey {
                 selector: "os_version".to_string(),
                 alias: "OS Version".to_string(),
             }]),
-            PipeStage::Aggregate(crate::AggregateSpec {
+            PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
             }),
@@ -137,11 +137,11 @@ fn grouped_output_sorts_by_aggregate_alias() {
     let sorted = apply_pipeline(
         host_rows(),
         &[
-            PipeStage::Group(vec![crate::GroupKey {
+            PipeStage::Group(vec![GroupKey {
                 selector: "os_version".to_string(),
                 alias: "OS Version".to_string(),
             }]),
-            PipeStage::Aggregate(crate::AggregateSpec {
+            PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
             }),
@@ -162,10 +162,35 @@ fn grouped_output_sorts_by_aggregate_alias() {
 }
 
 #[test]
+fn grouped_projection_uses_summary_columns() {
+    let projected = apply_pipeline(
+        host_rows(),
+        &[
+            PipeStage::Group(vec![GroupKey {
+                selector: "os_version".to_string(),
+                alias: "OS".to_string(),
+            }]),
+            PipeStage::Aggregate(AggregateSpec {
+                function: AggregateFunction::Count,
+                alias: "Hosts".to_string(),
+            }),
+            PipeStage::Columns(vec![ProjectTerm::keep("OS")]),
+        ],
+    )
+    .expect("group summary projection");
+
+    assert_eq!(projected.shape, OutputShape::Groups);
+    assert_eq!(projected.columns, vec!["OS"]);
+    let rows = group_summary_rows(&projected.value);
+    assert!(rows.iter().all(|row| row.get("OS").is_some()));
+    assert!(rows.iter().all(|row| row.get("Hosts").is_none()));
+}
+
+#[test]
 fn grouping_fans_out_array_selectors() {
     let grouped = apply_pipeline(
         host_rows(),
-        &[PipeStage::Group(vec![crate::GroupKey {
+        &[PipeStage::Group(vec![GroupKey {
             selector: "data.network.interfaces[].ipv4".to_string(),
             alias: "IPv4".to_string(),
         }])],

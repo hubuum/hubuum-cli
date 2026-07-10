@@ -1,13 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use anstream::ColorChoice;
+use dirs::home_dir;
+use hubuum_theme::{
+    catalog as theme_catalog, paint as paint_theme, resolve_theme as resolve_hubuum_theme, Theme,
+    ThemeCatalog, ThemeError, DEFAULT_THEME,
+};
 
+use crate::config::get_config;
 use crate::models::OutputColor;
 
 pub use hubuum_theme::ThemeRole;
 
 pub fn color_choice() -> ColorChoice {
-    match crate::config::get_config().output.color {
+    match get_config().output.color {
         OutputColor::Auto => ColorChoice::Auto,
         OutputColor::Always => ColorChoice::Always,
         OutputColor::Never => ColorChoice::Never,
@@ -16,12 +22,12 @@ pub fn color_choice() -> ColorChoice {
 
 pub fn paint(role: ThemeRole, text: impl AsRef<str>) -> String {
     let text = text.as_ref();
-    if matches!(crate::config::get_config().output.color, OutputColor::Never) {
+    if matches!(get_config().output.color, OutputColor::Never) {
         return text.to_string();
     }
 
     match active_theme() {
-        Ok(theme) => hubuum_theme::paint(&theme, role, text),
+        Ok(theme) => paint_theme(&theme, role, text),
         Err(_) => text.to_string(),
     }
 }
@@ -30,26 +36,23 @@ pub fn paint_command(text: impl AsRef<str>) -> String {
     paint(ThemeRole::Command, text)
 }
 
-pub fn active_theme() -> Result<hubuum_theme::Theme, hubuum_theme::ThemeError> {
-    let cfg = crate::config::get_config();
+pub fn active_theme() -> Result<Theme, ThemeError> {
+    let cfg = get_config();
     resolve_theme(
         &cfg.output.theme,
         theme_file_path(&cfg.output.theme_file).as_deref(),
     )
 }
 
-pub fn available_themes() -> Result<hubuum_theme::ThemeCatalog, hubuum_theme::ThemeError> {
-    let cfg = crate::config::get_config();
-    hubuum_theme::catalog(theme_file_path(&cfg.output.theme_file).as_deref())
+pub fn available_themes() -> Result<ThemeCatalog, ThemeError> {
+    let cfg = get_config();
+    theme_catalog(theme_file_path(&cfg.output.theme_file).as_deref())
 }
 
-pub fn resolve_theme(
-    name: &str,
-    theme_file: Option<&Path>,
-) -> Result<hubuum_theme::Theme, hubuum_theme::ThemeError> {
-    match hubuum_theme::resolve_theme(name, theme_file) {
+pub fn resolve_theme(name: &str, theme_file: Option<&Path>) -> Result<Theme, ThemeError> {
+    match resolve_hubuum_theme(name, theme_file) {
         Ok(theme) => Ok(theme),
-        Err(_) => hubuum_theme::resolve_theme(hubuum_theme::DEFAULT_THEME, None),
+        Err(_) => resolve_hubuum_theme(DEFAULT_THEME, None),
     }
 }
 
@@ -59,10 +62,10 @@ fn theme_file_path(path: &str) -> Option<PathBuf> {
 
 fn expand_home(path: &str) -> PathBuf {
     if path == "~" {
-        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(path));
+        return home_dir().unwrap_or_else(|| PathBuf::from(path));
     }
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(rest);
         }
     }

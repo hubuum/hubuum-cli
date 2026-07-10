@@ -5,6 +5,8 @@ use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
 use crate::autocomplete::search_kinds;
 use crate::catalog::CommandCatalogBuilder;
+use crate::command_line::rebuild_with_replaced_options;
+use crate::config::get_config;
 use crate::domain::{
     SearchBatchRecord, SearchCursorSet, SearchResponseRecord, SearchResultsRecord,
     SearchStreamEvent,
@@ -211,7 +213,7 @@ fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
 
 fn render_group<T>(title: &str, items: &[T]) -> Result<bool, AppError>
 where
-    T: serde::Serialize + Clone + TableRenderable,
+    T: Serialize + Clone + TableRenderable,
 {
     if items.is_empty() {
         return Ok(false);
@@ -257,7 +259,7 @@ fn apply_next_page_state(
         return Ok(());
     }
 
-    if crate::config::get_config().repl.enter_fetches_next_page {
+    if get_config().repl.enter_fetches_next_page {
         append_line(
             "Paginated results available. Press Enter for the next page, or Esc/Ctrl-C to stop.",
         )?;
@@ -271,7 +273,7 @@ fn apply_next_page_state(
 }
 
 fn next_cursor_command(tokens: &CommandTokenizer, next: &SearchCursorSet) -> String {
-    crate::command_line::rebuild_with_replaced_options(
+    rebuild_with_replaced_options(
         tokens,
         &[
             "--cursor-collections",

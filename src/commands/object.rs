@@ -1,10 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::iter::once;
 
 use cli_command_derive::CommandArgs;
 use jqesque::Jqesque;
 use jsonpath_rust::JsonPath;
+use smooth_json::Flattener;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string_pretty, to_value, Map, Value};
+
+use hubuum_filter::{scalar_text, select_values, OutputEnvelope};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -21,9 +26,11 @@ use crate::errors::AppError;
 use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
-use crate::list_query::{append_paging_footer, PagedResult};
+use crate::list_query::{append_paging_footer, render_paged_result, PagedResult};
 use crate::models::{ObjectListDataColumns, OutputFormat};
-use crate::output::{add_warning, append_key_value, append_line, set_semantic_output};
+use crate::output::{
+    add_warning, append_key_value, append_line, has_pipeline, set_semantic_output,
+};
 use crate::services::{
     AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
 };
@@ -147,7 +154,7 @@ pub struct ObjectNew {
         help = "JSON data for the object the class",
         value_source = true
     )]
-    pub data: Option<serde_json::Value>,
+    pub data: Option<Value>,
 }
 
 impl CliCommand for ObjectNew {
@@ -234,7 +241,7 @@ impl CliCommand for ObjectInfo {
         )?;
 
         if want_json(tokens) {
-            append_line(serde_json::to_string_pretty(&object)?)?;
+            append_line(to_string_pretty(&object)?)?;
             return Ok(());
         }
 
@@ -260,10 +267,7 @@ fn render_object_show_text(object: &ObjectShowRecord) -> Result<(), AppError> {
     render_related_object_tree_with_key("Relations", &object.related_objects, relation_padding)
 }
 
-fn render_object_data(
-    json_data: Option<&serde_json::Value>,
-    jsonpath: Option<&str>,
-) -> Result<(), AppError> {
+fn render_object_data(json_data: Option<&Value>, jsonpath: Option<&str>) -> Result<(), AppError> {
     let Some(json_data) = json_data else {
         return Ok(());
     };
@@ -296,14 +300,14 @@ fn render_object_data(
         return Ok(());
     }
 
-    let flattener = smooth_json::Flattener {
+    let flattener = Flattener {
         ..Default::default()
     };
 
     let v = flattener.flatten(json_data);
 
-    if let serde_json::Value::Object(map) = v {
-        let sorted_map: std::collections::BTreeMap<_, _> = map.into_iter().collect();
+    if let Value::Object(map) = v {
+        let sorted_map: BTreeMap<_, _> = map.into_iter().collect();
         let padding = sorted_map
             .keys()
             .map(|k| k.len())
@@ -328,15 +332,15 @@ fn should_render_object_data(
     jsonpath.is_some() || show_data_flag.unwrap_or(config_default)
 }
 
-fn display_json_value(value: &serde_json::Value) -> String {
-    hubuum_filter::scalar_text(value).unwrap_or_else(|| value.to_string())
+fn display_json_value(value: &Value) -> String {
+    scalar_text(value).unwrap_or_else(|| value.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::json;
+    use serde_json::{json, Value};
     use serial_test::serial;
 
     use super::{
@@ -686,7 +690,7 @@ mod tests {
             .any(|line| line.contains("Jacks/BL14=521.A7-UD7056 → Rooms/B701")));
     }
 
-    fn test_object(id: i32, data: serde_json::Value) -> ResolvedObjectRecord {
+    fn test_object(id: i32, data: Value) -> ResolvedObjectRecord {
         ResolvedObjectRecord {
             id,
             name: format!("host-{id}"),
@@ -893,7 +897,7 @@ fn render_object_fields(
     let rows = summaries
         .into_iter()
         .map(|(field, summary)| {
-            serde_json::json!({
+            json!({
                 "Field": field,
                 "Count": summary.count,
                 "Types": summary.types.into_iter().collect::<Vec<_>>().join(","),
@@ -903,7 +907,7 @@ fn render_object_fields(
             })
         })
         .collect::<Vec<_>>();
-    set_semantic_output(hubuum_filter::OutputEnvelope::rows(
+    set_semantic_output(OutputEnvelope::rows(
         rows,
         vec![
             "Field".to_string(),
@@ -939,17 +943,14 @@ fn object_field_summaries(
 }
 
 fn collect_object_field_summaries(
-    value: &serde_json::Value,
+    value: &Value,
     path: &str,
     depth: usize,
     max_depth: usize,
     include_containers: bool,
     summaries: &mut BTreeMap<String, FieldSummary>,
 ) {
-    let is_container = matches!(
-        value,
-        serde_json::Value::Object(_) | serde_json::Value::Array(_)
-    );
+    let is_container = matches!(value, Value::Object(_) | Value::Array(_));
     if path != "data" && (!is_container || include_containers) {
         let summary = summaries.entry(path.to_string()).or_default();
         summary.count += 1;
@@ -988,14 +989,14 @@ fn collect_object_field_summaries(
     }
 }
 
-fn json_type_name(value: &serde_json::Value) -> &'static str {
+fn json_type_name(value: &Value) -> &'static str {
     match value {
-        serde_json::Value::Null => "null",
-        serde_json::Value::Bool(_) => "bool",
-        serde_json::Value::Number(_) => "number",
-        serde_json::Value::String(_) => "string",
-        serde_json::Value::Array(_) => "array",
-        serde_json::Value::Object(_) => "object",
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 
@@ -1006,10 +1007,8 @@ fn render_object_list_page(
     class_filter: Option<&str>,
     data_columns: Option<&str>,
 ) -> Result<(), AppError> {
-    match (desired_format(tokens), crate::output::has_pipeline()?) {
-        (OutputFormat::Json, false) => {
-            crate::list_query::render_paged_result(tokens, objects, OutputFormat::Json)
-        }
+    match (desired_format(tokens), has_pipeline()?) {
+        (OutputFormat::Json, false) => render_paged_result(tokens, objects, OutputFormat::Json),
         (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
             let columns = object_list_columns(services, objects, class_filter, data_columns)?;
             let rows = objects
@@ -1017,10 +1016,7 @@ fn render_object_list_page(
                 .iter()
                 .map(|object| object_list_row(object, &columns))
                 .collect::<Result<Vec<_>, AppError>>()?;
-            set_semantic_output(hubuum_filter::OutputEnvelope::rows(
-                rows,
-                columns.display_columns(),
-            ))?;
+            set_semantic_output(OutputEnvelope::rows(rows, columns.display_columns()))?;
             append_paging_footer(tokens, objects)
         }
     }
@@ -1168,14 +1164,14 @@ fn auto_base_width(objects: &PagedResult<ResolvedObjectRecord>) -> usize {
         .items
         .iter()
         .map(|object| object.id.to_string().len())
-        .chain(std::iter::once("id".len()))
+        .chain(once("id".len()))
         .max()
         .unwrap_or("id".len());
     let name_width = objects
         .items
         .iter()
         .map(|object| object.name.len())
-        .chain(std::iter::once("Name".len()))
+        .chain(once("Name".len()))
         .max()
         .unwrap_or("Name".len());
     id_width + 3 + name_width
@@ -1189,11 +1185,11 @@ fn data_column_width(key: &str, objects: &PagedResult<ResolvedObjectRecord>) -> 
             object
                 .data
                 .as_ref()
-                .and_then(serde_json::Value::as_object)
+                .and_then(Value::as_object)
                 .and_then(|data| data.get(key))
         })
         .map(|value| data_preview(Some(value)).len())
-        .chain(std::iter::once(object_data_column_header(key).len()))
+        .chain(once(object_data_column_header(key).len()))
         .max()
         .unwrap_or_else(|| object_data_column_header(key).len())
 }
@@ -1207,10 +1203,10 @@ fn explicit_data_columns(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn schema_property_keys(schema: &serde_json::Value) -> Vec<String> {
+fn schema_property_keys(schema: &Value) -> Vec<String> {
     schema
         .get("properties")
-        .and_then(serde_json::Value::as_object)
+        .and_then(Value::as_object)
         .map(|properties| properties.keys().cloned().collect())
         .unwrap_or_default()
 }
@@ -1219,7 +1215,7 @@ fn first_seen_data_keys(objects: &PagedResult<ResolvedObjectRecord>) -> Vec<Stri
     let mut seen = HashSet::new();
     let mut keys = Vec::new();
     for object in &objects.items {
-        if let Some(data) = object.data.as_ref().and_then(serde_json::Value::as_object) {
+        if let Some(data) = object.data.as_ref().and_then(Value::as_object) {
             for key in data.keys() {
                 if seen.insert(key.clone()) {
                     keys.push(key.clone());
@@ -1233,37 +1229,28 @@ fn first_seen_data_keys(objects: &PagedResult<ResolvedObjectRecord>) -> Vec<Stri
 fn object_list_row(
     object: &ResolvedObjectRecord,
     columns: &ObjectListColumns,
-) -> Result<serde_json::Value, AppError> {
-    let mut row = match serde_json::to_value(object)? {
-        serde_json::Value::Object(object) => object,
+) -> Result<Value, AppError> {
+    let mut row = match to_value(object)? {
+        Value::Object(object) => object,
         value => {
-            let mut object = serde_json::Map::new();
+            let mut object = Map::new();
             object.insert("value".to_string(), value);
             object
         }
     };
 
-    row.insert(
-        "id".to_string(),
-        serde_json::Value::String(object.id.to_string()),
-    );
-    row.insert(
-        "Name".to_string(),
-        serde_json::Value::String(object.name.clone()),
-    );
+    row.insert("id".to_string(), Value::String(object.id.to_string()));
+    row.insert("Name".to_string(), Value::String(object.name.clone()));
     row.insert(
         "Description".to_string(),
-        serde_json::Value::String(object.description.clone()),
+        Value::String(object.description.clone()),
     );
     row.insert(
         "Collection".to_string(),
-        serde_json::Value::String(object.collection.clone()),
+        Value::String(object.collection.clone()),
     );
-    row.insert(
-        "Class".to_string(),
-        serde_json::Value::String(object.class.clone()),
-    );
-    let data_object = object.data.as_ref().and_then(serde_json::Value::as_object);
+    row.insert("Class".to_string(), Value::String(object.class.clone()));
+    let data_object = object.data.as_ref().and_then(Value::as_object);
     if let Some(data) = data_object {
         insert_meta_columns(&mut row, &object.class, data);
     }
@@ -1271,39 +1258,32 @@ fn object_list_row(
     if columns.data_keys.is_empty() {
         row.insert(
             "Data".to_string(),
-            serde_json::Value::String(data_preview(object.data.as_ref())),
+            Value::String(data_preview(object.data.as_ref())),
         );
     } else if let Some(data) = data_object {
         for key in &columns.data_keys {
             if let Some(value) = data_or_meta_column_display_value(&object.class, data, key) {
-                row.insert(
-                    object_data_column_label(key),
-                    serde_json::Value::String(value),
-                );
+                row.insert(object_data_column_label(key), Value::String(value));
             }
         }
     }
     row.insert(
         "Created".to_string(),
-        serde_json::Value::String(object.created_at.clone()),
+        Value::String(object.created_at.clone()),
     );
     row.insert(
         "Updated".to_string(),
-        serde_json::Value::String(object.updated_at.clone()),
+        Value::String(object.updated_at.clone()),
     );
 
-    Ok(serde_json::Value::Object(row))
+    Ok(Value::Object(row))
 }
 
-fn insert_meta_columns(
-    row: &mut serde_json::Map<String, serde_json::Value>,
-    class_name: &str,
-    data: &serde_json::Map<String, serde_json::Value>,
-) {
+fn insert_meta_columns(row: &mut Map<String, Value>, class_name: &str, data: &Map<String, Value>) {
     if let Some(meta) = get_config().output.object_list_class_meta.get(class_name) {
         for (alias, selectors) in meta {
             if let Some(value) = meta_column_display_value(data, selectors) {
-                row.insert(alias.clone(), serde_json::Value::String(value));
+                row.insert(alias.clone(), Value::String(value));
             }
         }
     }
@@ -1329,17 +1309,11 @@ fn object_data_column_header(key: &str) -> String {
 }
 
 #[cfg(test)]
-fn data_column_value(
-    data: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Option<serde_json::Value> {
+fn data_column_value(data: &Map<String, Value>, key: &str) -> Option<Value> {
     data_column_values(data, key).into_iter().next()
 }
 
-fn data_column_display_value(
-    data: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Option<String> {
+fn data_column_display_value(data: &Map<String, Value>, key: &str) -> Option<String> {
     let values = data_column_values(data, key);
     match values.as_slice() {
         [] => None,
@@ -1355,7 +1329,7 @@ fn data_column_display_value(
 
 fn data_or_meta_column_display_value(
     class_name: &str,
-    data: &serde_json::Map<String, serde_json::Value>,
+    data: &Map<String, Value>,
     key: &str,
 ) -> Option<String> {
     data_column_display_value(data, key).or_else(|| {
@@ -1368,25 +1342,16 @@ fn data_or_meta_column_display_value(
     })
 }
 
-fn meta_column_display_value(
-    data: &serde_json::Map<String, serde_json::Value>,
-    selectors: &[String],
-) -> Option<String> {
+fn meta_column_display_value(data: &Map<String, Value>, selectors: &[String]) -> Option<String> {
     selectors
         .iter()
         .find_map(|selector| data_column_display_value(data, selector))
 }
 
-fn data_column_values(
-    data: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Vec<serde_json::Value> {
+fn data_column_values(data: &Map<String, Value>, key: &str) -> Vec<Value> {
     let key = key.strip_prefix("data.").unwrap_or(key);
-    let root = serde_json::Value::Object(data.clone());
-    hubuum_filter::select_values(&root, key)
-        .into_iter()
-        .cloned()
-        .collect()
+    let root = Value::Object(data.clone());
+    select_values(&root, key).into_iter().cloned().collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -1439,7 +1404,7 @@ impl CliCommand for ObjectModify {
 
         let data = if let Some(data) = &new.data {
             let jqesque = data.parse::<Jqesque>()?;
-            let mut json_data = serde_json::Value::Null;
+            let mut json_data = Value::Null;
             if let Some(current_data) = object.data.clone() {
                 json_data = current_data;
             }

@@ -1,16 +1,23 @@
 use std::sync::Arc;
 
 use hubuum_client::ApiError;
+use hubuum_filter::{split_pipeline, PipeStage};
+use shlex::split;
 
 use crate::app::{AppRuntime, SharedSession};
 use crate::catalog::{
-    CommandCatalog, CommandContext, CommandInvocation, CommandOutcome, ScopeAction,
+    CommandCatalog, CommandContext, CommandInvocation, CommandOutcome, ResolvedCommand, ScopeAction,
 };
+use crate::commands::config::{render_config_paths, render_config_show};
+use crate::commands::render_format;
+use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
 use crate::errors::AppError;
 use crate::output::{
-    add_error, add_warning, append_line, reset_output, set_pipeline, set_render_format,
-    take_output, OutputSnapshot,
+    add_error, add_warning, append_line, reset_output, set_pipeline, set_pipeline_suffix,
+    set_render_format, take_output, OutputSnapshot,
 };
+use crate::redirection::{split_redirect_candidate, OutputRedirect};
+use crate::tokenizer::CommandTokenizer;
 
 pub async fn execute_line(
     app: Arc<AppRuntime>,
@@ -29,17 +36,20 @@ async fn execute_line_inner(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let (mut line, pipeline) = process_filter(line)?;
-    let mut parts = shlex::split(&line)
-        .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
+    let (mut line, mut pipeline, mut pipeline_suffix) = process_filter(line)?;
+    let mut parts =
+        split(&line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
 
     if parts.len() == 1 && parts[0] == "next" {
         let Some(next_page_command) = session.next_page_command() else {
             return Ok(CommandOutcome::default());
         };
-        line = next_page_command;
-        parts = shlex::split(&line)
-            .ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
+        let (next_line, next_pipeline, next_pipeline_suffix) = process_filter(&next_page_command)?;
+        line = next_line;
+        pipeline = next_pipeline;
+        pipeline_suffix = next_pipeline_suffix;
+        parts =
+            split(&line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
     }
 
     if parts.is_empty() {
@@ -66,11 +76,7 @@ async fn execute_line_inner(
     if parts.len() == 1 && parts[0] == ".." {
         return Ok(CommandOutcome {
             output: Default::default(),
-            scope_action: if current_scope.is_empty() {
-                ScopeAction::ExitRepl
-            } else {
-                ScopeAction::ExitScope
-            },
+            scope_action: parent_scope_action(&current_scope),
             ..Default::default()
         });
     }
@@ -97,8 +103,9 @@ async fn execute_line_inner(
         .iter()
         .map(|option| option.to_cli_option())
         .collect::<Vec<_>>();
-    let tokens = crate::tokenizer::CommandTokenizer::new(&line, &cmd_name, &option_defs)?;
-    set_render_format(crate::commands::render_format(&tokens)?)?;
+    let tokens =
+        CommandTokenizer::new_without_value_source_resolution(&line, &cmd_name, &option_defs)?;
+    set_render_format(render_format(&tokens)?)?;
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
@@ -111,6 +118,7 @@ async fn execute_line_inner(
         raw_line: line.clone(),
         command_path: resolved.command_path.clone(),
         pipeline,
+        pipeline_suffix,
     };
     let ctx = CommandContext { app: app.clone() };
 
@@ -122,21 +130,16 @@ fn is_help_alias(parts: &[String]) -> bool {
         && !parts.iter().skip(1).any(|part| part.starts_with('-'))
 }
 
-pub async fn execute_script(
-    app: Arc<AppRuntime>,
-    session: &SharedSession,
-    filename: &str,
-) -> Result<Vec<CommandOutcome>, AppError> {
-    let content = tokio::fs::read_to_string(filename).await?;
-    let mut outcomes = Vec::new();
-    for line in content.lines() {
-        outcomes.push(execute_line(app.clone(), session, line).await?);
+fn parent_scope_action(current_scope: &[String]) -> ScopeAction {
+    if current_scope.is_empty() {
+        ScopeAction::None
+    } else {
+        ScopeAction::ExitScope
     }
-    Ok(outcomes)
 }
 
 pub fn can_execute_offline(line: &str) -> bool {
-    let line = match crate::redirection::split_redirect_candidate(line) {
+    let line = match split_redirect_candidate(line) {
         Ok(Some(candidate)) => candidate.line,
         Ok(None) => line.to_string(),
         Err(_) => return false,
@@ -169,7 +172,7 @@ fn execute_offline_line_inner(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let (line, _pipeline) = process_filter(line)?;
+    let (line, _pipeline, _pipeline_suffix) = process_filter(line)?;
     let parts = invocation_parts(&line)?;
     if parts.is_empty() {
         return Ok(CommandOutcome::default());
@@ -201,28 +204,28 @@ fn execute_offline_line_inner(
     if command_path_is(&parts, &["config", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(crate::commands::render_format(&tokens)?)?;
-        crate::commands::config::render_config_show(&tokens)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_config_show(&tokens)?;
     } else if command_path_is(&parts, &["config", "paths"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(crate::commands::render_format(&tokens)?)?;
-        crate::commands::config::render_config_paths(&tokens)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_config_paths(&tokens)?;
     } else if command_path_is(&parts, &["theme", "list"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(crate::commands::render_format(&tokens)?)?;
-        crate::commands::theme::render_theme_list(&tokens)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_theme_list(&tokens)?;
     } else if command_path_is(&parts, &["theme", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(crate::commands::render_format(&tokens)?)?;
-        crate::commands::theme::render_theme_show(&tokens)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_theme_show(&tokens)?;
     } else if command_path_is(&parts, &["theme", "preview"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(crate::commands::render_format(&tokens)?)?;
-        crate::commands::theme::render_theme_preview(&tokens)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_theme_preview(&tokens)?;
     } else {
         catalog.resolve_command(&[], &parts)?;
         return Err(AppError::CommandNotFound(parts.join(" ")));
@@ -250,7 +253,7 @@ pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
     session.set_next_page_command(output.next_page_command.clone());
 }
 
-pub fn render_error(err: AppError) -> crate::output::OutputSnapshot {
+pub fn render_error(err: AppError) -> OutputSnapshot {
     reset_output().expect("reset output buffer for errors");
     match err {
         AppError::Quiet => {}
@@ -314,8 +317,8 @@ fn prepare_redirect(
     catalog: &CommandCatalog,
     scope: &[String],
     line: &str,
-) -> Result<(String, Option<crate::redirection::OutputRedirect>), AppError> {
-    let Some(candidate) = crate::redirection::split_redirect_candidate(line)? else {
+) -> Result<(String, Option<OutputRedirect>), AppError> {
+    let Some(candidate) = split_redirect_candidate(line)? else {
         return Ok((line.to_string(), None));
     };
 
@@ -327,7 +330,7 @@ fn prepare_redirect(
 }
 
 fn parses_as_command(catalog: &CommandCatalog, scope: &[String], line: &str) -> bool {
-    let Ok((line, _pipeline)) = process_filter(line) else {
+    let Ok((line, _pipeline)) = split_pipeline(line) else {
         return false;
     };
     let Ok(parts) = invocation_parts(&line) else {
@@ -353,14 +356,20 @@ fn parses_as_command(catalog: &CommandCatalog, scope: &[String], line: &str) -> 
     tokenizer_for_resolved(&line, &resolved).is_ok()
 }
 
-fn process_filter(line: &str) -> Result<(String, Vec<hubuum_filter::PipeStage>), AppError> {
-    let (command, pipeline) = hubuum_filter::split_pipeline(line)?;
+fn process_filter(line: &str) -> Result<(String, Vec<PipeStage>, Option<String>), AppError> {
+    let (command, pipeline) = split_pipeline(line)?;
+    let pipeline_suffix = if pipeline.is_empty() {
+        None
+    } else {
+        Some(line.trim()[command.len()..].trim().to_string())
+    };
     set_pipeline(pipeline.clone())?;
-    Ok((command, pipeline))
+    set_pipeline_suffix(pipeline_suffix.clone())?;
+    Ok((command, pipeline, pipeline_suffix))
 }
 
 fn invocation_parts(line: &str) -> Result<Vec<String>, AppError> {
-    shlex::split(line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))
+    split(line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))
 }
 
 fn command_path_is(parts: &[String], expected: &[&str]) -> bool {
@@ -373,8 +382,8 @@ fn command_path_is(parts: &[String], expected: &[&str]) -> bool {
 
 fn tokenizer_for_resolved(
     line: &str,
-    resolved: &crate::catalog::ResolvedCommand<'_>,
-) -> Result<crate::tokenizer::CommandTokenizer, AppError> {
+    resolved: &ResolvedCommand<'_>,
+) -> Result<CommandTokenizer, AppError> {
     let cmd_name = resolved
         .command_path
         .last()
@@ -386,26 +395,31 @@ fn tokenizer_for_resolved(
         .iter()
         .map(|option| option.to_cli_option())
         .collect::<Vec<_>>();
-    crate::tokenizer::CommandTokenizer::new(line, &cmd_name, &option_defs)
+    CommandTokenizer::new_without_value_source_resolution(line, &cmd_name, &option_defs)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use serial_test::serial;
 
     use super::{
         apply_output_state, can_execute_offline, execute_offline_line, is_help_alias,
-        prepare_redirect, process_filter,
+        parent_scope_action, prepare_redirect, process_filter,
     };
     use crate::app::SharedSession;
-    use crate::output::{append_line, reset_output, take_output};
+    use crate::catalog::ScopeAction;
+    use crate::commands::build_command_catalog;
+    use crate::output::{append_line, reset_output, take_output, OutputSnapshot};
     use crate::redirection::RedirectTarget;
 
     #[test]
     #[serial]
     fn process_filter_sets_runtime_filter() {
         reset_output().expect("buffer should reset");
-        let (line, _pipeline) = process_filter("list | alpha").expect("filter should parse");
+        let (line, _pipeline, _pipeline_suffix) =
+            process_filter("list | alpha").expect("filter should parse");
         assert_eq!(line, "list");
         append_line("alpha").expect("line should append");
         append_line("beta").expect("line should append");
@@ -418,8 +432,9 @@ mod tests {
     #[serial]
     fn process_filter_applies_multiple_pipe_stages() {
         reset_output().expect("buffer should reset");
-        let (line, _pipeline) = process_filter("list | reject beta | sort line desc | head 1")
-            .expect("filter should parse");
+        let (line, _pipeline, _pipeline_suffix) =
+            process_filter("list | reject beta | sort line desc | head 1")
+                .expect("filter should parse");
         assert_eq!(line, "list");
         append_line("alpha").expect("line should append");
         append_line("beta").expect("line should append");
@@ -433,7 +448,7 @@ mod tests {
     #[serial]
     fn process_filter_ignores_quoted_pipes() {
         reset_output().expect("buffer should reset");
-        let (line, _pipeline) =
+        let (line, _pipeline, _pipeline_suffix) =
             process_filter("object list --where name equals 'alpha|beta' | beta").expect("filter");
         assert_eq!(line, "object list --where name equals 'alpha|beta'");
         append_line("alpha|beta").expect("line should append");
@@ -445,6 +460,19 @@ mod tests {
 
     #[test]
     #[serial]
+    fn process_filter_retains_pipeline_source_for_pagination() {
+        reset_output().expect("buffer should reset");
+        let (line, pipeline, suffix) =
+            process_filter("object list --class Hosts | P Name | S Name")
+                .expect("filter should parse");
+
+        assert_eq!(line, "object list --class Hosts");
+        assert_eq!(pipeline.len(), 2);
+        assert_eq!(suffix.as_deref(), Some("| P Name | S Name"));
+    }
+
+    #[test]
+    #[serial]
     fn help_alias_accepts_question_mark() {
         assert!(is_help_alias(&["?".to_string(), "class".to_string()]));
         assert!(is_help_alias(&["help".to_string()]));
@@ -452,11 +480,20 @@ mod tests {
     }
 
     #[test]
+    fn parent_navigation_is_a_noop_at_root() {
+        assert_eq!(parent_scope_action(&[]), ScopeAction::None);
+        assert_eq!(
+            parent_scope_action(&["object".to_string()]),
+            ScopeAction::ExitScope
+        );
+    }
+
+    #[test]
     fn apply_output_state_tracks_next_page_command() {
         let session = SharedSession::new();
         apply_output_state(
             &session,
-            &crate::output::OutputSnapshot {
+            &OutputSnapshot {
                 next_page_command: Some("object list --cursor abc".to_string()),
                 ..Default::default()
             },
@@ -466,7 +503,7 @@ mod tests {
             Some("object list --cursor abc")
         );
 
-        apply_output_state(&session, &crate::output::OutputSnapshot::default());
+        apply_output_state(&session, &OutputSnapshot::default());
         assert!(session.next_page_command().is_none());
     }
 
@@ -486,7 +523,7 @@ mod tests {
 
     #[test]
     fn offline_unknown_commands_include_catalog_suggestion() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let err = execute_offline_line(&catalog, "clas list")
             .expect_err("mistyped offline command should fail");
 
@@ -495,13 +532,13 @@ mod tests {
 
     #[test]
     fn offline_redirect_is_attached_and_removed_from_command() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let outcome = execute_offline_line(&catalog, "help > help.txt")
             .expect("offline redirect should execute");
 
         assert_eq!(
             outcome.redirect.as_ref().map(|redirect| &redirect.target),
-            Some(&RedirectTarget::File(std::path::PathBuf::from("help.txt")))
+            Some(&RedirectTarget::File(PathBuf::from("help.txt")))
         );
         assert!(outcome
             .output
@@ -512,7 +549,7 @@ mod tests {
 
     #[test]
     fn redirect_detection_does_not_consume_filter_operator() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let (line, redirect) = prepare_redirect(&catalog, &[], "object list --where age > 3")
             .expect("redirect preparation should succeed");
 
@@ -522,7 +559,7 @@ mod tests {
 
     #[test]
     fn redirect_detection_does_not_consume_embedded_pipeline_comparison() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let command = "object list | F age>3";
         let (line, redirect) =
             prepare_redirect(&catalog, &[], command).expect("redirect preparation should succeed");
@@ -533,20 +570,20 @@ mod tests {
 
     #[test]
     fn redirect_detection_accepts_redirect_after_embedded_pipeline_comparison() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let (line, redirect) = prepare_redirect(&catalog, &[], "object list | F age>3 > out.json")
             .expect("redirect preparation should succeed");
 
         assert_eq!(line, "object list | F age>3");
         assert_eq!(
             redirect.as_ref().map(|redirect| &redirect.target),
-            Some(&RedirectTarget::File(std::path::PathBuf::from("out.json")))
+            Some(&RedirectTarget::File(PathBuf::from("out.json")))
         );
     }
 
     #[test]
     fn redirect_detection_accepts_redirect_after_filter_operator() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let (line, redirect) =
             prepare_redirect(&catalog, &[], "object list --where age > 3 > out.json")
                 .expect("redirect preparation should succeed");
@@ -554,7 +591,24 @@ mod tests {
         assert_eq!(line, "object list --where age > 3");
         assert_eq!(
             redirect.as_ref().map(|redirect| &redirect.target),
-            Some(&RedirectTarget::File(std::path::PathBuf::from("out.json")))
+            Some(&RedirectTarget::File(PathBuf::from("out.json")))
+        );
+    }
+
+    #[test]
+    fn redirect_detection_does_not_resolve_value_sources() {
+        let catalog = build_command_catalog();
+        let command = "import submit --http file:///definitely/not/read.json > import-result.json";
+        let (line, redirect) =
+            prepare_redirect(&catalog, &[], command).expect("redirect should be recognized");
+
+        assert_eq!(
+            line,
+            "import submit --http file:///definitely/not/read.json"
+        );
+        assert_eq!(
+            redirect.as_ref().map(|redirect| &redirect.target),
+            Some(&RedirectTarget::File(PathBuf::from("import-result.json")))
         );
     }
 }

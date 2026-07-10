@@ -1,4 +1,5 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::FilterOperator;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
@@ -214,14 +215,14 @@ impl CliCommand for CollectionList {
                 query.name.map(|value| {
                     filter_clause(
                         "name",
-                        hubuum_client::FilterOperator::Contains { is_negated: false },
+                        FilterOperator::Contains { is_negated: false },
                         value,
                     )
                 }),
                 query.description.map(|value| {
                     filter_clause(
                         "description",
-                        hubuum_client::FilterOperator::Contains { is_negated: false },
+                        FilterOperator::Contains { is_negated: false },
                         value,
                     )
                 }),

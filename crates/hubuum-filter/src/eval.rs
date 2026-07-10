@@ -2,7 +2,15 @@ use regex::Regex;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape, PipeStage, SortCast};
-use crate::verbs::{collection, jq, project, search};
+use crate::verbs::collection::{
+    aggregate_envelope, collapse_groups, count_envelope, group_envelope, limit_envelope,
+    sort_envelope, unroll_envelope,
+};
+use crate::verbs::jq::jq_envelope;
+use crate::verbs::project::{project_envelope, value_envelope};
+use crate::verbs::search::{
+    filter_envelope, key_search_envelope, truthy_envelope, value_search_envelope,
+};
 
 impl PipeStage {
     pub fn apply_all(
@@ -90,30 +98,28 @@ fn apply_semantic_stage(
     }
 
     match stage {
-        PipeStage::Grep(pattern) => search::filter_envelope(envelope, pattern, false),
-        PipeStage::ValueSearch(pattern) => search::value_search_envelope(envelope, pattern),
-        PipeStage::KeySearch(pattern) => search::key_search_envelope(envelope, pattern),
-        PipeStage::Truthy(selector) => search::truthy_envelope(envelope, selector.as_deref()),
-        PipeStage::Reject(pattern) => search::filter_envelope(envelope, pattern, true),
-        PipeStage::Head { count, offset } => {
-            collection::limit_envelope(envelope, *count, *offset, false)
-        }
-        PipeStage::Tail(count) => collection::limit_envelope(envelope, *count, 0, true),
-        PipeStage::Count => collection::count_envelope(envelope),
+        PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false),
+        PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern),
+        PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern),
+        PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_deref()),
+        PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true),
+        PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
+        PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
+        PipeStage::Count => count_envelope(envelope),
         PipeStage::SortLines { descending } => {
-            collection::sort_envelope(envelope, None, *descending, SortCast::Auto)
+            sort_envelope(envelope, None, *descending, SortCast::Auto)
         }
-        PipeStage::Columns(columns) => project::project_envelope(envelope, columns),
+        PipeStage::Columns(columns) => project_envelope(envelope, columns),
         PipeStage::SortColumn {
             column,
             descending,
             cast,
-        } => collection::sort_envelope(envelope, Some(column), *descending, *cast),
-        PipeStage::Group(keys) => collection::group_envelope(envelope, keys),
-        PipeStage::Aggregate(spec) => collection::aggregate_envelope(envelope, spec),
-        PipeStage::CollapseGroups => collection::collapse_groups(envelope),
-        PipeStage::Unroll(selector) => collection::unroll_envelope(envelope, selector),
-        PipeStage::Jq(expression) => jq::jq_envelope(envelope, expression),
-        PipeStage::Value(selector) => project::value_envelope(envelope, selector),
+        } => sort_envelope(envelope, Some(column), *descending, *cast),
+        PipeStage::Group(keys) => group_envelope(envelope, keys),
+        PipeStage::Aggregate(spec) => aggregate_envelope(envelope, spec),
+        PipeStage::CollapseGroups => collapse_groups(envelope),
+        PipeStage::Unroll(selector) => unroll_envelope(envelope, selector),
+        PipeStage::Jq(expression) => jq_envelope(envelope, expression),
+        PipeStage::Value(selector) => value_envelope(envelope, selector),
     }
 }

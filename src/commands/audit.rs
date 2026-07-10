@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -198,7 +199,7 @@ impl CliCommand for AuditResource {
         )?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&events)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&events)?)?,
             OutputFormat::Text => events.items.format_noreturn()?,
         }
         Ok(())

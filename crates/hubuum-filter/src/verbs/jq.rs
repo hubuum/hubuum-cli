@@ -1,6 +1,10 @@
-use jaq_all::data::{self, Runner};
+use std::iter::once;
+
+use jaq_all::data::{compile, run, Runner};
 use jaq_all::jaq_core::unwrap_valr;
-use serde_json::Value;
+use jaq_all::json::read::parse_single;
+use jaq_all::load::FileReportsDisp;
+use serde_json::{from_str, to_vec, Value};
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
@@ -9,31 +13,31 @@ pub(crate) fn jq_envelope(
     mut envelope: OutputEnvelope,
     expression: &str,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let filter = data::compile(expression).map_err(|reports| {
+    let filter = compile(expression).map_err(|reports| {
         let message = reports
             .iter()
-            .map(|report| jaq_all::load::FileReportsDisp::new(report).to_string())
+            .map(|report| FileReportsDisp::new(report).to_string())
             .collect::<Vec<_>>()
             .join("\n");
         PipelineError::Jq(message.trim().to_string())
     })?;
-    let input = serde_json::to_vec(&envelope.value)
+    let input = to_vec(&envelope.value)
         .map_err(|err| PipelineError::Jq(format!("serializing input failed: {err}")))?;
-    let input = jaq_all::json::read::parse_single(&input)
+    let input = parse_single(&input)
         .map_err(|err| PipelineError::Jq(format!("reading input failed: {err}")))?;
 
     let mut outputs = Vec::new();
-    data::run(
+    run(
         &Runner::default(),
         &filter,
         Default::default(),
-        std::iter::once(Ok::<_, String>(input)),
+        once(Ok::<_, String>(input)),
         PipelineError::Jq,
         |output| {
             let output = unwrap_valr(output)
                 .map_err(|err| PipelineError::Jq(err.to_string()))?
                 .to_string();
-            let output = serde_json::from_str(&output).map_err(|err| {
+            let output = from_str(&output).map_err(|err| {
                 PipelineError::Jq(format!("transform produced unsupported JSON: {err}"))
             })?;
             outputs.push(output);

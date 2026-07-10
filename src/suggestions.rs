@@ -1,3 +1,5 @@
+use std::mem::swap;
+
 pub fn did_you_mean(input: &str, candidates: impl IntoIterator<Item = String>) -> Option<String> {
     let input = input.trim();
     if input.is_empty() {
@@ -69,7 +71,7 @@ fn edit_distance(left: &str, right: &str) -> usize {
             let substitution = previous[right_index] + usize::from(left_ch != right_ch);
             current[right_index + 1] = insertion.min(deletion).min(substitution);
         }
-        std::mem::swap(&mut previous, &mut current);
+        swap(&mut previous, &mut current);
     }
 
     previous[right.len()]

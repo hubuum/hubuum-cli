@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -205,7 +206,7 @@ impl CliCommand for GroupInfo {
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&details)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&details)?)?,
             OutputFormat::Text => {
                 details.group.format()?;
                 details.members.format_noreturn()?

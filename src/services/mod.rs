@@ -11,6 +11,7 @@ use crate::background::BackgroundManager;
 use crate::config::AppConfig;
 
 pub use completion::CompletionContext;
+use completion::CompletionStore;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
@@ -35,7 +36,7 @@ pub struct WaitTaskInput {
 pub struct AppServices {
     gateway: Arc<HubuumGateway>,
     background: BackgroundManager,
-    completion: completion::CompletionStore,
+    completion: CompletionStore,
 }
 
 impl AppServices {
@@ -48,7 +49,7 @@ impl AppServices {
         Self {
             background: BackgroundManager::new(runtime, gateway.clone(), background_poll_interval),
             gateway,
-            completion: completion::CompletionStore::default(),
+            completion: CompletionStore::default(),
         }
     }
 
@@ -72,7 +73,7 @@ impl AppServices {
         self.completion.invalidate_all();
     }
 
-    pub(crate) fn completion_store(&self) -> completion::CompletionStore {
+    pub(crate) fn completion_store(&self) -> CompletionStore {
         self.completion.clone()
     }
 }

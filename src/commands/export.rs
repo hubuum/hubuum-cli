@@ -1,5 +1,8 @@
+use std::fs::read_to_string;
+
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
@@ -148,7 +151,7 @@ impl CliCommand for ExportShow {
         let export = services.gateway().export_template(&name)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 
@@ -206,7 +209,7 @@ impl CliCommand for ExportCreate {
             })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 
@@ -265,7 +268,7 @@ impl CliCommand for ExportModify {
             })?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 
@@ -395,7 +398,7 @@ fn read_template_source(
 ) -> Result<String, AppError> {
     match (template, file) {
         (Some(template), None) => Ok(template),
-        (None, Some(file)) => Ok(std::fs::read_to_string(file)?),
+        (None, Some(file)) => Ok(read_to_string(file)?),
         (Some(_), Some(_)) => Err(AppError::ParseError(
             "Use either --template or --file, not both".to_string(),
         )),
@@ -409,7 +412,7 @@ fn read_optional_template_source(
 ) -> Result<Option<String>, AppError> {
     match (template, file) {
         (Some(template), None) => Ok(Some(template)),
-        (None, Some(file)) => Ok(Some(std::fs::read_to_string(file)?)),
+        (None, Some(file)) => Ok(Some(read_to_string(file)?)),
         (Some(_), Some(_)) => Err(AppError::ParseError(
             "Use either --template or --file, not both".to_string(),
         )),

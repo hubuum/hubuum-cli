@@ -1,7 +1,7 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{EventSinkKind, NewEventSink, UpdateEventSink};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{from_str, from_value, Value};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -211,7 +211,7 @@ impl CliCommand for EventSinkDelete {
 pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, AppError> {
     input
         .map(|raw| {
-            let value: Value = serde_json::from_str(&raw)?;
+            let value: Value = from_str(&raw)?;
             if !value.is_object() {
                 return Err(AppError::ParseError(
                     "JSON value must be an object".to_string(),
@@ -223,5 +223,5 @@ pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, 
 }
 
 pub(super) fn parse_event_sink_kind(value: &str) -> Result<EventSinkKind, AppError> {
-    serde_json::from_value(Value::String(value.to_string())).map_err(AppError::from)
+    from_value(Value::String(value.to_string())).map_err(AppError::from)
 }

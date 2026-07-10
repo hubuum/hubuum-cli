@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::{to_string_pretty, Value};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -104,7 +105,7 @@ pub struct ClassNew {
         help = "JSON schema for the class",
         value_source = true
     )]
-    pub json_schema: Option<serde_json::Value>,
+    pub json_schema: Option<Value>,
     #[option(
         short = "v",
         long = "validate",
@@ -173,7 +174,7 @@ impl CliCommand for ClassInfo {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&details)?)?;
+                append_line(to_string_pretty(&details)?)?;
             }
             OutputFormat::Text => {
                 render_class_show_text(&details)?;
@@ -251,7 +252,7 @@ pub struct ClassModify {
         help = "JSON schema for the class",
         value_source = true
     )]
-    pub json_schema: Option<serde_json::Value>,
+    pub json_schema: Option<Value>,
     #[option(
         short = "v",
         long = "validate",
@@ -339,6 +340,7 @@ impl CliCommand for ClassList {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{from_value, json};
     use serial_test::serial;
 
     use super::render_class_show_text;
@@ -351,7 +353,7 @@ mod tests {
         reset_output().expect("output should reset");
         let details = ClassShowRecord {
             class: ClassRecord(
-                serde_json::from_value(serde_json::json!({
+                from_value(json!({
                     "id": 1,
                     "name": "Jacks",
                     "description": "",

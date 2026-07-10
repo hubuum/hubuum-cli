@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, to_string, to_value, Error as JsonError, Map, Value};
+
+use hubuum_filter::OutputEnvelope;
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, TableRenderable};
@@ -18,9 +20,9 @@ impl From<Value> for JsonRecord {
 }
 
 impl JsonRecord {
-    pub fn from_serializable<T: Serialize>(value: T) -> Result<Self, serde_json::Error> {
+    pub fn from_serializable<T: Serialize>(value: T) -> Result<Self, JsonError> {
         Ok(Self {
-            value: serde_json::to_value(value)?,
+            value: to_value(value)?,
         })
     }
 
@@ -99,8 +101,8 @@ fn json_summary(value: &Value) -> String {
         Value::String(value) => value.clone(),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        Value::Array(values) => serde_json::to_string(values).unwrap_or_else(|_| "[]".to_string()),
-        Value::Object(value) => serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()),
+        Value::Array(values) => to_string(values).unwrap_or_else(|_| "[]".to_string()),
+        Value::Object(value) => to_string(value).unwrap_or_else(|_| "{}".to_string()),
     }
 }
 
@@ -108,7 +110,7 @@ impl OutputFormatter for JsonRecord {
     fn format(&self) -> Result<Self, AppError> {
         let (value, columns) = match &self.value {
             Value::Object(map) => {
-                let mut object = serde_json::Map::new();
+                let mut object = Map::new();
                 let mut columns = Vec::with_capacity(map.len());
                 for (key, value) in map {
                     columns.push(key.clone());
@@ -117,12 +119,12 @@ impl OutputFormatter for JsonRecord {
                 (Value::Object(object), columns)
             }
             value => (
-                serde_json::json!({ "value": json_summary(value) }),
+                json!({ "value": json_summary(value) }),
                 vec!["value".to_string()],
             ),
         };
 
-        set_semantic_output(hubuum_filter::OutputEnvelope::detail(value, columns))?;
+        set_semantic_output(OutputEnvelope::detail(value, columns))?;
         Ok(self.clone())
     }
 }

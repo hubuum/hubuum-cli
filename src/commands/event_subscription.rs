@@ -1,6 +1,7 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{EventSubscriptionFilter, NewEventSubscription, UpdateEventSubscription};
 use serde::{Deserialize, Serialize};
+use serde_json::from_value;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::event_sink::parse_json_object;
@@ -296,7 +297,7 @@ fn parse_subscription_filter(
     input: Option<String>,
 ) -> Result<Option<EventSubscriptionFilter>, AppError> {
     parse_json_object(input)?
-        .map(serde_json::from_value)
+        .map(from_value)
         .transpose()
         .map_err(AppError::from)
 }

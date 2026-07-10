@@ -1,5 +1,8 @@
 use cli_command_derive::CommandArgs;
 use serde::Serialize;
+use serde_json::{json, to_string_pretty, Map, Value};
+
+use hubuum_filter::OutputEnvelope;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
@@ -7,7 +10,7 @@ use crate::autocomplete::{config_keys, config_values};
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::{
     config_key_names, get_config_state, reload_runtime_config, set_persisted_value,
-    unset_persisted_value, ConfigEntry,
+    unset_persisted_value, ConfigEntry, ConfigSource,
 };
 use crate::errors::AppError;
 use crate::models::OutputFormat;
@@ -113,7 +116,7 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
     }
 
     match desired_format(tokens) {
-        OutputFormat::Json => append_line(serde_json::to_string_pretty(&state)?)?,
+        OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
         OutputFormat::Text => render_config_entries(&state.entries)?,
     }
 
@@ -133,7 +136,7 @@ pub(crate) fn render_config_paths(tokens: &CommandTokenizer) -> Result<(), AppEr
     let _query = ConfigPaths::parse_tokens(tokens)?;
     let paths = &get_config_state().paths;
     match desired_format(tokens) {
-        OutputFormat::Json => append_line(serde_json::to_string_pretty(paths)?)?,
+        OutputFormat::Json => append_line(to_string_pretty(paths)?)?,
         OutputFormat::Text => {
             append_key_value("System", paths.system.display(), 12)?;
             append_key_value("User", paths.user.display(), 12)?;
@@ -176,7 +179,7 @@ impl CliCommand for ConfigSet {
             note: "Saved and reloaded for this CLI session.".to_string(),
         };
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&message)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&message)?)?,
             OutputFormat::Text => {
                 append_line(format!(
                     "Saved '{}' to {} and reloaded the current session.",
@@ -211,7 +214,7 @@ impl CliCommand for ConfigUnset {
             note: "Removed and reloaded for this CLI session.".to_string(),
         };
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&message)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&message)?)?,
             OutputFormat::Text => {
                 append_line(format!(
                     "Removed '{}' from {} and reloaded the current session.",
@@ -232,23 +235,14 @@ struct PersistMessage {
 
 fn render_single_entry(entry: &ConfigEntry, format: OutputFormat) -> Result<(), AppError> {
     match format {
-        OutputFormat::Json => append_line(serde_json::to_string_pretty(entry)?)?,
+        OutputFormat::Json => append_line(to_string_pretty(entry)?)?,
         OutputFormat::Text => {
-            let mut object = serde_json::Map::new();
-            object.insert(
-                "key".to_string(),
-                serde_json::Value::String(entry.key.clone()),
-            );
-            object.insert(
-                "value".to_string(),
-                serde_json::Value::String(entry.value.clone()),
-            );
-            object.insert(
-                "source".to_string(),
-                serde_json::Value::String(format_source(entry)),
-            );
-            set_semantic_output(hubuum_filter::OutputEnvelope::detail(
-                serde_json::Value::Object(object),
+            let mut object = Map::new();
+            object.insert("key".to_string(), Value::String(entry.key.clone()));
+            object.insert("value".to_string(), Value::String(entry.value.clone()));
+            object.insert("source".to_string(), Value::String(format_source(entry)));
+            set_semantic_output(OutputEnvelope::detail(
+                Value::Object(object),
                 vec!["key".to_string(), "value".to_string(), "source".to_string()],
             ))?;
         }
@@ -260,7 +254,7 @@ fn render_config_entries(entries: &[ConfigEntry]) -> Result<(), AppError> {
     let rows = entries
         .iter()
         .map(|entry| {
-            serde_json::json!({
+            json!({
                 "key": entry.key,
                 "value": entry.value,
                 "source": format_source_kind(entry),
@@ -268,7 +262,7 @@ fn render_config_entries(entries: &[ConfigEntry]) -> Result<(), AppError> {
             })
         })
         .collect::<Vec<_>>();
-    set_semantic_output(hubuum_filter::OutputEnvelope::rows(
+    set_semantic_output(OutputEnvelope::rows(
         rows,
         vec![
             "key".to_string(),
@@ -289,12 +283,12 @@ fn format_source(entry: &ConfigEntry) -> String {
 
 fn format_source_kind(entry: &ConfigEntry) -> &'static str {
     match entry.source {
-        crate::config::ConfigSource::Default => "default",
-        crate::config::ConfigSource::SystemFile => "system file",
-        crate::config::ConfigSource::UserFile => "user file",
-        crate::config::ConfigSource::CustomFile => "custom file",
-        crate::config::ConfigSource::Environment => "env",
-        crate::config::ConfigSource::CliOption => "cli",
+        ConfigSource::Default => "default",
+        ConfigSource::SystemFile => "system file",
+        ConfigSource::UserFile => "user file",
+        ConfigSource::CustomFile => "custom file",
+        ConfigSource::Environment => "env",
+        ConfigSource::CliOption => "cli",
     }
 }
 

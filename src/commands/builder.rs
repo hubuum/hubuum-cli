@@ -1,14 +1,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tokio::task::spawn_blocking;
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
-use crate::commands::{self, command_options, CliCommand};
+use crate::commands::{self, command_options, render_format, CliCommand};
 use crate::errors::AppError;
-use crate::output::{reset_output, set_pipeline, set_render_format, take_output};
+use crate::output::{
+    reset_output, set_pipeline, set_pipeline_suffix, set_render_format, take_output,
+};
+use crate::tokenizer::CommandTokenizer;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct CommandDocs {
@@ -106,19 +110,16 @@ where
         let raw_line = invocation.raw_line.clone();
         let pipeline = invocation.pipeline.clone();
 
-        tokio::task::spawn_blocking(move || {
+        spawn_blocking(move || {
             reset_output()?;
             set_pipeline(pipeline)?;
+            set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
             let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
                 AppError::CommandExecutionError("Missing command name".to_string())
             })?;
 
-            let tokens = crate::tokenizer::CommandTokenizer::new(
-                &raw_line,
-                &cmd_name,
-                &command_options::<C>(),
-            )?;
-            set_render_format(commands::render_format(&tokens)?)?;
+            let tokens = CommandTokenizer::new(&raw_line, &cmd_name, &command_options::<C>())?;
+            set_render_format(render_format(&tokens)?)?;
 
             command.execute(services.as_ref(), &tokens)?;
             services.invalidate_completion();

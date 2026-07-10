@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hubuum_client::{Collection, ExportResult, ExportTemplate};
+use hubuum_client::{Collection, ExportJsonResponse, ExportResult, ExportTemplate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,9 +44,7 @@ pub struct RenderedExport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExportOutput {
-    Json {
-        body: hubuum_client::ExportJsonResponse,
-    },
+    Json { body: ExportJsonResponse },
     Rendered(RenderedExport),
 }
 

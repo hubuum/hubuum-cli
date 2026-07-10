@@ -1,9 +1,12 @@
 // src/cli.rs
 use crate::config::AppConfig;
-use crate::models::{EmptyResult, Protocol, TableBands, TableStyle, TableWidth, TableWrap};
+use crate::models::{
+    EmptyResult, OutputColor, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+};
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
 use clap::{value_parser, Arg, ArgMatches, Command};
+use shlex::try_quote;
 use std::path::PathBuf;
 
 pub fn build_cli() -> Command {
@@ -378,7 +381,7 @@ fn join_command_args(args: &[String]) -> String {
             if matches!(arg.as_str(), "|" | ">" | ">>") {
                 return arg.clone();
             }
-            shlex::try_quote(arg)
+            try_quote(arg)
                 .map(|quoted| quoted.into_owned())
                 .unwrap_or_else(|_| arg.replace('\0', ""))
         })
@@ -455,7 +458,7 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
         config.output.object_show_data = *object_show_data;
     }
     if let Some(color) = get_command_line_value::<String>(matches, "color") {
-        config.output.color = color.parse().unwrap_or(crate::models::OutputColor::Auto);
+        config.output.color = color.parse().unwrap_or(OutputColor::Auto);
     }
     if let Some(theme) = get_command_line_value::<String>(matches, "theme") {
         config.output.theme = theme.to_string();
@@ -484,12 +487,12 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
 mod tests {
     use super::*;
     use serial_test::serial;
-    use std::env;
+    use std::env::{remove_var, set_var};
 
     #[test]
     #[serial]
     fn update_config_from_cli_ignores_env_backed_values() {
-        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+        set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
 
         let matches = build_cli()
             .try_get_matches_from(["hubuum-cli"])
@@ -499,7 +502,7 @@ mod tests {
 
         assert_eq!(config.server.hostname, AppConfig::default().server.hostname);
 
-        env::remove_var("HUBUUM_CLI__SERVER__HOSTNAME");
+        remove_var("HUBUUM_CLI__SERVER__HOSTNAME");
     }
 
     #[test]
@@ -550,7 +553,7 @@ mod tests {
         let mut config = AppConfig::default();
         update_config_from_cli(&mut config, &matches);
 
-        assert_eq!(config.output.color, crate::models::OutputColor::Never);
+        assert_eq!(config.output.color, OutputColor::Never);
         assert_eq!(config.output.theme, "catppuccin-mocha");
         assert_eq!(config.output.theme_file, "/tmp/themes.toml");
     }

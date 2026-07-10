@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use serde_json::Value;
 use tokio::runtime::Handle;
+use tokio::task::spawn_blocking;
 
 use crate::config::get_config;
+use crate::domain::{JsonRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{ListQuery, SortClause, SortDirectionArg};
 use crate::services::{AuditListInput, AuditScope, ListTasksInput};
 
+use super::gateway::HubuumGateway;
 use super::AppServices;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,7 +31,7 @@ struct CompletionSnapshot {
     simple_sources: HashMap<CompletionKind, Vec<String>>,
     objects_by_class: HashMap<String, Vec<String>>,
     event_subscriptions_by_collection: HashMap<String, Vec<String>>,
-    class_schemas: HashMap<String, Option<serde_json::Value>>,
+    class_schemas: HashMap<String, Option<Value>>,
     task_ids: Option<Vec<CompletionItem>>,
     audit_event_ids: Option<Vec<String>>,
     event_delivery_ids: Option<Vec<String>>,
@@ -200,7 +204,7 @@ impl CompletionContext {
             .unwrap_or_default()
     }
 
-    pub fn class_schema(&self, class_name: &str) -> Option<Option<serde_json::Value>> {
+    pub fn class_schema(&self, class_name: &str) -> Option<Option<Value>> {
         if get_config().completion.disable_api_related {
             return None;
         }
@@ -240,14 +244,14 @@ impl CompletionStore {
 
     async fn load(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
         kind: CompletionKind,
     ) -> Result<Vec<String>, AppError> {
         if let Some(cached) = self.cached(kind) {
             return Ok(cached);
         }
 
-        let fetched = tokio::task::spawn_blocking(move || -> Result<Vec<String>, AppError> {
+        let fetched = spawn_blocking(move || -> Result<Vec<String>, AppError> {
             match kind {
                 CompletionKind::Groups => gateway.list_group_names(),
                 CompletionKind::Classes => gateway.list_class_names(),
@@ -271,7 +275,7 @@ impl CompletionStore {
 
     async fn load_objects_for_class(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
         class_name: String,
     ) -> Result<Vec<String>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
@@ -281,10 +285,9 @@ impl CompletionStore {
         }
 
         let cache_key = class_name.clone();
-        let fetched =
-            tokio::task::spawn_blocking(move || gateway.list_object_names_for_class(&class_name))
-                .await
-                .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+        let fetched = spawn_blocking(move || gateway.list_object_names_for_class(&class_name))
+            .await
+            .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
         if let Ok(mut snapshot) = self.snapshot.write() {
             snapshot.objects_by_class.insert(cache_key, fetched.clone());
@@ -295,20 +298,18 @@ impl CompletionStore {
 
     async fn query_objects_for_class_prefix(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
         class_name: String,
         prefix: String,
     ) -> Result<Vec<String>, AppError> {
-        tokio::task::spawn_blocking(move || {
-            gateway.list_object_names_for_class_prefix(&class_name, &prefix)
-        })
-        .await
-        .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
+        spawn_blocking(move || gateway.list_object_names_for_class_prefix(&class_name, &prefix))
+            .await
+            .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
     }
 
     async fn load_event_subscriptions_for_collection(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
         collection: String,
     ) -> Result<Vec<String>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
@@ -318,7 +319,7 @@ impl CompletionStore {
         }
 
         let cache_key = collection.clone();
-        let fetched = tokio::task::spawn_blocking(move || {
+        let fetched = spawn_blocking(move || {
             gateway.list_event_subscription_names_for_collection(&collection)
         })
         .await
@@ -335,9 +336,9 @@ impl CompletionStore {
 
     async fn load_class_schema(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
         class_name: String,
-    ) -> Result<Option<serde_json::Value>, AppError> {
+    ) -> Result<Option<Value>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
             if let Some(cached) = snapshot.class_schemas.get(&class_name) {
                 return Ok(cached.clone());
@@ -345,7 +346,7 @@ impl CompletionStore {
         }
 
         let cache_key = class_name.clone();
-        let fetched = tokio::task::spawn_blocking(move || gateway.class_schema(&class_name))
+        let fetched = spawn_blocking(move || gateway.class_schema(&class_name))
             .await
             .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
@@ -358,7 +359,7 @@ impl CompletionStore {
 
     async fn load_task_id_items(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
     ) -> Result<Vec<CompletionItem>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
             if let Some(cached) = &snapshot.task_ids {
@@ -366,7 +367,7 @@ impl CompletionStore {
             }
         }
 
-        let fetched = tokio::task::spawn_blocking(move || {
+        let fetched = spawn_blocking(move || {
             let tasks = gateway.list_tasks(ListTasksInput {
                 limit: Some(50),
                 ..ListTasksInput::default()
@@ -394,7 +395,7 @@ impl CompletionStore {
 
     async fn load_audit_event_ids(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
     ) -> Result<Vec<String>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
             if let Some(cached) = &snapshot.audit_event_ids {
@@ -402,7 +403,7 @@ impl CompletionStore {
             }
         }
 
-        let fetched = tokio::task::spawn_blocking(move || {
+        let fetched = spawn_blocking(move || {
             let page = gateway.audit_events(
                 AuditScope::Global,
                 AuditListInput {
@@ -431,7 +432,7 @@ impl CompletionStore {
 
     async fn load_event_delivery_ids(
         &self,
-        gateway: Arc<super::gateway::HubuumGateway>,
+        gateway: Arc<HubuumGateway>,
     ) -> Result<Vec<String>, AppError> {
         if let Ok(snapshot) = self.snapshot.read() {
             if let Some(cached) = &snapshot.event_delivery_ids {
@@ -439,7 +440,7 @@ impl CompletionStore {
             }
         }
 
-        let fetched = tokio::task::spawn_blocking(move || {
+        let fetched = spawn_blocking(move || {
             let page = gateway.event_deliveries(&ListQuery {
                 limit: Some(50),
                 sorts: vec![SortClause {
@@ -501,7 +502,7 @@ fn option_value(parts: &[String], long: &str) -> Option<String> {
     })
 }
 
-fn task_description(task: &crate::domain::TaskRecord) -> String {
+fn task_description(task: &TaskRecord) -> String {
     let mut parts = vec![task.0.kind.to_string(), task.0.status.to_string()];
     if let Some(summary) = task
         .0
@@ -515,9 +516,9 @@ fn task_description(task: &crate::domain::TaskRecord) -> String {
     parts.join("  ")
 }
 
-fn json_record_i64(record: &crate::domain::JsonRecord, keys: &[&str]) -> Option<i64> {
+fn json_record_i64(record: &JsonRecord, keys: &[&str]) -> Option<i64> {
     keys.iter()
-        .find_map(|key| record.value.get(*key).and_then(serde_json::Value::as_i64))
+        .find_map(|key| record.value.get(*key).and_then(Value::as_i64))
 }
 
 #[cfg(test)]

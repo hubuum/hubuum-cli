@@ -1,14 +1,19 @@
 use std::any::TypeId;
 use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hubuum_filter::PipeStage;
+use hubuum_filter::{help_topics, topic_help, verb_summaries, PipeStage};
 
+use crate::app::AppRuntime;
+use crate::commands::{AutoCompleter, CliOption};
 use crate::errors::AppError;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
+use crate::redirection::OutputRedirect;
 use crate::services::filter_specs_for_command_path;
+use crate::suggestions::did_you_mean_message;
 use crate::terminal::terminal_width;
 use crate::theme::{paint, paint_command, ThemeRole};
 
@@ -32,7 +37,7 @@ pub struct OptionSpec {
 #[derive(Debug, Clone)]
 pub enum CompletionSpec {
     None,
-    Dynamic(crate::commands::AutoCompleter),
+    Dynamic(AutoCompleter),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -52,8 +57,8 @@ pub struct CommandSpec {
     pub handler: Arc<dyn AsyncCommandHandler>,
 }
 
-impl std::fmt::Debug for CommandSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for CommandSpec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("CommandSpec")
             .field("name", &self.name)
             .field("about", &self.about)
@@ -80,7 +85,7 @@ pub struct CommandCatalog {
 
 #[derive(Clone)]
 pub struct CommandContext {
-    pub app: Arc<crate::app::AppRuntime>,
+    pub app: Arc<AppRuntime>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,12 +93,13 @@ pub struct CommandInvocation {
     pub raw_line: String,
     pub command_path: Vec<String>,
     pub pipeline: Vec<PipeStage>,
+    pub pipeline_suffix: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct CommandOutcome {
     pub output: OutputSnapshot,
-    pub redirect: Option<crate::redirection::OutputRedirect>,
+    pub redirect: Option<OutputRedirect>,
     pub scope_action: ScopeAction,
 }
 
@@ -408,7 +414,7 @@ fn command_not_found_message(part: &str, scope: &ScopeSpec) -> String {
         .chain(scope.commands.keys())
         .cloned()
         .collect::<Vec<_>>();
-    match crate::suggestions::did_you_mean_message(part, candidates) {
+    match did_you_mean_message(part, candidates) {
         Some(hint) => format!("{part}. {hint}"),
         None => part.to_string(),
     }
@@ -509,7 +515,7 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     }
 
     if let Some(topic) = topic {
-        let Some(help) = hubuum_filter::topic_help(topic) else {
+        let Some(help) = topic_help(topic) else {
             return Err(AppError::CommandNotFound(format!("pipe {topic}")));
         };
         line!(paint(ThemeRole::Heading, format!("Pipe: {topic}")));
@@ -521,7 +527,7 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     line!("Append pipe stages after a command to transform semantic output before table, JSON, JSONL, CSV, TSV, or text rendering.");
     line!("");
     line!(paint(ThemeRole::Heading, "Topics:"));
-    for topic in hubuum_filter::help_topics() {
+    for topic in help_topics() {
         line!(format!(
             "  {} {}",
             paint_command(format!("help pipe {:<10}", topic.name)),
@@ -530,7 +536,7 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     }
     line!("");
     line!(paint(ThemeRole::Heading, "Verbs:"));
-    for summary in hubuum_filter::verb_summaries() {
+    for summary in verb_summaries() {
         line!(format!(
             "  {:<14} {:<9} {}",
             summary.names, summary.topic, summary.summary
@@ -828,8 +834,8 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
 }
 
 impl OptionSpec {
-    pub fn to_cli_option(&self) -> crate::commands::CliOption {
-        crate::commands::CliOption {
+    pub fn to_cli_option(&self) -> CliOption {
+        CliOption {
             name: self.name.clone(),
             short: self.short.clone(),
             long: self.long.clone(),
@@ -869,21 +875,33 @@ pub struct ResolvedCommand<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandCatalogBuilder, CommandSpec, ScopeAction};
+    use super::{
+        command_help_fragment, render_scope_summary_at_width, scope_command_summary,
+        AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandInvocation,
+        CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction, ScopeSpec,
+    };
     use async_trait::async_trait;
+    use regex::Regex;
     use serial_test::serial;
+    use std::any::TypeId;
     use std::sync::Arc;
+
+    use crate::commands::build_command_catalog;
+    use crate::config::{get_config, init_config};
+    use crate::errors::AppError;
+    use crate::models::OutputColor;
+    use crate::theme::paint_command;
 
     struct NoopHandler;
 
     #[async_trait]
-    impl super::AsyncCommandHandler for NoopHandler {
+    impl AsyncCommandHandler for NoopHandler {
         async fn execute(
             &self,
-            _ctx: super::CommandContext,
-            _invocation: super::CommandInvocation,
-        ) -> Result<super::CommandOutcome, crate::errors::AppError> {
-            Ok(super::CommandOutcome {
+            _ctx: CommandContext,
+            _invocation: CommandInvocation,
+        ) -> Result<CommandOutcome, AppError> {
+            Ok(CommandOutcome {
                 output: Default::default(),
                 scope_action: ScopeAction::None,
                 ..Default::default()
@@ -903,7 +921,7 @@ mod tests {
     }
 
     fn strip_ansi(text: &str) -> String {
-        regex::Regex::new(r"\x1b\[[0-9;]*m")
+        Regex::new(r"\x1b\[[0-9;]*m")
             .expect("ANSI regex should compile")
             .replace_all(text, "")
             .into_owned()
@@ -929,35 +947,35 @@ mod tests {
     fn render_command_help_includes_option_metadata() {
         let mut builder = CommandCatalogBuilder::new();
         let mut spec = command("list");
-        spec.options.push(super::OptionSpec {
+        spec.options.push(OptionSpec {
             name: "name".to_string(),
             short: Some("-n".to_string()),
             long: Some("--name".to_string()),
             help: "Name filter".to_string(),
             field_type_help: "string".to_string(),
-            field_type: std::any::TypeId::of::<String>(),
+            field_type: TypeId::of::<String>(),
             required: true,
             flag: false,
             greedy: false,
             nargs: None,
             repeatable: false,
             value_source: false,
-            completion: super::CompletionSpec::None,
+            completion: CompletionSpec::None,
         });
-        spec.options.push(super::OptionSpec {
+        spec.options.push(OptionSpec {
             name: "where".to_string(),
             short: None,
             long: Some("--where".to_string()),
             help: "Filter clause".to_string(),
             field_type_help: "string".to_string(),
-            field_type: std::any::TypeId::of::<String>(),
+            field_type: TypeId::of::<String>(),
             required: false,
             flag: false,
             greedy: false,
             nargs: Some(3),
             repeatable: true,
             value_source: false,
-            completion: super::CompletionSpec::None,
+            completion: CompletionSpec::None,
         });
         builder.add_command(&["class"], spec);
         let catalog = builder.build();
@@ -975,10 +993,10 @@ mod tests {
     #[test]
     #[serial]
     fn render_command_help_colors_example_commands_when_enabled() {
-        let previous = crate::config::get_config();
+        let previous = get_config();
         let mut config = previous.clone();
-        config.output.color = crate::models::OutputColor::Always;
-        crate::config::init_config(config).expect("config update");
+        config.output.color = OutputColor::Always;
+        init_config(config).expect("config update");
 
         let mut builder = CommandCatalogBuilder::new();
         let mut spec = command("list");
@@ -990,7 +1008,7 @@ mod tests {
             .render_command_help(&["object".to_string(), "list".to_string()])
             .expect("help should render");
 
-        crate::config::init_config(previous).expect("config restore");
+        init_config(previous).expect("config restore");
         assert!(help.contains("\u{1b}["));
         assert!(help.contains("object list --class Hosts"));
     }
@@ -998,10 +1016,10 @@ mod tests {
     #[test]
     #[serial]
     fn render_command_help_omits_command_color_when_disabled() {
-        let previous = crate::config::get_config();
+        let previous = get_config();
         let mut config = previous.clone();
-        config.output.color = crate::models::OutputColor::Never;
-        crate::config::init_config(config).expect("config update");
+        config.output.color = OutputColor::Never;
+        init_config(config).expect("config update");
 
         let mut builder = CommandCatalogBuilder::new();
         let mut spec = command("list");
@@ -1013,27 +1031,27 @@ mod tests {
             .render_command_help(&["object".to_string(), "list".to_string()])
             .expect("help should render");
 
-        crate::config::init_config(previous).expect("config restore");
+        init_config(previous).expect("config restore");
         assert!(!help.contains("\u{1b}["));
         assert!(help.contains("object list --class Hosts"));
     }
 
     #[test]
     fn option_spec_round_trips_nargs_to_cli_option() {
-        let option = super::OptionSpec {
+        let option = OptionSpec {
             name: "where_clauses".to_string(),
             short: None,
             long: Some("--where".to_string()),
             help: "Filter clause".to_string(),
             field_type_help: "string".to_string(),
-            field_type: std::any::TypeId::of::<Vec<String>>(),
+            field_type: TypeId::of::<Vec<String>>(),
             required: false,
             flag: false,
             greedy: false,
             nargs: Some(3),
             repeatable: true,
             value_source: false,
-            completion: super::CompletionSpec::None,
+            completion: CompletionSpec::None,
         };
 
         assert_eq!(option.to_cli_option().nargs, Some(3));
@@ -1041,7 +1059,7 @@ mod tests {
 
     #[test]
     fn root_scope_help_lists_scope_subcommands() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let help = catalog.render_scope_help(&[]);
         let plain = strip_ansi(&help);
         let collection_scope = catalog
@@ -1056,7 +1074,7 @@ mod tests {
         assert!(plain.contains("collection"));
         assert!(plain.contains("principal-permissions"));
         assert_eq!(
-            super::scope_command_summary(collection_scope),
+            scope_command_summary(collection_scope),
             "permissions, create, delete, list, modify, principal-permissions, show"
         );
         assert!(plain.contains("relation"));
@@ -1072,20 +1090,20 @@ mod tests {
     #[test]
     #[serial]
     fn scope_help_colors_only_command_fragment_in_prose() {
-        let previous = crate::config::get_config();
+        let previous = get_config();
         let mut config = previous.clone();
-        config.output.color = crate::models::OutputColor::Always;
-        crate::config::init_config(config).expect("config update");
+        config.output.color = OutputColor::Always;
+        init_config(config).expect("config update");
 
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let help = catalog.render_scope_help(&[]);
         let line = help
             .lines()
             .find(|line| strip_ansi(line).contains("Use help pipe"))
             .expect("pipe help line should render");
-        let expected = format!("Use {}", crate::theme::paint_command("help pipe"));
+        let expected = format!("Use {}", paint_command("help pipe"));
 
-        crate::config::init_config(previous).expect("config restore");
+        init_config(previous).expect("config restore");
         assert!(line.contains(&expected));
         assert!(!line.trim_start().starts_with("\u{1b}["));
     }
@@ -1093,19 +1111,19 @@ mod tests {
     #[test]
     fn pipe_topic_colorization_splits_command_fragments_from_descriptions() {
         assert_eq!(
-            super::command_help_fragment("| F <field> <regex> - keep matching rows"),
+            command_help_fragment("| F <field> <regex> - keep matching rows"),
             Some(("| F <field> <regex>", Some("keep matching rows")))
         );
         assert_eq!(
-            super::command_help_fragment("object list --class Hosts | C"),
+            command_help_fragment("object list --class Hosts | C"),
             Some(("object list --class Hosts | C", None))
         );
-        assert_eq!(super::command_help_fragment("Examples:"), None);
+        assert_eq!(command_help_fragment("Examples:"), None);
     }
 
     #[test]
     fn audit_help_exposes_working_commands_and_hides_unsupported_filters() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let scope_help = catalog.render_scope_help(&["audit".to_string()]);
         let list_help = catalog
             .render_command_help(&["audit".to_string(), "list".to_string()])
@@ -1125,7 +1143,7 @@ mod tests {
 
     #[test]
     fn scope_summary_uses_one_line_when_terminal_is_wide_enough() {
-        let lines = super::render_scope_summary_at_width(
+        let lines = render_scope_summary_at_width(
             "collection",
             "permissions, create, delete, list, modify, principal-permissions, show",
             "event-subscription".len(),
@@ -1143,7 +1161,7 @@ mod tests {
     #[test]
     fn scope_summary_wraps_at_a_fixed_narrow_width() {
         let name_width = "event-subscription".len();
-        let lines = super::render_scope_summary_at_width(
+        let lines = render_scope_summary_at_width(
             "collection",
             "permissions, create, delete, list, modify, principal-permissions, show",
             name_width,
@@ -1219,7 +1237,7 @@ mod tests {
 
     #[test]
     fn nested_scope_help_lists_generated_children() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let help = catalog.render_scope_help(&["relation".to_string()]);
 
         assert!(help.contains("class"));
@@ -1229,7 +1247,7 @@ mod tests {
 
     #[test]
     fn list_command_help_includes_where_guide() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let help = catalog
             .render_command_help(&["object".to_string(), "list".to_string()])
             .expect("help should render");
@@ -1253,7 +1271,7 @@ mod tests {
 
     #[test]
     fn all_registered_commands_have_about_text() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let mut missing = Vec::new();
         collect_commands_missing_about(&catalog.root, &mut Vec::new(), &mut missing);
 
@@ -1266,7 +1284,7 @@ mod tests {
 
     #[test]
     fn list_commands_expose_generic_filter_and_paging_options() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
 
         for path in [
             vec!["class", "list"],
@@ -1323,7 +1341,7 @@ mod tests {
 
     #[test]
     fn command_catalog_only_exposes_allowed_id_options() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let mut exposed = Vec::new();
         collect_exposed_id_options(&catalog.root, &mut Vec::new(), &mut exposed);
 
@@ -1355,7 +1373,7 @@ mod tests {
 
     #[test]
     fn audit_show_id_has_dynamic_completion() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let audit_show = catalog
             .resolve_command(&[], &["audit".to_string(), "show".to_string()])
             .expect("audit show should resolve");
@@ -1366,12 +1384,12 @@ mod tests {
             .find(|option| option.long.as_deref() == Some("--id"))
             .expect("audit show should expose --id");
 
-        assert!(matches!(id.completion, super::CompletionSpec::Dynamic(_)));
+        assert!(matches!(id.completion, CompletionSpec::Dynamic(_)));
     }
 
     #[test]
     fn existing_entity_reference_options_have_dynamic_completion() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
 
         for (path, option_name) in [
             (&["group", "add_user"][..], "--groupname"),
@@ -1415,7 +1433,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{command_path:?} should expose {option_name}"));
 
             assert!(
-                matches!(option.completion, super::CompletionSpec::Dynamic(_)),
+                matches!(option.completion, CompletionSpec::Dynamic(_)),
                 "{command_path:?} {option_name} should have dynamic completion"
             );
         }
@@ -1423,7 +1441,7 @@ mod tests {
 
     #[test]
     fn history_commands_use_name_options_with_dynamic_completion() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let class_history = catalog
             .resolve_command(&[], &["history".to_string(), "class".to_string()])
             .expect("history class should resolve");
@@ -1439,7 +1457,7 @@ mod tests {
             .expect("history class should expose --class");
         assert!(matches!(
             class_option.completion,
-            super::CompletionSpec::Dynamic(_)
+            CompletionSpec::Dynamic(_)
         ));
         assert!(!class_history
             .command
@@ -1458,12 +1476,9 @@ mod tests {
             .expect("history object should expose --name");
         assert!(matches!(
             object_class.completion,
-            super::CompletionSpec::Dynamic(_)
+            CompletionSpec::Dynamic(_)
         ));
-        assert!(matches!(
-            object_name.completion,
-            super::CompletionSpec::Dynamic(_)
-        ));
+        assert!(matches!(object_name.completion, CompletionSpec::Dynamic(_)));
         assert!(!object_options.iter().any(|option| {
             matches!(
                 option.long.as_deref(),
@@ -1474,7 +1489,7 @@ mod tests {
 
     #[test]
     fn common_format_and_task_filters_have_dynamic_completion() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let task_list = catalog
             .resolve_command(&[], &["task".to_string(), "list".to_string()])
             .expect("task list should resolve");
@@ -1486,10 +1501,7 @@ mod tests {
                 .iter()
                 .find(|option| option.long.as_deref() == Some(long))
                 .unwrap_or_else(|| panic!("{long} should be exposed"));
-            assert!(matches!(
-                option.completion,
-                super::CompletionSpec::Dynamic(_)
-            ));
+            assert!(matches!(option.completion, CompletionSpec::Dynamic(_)));
         }
 
         let remote_create = catalog
@@ -1502,10 +1514,7 @@ mod tests {
                 .iter()
                 .find(|option| option.long.as_deref() == Some(long))
                 .unwrap_or_else(|| panic!("{long} should be exposed"));
-            assert!(matches!(
-                option.completion,
-                super::CompletionSpec::Dynamic(_)
-            ));
+            assert!(matches!(option.completion, CompletionSpec::Dynamic(_)));
         }
 
         let remote_invoke = catalog
@@ -1517,10 +1526,7 @@ mod tests {
             .iter()
             .find(|option| option.long.as_deref() == Some("--subject"))
             .expect("--subject should be exposed");
-        assert!(matches!(
-            subject.completion,
-            super::CompletionSpec::Dynamic(_)
-        ));
+        assert!(matches!(subject.completion, CompletionSpec::Dynamic(_)));
 
         let export_create = catalog
             .resolve_command(&[], &["export".to_string(), "create".to_string()])
@@ -1533,13 +1539,13 @@ mod tests {
             .expect("--content-type should be exposed");
         assert!(matches!(
             content_type.completion,
-            super::CompletionSpec::Dynamic(_)
+            CompletionSpec::Dynamic(_)
         ));
     }
 
     #[test]
     fn command_resolution_suggests_nearby_words() {
-        let catalog = crate::commands::build_command_catalog();
+        let catalog = build_command_catalog();
         let err = match catalog.resolve_command(&[], &["clas".to_string(), "list".to_string()]) {
             Ok(_) => panic!("mistyped command should fail"),
             Err(err) => err,
@@ -1549,7 +1555,7 @@ mod tests {
     }
 
     fn collect_commands_missing_about(
-        scope: &super::ScopeSpec,
+        scope: &ScopeSpec,
         path: &mut Vec<String>,
         missing: &mut Vec<String>,
     ) {
@@ -1573,7 +1579,7 @@ mod tests {
     }
 
     fn collect_exposed_id_options(
-        scope: &super::ScopeSpec,
+        scope: &ScopeSpec,
         path: &mut Vec<String>,
         exposed: &mut Vec<String>,
     ) {

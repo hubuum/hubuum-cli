@@ -1,3 +1,6 @@
+use serde_json::Value;
+
+use crate::json_schema::schema_paths;
 use crate::list_query::{
     completion_operators, resolve_filter_field_spec, FilterFieldSpec, FilterValueProfile,
 };
@@ -254,7 +257,7 @@ fn complete_json_data_path_from_schema(
         return status_completions(prefix, "no schema");
     };
 
-    let schema_paths = crate::json_schema::schema_paths(&schema, false);
+    let schema_paths = schema_paths(&schema, false);
     if schema_paths.is_empty() {
         return status_completions(prefix, "no schema");
     }
@@ -293,7 +296,7 @@ fn class_name_from_parts(parts: &[String]) -> Option<String> {
 fn schema_path_completions_from_paths(
     root: &str,
     prefix: &str,
-    schema: &serde_json::Value,
+    schema: &Value,
     paths: Vec<String>,
 ) -> Vec<FilterCompletion> {
     paths
@@ -318,7 +321,7 @@ fn schema_path_completions_from_paths(
         .collect()
 }
 
-fn schema_path_points_to_object(schema: &serde_json::Value, path: &str) -> bool {
+fn schema_path_points_to_object(schema: &Value, path: &str) -> bool {
     let Some(node) = schema_node_for_path(schema, path) else {
         return false;
     };
@@ -329,10 +332,7 @@ fn schema_path_points_to_object(schema: &serde_json::Value, path: &str) -> bool 
         .unwrap_or(false)
 }
 
-fn schema_node_for_path<'a>(
-    mut schema: &'a serde_json::Value,
-    path: &str,
-) -> Option<&'a serde_json::Value> {
+fn schema_node_for_path<'a>(mut schema: &'a Value, path: &str) -> Option<&'a Value> {
     for part in path.split('.') {
         schema = schema.get("properties")?.get(part)?;
     }

@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::collections::BTreeSet;
+use std::path::MAIN_SEPARATOR;
 use std::sync::Arc;
+use std::thread::spawn;
 
 use crossterm::event::{Event, KeyEvent};
 use reedline::{
@@ -9,26 +11,34 @@ use reedline::{
     PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, ReedlineRawEvent, Signal,
     Span, Suggestion,
 };
+use shlex::split;
+use tokio::runtime::Handle;
 
 use crate::app::{AppRuntime, SharedSession};
-use crate::autocomplete::{complete_sort_clause, complete_where_clause};
+use crate::autocomplete::{complete_sort_clause, complete_where_clause, file_paths};
+use crate::background::BackgroundManager;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
-use crate::dispatch;
+use crate::config::get_config;
+use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, render_error};
 use crate::errors::AppError;
 use crate::files::get_history_file;
+use crate::json_schema::schema_paths;
+use crate::output::print_rendered;
+use crate::redirection::{redirect_completion_context, write_output};
+use crate::services::CompletionContext;
 
 const CANCEL_PAGINATION_HOST_COMMAND: &str = "__hubuum_cancel_pagination__";
 
 pub async fn run(app: Arc<AppRuntime>, session: SharedSession) -> Result<(), AppError> {
-    let runtime = tokio::runtime::Handle::current();
-    let join = std::thread::spawn(move || run_thread(runtime, app, session));
+    let runtime = Handle::current();
+    let join = spawn(move || run_thread(runtime, app, session));
 
     join.join()
         .map_err(|_| AppError::CommandExecutionError("REPL thread panicked".to_string()))?
 }
 
 fn run_thread(
-    runtime: tokio::runtime::Handle,
+    runtime: Handle,
     app: Arc<AppRuntime>,
     session: SharedSession,
 ) -> Result<(), AppError> {
@@ -78,7 +88,7 @@ fn run_thread(
         .with_quick_completions(true)
         .with_ansi_colors(true);
 
-    let _ = crate::output::print_rendered(&format!("{}\n", app.catalog.render_scope_help(&[])));
+    let _ = print_rendered(&format!("{}\n", app.catalog.render_scope_help(&[])));
 
     loop {
         let prompt = ReplPrompt {
@@ -97,33 +107,26 @@ fn run_thread(
                 }
 
                 let effective_line = if line.trim().is_empty()
-                    && crate::config::get_config().repl.enter_fetches_next_page
+                    && get_config().repl.enter_fetches_next_page
                     && session.next_page_command().is_some()
                 {
                     "next".to_string()
                 } else {
                     line
                 };
-                let result = runtime.block_on(dispatch::execute_line(
-                    app.clone(),
-                    &session,
-                    &effective_line,
-                ));
+                let result = runtime.block_on(execute_line(app.clone(), &session, &effective_line));
                 match result {
                     Ok(outcome) => {
                         let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
                         if let Err(err) = apply_outcome(&session, outcome) {
-                            let _ = crate::output::print_rendered(
-                                &dispatch::render_error(err).render(),
-                            );
+                            let _ = print_rendered(&render_error(err).render());
                         }
                         if exit_repl {
                             break;
                         }
                     }
                     Err(err) => {
-                        let _ =
-                            crate::output::print_rendered(&dispatch::render_error(err).render());
+                        let _ = print_rendered(&render_error(err).render());
                     }
                 }
             }
@@ -145,7 +148,7 @@ fn clear_pending_pagination(session: &SharedSession) {
 }
 
 struct BackgroundGuard {
-    manager: crate::background::BackgroundManager,
+    manager: BackgroundManager,
 }
 
 struct PaginationEditMode {
@@ -180,7 +183,7 @@ impl EditMode for PaginationEditMode {
 }
 
 impl BackgroundGuard {
-    fn new(manager: crate::background::BackgroundManager) -> Self {
+    fn new(manager: BackgroundManager) -> Self {
         manager.enable();
         Self { manager }
     }
@@ -193,12 +196,12 @@ impl Drop for BackgroundGuard {
 }
 
 fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) -> Result<(), AppError> {
-    dispatch::apply_scope_action(session, &outcome.scope_action);
-    dispatch::apply_output_state(session, &outcome.output);
+    apply_scope_action(session, &outcome.scope_action);
+    apply_output_state(session, &outcome.output);
     if let Some(redirect) = outcome.redirect {
-        crate::redirection::write_output(&outcome.output, &redirect)?;
+        write_output(&outcome.output, &redirect)?;
     } else if !outcome.output.is_empty() {
-        crate::output::print_rendered(&outcome.output.render())?;
+        print_rendered(&outcome.output.render())?;
     }
     Ok(())
 }
@@ -242,7 +245,7 @@ impl Prompt for ReplPrompt {
 struct ReplCompleter {
     app: Arc<AppRuntime>,
     session: SharedSession,
-    completion: crate::services::CompletionContext,
+    completion: CompletionContext,
 }
 
 impl Completer for ReplCompleter {
@@ -254,10 +257,8 @@ impl Completer for ReplCompleter {
         if let Some(suggestions) = self.pipe_suggestions(prefix_line, pos) {
             return suggestions;
         }
-        if let Some((prefix, replacement_start)) =
-            crate::redirection::redirect_completion_context(prefix_line, pos)
-        {
-            return crate::autocomplete::file_paths(&self.completion, prefix, &[])
+        if let Some((prefix, replacement_start)) = redirect_completion_context(prefix_line, pos) {
+            return file_paths(&self.completion, prefix, &[])
                 .into_iter()
                 .map(|value| dynamic_value_suggestion(value, replacement_start, pos))
                 .collect();
@@ -267,7 +268,7 @@ impl Completer for ReplCompleter {
             .rsplit_once(char::is_whitespace)
             .map_or((0, prefix_line), |(left, right)| (left.len() + 1, right));
 
-        let Some(parts) = shlex::split(prefix_line) else {
+        let Some(parts) = split(prefix_line) else {
             return Vec::new();
         };
 
@@ -370,7 +371,7 @@ impl Completer for ReplCompleter {
 impl ReplCompleter {
     fn quoted_where_suggestions(&self, prefix_line: &str, pos: usize) -> Option<Vec<Suggestion>> {
         let quoted = quoted_where_context(prefix_line)?;
-        let parts = shlex::split(quoted.command_prefix)?;
+        let parts = split(quoted.command_prefix)?;
         let scope = self.session.scope();
         let resolved = self.app.catalog.resolve_command(&scope, &parts).ok()?;
         let replacement_start = quoted.start
@@ -514,7 +515,7 @@ impl ReplCompleter {
             );
         }
 
-        let command_parts = shlex::split(context.command_prefix.trim())?;
+        let command_parts = split(context.command_prefix.trim())?;
         let scope = self.session.scope();
         let resolved = self
             .app
@@ -927,7 +928,7 @@ fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompleti
     let pipe_index = last_unquoted_pipe(prefix_line)?;
     let command_prefix = &prefix_line[..pipe_index];
     let pipe_prefix = &prefix_line[pipe_index + 1..];
-    let pipe_parts = shlex::split(pipe_prefix)?;
+    let pipe_parts = split(pipe_prefix)?;
     let ends_with_space = prefix_line.ends_with(char::is_whitespace);
     let (word_start, word) = if ends_with_space {
         (pos, "")
@@ -1063,7 +1064,7 @@ fn last_unquoted_pipe(line: &str) -> Option<usize> {
 }
 
 fn projection_fields_for_command(
-    ctx: &crate::services::CompletionContext,
+    ctx: &CompletionContext,
     command_path: &[String],
     command_parts: &[String],
 ) -> Vec<String> {
@@ -1074,10 +1075,7 @@ fn projection_fields_for_command(
     Vec::new()
 }
 
-fn object_list_projection_fields(
-    ctx: &crate::services::CompletionContext,
-    command_parts: &[String],
-) -> Vec<String> {
+fn object_list_projection_fields(ctx: &CompletionContext, command_parts: &[String]) -> Vec<String> {
     let mut fields = BTreeSet::from([
         "id".to_string(),
         "Name".to_string(),
@@ -1097,7 +1095,7 @@ fn object_list_projection_fields(
     ]);
 
     if let Some(class_name) = class_name_from_command_parts(command_parts) {
-        if let Some(columns) = crate::config::get_config()
+        if let Some(columns) = get_config()
             .output
             .object_list_class_columns
             .get(&class_name)
@@ -1106,7 +1104,7 @@ fn object_list_projection_fields(
         }
 
         if let Some(Some(schema)) = ctx.class_schema(&class_name) {
-            for path in crate::json_schema::schema_paths(&schema, true) {
+            for path in schema_paths(&schema, true) {
                 fields.insert(format!("data.{path}"));
             }
         }
@@ -1144,7 +1142,7 @@ fn suggestion(value: String, start: usize, end: usize, description: Option<Strin
 }
 
 fn dynamic_value_suggestion(value: String, start: usize, end: usize) -> Suggestion {
-    let append_whitespace = !value.ends_with(std::path::MAIN_SEPARATOR);
+    let append_whitespace = !value.ends_with(MAIN_SEPARATOR);
     suggestion_with_whitespace(value, start, end, None, append_whitespace)
 }
 
@@ -1331,6 +1329,7 @@ fn clause_active_token_offset(clause: &str, ends_with_space: bool) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use std::any::TypeId;
 
     use crossterm::event::{
@@ -1586,7 +1585,7 @@ mod tests {
 
     #[test]
     fn projection_schema_paths_include_nested_data_fields() {
-        let schema = serde_json::json!({
+        let schema = json!({
             "properties": {
                 "contact": {"type": "string"},
                 "hardware": {

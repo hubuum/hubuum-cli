@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use hubuum_client::{Class, Collection, Object};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::RelatedObjectTreeNode;
 
@@ -14,7 +15,7 @@ pub struct ResolvedObjectRecord {
     pub description: String,
     pub collection: String,
     pub class: String,
-    pub data: Option<serde_json::Value>,
+    pub data: Option<Value>,
     pub created_at: String,
     pub updated_at: String,
 }

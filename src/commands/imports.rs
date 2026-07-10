@@ -1,9 +1,12 @@
+use std::fs::read_to_string;
+
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
     ClassKey, CollectionKey, ImportAtomicity, ImportCollisionPolicy, ImportMode,
     ImportPermissionPolicy, ImportRequest,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
@@ -136,14 +139,14 @@ fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
         (Some(_), Some(_)) => Err(AppError::ParseError(
             "Use either --file or --http, not both".to_string(),
         )),
-        (Some(file), None) => std::fs::read_to_string(file).map_err(AppError::IoError),
+        (Some(file), None) => read_to_string(file).map_err(AppError::IoError),
         (None, Some(http_body)) => Ok(http_body.clone()),
         (None, None) => Err(AppError::MissingOptions(vec![
             "file".to_string(),
             "http".to_string(),
         ])),
     }?;
-    let mut request = serde_json::from_str::<ImportRequest>(&body)?;
+    let mut request = from_str::<ImportRequest>(&body)?;
     apply_mode_overrides(&mut request, query);
     if let Some(collection) = &query.collection {
         apply_existing_collection_override(&mut request, collection);
@@ -301,19 +304,22 @@ impl CliCommand for ImportResults {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::write;
+
     use super::{import_request, ImportSubmit};
     use crate::commands::command_options;
     use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
     use hubuum_client::{ImportAtomicity, ImportCollisionPolicy, ImportPermissionPolicy};
+    use tempfile::tempdir;
 
     const EMPTY_IMPORT: &str = r#"{"version":1,"dry_run":null,"mode":null,"graph":{}}"#;
 
     #[test]
     fn import_request_reads_file_source() {
-        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let dir = tempdir().expect("temp dir should be created");
         let path = dir.path().join("import.json");
-        std::fs::write(&path, EMPTY_IMPORT).expect("file should be written");
+        write(&path, EMPTY_IMPORT).expect("file should be written");
 
         let query = ImportSubmit {
             file: Some(path.to_string_lossy().to_string()),

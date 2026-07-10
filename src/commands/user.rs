@@ -1,5 +1,9 @@
+use chrono::NaiveDateTime;
 use cli_command_derive::CommandArgs;
+use hubuum_client::FilterOperator;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string_pretty};
+use std::iter::repeat;
 
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
@@ -148,7 +152,7 @@ impl CliCommand for UserNew {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&created)?)?;
+                append_line(to_string_pretty(&created)?)?;
             }
             OutputFormat::Text => {
                 created.user.format_noreturn()?;
@@ -200,9 +204,9 @@ pub struct UserInfo {
     #[option(short = "e", long = "email", help = "Email address for the user")]
     pub email: Option<String>,
     #[option(short = "C", long = "created-at", help = "Created at timestammp")]
-    pub created_at: Option<chrono::NaiveDateTime>,
+    pub created_at: Option<NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
-    pub updated_at: Option<chrono::NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 impl CliCommand for UserInfo {
@@ -238,9 +242,9 @@ pub struct UserList {
     #[option(short = "e", long = "email", help = "Email address for the user")]
     pub email: Option<String>,
     #[option(short = "C", long = "created-at", help = "Created at timestammp")]
-    pub created_at: Option<chrono::NaiveDateTime>,
+    pub created_at: Option<NaiveDateTime>,
     #[option(short = "U", long = "updated-at", help = "Updated at timestamp")]
-    pub updated_at: Option<chrono::NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
     #[option(
         long = "where",
         help = "Filter clause: 'field op value'",
@@ -277,14 +281,14 @@ impl CliCommand for UserList {
                 query.created_at.map(|value| {
                     filter_clause(
                         "created_at",
-                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        FilterOperator::Equals { is_negated: false },
                         value.to_string(),
                     )
                 }),
                 query.updated_at.map(|value| {
                     filter_clause(
                         "updated_at",
-                        hubuum_client::FilterOperator::Equals { is_negated: false },
+                        FilterOperator::Equals { is_negated: false },
                         value.to_string(),
                     )
                 }),
@@ -333,7 +337,7 @@ impl CliCommand for UserModify {
 
 pub fn generate_random_password(length: usize) -> String {
     let mut rng = rng();
-    std::iter::repeat(())
+    repeat(())
         .map(|()| rng.sample(Alphanumeric))
         .map(char::from)
         .take(length)
@@ -392,7 +396,7 @@ impl CliCommand for UserTokenList {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&token_list)?)?;
+                append_line(to_string_pretty(&token_list)?)?;
             }
             OutputFormat::Text => {
                 token_list.format_noreturn()?;
@@ -447,7 +451,7 @@ impl CliCommand for UserTokenCreate {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&serde_json::json!({
+                append_line(to_string_pretty(&json!({
                     "token": raw_token,
                     "warning": "This token will not be shown again. Store it securely."
                 }))?)?;

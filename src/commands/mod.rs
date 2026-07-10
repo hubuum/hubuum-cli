@@ -1,7 +1,12 @@
 use log::trace;
+use serde::Serialize;
+use serde_json::to_string_pretty;
 use std::any::TypeId;
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::str::FromStr;
+
+use hubuum_client::FilterOperator;
 
 mod audit;
 mod builder;
@@ -30,6 +35,11 @@ mod user;
 
 pub use builder::build_command_catalog;
 
+use crate::autocomplete::output_formats;
+use crate::domain::{JsonRecord, TaskRecord};
+use crate::output::RenderFormat;
+use crate::services::CompletionContext;
+use crate::suggestions::did_you_mean_message;
 use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
 use crate::{
     formatting::{OutputFormatter, TableRenderable},
@@ -41,7 +51,7 @@ use crate::{
     output::append_line,
 };
 
-pub type AutoCompleter = fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>;
+pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -126,7 +136,7 @@ pub fn standard_options() -> Vec<CliOption> {
             field_type: TypeId::of::<String>(),
             field_type_help: "string".to_string(),
             required: false,
-            autocomplete: Some(crate::autocomplete::output_formats),
+            autocomplete: Some(output_formats),
         },
     ]
 }
@@ -181,7 +191,7 @@ fn unknown_option_message(key: &str, known_display_options: &[String]) -> String
     } else {
         format!("--{key}")
     };
-    match crate::suggestions::did_you_mean_message(&displayed, known_display_options.to_vec()) {
+    match did_you_mean_message(&displayed, known_display_options.to_vec()) {
         Some(hint) => format!("{displayed}. {hint}"),
         None => displayed,
     }
@@ -275,11 +285,11 @@ pub fn validate_flag_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Resul
     Ok(())
 }
 
-pub fn desired_format(tokens: &CommandTokenizer) -> crate::models::OutputFormat {
+pub fn desired_format(tokens: &CommandTokenizer) -> OutputFormat {
     if want_json(tokens) || output_format_name(tokens).as_deref() == Some("json") {
-        crate::models::OutputFormat::Json
+        OutputFormat::Json
     } else {
-        crate::models::OutputFormat::Text
+        OutputFormat::Text
     }
 }
 
@@ -300,17 +310,14 @@ pub fn render_list_page<T>(
     paged: &PagedResult<T>,
 ) -> Result<(), AppError>
 where
-    T: serde::Serialize + Clone + TableRenderable,
+    T: Serialize + Clone + TableRenderable,
 {
     render_paged_result(tokens, paged, desired_format(tokens))
 }
 
-pub fn render_task_record(
-    tokens: &CommandTokenizer,
-    task: &crate::domain::TaskRecord,
-) -> Result<(), AppError> {
+pub fn render_task_record(tokens: &CommandTokenizer, task: &TaskRecord) -> Result<(), AppError> {
     match desired_format(tokens) {
-        OutputFormat::Json => append_line(serde_json::to_string_pretty(task)?)?,
+        OutputFormat::Json => append_line(to_string_pretty(task)?)?,
         OutputFormat::Text => task.format_noreturn()?,
     }
 
@@ -320,17 +327,13 @@ pub fn render_task_record(
 pub fn contains_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
     filter_clause(
         field,
-        hubuum_client::FilterOperator::IContains { is_negated: false },
+        FilterOperator::IContains { is_negated: false },
         value,
     )
 }
 
 pub fn equals_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
-    filter_clause(
-        field,
-        hubuum_client::FilterOperator::Equals { is_negated: false },
-        value,
-    )
+    filter_clause(field, FilterOperator::Equals { is_negated: false }, value)
 }
 
 pub fn option_or_pos<T>(
@@ -341,7 +344,7 @@ pub fn option_or_pos<T>(
 ) -> Result<Option<T>, AppError>
 where
     T: FromStr,
-    T::Err: std::fmt::Display,
+    T::Err: Display,
 {
     if value.is_some() {
         return Ok(value);
@@ -362,7 +365,7 @@ pub fn required_option_or_pos<T>(
 ) -> Result<T, AppError>
 where
     T: FromStr,
-    T::Err: std::fmt::Display,
+    T::Err: Display,
 {
     required_option(option_or_pos(value, tokens, pos, name)?, name)
 }
@@ -374,7 +377,7 @@ pub fn first_positional_or<T>(
 ) -> Result<Option<T>, AppError>
 where
     T: FromStr,
-    T::Err: std::fmt::Display,
+    T::Err: Display,
 {
     option_or_pos(value, tokens, 0, name)
 }
@@ -395,10 +398,7 @@ pub fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
     required_option(value, name)
 }
 
-pub fn render_json_record(
-    tokens: &CommandTokenizer,
-    record: &crate::domain::JsonRecord,
-) -> Result<(), AppError> {
+pub fn render_json_record(tokens: &CommandTokenizer, record: &JsonRecord) -> Result<(), AppError> {
     match desired_format(tokens) {
         OutputFormat::Json => record.format_json_noreturn(),
         OutputFormat::Text => record.format_noreturn(),
@@ -408,7 +408,7 @@ pub fn render_json_record(
 fn parse_positional<T>(value: &str, name: &str) -> Result<T, AppError>
 where
     T: FromStr,
-    T::Err: std::fmt::Display,
+    T::Err: Display,
 {
     value
         .parse::<T>()
@@ -416,11 +416,7 @@ where
 }
 
 pub fn lte_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
-    filter_clause(
-        field,
-        hubuum_client::FilterOperator::Lte { is_negated: false },
-        value,
-    )
+    filter_clause(field, FilterOperator::Lte { is_negated: false }, value)
 }
 
 pub fn want_json(tokens: &CommandTokenizer) -> bool {
@@ -436,17 +432,17 @@ pub fn output_format_name(tokens: &CommandTokenizer) -> Option<String> {
         .map(|value| value.to_ascii_lowercase())
 }
 
-pub fn render_format(tokens: &CommandTokenizer) -> Result<crate::output::RenderFormat, AppError> {
+pub fn render_format(tokens: &CommandTokenizer) -> Result<RenderFormat, AppError> {
     if want_json(tokens) {
-        return Ok(crate::output::RenderFormat::Json);
+        return Ok(RenderFormat::Json);
     }
 
     match output_format_name(tokens).as_deref() {
-        Some("text") | None => Ok(crate::output::RenderFormat::Text),
-        Some("json") => Ok(crate::output::RenderFormat::Json),
-        Some("jsonl") => Ok(crate::output::RenderFormat::Jsonl),
-        Some("csv") => Ok(crate::output::RenderFormat::Csv),
-        Some("tsv") => Ok(crate::output::RenderFormat::Tsv),
+        Some("text") | None => Ok(RenderFormat::Text),
+        Some("json") => Ok(RenderFormat::Json),
+        Some("jsonl") => Ok(RenderFormat::Jsonl),
+        Some("csv") => Ok(RenderFormat::Csv),
+        Some("tsv") => Ok(RenderFormat::Tsv),
         Some(other) => Err(AppError::ParseError(format!(
             "Unknown output format: {other}. Use text, json, jsonl, csv, or tsv."
         ))),

@@ -1,6 +1,8 @@
-use serde_json::{Map, Number, Value};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::mem::take;
+
+use serde_json::{to_string, Map, Number, Value};
 
 use crate::error::PipelineError;
 use crate::model::{
@@ -96,7 +98,7 @@ pub(crate) fn group_envelope(
     let mut groups = BTreeMap::<String, Value>::new();
     for row in rows {
         for group_values in group_value_combinations(&row, keys)? {
-            let key = serde_json::to_string(&group_values).unwrap_or_default();
+            let key = to_string(&group_values).unwrap_or_default();
             let group = groups.entry(key).or_insert_with(|| {
                 let mut object = Map::new();
                 object.insert("groups".to_string(), Value::Object(group_values.clone()));
@@ -186,7 +188,7 @@ pub(crate) fn unroll_envelope(
                 .into_iter()
                 .map(|mut group| {
                     if let Some(rows) = group.get_mut("rows").and_then(Value::as_array_mut) {
-                        *rows = std::mem::take(rows)
+                        *rows = take(rows)
                             .into_iter()
                             .flat_map(|row| unroll_row(&row, selector))
                             .collect();

@@ -1,10 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fs::read_to_string;
 use std::path::Path;
 use std::str::FromStr;
 
 use anstyle::{Ansi256Color, AnsiColor, Color, RgbColor, Style};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeserializeError;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
+use toml::from_str as parse_toml;
 
 pub const DEFAULT_THEME: &str = "hubuum-dark";
 
@@ -114,7 +118,7 @@ impl ColorSpec {
 impl Serialize for ColorSpec {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         serializer.serialize_str(&self.to_string())
     }
@@ -123,15 +127,15 @@ impl Serialize for ColorSpec {
 impl<'de> Deserialize<'de> for ColorSpec {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        value.parse().map_err(serde::de::Error::custom)
+        value.parse().map_err(DeserializeError::custom)
     }
 }
 
-impl std::fmt::Display for ColorSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ColorSpec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             ColorSpec::Ansi(color) => write!(f, "ansi:{}", ansi_name(*color)),
             ColorSpec::Ansi256(color) => write!(f, "ansi256:{color}"),
@@ -300,9 +304,8 @@ pub fn load_theme_file(
     path: &Path,
     builtin_base: &BTreeMap<String, Theme>,
 ) -> Result<Vec<Theme>, ThemeError> {
-    let text = std::fs::read_to_string(path).map_err(|err| ThemeError::Read(err.to_string()))?;
-    let file: ThemeFile =
-        toml::from_str(&text).map_err(|err| ThemeError::Parse(err.to_string()))?;
+    let text = read_to_string(path).map_err(|err| ThemeError::Read(err.to_string()))?;
+    let file: ThemeFile = parse_toml(&text).map_err(|err| ThemeError::Parse(err.to_string()))?;
     build_custom_themes(file.theme, builtin_base)
 }
 
@@ -878,6 +881,8 @@ pub fn assert_external_palettes_are_mit() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     #[test]
@@ -895,9 +900,7 @@ mod tests {
 
     #[test]
     fn creative_first_party_themes_are_bundled() {
-        let names = theme_names()
-            .into_iter()
-            .collect::<std::collections::HashSet<_>>();
+        let names = theme_names().into_iter().collect::<HashSet<_>>();
         for expected in [
             "aurora-night",
             "synthwave-sunset",
@@ -966,7 +969,7 @@ mod tests {
             heading = { fg = "ansi:cyan", bold = true }
             table_band = { bg = "ansi256:235" }
         "##;
-        let file: ThemeFile = toml::from_str(custom).expect("custom theme parses");
+        let file: ThemeFile = parse_toml(custom).expect("custom theme parses");
         let themes = build_custom_themes(file.theme, &builtins).expect("custom theme builds");
         let theme = themes
             .iter()
@@ -1002,7 +1005,7 @@ mod tests {
             [[theme]]
             name = "dup"
         "#;
-        let file: ThemeFile = toml::from_str(custom).expect("custom theme parses");
+        let file: ThemeFile = parse_toml(custom).expect("custom theme parses");
         assert!(matches!(
             build_custom_themes(file.theme, &builtins),
             Err(ThemeError::DuplicateTheme(_))

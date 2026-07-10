@@ -1,5 +1,8 @@
+use std::iter::empty;
+
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
@@ -166,7 +169,7 @@ impl CliCommand for RemoteTargetCreate {
 
         let headers = new
             .headers_template
-            .map(|h| serde_json::from_str(&h))
+            .map(|h| from_str(&h))
             .transpose()
             .map_err(|e| AppError::ParseError(format!("Invalid headers JSON: {}", e)))?;
 
@@ -222,7 +225,7 @@ impl CliCommand for RemoteTargetList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
-            std::iter::empty(),
+            empty(),
         )?;
         let targets = services.gateway().list_remote_targets(&list_query)?;
         render_list_page(tokens, &targets)
@@ -344,7 +347,7 @@ impl CliCommand for RemoteTargetUpdate {
 
         let headers = query
             .headers_template
-            .map(|h| serde_json::from_str(&h))
+            .map(|h| from_str(&h))
             .transpose()
             .map_err(|e| AppError::ParseError(format!("Invalid headers JSON: {}", e)))?;
 
@@ -483,13 +486,13 @@ impl CliCommand for RemoteTargetInvoke {
 
         let parameters = new
             .parameters
-            .map(|p| serde_json::from_str(&p))
+            .map(|p| from_str(&p))
             .transpose()
             .map_err(|e| AppError::ParseError(format!("Invalid parameters JSON: {}", e)))?;
 
         let body_override = new
             .body_override
-            .map(|b| serde_json::from_str(&b))
+            .map(|b| from_str(&b))
             .transpose()
             .map_err(|e| AppError::ParseError(format!("Invalid body JSON: {}", e)))?;
 

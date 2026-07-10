@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string_pretty};
 
 use crate::autocomplete::{groups, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
@@ -288,7 +289,7 @@ impl CliCommand for ServiceAccountTokenList {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&token_list)?)?;
+                append_line(to_string_pretty(&token_list)?)?;
             }
             OutputFormat::Text => {
                 token_list.format_noreturn()?;
@@ -343,7 +344,7 @@ impl CliCommand for ServiceAccountTokenCreate {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&serde_json::json!({
+                append_line(to_string_pretty(&json!({
                     "token": raw_token,
                     "warning": "This token will not be shown again. Store it securely."
                 }))?)?;

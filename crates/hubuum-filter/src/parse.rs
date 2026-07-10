@@ -1,3 +1,5 @@
+use shlex::split;
+
 use crate::error::PipelineError;
 use crate::model::{AggregateFunction, AggregateSpec, GroupKey, PipeStage, ProjectTerm, SortCast};
 
@@ -50,7 +52,7 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
         return Err(PipelineError::Pipe("Empty pipe stage".to_string()));
     }
 
-    let Some(parts) = shlex::split(stage) else {
+    let Some(parts) = split(stage) else {
         return Err(PipelineError::Parse(
             "Parsing pipe stage failed".to_string(),
         ));

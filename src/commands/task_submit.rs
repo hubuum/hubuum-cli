@@ -1,3 +1,5 @@
+use serde_json::to_string_pretty;
+
 use crate::commands::desired_format;
 use crate::domain::TaskRecord;
 use crate::errors::AppError;
@@ -57,7 +59,7 @@ pub fn run_task_backed(
         })?;
         let output = services.gateway().task_output(task_id)?;
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 final_task.format_noreturn()?;
                 for line in output.render_lines() {
@@ -70,7 +72,7 @@ pub fn run_task_backed(
 
     let registration = services.background().watch_task(task.clone(), label);
     match desired_format(tokens) {
-        OutputFormat::Json => append_line(serde_json::to_string_pretty(&task)?)?,
+        OutputFormat::Json => append_line(to_string_pretty(&task)?)?,
         OutputFormat::Text => {
             append_line(format!("submitted task #{task_id} ({kind})"))?;
             if let Some(reg) = registration {

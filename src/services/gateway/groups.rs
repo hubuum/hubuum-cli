@@ -41,7 +41,7 @@ impl HubuumGateway {
             .client
             .groups()
             .create()
-            .params(hubuum_client::GroupPost {
+            .params(GroupPost {
                 groupname: input.groupname,
                 description: input.description,
             })
@@ -83,7 +83,7 @@ impl HubuumGateway {
             .client
             .groups()
             .update(handle.id())
-            .params(hubuum_client::GroupPatch {
+            .params(GroupPatch {
                 groupname: input.rename,
                 description: input.description,
             })
@@ -150,3 +150,4 @@ pub(crate) const GROUP_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+use hubuum_client::{GroupPatch, GroupPost};

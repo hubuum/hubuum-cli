@@ -1,4 +1,6 @@
-pub(crate) fn schema_paths(schema: &serde_json::Value, include_array_items: bool) -> Vec<String> {
+use serde_json::Value;
+
+pub(crate) fn schema_paths(schema: &Value, include_array_items: bool) -> Vec<String> {
     let mut paths = Vec::new();
     collect_schema_paths(schema, "", include_array_items, &mut paths);
     paths.sort();
@@ -7,7 +9,7 @@ pub(crate) fn schema_paths(schema: &serde_json::Value, include_array_items: bool
 }
 
 fn collect_schema_paths(
-    schema: &serde_json::Value,
+    schema: &Value,
     prefix: &str,
     include_array_items: bool,
     paths: &mut Vec<String>,

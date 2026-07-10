@@ -55,7 +55,7 @@ impl TableRenderable for ClassRecord {
     }
 }
 
-fn schema_label(schema: Option<&serde_json::Value>) -> String {
+fn schema_label(schema: Option<&Value>) -> String {
     let schema_id = schema
         .and_then(|value| value.as_object())
         .and_then(|value| value.get("$id"))
@@ -67,3 +67,4 @@ fn schema_label(schema: Option<&serde_json::Value>) -> String {
         (None, _) => "<no schema>".to_string(),
     }
 }
+use serde_json::Value;

@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
-use hubuum_client::{Class, Collection, Object, UnifiedSearchBatchResponse, UnifiedSearchKind};
+use hubuum_client::{
+    client::sync::UnifiedSearchRequest, Class, Collection, Object, UnifiedSearchBatchResponse,
+    UnifiedSearchEvent, UnifiedSearchKind, UnifiedSearchNext, UnifiedSearchResults,
+};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
 use crate::domain::{
-    ClassRecord, CollectionRecord, ResolvedObjectRecord, SearchBatchRecord, SearchErrorEvent,
-    SearchQueryEvent, SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
+    ClassRecord, CollectionRecord, ResolvedObjectRecord, SearchBatchRecord, SearchCursorSet,
+    SearchErrorEvent, SearchQueryEvent, SearchResponseRecord, SearchResultsRecord,
+    SearchStreamEvent,
 };
 use crate::errors::AppError;
 
@@ -47,20 +51,20 @@ impl HubuumGateway {
 
         for event in self.build_search_request(input).stream()? {
             match event {
-                hubuum_client::UnifiedSearchEvent::Started(payload) => {
+                UnifiedSearchEvent::Started(payload) => {
                     mapped.push(SearchStreamEvent::Started(SearchQueryEvent {
                         query: payload.query,
                     }))
                 }
-                hubuum_client::UnifiedSearchEvent::Batch(batch) => {
+                UnifiedSearchEvent::Batch(batch) => {
                     mapped.push(SearchStreamEvent::Batch(self.map_search_batch(batch)?))
                 }
-                hubuum_client::UnifiedSearchEvent::Done(payload) => {
+                UnifiedSearchEvent::Done(payload) => {
                     mapped.push(SearchStreamEvent::Done(SearchQueryEvent {
                         query: payload.query,
                     }))
                 }
-                hubuum_client::UnifiedSearchEvent::Error(payload) => {
+                UnifiedSearchEvent::Error(payload) => {
                     mapped.push(SearchStreamEvent::Error(SearchErrorEvent {
                         message: payload.message,
                     }))
@@ -71,10 +75,7 @@ impl HubuumGateway {
         Ok(mapped)
     }
 
-    fn build_search_request(
-        &self,
-        input: &SearchInput,
-    ) -> hubuum_client::client::sync::UnifiedSearchRequest {
+    fn build_search_request(&self, input: &SearchInput) -> UnifiedSearchRequest {
         let mut request = self.client.search(input.query.clone());
 
         if !input.kinds.is_empty() {
@@ -104,7 +105,7 @@ impl HubuumGateway {
 
     fn map_search_results(
         &self,
-        raw: hubuum_client::UnifiedSearchResults,
+        raw: UnifiedSearchResults,
     ) -> Result<SearchResultsRecord, AppError> {
         let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.collections)?;
         Ok(SearchResultsRecord {
@@ -196,8 +197,8 @@ impl From<SearchKind> for UnifiedSearchKind {
     }
 }
 
-impl From<hubuum_client::UnifiedSearchNext> for crate::domain::SearchCursorSet {
-    fn from(value: hubuum_client::UnifiedSearchNext) -> Self {
+impl From<UnifiedSearchNext> for SearchCursorSet {
+    fn from(value: UnifiedSearchNext) -> Self {
         Self {
             collections: value.collections,
             classes: value.classes,

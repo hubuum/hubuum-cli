@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::to_string_pretty;
 
 use crate::domain::{ExportOutput, ImportResultRecord};
 
@@ -15,7 +16,7 @@ impl TaskOutput {
             TaskOutput::None => Vec::new(),
             TaskOutput::Export(export) => match export {
                 ExportOutput::Json { body } => {
-                    vec![serde_json::to_string_pretty(body).unwrap_or_else(|_| "{}".to_string())]
+                    vec![to_string_pretty(body).unwrap_or_else(|_| "{}".to_string())]
                 }
                 ExportOutput::Rendered(rendered) => {
                     vec![rendered.body.clone()]

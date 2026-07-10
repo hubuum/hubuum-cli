@@ -129,7 +129,7 @@ impl HubuumGateway {
     pub(super) fn class_handle_by_name(
         &self,
         class_name: &str,
-    ) -> Result<hubuum_client::client::sync::Handle<Class>, AppError> {
+    ) -> Result<SyncHandle<Class>, AppError> {
         Ok(self.client.classes().get_by_name(class_name)?)
     }
 

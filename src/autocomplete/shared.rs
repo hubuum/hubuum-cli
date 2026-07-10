@@ -1,6 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::env::var_os;
+use std::fs::read_dir;
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
-use crate::config::{config_key_names, config_value_candidates};
+use shlex::split;
+
+use crate::config::{
+    config_key_names, config_value_candidates, get_config, theme_value_candidates,
+};
+use crate::json_schema::schema_paths;
 use crate::services::CompletionContext;
 
 pub fn bool(_ctx: &CompletionContext, _prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -12,7 +19,7 @@ pub fn output_formats(_ctx: &CompletionContext, prefix: &str, _parts: &[String])
 }
 
 pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    crate::config::theme_value_candidates()
+    theme_value_candidates()
         .into_iter()
         .filter(|value| value.starts_with(prefix))
         .collect()
@@ -125,7 +132,7 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
     }
     if let Some(rest) = prefix.strip_prefix(OBJECT_LIST_CLASS_META_PREFIX) {
         if let Some((class_name, alias_prefix)) = rest.split_once('.') {
-            let config = crate::config::get_config();
+            let config = get_config();
             if let Some(aliases) = config.output.object_list_class_meta.get(class_name) {
                 keys.extend(
                     aliases
@@ -192,7 +199,7 @@ pub fn object_data_columns(
 fn file_path_candidates(prefix: &str) -> Vec<String> {
     let (typed_prefix, lookup_prefix) = normalize_path_prefix(prefix);
     let lookup_path = Path::new(&lookup_prefix);
-    let ends_with_separator = lookup_prefix.ends_with(std::path::MAIN_SEPARATOR);
+    let ends_with_separator = lookup_prefix.ends_with(MAIN_SEPARATOR);
     let (lookup_dir, typed_dir, active_prefix) = if ends_with_separator {
         (
             lookup_path.to_path_buf(),
@@ -213,7 +220,7 @@ fn file_path_candidates(prefix: &str) -> Vec<String> {
         (lookup_dir, typed_dir, active_prefix)
     };
 
-    let Ok(entries) = std::fs::read_dir(&lookup_dir) else {
+    let Ok(entries) = read_dir(&lookup_dir) else {
         return Vec::new();
     };
 
@@ -235,7 +242,7 @@ fn file_path_candidates(prefix: &str) -> Vec<String> {
                 .unwrap_or(false);
             let mut value = format!("{typed_dir}{name}");
             if is_dir {
-                value.push(std::path::MAIN_SEPARATOR);
+                value.push(MAIN_SEPARATOR);
             }
             Some(shell_escape_path(&value))
         })
@@ -246,12 +253,12 @@ fn file_path_candidates(prefix: &str) -> Vec<String> {
 }
 
 fn normalize_path_prefix(prefix: &str) -> (String, String) {
-    let unescaped = shlex::split(prefix)
+    let unescaped = split(prefix)
         .and_then(|parts| (parts.len() == 1).then(|| parts[0].clone()))
         .unwrap_or_else(|| prefix.replace("\\ ", " "));
 
     if let Some(rest) = unescaped.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
+        if let Some(home) = var_os("HOME") {
             return (
                 format!("~/{rest}"),
                 Path::new(&home).join(rest).to_string_lossy().to_string(),
@@ -263,13 +270,13 @@ fn normalize_path_prefix(prefix: &str) -> (String, String) {
 }
 
 fn path_parent_text(path: &str) -> String {
-    path.rsplit_once(std::path::MAIN_SEPARATOR)
-        .map(|(parent, _)| format!("{parent}{}", std::path::MAIN_SEPARATOR))
+    path.rsplit_once(MAIN_SEPARATOR)
+        .map(|(parent, _)| format!("{parent}{MAIN_SEPARATOR}"))
         .unwrap_or_default()
 }
 
 fn completion_is_file(value: &str) -> bool {
-    !value.ends_with(std::path::MAIN_SEPARATOR)
+    !value.ends_with(MAIN_SEPARATOR)
 }
 
 fn shell_escape_path(path: &str) -> String {
@@ -341,7 +348,7 @@ fn object_list_class_column_values(
 
     if let Some(Some(schema)) = ctx.class_schema(class_name) {
         fields.extend(
-            crate::json_schema::schema_paths(&schema, true)
+            schema_paths(&schema, true)
                 .into_iter()
                 .map(|path| format!("data.{path}")),
         );
@@ -388,6 +395,11 @@ fn complete_csv_values(values: &[&str], prefix: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::{create_dir, write};
+
+    use serde_json::json;
+    use tempfile::tempdir;
+
     use super::{
         comma_completion_prefix, config_key_from_parts, config_value_candidates_for_parts,
         file_path_candidates,
@@ -446,10 +458,10 @@ mod tests {
 
     #[test]
     fn file_path_candidates_include_matching_files_and_directories() {
-        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let dir = tempdir().expect("temp dir should be created");
         let nested_dir = dir.path().join("imports");
-        std::fs::create_dir(&nested_dir).expect("nested dir should be created");
-        std::fs::write(dir.path().join("import.json"), "{}").expect("file should be written");
+        create_dir(&nested_dir).expect("nested dir should be created");
+        write(dir.path().join("import.json"), "{}").expect("file should be written");
 
         let prefix = dir.path().join("imp").to_string_lossy().to_string();
         let suggestions = file_path_candidates(&prefix);
@@ -462,9 +474,8 @@ mod tests {
 
     #[test]
     fn file_path_candidates_escape_spaces() {
-        let dir = tempfile::tempdir().expect("temp dir should be created");
-        std::fs::write(dir.path().join("import payload.json"), "{}")
-            .expect("file should be written");
+        let dir = tempdir().expect("temp dir should be created");
+        write(dir.path().join("import payload.json"), "{}").expect("file should be written");
 
         let prefix = dir.path().join("import").to_string_lossy().to_string();
         let suggestions = file_path_candidates(&prefix);
@@ -476,7 +487,7 @@ mod tests {
 
     #[test]
     fn schema_paths_include_nested_properties() {
-        let schema = serde_json::json!({
+        let schema = json!({
             "properties": {
                 "contact": {"type": "string"},
                 "hardware": {

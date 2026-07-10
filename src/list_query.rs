@@ -2,15 +2,24 @@ use chrono::{DateTime, NaiveDateTime};
 use hubuum_client::{
     client::{sync::CursorRequest, sync::QueryOp, Page},
     types::SortDirection,
-    FilterOperator, QueryFilter,
+    ApiResource, FilterOperator, QueryFilter,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::to_value;
 
+use crate::command_line::rebuild_with_replaced_options;
+use crate::commands::render_format;
+use crate::config::get_config;
 use crate::errors::AppError;
-use crate::formatting::OutputFormatter;
+use crate::formatting::{OutputFormatter, TableRenderable};
 use crate::models::OutputFormat;
-use crate::output::{append_line, pipeline_suppresses_pagination, set_next_page_command};
+use crate::output::{
+    append_line, append_pipeline_suffix, has_pipeline, pipeline_suppresses_pagination,
+    set_next_page_command, set_semantic_output, RenderFormat,
+};
+use crate::suggestions::did_you_mean_message;
 use crate::tokenizer::CommandTokenizer;
+use hubuum_filter::OutputEnvelope;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListQuery {
@@ -251,14 +260,22 @@ pub fn render_paged_result<T>(
     format: OutputFormat,
 ) -> Result<(), AppError>
 where
-    T: serde::Serialize + Clone + crate::formatting::TableRenderable,
+    T: Serialize + Clone + TableRenderable,
 {
     match format {
         OutputFormat::Json => {
-            if should_wrap_paged_json(tokens, paged) {
-                append_line(serde_json::to_string_pretty(paged)?)?;
+            if has_pipeline()? {
+                paged.items.format_noreturn()?;
+            } else if should_wrap_paged_json(tokens, paged) {
+                set_semantic_output(OutputEnvelope::detail(to_value(paged)?, Vec::new()))?;
             } else {
-                append_line(serde_json::to_string_pretty(&paged.items)?)?;
+                set_semantic_output(OutputEnvelope::rows(
+                    to_value(&paged.items)?
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default(),
+                    Vec::new(),
+                ))?;
             }
         }
         OutputFormat::Text => {
@@ -275,7 +292,7 @@ pub fn apply_query_paging<T>(
     sorts: &[ValidatedSortClause],
 ) -> QueryOp<T>
 where
-    T: hubuum_client::ApiResource,
+    T: ApiResource,
 {
     let query = if sorts.is_empty() {
         query
@@ -516,7 +533,7 @@ fn unknown_sort_field_message(field: &str, specs: &[SortFieldSpec]) -> String {
 }
 
 fn unknown_value_message(label: &str, value: &str, candidates: Vec<String>) -> String {
-    match crate::suggestions::did_you_mean_message(value, candidates) {
+    match did_you_mean_message(value, candidates) {
         Some(hint) => format!("{label}: {value}. {hint}"),
         None => format!("{label}: {value}"),
     }
@@ -723,6 +740,10 @@ pub(crate) fn append_paging_footer<T>(
     tokens: &CommandTokenizer,
     paged: &PagedResult<T>,
 ) -> Result<(), AppError> {
+    if render_format(tokens)? != RenderFormat::Text {
+        return Ok(());
+    }
+
     if pipeline_suppresses_pagination()? {
         return Ok(());
     }
@@ -741,9 +762,9 @@ pub(crate) fn append_paging_footer<T>(
     ))?;
     if should_offer_next_page(tokens, paged) {
         let next_cursor = paged.next_cursor.as_deref().expect("checked above");
-        let next_command = next_cursor_command(tokens, next_cursor);
+        let next_command = next_cursor_command(tokens, next_cursor)?;
         set_next_page_command(next_command)?;
-        if crate::config::get_config().repl.enter_fetches_next_page {
+        if get_config().repl.enter_fetches_next_page {
             append_line(
                 "Paginated results available. Press Enter for the next page, or Esc/Ctrl-C to stop.",
             )?;
@@ -767,12 +788,12 @@ fn should_offer_next_page<T>(tokens: &CommandTokenizer, paged: &PagedResult<T>) 
             || tokens.get_options().contains_key("cursor"))
 }
 
-fn next_cursor_command(tokens: &CommandTokenizer, cursor: &str) -> String {
-    crate::command_line::rebuild_with_replaced_options(
+fn next_cursor_command(tokens: &CommandTokenizer, cursor: &str) -> Result<String, AppError> {
+    append_pipeline_suffix(rebuild_with_replaced_options(
         tokens,
         &["--cursor"],
         [("--cursor", Some(cursor))],
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -780,18 +801,27 @@ mod tests {
     use std::sync::Once;
 
     use serde::Serialize;
+    use serde_json::{from_str, Value};
     use serial_test::serial;
 
     use super::{
-        completion_operators, filter_clause, list_query_from_raw, resolve_filter_field_spec,
-        validate_filter_clauses, validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile,
-        FilterValueProfile, PagedResult, SortDirectionArg, SortFieldSpec,
+        completion_operators, filter_clause, list_query_from_raw, next_cursor_command,
+        parse_sort_clause, parse_where_clause, render_paged_result, resolve_filter_field_spec,
+        should_wrap_paged_json, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+        FilterOperatorProfile, FilterValueProfile, PagedResult, SortClause, SortDirectionArg,
+        SortFieldSpec,
     };
+    use crate::commands::render_format;
     use crate::config::{init_config, AppConfig};
+    use crate::formatting::TableRenderable;
     use crate::models::OutputFormat;
-    use crate::output::{reset_output, set_pipeline, take_output};
+    use crate::output::{
+        reset_output, set_pipeline, set_pipeline_suffix, set_render_format, take_output,
+        RenderFormat,
+    };
     use crate::tokenizer::CommandTokenizer;
-    use hubuum_filter::PipeStage;
+    use hubuum_client::FilterOperator;
+    use hubuum_filter::{AggregateFunction, AggregateSpec, GroupKey, PipeStage, ProjectTerm};
 
     static CONFIG_INIT: Once = Once::new();
 
@@ -844,7 +874,7 @@ mod tests {
         .json_root()];
         let clauses = vec![filter_clause(
             "data.owner.email",
-            hubuum_client::FilterOperator::IContains { is_negated: false },
+            FilterOperator::IContains { is_negated: false },
             "alice",
         )];
 
@@ -864,7 +894,7 @@ mod tests {
         let err = validate_filter_clauses(
             &[filter_clause(
                 "validate_schema",
-                hubuum_client::FilterOperator::Contains { is_negated: false },
+                FilterOperator::Contains { is_negated: false },
                 "true",
             )],
             &specs,
@@ -878,7 +908,7 @@ mod tests {
     fn rejects_unknown_sort_fields() {
         let specs = [SortFieldSpec::new("name", "name")];
         let err = validate_sort_clauses(
-            &[super::SortClause {
+            &[SortClause {
                 field: "nme".to_string(),
                 direction: SortDirectionArg::Asc,
             }],
@@ -901,7 +931,7 @@ mod tests {
         let err = validate_filter_clauses(
             &[filter_clause(
                 "nme",
-                hubuum_client::FilterOperator::IContains { is_negated: false },
+                FilterOperator::IContains { is_negated: false },
                 "alice",
             )],
             &specs,
@@ -915,13 +945,13 @@ mod tests {
     #[test]
     fn rejects_unknown_operator_and_direction_with_suggestions() {
         let operator_err =
-            super::parse_where_clause("name contans alice").expect_err("operator should fail");
+            parse_where_clause("name contans alice").expect_err("operator should fail");
         assert!(operator_err.to_string().contains("Unknown filter operator"));
         assert!(operator_err
             .to_string()
             .contains("Did you mean 'contains'?"));
 
-        let sort_err = super::parse_sort_clause("name dsc").expect_err("direction should fail");
+        let sort_err = parse_sort_clause("name dsc").expect_err("direction should fail");
         assert!(sort_err.to_string().contains("Unknown sort direction"));
         assert!(sort_err.to_string().contains("Did you mean 'desc'?"));
     }
@@ -960,7 +990,7 @@ mod tests {
             returned_count: 2,
         };
 
-        assert!(!super::should_wrap_paged_json(&tokens, &paged));
+        assert!(!should_wrap_paged_json(&tokens, &paged));
     }
 
     #[test]
@@ -974,7 +1004,7 @@ mod tests {
             returned_count: 2,
         };
 
-        assert!(super::should_wrap_paged_json(&tokens, &paged));
+        assert!(should_wrap_paged_json(&tokens, &paged));
     }
 
     #[test]
@@ -988,7 +1018,7 @@ mod tests {
             returned_count: 2,
         };
 
-        assert!(super::should_wrap_paged_json(&tokens, &paged));
+        assert!(should_wrap_paged_json(&tokens, &paged));
     }
 
     #[derive(Clone, Serialize)]
@@ -996,7 +1026,7 @@ mod tests {
         id: i32,
     }
 
-    impl crate::formatting::TableRenderable for DummyRow {
+    impl TableRenderable for DummyRow {
         fn headers() -> Vec<&'static str> {
             vec!["id"]
         }
@@ -1022,7 +1052,7 @@ mod tests {
             returned_count: 1,
         };
 
-        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
             .expect("text output should render");
 
         let snapshot = take_output().expect("snapshot should be captured");
@@ -1042,6 +1072,90 @@ mod tests {
 
     #[test]
     #[serial]
+    fn machine_output_omits_pagination_prose() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+
+        for format in ["jsonl", "csv", "tsv"] {
+            reset_output().expect("output should reset");
+            let tokens = CommandTokenizer::new(
+                &format!("class list --output {format} --limit 1"),
+                "list",
+                &[],
+            )
+            .expect("tokenization should succeed");
+            set_render_format(render_format(&tokens).expect("render format"))
+                .expect("render format should set");
+            let paged = PagedResult {
+                items: vec![DummyRow { id: 1 }],
+                next_cursor: Some("abc123".to_string()),
+                limit: Some(1),
+                returned_count: 1,
+            };
+
+            render_paged_result(&tokens, &paged, OutputFormat::Text)
+                .expect("machine output should render semantically");
+
+            let snapshot = take_output().expect("snapshot should be captured");
+            assert!(!snapshot.lines.iter().any(|line| line.contains("Returned")));
+            assert!(!snapshot
+                .lines
+                .iter()
+                .any(|line| line.contains("Paginated results available")));
+            assert!(snapshot.next_page_command.is_none());
+            if format == "jsonl" {
+                assert!(snapshot
+                    .lines
+                    .iter()
+                    .all(|line| from_str::<Value>(line).is_ok()));
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn json_paged_results_remain_semantic_until_after_pipeline() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        reset_output().expect("output should reset");
+        set_render_format(RenderFormat::Json).expect("render format should set");
+        set_pipeline(vec![PipeStage::Columns(vec![ProjectTerm::keep("id")])])
+            .expect("pipeline should set");
+        let tokens = CommandTokenizer::new("class list --json", "list", &[])
+            .expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }],
+            next_cursor: None,
+            limit: None,
+            returned_count: 1,
+        };
+
+        render_paged_result(&tokens, &paged, OutputFormat::Json)
+            .expect("JSON output should remain semantic");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert_eq!(snapshot.semantic.len(), 1);
+        assert!(snapshot.render().contains("\"id\""));
+    }
+
+    #[test]
+    #[serial]
+    fn next_cursor_command_preserves_pipeline_suffix() {
+        reset_output().expect("output should reset");
+        set_pipeline_suffix(Some("| P id".to_string())).expect("pipeline suffix should set");
+        let tokens = CommandTokenizer::new("class list --cursor old", "list", &[])
+            .expect("tokenization should succeed");
+
+        assert_eq!(
+            next_cursor_command(&tokens, "next").expect("next command"),
+            "class list --cursor next | P id"
+        );
+    }
+
+    #[test]
+    #[serial]
     fn text_output_does_not_offer_next_for_limit_only_cap() {
         CONFIG_INIT.call_once(|| {
             let _ = init_config(AppConfig::default());
@@ -1056,7 +1170,7 @@ mod tests {
             returned_count: 1,
         };
 
-        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
             .expect("text output should render");
 
         let snapshot = take_output().expect("snapshot should be captured");
@@ -1087,7 +1201,7 @@ mod tests {
             returned_count: 1,
         };
 
-        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
             .expect("text output should render");
 
         let snapshot = take_output().expect("snapshot should be captured");
@@ -1122,7 +1236,7 @@ mod tests {
             returned_count: 100,
         };
 
-        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
             .expect("text output should render");
 
         let snapshot = take_output().expect("snapshot should be captured");
@@ -1145,12 +1259,12 @@ mod tests {
         });
         reset_output().expect("output should reset");
         set_pipeline(vec![
-            PipeStage::Group(vec![hubuum_filter::GroupKey {
+            PipeStage::Group(vec![GroupKey {
                 selector: "os_version".to_string(),
                 alias: "OS Version".to_string(),
             }]),
-            PipeStage::Aggregate(hubuum_filter::AggregateSpec {
-                function: hubuum_filter::AggregateFunction::Count,
+            PipeStage::Aggregate(AggregateSpec {
+                function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
             }),
         ])
@@ -1164,7 +1278,7 @@ mod tests {
             returned_count: 100,
         };
 
-        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
             .expect("text output should render");
 
         let snapshot = take_output().expect("snapshot should be captured");

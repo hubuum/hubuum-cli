@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use hubuum_client::{FilterOperator, ObjectPatch, ObjectPost};
+use serde_json::Value;
 
 use crate::domain::{build_related_object_tree, ObjectShowRecord, ResolvedObjectRecord};
 use crate::errors::AppError;
@@ -18,7 +19,7 @@ pub struct CreateObjectInput {
     pub class_name: String,
     pub collection: String,
     pub description: String,
-    pub data: Option<serde_json::Value>,
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -29,7 +30,7 @@ pub struct ObjectUpdateInput {
     pub collection: Option<String>,
     pub reclass: Option<String>,
     pub description: Option<String>,
-    pub data: Option<serde_json::Value>,
+    pub data: Option<Value>,
 }
 
 impl HubuumGateway {
@@ -137,7 +138,7 @@ impl HubuumGateway {
             .related_graph()
             .filter(
                 "depth",
-                hubuum_client::FilterOperator::Lte { is_negated: false },
+                FilterOperator::Lte { is_negated: false },
                 options.max_depth,
             )
             .fetch()?;

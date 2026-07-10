@@ -1,9 +1,23 @@
+use std::env::args;
+use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
-use app::{AppRuntime, SharedSession};
+use app::{init_logging, load_app_config, login, AppRuntime, SharedSession};
+use catalog::{CommandCatalog, CommandOutcome};
+use cli::{build_cli, execution_mode, split_startup_args, StartupMode};
+use commands::build_command_catalog;
+use dispatch::{
+    apply_output_state, apply_scope_action, can_execute_offline, execute_line,
+    execute_offline_line, render_error,
+};
 use errors::AppError;
+use output::{print_rendered, OutputSnapshot};
+use redirection::write_output;
+use repl::run;
 use services::AppServices;
+use tokio::fs::read_to_string;
+use tokio::runtime::Handle;
 
 mod app;
 mod autocomplete;
@@ -33,59 +47,57 @@ mod tokenizer;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), AppError> {
-    let startup_args = cli::split_startup_args(std::env::args());
-    let matches = cli::build_cli().get_matches_from(startup_args.clap_args);
-    app::init_logging()?;
-    let config = app::load_app_config(&matches)?;
-    let catalog = Arc::new(commands::build_command_catalog());
-    let mode = cli::execution_mode(&matches, startup_args.mode);
+    let startup_args = split_startup_args(args());
+    let matches = build_cli().get_matches_from(startup_args.clap_args);
+    let config = load_app_config(&matches)?;
+    let catalog = Arc::new(build_command_catalog());
+    let mode = execution_mode(&matches, startup_args.mode);
 
     match &mode {
-        cli::StartupMode::Command(command) if dispatch::can_execute_offline(command) => {
-            let outcome = dispatch::execute_offline_line(catalog.as_ref(), command);
+        StartupMode::Command(command) if can_execute_offline(command) => {
+            let outcome = execute_offline_line(catalog.as_ref(), command);
             if !render_dispatch_result(&sessionless(), outcome) {
-                std::process::exit(1);
+                exit(1);
             }
             return Ok(());
         }
-        cli::StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
+        StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
             let session = SharedSession::new();
-            let outcomes = execute_offline_script(catalog.as_ref(), filename).await;
-            if !render_script_result(&session, outcomes) {
-                std::process::exit(1);
+            if !execute_offline_script(catalog.as_ref(), &session, filename).await? {
+                exit(1);
             }
             return Ok(());
         }
-        cli::StartupMode::Repl | cli::StartupMode::Command(_) | cli::StartupMode::Script(_) => {}
+        StartupMode::Repl | StartupMode::Command(_) | StartupMode::Script(_) => {}
     }
 
-    let client = app::login(config.clone()).await?;
+    init_logging()?;
+    let client = login(config.clone()).await?;
 
     let services = Arc::new(AppServices::new(
         client,
-        tokio::runtime::Handle::current(),
+        Handle::current(),
         Duration::from_secs(config.background.poll_interval_seconds),
     ));
     let runtime = Arc::new(AppRuntime::new(config, services, catalog));
     let session = SharedSession::new();
 
-    if let cli::StartupMode::Command(command) = mode {
-        let outcome = dispatch::execute_line(runtime.clone(), &session, &command).await;
+    if let StartupMode::Command(command) = mode {
+        let outcome = execute_line(runtime.clone(), &session, &command).await;
         if !render_dispatch_result(&session, outcome) {
-            std::process::exit(1);
+            exit(1);
         }
         return Ok(());
     }
 
-    if let cli::StartupMode::Script(filename) = mode {
-        let outcomes = dispatch::execute_script(runtime.clone(), &session, &filename).await;
-        if !render_script_result(&session, outcomes) {
-            std::process::exit(1);
+    if let StartupMode::Script(filename) = mode {
+        if !execute_script(runtime.clone(), &session, &filename).await? {
+            exit(1);
         }
         return Ok(());
     }
 
-    repl::run(runtime, session).await
+    run(runtime, session).await
 }
 
 fn sessionless() -> SharedSession {
@@ -94,64 +106,63 @@ fn sessionless() -> SharedSession {
 
 fn render_dispatch_result(
     session: &SharedSession,
-    result: Result<catalog::CommandOutcome, AppError>,
+    result: Result<CommandOutcome, AppError>,
 ) -> bool {
     match result {
         Ok(outcome) => render_outcome(session, outcome),
         Err(err) => {
-            render_snapshot(dispatch::render_error(err));
+            render_snapshot(render_error(err));
             false
         }
     }
 }
 
-fn render_script_result(
+async fn execute_script(
+    runtime: Arc<AppRuntime>,
     session: &SharedSession,
-    outcomes: Result<Vec<catalog::CommandOutcome>, AppError>,
-) -> bool {
-    match outcomes {
-        Ok(outcomes) => {
-            for outcome in outcomes {
-                if !render_outcome(session, outcome) {
-                    return false;
-                }
-            }
-            true
-        }
-        Err(err) => {
-            render_snapshot(dispatch::render_error(err));
-            false
+    filename: &str,
+) -> Result<bool, AppError> {
+    let content = read_to_string(filename).await?;
+    for line in content.lines() {
+        let outcome = execute_line(runtime.clone(), session, line).await;
+        if !render_dispatch_result(session, outcome) {
+            return Ok(false);
         }
     }
+    Ok(true)
 }
 
 async fn can_execute_script_offline(filename: &str) -> Result<bool, AppError> {
-    let content = tokio::fs::read_to_string(filename).await?;
+    let content = read_to_string(filename).await?;
     Ok(content
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .all(dispatch::can_execute_offline))
+        .all(can_execute_offline))
 }
 
 async fn execute_offline_script(
-    catalog: &catalog::CommandCatalog,
+    catalog: &CommandCatalog,
+    session: &SharedSession,
     filename: &str,
-) -> Result<Vec<catalog::CommandOutcome>, AppError> {
-    let content = tokio::fs::read_to_string(filename).await?;
-    content
-        .lines()
-        .map(|line| dispatch::execute_offline_line(catalog, line))
-        .collect()
+) -> Result<bool, AppError> {
+    let content = read_to_string(filename).await?;
+    for line in content.lines() {
+        let outcome = execute_offline_line(catalog, line);
+        if !render_dispatch_result(session, outcome) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
-fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) -> bool {
-    dispatch::apply_scope_action(session, &outcome.scope_action);
-    dispatch::apply_output_state(session, &outcome.output);
+fn render_outcome(session: &SharedSession, outcome: CommandOutcome) -> bool {
+    apply_scope_action(session, &outcome.scope_action);
+    apply_output_state(session, &outcome.output);
     match outcome.redirect {
-        Some(redirect) => match redirection::write_output(&outcome.output, &redirect) {
+        Some(redirect) => match write_output(&outcome.output, &redirect) {
             Ok(()) => true,
             Err(err) => {
-                render_snapshot(dispatch::render_error(err));
+                render_snapshot(render_error(err));
                 false
             }
         },
@@ -162,8 +173,8 @@ fn render_outcome(session: &SharedSession, outcome: catalog::CommandOutcome) -> 
     }
 }
 
-fn render_snapshot(snapshot: output::OutputSnapshot) {
+fn render_snapshot(snapshot: OutputSnapshot) {
     if !snapshot.is_empty() {
-        let _ = output::print_rendered(&snapshot.render());
+        let _ = print_rendered(&snapshot.render());
     }
 }

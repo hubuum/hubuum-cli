@@ -1,5 +1,7 @@
-use chrono::NaiveDateTime;
-use hubuum_client::FilterOperator;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use hubuum_client::{
+    FilterOperator, HubuumDateTime, NewTokenRequest, Permissions, UserPatch, UserPost,
+};
 use std::str::FromStr;
 
 use crate::domain::{CreatedUser, PrincipalTokenRecord, UserRecord};
@@ -60,7 +62,7 @@ impl HubuumGateway {
             .client
             .users()
             .create()
-            .params(hubuum_client::UserPost {
+            .params(UserPost {
                 name: input.username.clone(),
                 password: input.password.clone(),
                 email: input.email.clone(),
@@ -142,7 +144,7 @@ impl HubuumGateway {
             .client
             .users()
             .update(handle.id())
-            .params(hubuum_client::UserPatch {
+            .params(UserPatch {
                 email: input.email,
                 proper_name: None,
             })
@@ -163,7 +165,7 @@ impl HubuumGateway {
         input: NewTokenInput,
     ) -> Result<String, AppError> {
         let handle = self.client.users().get_by_name(username)?;
-        let mut req = hubuum_client::NewTokenRequest::new();
+        let mut req = NewTokenRequest::new();
 
         if let Some(n) = input.name {
             req = req.name(n);
@@ -172,21 +174,21 @@ impl HubuumGateway {
             req = req.description(d);
         }
         if let Some(exp_str) = input.expires_at.as_deref() {
-            let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
+            let dt = DateTime::parse_from_rfc3339(exp_str)
                 .map_err(|e| {
                     AppError::CommandExecutionError(format!(
                         "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
                     ))
                 })?
-                .with_timezone(&chrono::Utc);
-            req = req.expires_at(hubuum_client::HubuumDateTime(dt));
+                .with_timezone(&Utc);
+            req = req.expires_at(HubuumDateTime(dt));
         }
         if !input.scopes.is_empty() {
             let scopes: Result<Vec<_>, _> = input
                 .scopes
                 .iter()
                 .map(|s| {
-                    hubuum_client::Permissions::from_str(s).map_err(|_| {
+                    Permissions::from_str(s).map_err(|_| {
                         AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
                     })
                 })

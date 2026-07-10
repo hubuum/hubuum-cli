@@ -1,3 +1,5 @@
+use serde_json::Value;
+
 use crate::domain::ResolvedObjectRecord;
 
 use super::{DetailRenderable, TableRenderable};
@@ -78,9 +80,9 @@ fn human_readable_bytes(size: usize) -> String {
     format!("{value:.1} PB")
 }
 
-pub(crate) fn data_preview(data: Option<&serde_json::Value>) -> String {
+pub(crate) fn data_preview(data: Option<&Value>) -> String {
     match data {
-        Some(serde_json::Value::Object(object)) => truncate_preview(
+        Some(Value::Object(object)) => truncate_preview(
             &object
                 .iter()
                 .map(|(key, value)| format!("{key}={}", preview_value(value)))
@@ -92,13 +94,13 @@ pub(crate) fn data_preview(data: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn preview_value(value: &serde_json::Value) -> String {
+fn preview_value(value: &Value) -> String {
     match value {
-        serde_json::Value::Null => "null".to_string(),
-        serde_json::Value::Bool(value) => value.to_string(),
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => value.to_string(),
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => value.clone(),
+        Value::Array(_) | Value::Object(_) => value.to_string(),
     }
 }
 

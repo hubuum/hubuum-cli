@@ -1,18 +1,19 @@
 use hubuum_client::{
     client::sync::{EventListRequest, HistoryRequest},
     types::SortDirection,
-    FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, QueryFilter,
+    FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, Page, QueryFilter,
     UpdateEventSink, UpdateEventSubscription,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde_json::{from_value, Value};
 
 use crate::domain::JsonRecord;
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
     validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery,
-    PagedResult, SortFieldSpec,
+    PagedResult, SortFieldSpec, ValidatedFilterClause,
 };
 
 use super::HubuumGateway;
@@ -471,7 +472,7 @@ impl HubuumGateway {
 
     fn resolve_event_filters(
         &self,
-        validated: &[crate::list_query::ValidatedFilterClause],
+        validated: &[ValidatedFilterClause],
     ) -> Result<Vec<QueryFilter>, AppError> {
         validated
             .iter()
@@ -485,7 +486,7 @@ fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
         .value
         .get("id")
         .or_else(|| record.value.get("event_id"))
-        .and_then(serde_json::Value::as_i64)
+        .and_then(Value::as_i64)
 }
 
 fn apply_audit_input(
@@ -560,11 +561,11 @@ fn parse_single_sort(sort: Option<&str>) -> Result<Option<(&str, SortDirection)>
 }
 
 fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
-    serde_json::from_value(serde_json::Value::String(value.to_string())).map_err(AppError::from)
+    from_value(Value::String(value.to_string())).map_err(AppError::from)
 }
 
 fn page_to_json<T: Serialize>(
-    page: hubuum_client::Page<T>,
+    page: Page<T>,
     limit: Option<usize>,
 ) -> Result<PagedResult<JsonRecord>, AppError> {
     let items = page

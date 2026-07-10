@@ -1,4 +1,6 @@
-use std::io::Write;
+use std::fmt::{Debug, Display, Write as FmtWrite};
+use std::io::{stdout, Write};
+use std::iter::{once, repeat_n};
 
 use anstream::AutoStream;
 use comfy_table::{
@@ -6,23 +8,28 @@ use comfy_table::{
     presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
     ColumnConstraint, ContentArrangement, Table, Width,
 };
-use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage};
+use hubuum_filter::{apply_pipeline, group_summary_rows, OutputEnvelope, OutputShape, PipeStage};
+use hubuum_theme::{paint as paint_theme, Theme as HubuumTheme};
 use once_cell::sync::Lazy;
 use serde::Serialize;
-use serde_json::Value;
-use std::fmt::Display;
-use std::fmt::Write as FmtWrite;
+use serde_json::{json, to_string, to_string_pretty, to_value, Value};
 use std::sync::Mutex;
 
 use log::debug;
 
 use crate::config::get_config;
 use crate::errors::AppError;
-use crate::models::{EmptyResult, TableBands, TableStyle, TableWidth, TableWrap};
+use crate::models::{EmptyResult, OutputFormat, TableBands, TableStyle, TableWidth, TableWrap};
 use crate::terminal::terminal_width;
-use crate::theme::{paint, ThemeRole};
+use crate::theme::{color_choice, paint, ThemeRole};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
+
+#[derive(Debug)]
+enum OutputEvent {
+    Line(String),
+    Semantic(OutputEnvelope),
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OutputSnapshot {
@@ -73,8 +80,8 @@ impl OutputSnapshot {
 }
 
 pub fn print_rendered(text: &str) -> Result<(), AppError> {
-    let stdout = std::io::stdout();
-    let mut stream = AutoStream::new(stdout, crate::theme::color_choice());
+    let stdout = stdout();
+    let mut stream = AutoStream::new(stdout, color_choice());
     stream.write_all(text.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -82,9 +89,9 @@ pub fn print_rendered(text: &str) -> Result<(), AppError> {
 
 #[derive(Debug, Default)]
 pub struct OutputBuffer {
-    lines: Vec<String>,
-    semantic: Vec<OutputEnvelope>,
+    events: Vec<OutputEvent>,
     pipeline: Vec<PipeStage>,
+    pipeline_suffix: Option<String>,
     render_format: RenderFormat,
     warnings: Vec<String>,
     errors: Vec<String>,
@@ -108,16 +115,27 @@ impl OutputBuffer {
     }
 
     fn append_line(&mut self, line: String) {
-        self.lines.push(line);
+        self.events.push(OutputEvent::Line(line));
     }
 
     fn set_semantic(&mut self, envelope: OutputEnvelope) {
-        self.semantic.push(envelope);
+        self.events.push(OutputEvent::Semantic(envelope));
     }
 
     fn set_pipeline(&mut self, stages: Vec<PipeStage>) {
         debug!("Setting output pipeline: {stages:?}");
         self.pipeline = stages;
+    }
+
+    fn set_pipeline_suffix(&mut self, suffix: Option<String>) {
+        self.pipeline_suffix = suffix;
+    }
+
+    fn append_pipeline_suffix(&self, command: String) -> String {
+        match &self.pipeline_suffix {
+            Some(suffix) => format!("{command} {suffix}"),
+            None => command,
+        }
     }
 
     fn has_pipeline(&self) -> bool {
@@ -149,27 +167,44 @@ impl OutputBuffer {
     }
 
     fn reset(&mut self) {
-        self.lines.clear();
-        self.semantic.clear();
+        self.events.clear();
         self.warnings.clear();
         self.errors.clear();
         self.pipeline.clear();
+        self.pipeline_suffix = None;
         self.render_format = config_render_format();
         self.next_page_command = None;
     }
 
     fn snapshot(&self) -> Result<OutputSnapshot, AppError> {
         let mut semantic = Vec::new();
-        let lines = if !self.semantic.is_empty() {
-            let mut rendered = self.lines.clone();
-            for envelope in &self.semantic {
-                let envelope = hubuum_filter::apply_pipeline(envelope.clone(), &self.pipeline)?;
-                rendered.extend(render_semantic(&envelope, self.render_format)?);
-                semantic.push(envelope);
+        let has_semantic = self
+            .events
+            .iter()
+            .any(|event| matches!(event, OutputEvent::Semantic(_)));
+        let lines = if has_semantic {
+            let mut rendered = Vec::new();
+            for event in &self.events {
+                match event {
+                    OutputEvent::Line(line) => rendered.push(line.clone()),
+                    OutputEvent::Semantic(envelope) => {
+                        let envelope = apply_pipeline(envelope.clone(), &self.pipeline)?;
+                        rendered.extend(render_semantic(&envelope, self.render_format)?);
+                        semantic.push(envelope);
+                    }
+                }
             }
             rendered
         } else {
-            PipeStage::apply_all(&self.pipeline, self.lines.clone())?
+            let lines = self
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    OutputEvent::Line(line) => Some(line.clone()),
+                    OutputEvent::Semantic(_) => None,
+                })
+                .collect();
+            PipeStage::apply_all(&self.pipeline, lines)?
         };
 
         Ok(OutputSnapshot {
@@ -231,7 +266,7 @@ pub fn append_lines<T: Display>(lines: &[T]) -> Result<(), AppError> {
 }
 
 #[allow(dead_code)]
-pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
+pub fn append_debug<T: Debug>(value: T) -> Result<(), AppError> {
     let mut debug_output = String::new();
     write!(&mut debug_output, "{value:#?}").map_err(|_| AppError::FormatError)?;
 
@@ -246,10 +281,7 @@ pub fn append_debug<T: std::fmt::Debug>(value: T) -> Result<(), AppError> {
 
 #[allow(dead_code)]
 pub fn append_json<T: Serialize>(value: T) -> Result<(), AppError> {
-    set_semantic_output(OutputEnvelope::detail(
-        serde_json::to_value(value)?,
-        Vec::new(),
-    ))
+    set_semantic_output(OutputEnvelope::detail(to_value(value)?, Vec::new()))
 }
 
 pub fn append_key_value<K: Display, V: Display>(
@@ -282,6 +314,21 @@ pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {
         .map_err(|_| AppError::LockError)?
         .set_pipeline(stages);
     Ok(())
+}
+
+pub fn set_pipeline_suffix(suffix: Option<String>) -> Result<(), AppError> {
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .set_pipeline_suffix(suffix);
+    Ok(())
+}
+
+pub fn append_pipeline_suffix(command: String) -> Result<String, AppError> {
+    Ok(OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .append_pipeline_suffix(command))
 }
 
 pub fn has_pipeline() -> Result<bool, AppError> {
@@ -320,7 +367,7 @@ pub(crate) fn render_semantic(
 ) -> Result<Vec<String>, AppError> {
     match format {
         RenderFormat::Text => render_semantic_text(envelope),
-        RenderFormat::Json => Ok(serde_json::to_string_pretty(&envelope.value)?
+        RenderFormat::Json => Ok(to_string_pretty(&envelope.value)?
             .lines()
             .map(str::to_string)
             .collect()),
@@ -342,17 +389,16 @@ pub(crate) fn render_semantic_item(
                 render_detail_text(&OutputEnvelope::detail(value.clone(), columns.to_vec()))?
             }
             OutputShape::Values | OutputShape::Lines => vec![semantic_scalar(value)],
-            OutputShape::Groups => render_rows_text(&OutputEnvelope::rows(
-                hubuum_filter::group_summary_rows(value),
-                Vec::new(),
-            ))?,
+            OutputShape::Groups => {
+                render_rows_text(&OutputEnvelope::rows(group_summary_rows(value), Vec::new()))?
+            }
             OutputShape::Empty => Vec::new(),
         },
-        RenderFormat::Json => serde_json::to_string_pretty(value)?
+        RenderFormat::Json => to_string_pretty(value)?
             .lines()
             .map(str::to_string)
             .collect(),
-        RenderFormat::Jsonl => vec![serde_json::to_string(value)?],
+        RenderFormat::Jsonl => vec![to_string(value)?],
         RenderFormat::Csv => render_item_delimited(value, source_shape, columns, ',')?,
         RenderFormat::Tsv => render_item_delimited(value, source_shape, columns, '\t')?,
     };
@@ -366,8 +412,8 @@ pub(crate) fn render_semantic_item(
 
 fn config_render_format() -> RenderFormat {
     match get_config().output.format {
-        crate::models::OutputFormat::Json => RenderFormat::Json,
-        crate::models::OutputFormat::Text => RenderFormat::Text,
+        OutputFormat::Json => RenderFormat::Json,
+        OutputFormat::Text => RenderFormat::Text,
     }
 }
 
@@ -386,7 +432,7 @@ fn render_semantic_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppErr
             .map(semantic_scalar)
             .collect()),
         OutputShape::Groups => render_rows_text(&OutputEnvelope::rows(
-            hubuum_filter::group_summary_rows(&envelope.value),
+            group_summary_rows(&envelope.value),
             envelope.columns.clone(),
         )),
     }
@@ -456,10 +502,10 @@ fn render_jsonl(value: &Value) -> Result<Vec<String>, AppError> {
     if let Value::Array(items) = value {
         items
             .iter()
-            .map(|item| serde_json::to_string(item).map_err(AppError::from))
+            .map(|item| to_string(item).map_err(AppError::from))
             .collect()
     } else {
-        Ok(vec![serde_json::to_string(value)?])
+        Ok(vec![to_string(value)?])
     }
 }
 
@@ -469,9 +515,9 @@ fn render_delimited(envelope: &OutputEnvelope, delimiter: char) -> Result<Vec<St
         OutputShape::Detail | OutputShape::Message => vec![envelope.value.clone()],
         OutputShape::Values => value_array(&envelope.value)
             .into_iter()
-            .map(|value| serde_json::json!({ "value": value }))
+            .map(|value| json!({ "value": value }))
             .collect(),
-        OutputShape::Groups => hubuum_filter::group_summary_rows(&envelope.value),
+        OutputShape::Groups => group_summary_rows(&envelope.value),
         OutputShape::Empty | OutputShape::Lines => Vec::new(),
     };
 
@@ -508,13 +554,10 @@ fn render_item_delimited(
         OutputShape::Rows | OutputShape::Detail | OutputShape::Message => {
             OutputEnvelope::detail(value.clone(), columns.to_vec())
         }
-        OutputShape::Values | OutputShape::Lines => OutputEnvelope::rows(
-            vec![serde_json::json!({ "value": value })],
-            vec!["value".to_string()],
-        ),
-        OutputShape::Groups => {
-            OutputEnvelope::rows(hubuum_filter::group_summary_rows(value), columns.to_vec())
+        OutputShape::Values | OutputShape::Lines => {
+            OutputEnvelope::rows(vec![json!({ "value": value })], vec!["value".to_string()])
         }
+        OutputShape::Groups => OutputEnvelope::rows(group_summary_rows(value), columns.to_vec()),
         OutputShape::Empty => OutputEnvelope::empty(),
     };
     render_delimited(&envelope, delimiter)
@@ -581,12 +624,12 @@ fn render_dense_rows_with_band(
     lines
 }
 
-pub(crate) fn render_dense_theme_preview(theme: &hubuum_theme::Theme) -> Vec<String> {
+pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
     let rows = vec![
-        serde_json::json!({"Name": "edge-gateway-01", "os_version": "Debian 13", "status": "Ready"}),
-        serde_json::json!({"Name": "build-runner-04", "os_version": "Ubuntu 26.04", "status": "Busy"}),
-        serde_json::json!({"Name": "storage-node-02", "os_version": "Rocky 10", "status": "Ready"}),
-        serde_json::json!({"Name": "lab-console-07", "os_version": "Fedora 44", "status": "Offline"}),
+        json!({"Name": "edge-gateway-01", "os_version": "Debian 13", "status": "Ready"}),
+        json!({"Name": "build-runner-04", "os_version": "Ubuntu 26.04", "status": "Busy"}),
+        json!({"Name": "storage-node-02", "os_version": "Rocky 10", "status": "Ready"}),
+        json!({"Name": "lab-console-07", "os_version": "Fedora 44", "status": "Offline"}),
     ];
     let columns = vec![
         "Name".to_string(),
@@ -595,8 +638,8 @@ pub(crate) fn render_dense_theme_preview(theme: &hubuum_theme::Theme) -> Vec<Str
     ];
 
     render_dense_rows_with_band(&rows, &columns, |index, line| {
-        if index % 2 == 1 {
-            hubuum_theme::paint(theme, ThemeRole::TableBand, line)
+        if index.is_multiple_of(2) {
+            paint_theme(theme, ThemeRole::TableBand, line)
         } else {
             line
         }
@@ -611,7 +654,7 @@ fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<u
             let (column, header) = column;
             rows.iter()
                 .map(|row| cell_text(row.get(column)).len())
-                .chain(std::iter::once(header.len()))
+                .chain(once(header.len()))
                 .max()
                 .unwrap_or(header.len())
         })
@@ -639,7 +682,7 @@ fn apply_row_band(index: usize, line: String) -> String {
     match get_config().output.table_bands {
         TableBands::Never => line,
         TableBands::Auto | TableBands::Always => {
-            if index % 2 == 1 {
+            if index.is_multiple_of(2) {
                 paint(ThemeRole::TableBand, line)
             } else {
                 line
@@ -665,7 +708,7 @@ fn semantic_scalar(value: &Value) -> String {
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
         Value::String(value) => value.clone(),
-        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
+        Value::Array(_) | Value::Object(_) => to_string(value).unwrap_or_default(),
     }
 }
 
@@ -713,7 +756,7 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
     }
 
     if let TableWrap::Fixed(width) = wrap {
-        table.set_constraints(std::iter::repeat_n(
+        table.set_constraints(repeat_n(
             ColumnConstraint::UpperBoundary(Width::Fixed(*width)),
             columns,
         ));
@@ -722,15 +765,17 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use serial_test::serial;
 
     use super::{
-        append_line, reset_output, set_pipeline, set_render_format, set_semantic_output,
-        take_output,
+        append_line, render_dense_theme_preview, reset_output, set_pipeline, set_render_format,
+        set_semantic_output, take_output, OutputSnapshot, RenderFormat,
     };
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableStyle};
-    use hubuum_filter::{OutputEnvelope, PipeStage};
+    use hubuum_filter::{OutputEnvelope, PipeStage, ProjectTerm};
+    use hubuum_theme::resolve_theme;
     #[test]
     #[serial]
     fn take_output_applies_filter_and_resets_buffer() {
@@ -753,7 +798,7 @@ mod tests {
         config.output.color = OutputColor::Never;
         init_config(config).expect("config should initialize");
 
-        let snapshot = super::OutputSnapshot {
+        let snapshot = OutputSnapshot {
             warnings: vec!["careful".to_string()],
             errors: vec!["failed".to_string()],
             ..Default::default()
@@ -768,14 +813,12 @@ mod tests {
         reset_output().expect("buffer should reset");
         append_line("Returned 1 item(s)").expect("line should append");
         set_semantic_output(OutputEnvelope::rows(
-            vec![serde_json::json!({"Name": "alpha", "hidden": "secret"})],
+            vec![json!({"Name": "alpha", "hidden": "secret"})],
             vec!["Name".to_string(), "hidden".to_string()],
         ))
         .expect("semantic output should be set");
-        set_pipeline(vec![PipeStage::Columns(vec![
-            hubuum_filter::ProjectTerm::keep("Name"),
-        ])])
-        .expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Columns(vec![ProjectTerm::keep("Name")])])
+            .expect("pipeline should set");
 
         let rendered = take_output().expect("snapshot").render();
 
@@ -786,17 +829,38 @@ mod tests {
 
     #[test]
     #[serial]
+    fn mixed_output_preserves_insertion_order() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![json!({"Name": "alpha"})],
+            vec!["Name".to_string()],
+        ))
+        .expect("semantic output should be set");
+        append_line("Returned 1 item(s)").expect("footer should append");
+
+        let rendered = take_output().expect("snapshot").render();
+        let row = rendered.find("alpha").expect("row should render");
+        let footer = rendered
+            .find("Returned 1 item(s)")
+            .expect("footer should render");
+
+        assert!(row < footer);
+    }
+
+    #[test]
+    #[serial]
     fn json_rendering_applies_projection_to_semantic_rows_before_rendering() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");
-        set_render_format(super::RenderFormat::Json).expect("render format should set");
+        set_render_format(RenderFormat::Json).expect("render format should set");
         set_pipeline(vec![PipeStage::Columns(vec![
-            hubuum_filter::ProjectTerm::keep("Name"),
-            hubuum_filter::ProjectTerm::keep("data.network.interfaces[*].ipv4"),
+            ProjectTerm::keep("Name"),
+            ProjectTerm::keep("data.network.interfaces[*].ipv4"),
         ])])
         .expect("pipeline should set");
         set_semantic_output(OutputEnvelope::rows(
-            vec![serde_json::json!({
+            vec![json!({
                 "Name": "host-1",
                 "data": {
                     "network": {
@@ -827,7 +891,7 @@ mod tests {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");
         set_semantic_output(OutputEnvelope::rows(
-            vec![serde_json::json!({"Name": "alpha", "data.contact": "Entry"})],
+            vec![json!({"Name": "alpha", "data.contact": "Entry"})],
             vec!["Name".to_string(), "data.contact".to_string()],
         ))
         .expect("semantic output should be set");
@@ -847,7 +911,7 @@ mod tests {
         init_config(config).expect("config should initialize");
         reset_output().expect("buffer should reset");
         set_semantic_output(OutputEnvelope::rows(
-            vec![serde_json::json!({"Name": "alpha", "data.contact": "Entry"})],
+            vec![json!({"Name": "alpha", "data.contact": "Entry"})],
             vec!["Name".to_string(), "data.contact".to_string()],
         ))
         .expect("semantic output should be set");
@@ -872,18 +936,19 @@ mod tests {
         init_config(config).expect("config should initialize");
         reset_output().expect("buffer should reset");
         set_semantic_output(OutputEnvelope::rows(
-            vec![
-                serde_json::json!({"Name": "alpha"}),
-                serde_json::json!({"Name": "beta"}),
-            ],
+            vec![json!({"Name": "alpha"}), json!({"Name": "beta"})],
             vec!["Name".to_string()],
         ))
         .expect("semantic output should be set");
 
         let rendered = take_output().expect("snapshot").render();
+        let lines = rendered.lines().collect::<Vec<_>>();
 
-        assert!(rendered.contains("\x1b[48;5;236m"));
-        assert!(rendered.contains("beta"));
+        assert!(!lines[0].contains("\x1b[48;5;236m"));
+        assert!(lines[1].contains("\x1b[48;5;236m"));
+        assert!(lines[1].contains("alpha"));
+        assert!(!lines[2].contains("\x1b[48;5;236m"));
+        assert!(lines[2].contains("beta"));
     }
 
     #[test]
@@ -896,10 +961,7 @@ mod tests {
         init_config(config).expect("config should initialize");
         reset_output().expect("buffer should reset");
         set_semantic_output(OutputEnvelope::rows(
-            vec![
-                serde_json::json!({"Name": "alpha"}),
-                serde_json::json!({"Name": "beta"}),
-            ],
+            vec![json!({"Name": "alpha"}), json!({"Name": "beta"})],
             vec!["Name".to_string()],
         ))
         .expect("semantic output should be set");
@@ -912,17 +974,17 @@ mod tests {
 
     #[test]
     fn dense_theme_preview_bands_alternating_rows() {
-        let theme = hubuum_theme::resolve_theme("rose-pink", None).expect("rose-pink theme");
-        let lines = super::render_dense_theme_preview(&theme);
+        let theme = resolve_theme("rose-pink", None).expect("rose-pink theme");
+        let lines = render_dense_theme_preview(&theme);
 
         assert_eq!(lines.len(), 5);
         assert!(lines[0].contains("Name"));
-        assert!(!lines[1].contains('\u{1b}'));
-        assert!(lines[2].contains('\u{1b}'));
-        assert!(!lines[3].contains('\u{1b}'));
-        assert!(lines[4].contains('\u{1b}'));
-        assert!(lines[2].contains("build-runner-04"));
-        assert!(lines[4].contains("lab-console-07"));
+        assert!(lines[1].contains('\u{1b}'));
+        assert!(!lines[2].contains('\u{1b}'));
+        assert!(lines[3].contains('\u{1b}'));
+        assert!(!lines[4].contains('\u{1b}'));
+        assert!(lines[1].contains("edge-gateway-01"));
+        assert!(lines[3].contains("storage-node-02"));
     }
 
     #[test]
@@ -931,7 +993,7 @@ mod tests {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");
         set_semantic_output(OutputEnvelope::rows(
-            vec![serde_json::json!({"Name": "alpha", "os_version": null})],
+            vec![json!({"Name": "alpha", "os_version": null})],
             vec!["Name".to_string(), "os_version".to_string()],
         ))
         .expect("semantic output should be set");

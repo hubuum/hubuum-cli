@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SelectorToken {
@@ -115,7 +115,7 @@ pub(crate) fn compact_empty(value: Value) -> Option<Value> {
             let object = object
                 .into_iter()
                 .filter_map(|(key, value)| compact_empty(value).map(|value| (key, value)))
-                .collect::<serde_json::Map<_, _>>();
+                .collect::<Map<_, _>>();
             (!object.is_empty()).then_some(Value::Object(object))
         }
         Value::Array(values) => {

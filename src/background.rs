@@ -5,6 +5,8 @@ use std::time::Duration;
 use hubuum_client::TaskStatus;
 use serde::Serialize;
 use tokio::runtime::Handle;
+use tokio::task::spawn_blocking;
+use tokio::time::sleep;
 
 use crate::domain::TaskRecord;
 use crate::errors::AppError;
@@ -296,7 +298,7 @@ impl BackgroundManager {
                 }
 
                 let fetch_task = manager.fetch_task.clone();
-                let result = tokio::task::spawn_blocking(move || fetch_task(task_id)).await;
+                let result = spawn_blocking(move || fetch_task(task_id)).await;
 
                 match result {
                     Ok(Ok(task)) => {
@@ -315,7 +317,7 @@ impl BackgroundManager {
                     }
                 }
 
-                tokio::time::sleep(manager.poll_interval).await;
+                sleep(manager.poll_interval).await;
             }
         });
     }
@@ -445,6 +447,7 @@ mod tests {
 
     use hubuum_client::{TaskKind, TaskLinks, TaskProgress, TaskResponse, TaskStatus};
     use tokio::runtime::{Handle, Runtime};
+    use tokio::time::sleep;
 
     use super::{BackgroundJob, BackgroundManager, BackgroundState, PendingNotice};
     use crate::domain::TaskRecord;
@@ -510,7 +513,7 @@ mod tests {
             manager.watch_task(task(42, TaskStatus::Queued, Some("queued")), "import 42");
             assert_eq!(manager.take_prompt_badge().as_deref(), Some("[bg:1]"));
 
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            sleep(Duration::from_millis(40)).await;
 
             let job = manager.job(1).expect("job should exist");
             assert_eq!(job.status, "succeeded");

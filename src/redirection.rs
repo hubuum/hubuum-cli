@@ -1,11 +1,17 @@
 use std::collections::HashSet;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anstream::{AutoStream, ColorChoice};
+use dirs::home_dir;
+use hubuum_filter::{group_summary_rows, scalar_text, select_values, OutputShape};
+use serde_json::Value;
+use shlex::split;
 
 use crate::errors::AppError;
-use crate::output::OutputSnapshot;
+use crate::output::{render_semantic_item, OutputSnapshot};
+use crate::theme::color_choice;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputRedirect {
@@ -46,7 +52,7 @@ pub(crate) fn split_redirect_candidate(line: &str) -> Result<Option<RedirectCand
         ));
     }
 
-    let target_parts = shlex::split(target)
+    let target_parts = split(target)
         .ok_or_else(|| AppError::ParseError("Parsing redirect path failed".to_string()))?;
     if target_parts.len() != 1 {
         return Err(AppError::ParseError(
@@ -91,7 +97,7 @@ pub fn write_output(snapshot: &OutputSnapshot, redirect: &OutputRedirect) -> Res
 }
 
 fn write_file(content: &str, path: &Path, append: bool) -> Result<(), AppError> {
-    write_file_with_color_choice(content, path, append, crate::theme::color_choice())
+    write_file_with_color_choice(content, path, append, color_choice())
 }
 
 fn write_file_with_color_choice(
@@ -100,7 +106,7 @@ fn write_file_with_color_choice(
     append: bool,
     color_choice: ColorChoice,
 ) -> Result<(), AppError> {
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = OpenOptions::new();
     options.create(true).write(true);
     if append {
         options.append(true);
@@ -137,7 +143,7 @@ fn write_each_output(
                 path.display()
             )));
         }
-        let content = crate::output::render_semantic_item(
+        let content = render_semantic_item(
             &item.value,
             item.source_shape,
             item.columns,
@@ -154,8 +160,8 @@ fn write_each_output(
 }
 
 struct SemanticItem<'a> {
-    value: serde_json::Value,
-    source_shape: hubuum_filter::OutputShape,
+    value: Value,
+    source_shape: OutputShape,
     columns: &'a [String],
 }
 
@@ -163,9 +169,7 @@ fn semantic_items(snapshot: &OutputSnapshot) -> Result<Vec<SemanticItem<'_>>, Ap
     let mut items = Vec::new();
     for envelope in &snapshot.semantic {
         match envelope.shape {
-            hubuum_filter::OutputShape::Rows
-            | hubuum_filter::OutputShape::Values
-            | hubuum_filter::OutputShape::Lines => {
+            OutputShape::Rows | OutputShape::Values | OutputShape::Lines => {
                 let values = envelope.value.as_array().ok_or_else(|| {
                     AppError::ParseError("each: semantic output is not an array".to_string())
                 })?;
@@ -175,27 +179,27 @@ fn semantic_items(snapshot: &OutputSnapshot) -> Result<Vec<SemanticItem<'_>>, Ap
                     columns: &envelope.columns,
                 }));
             }
-            hubuum_filter::OutputShape::Detail | hubuum_filter::OutputShape::Message => {
+            OutputShape::Detail | OutputShape::Message => {
                 items.push(SemanticItem {
                     value: envelope.value.clone(),
                     source_shape: envelope.shape,
                     columns: &envelope.columns,
                 });
             }
-            hubuum_filter::OutputShape::Groups => {
+            OutputShape::Groups => {
                 // Store grouped summaries for per-item redirects so templates can use
                 // group and aggregate field names without exposing member rows.
                 items.extend(
-                    hubuum_filter::group_summary_rows(&envelope.value)
+                    group_summary_rows(&envelope.value)
                         .into_iter()
                         .map(|value| SemanticItem {
                             value,
-                            source_shape: hubuum_filter::OutputShape::Rows,
+                            source_shape: OutputShape::Rows,
                             columns: &envelope.columns,
                         }),
                 );
             }
-            hubuum_filter::OutputShape::Empty => {}
+            OutputShape::Empty => {}
         }
     }
     Ok(items)
@@ -227,7 +231,7 @@ impl EachTemplate {
         Ok(Self { template })
     }
 
-    fn path_for(&self, value: &serde_json::Value, number: usize) -> Result<PathBuf, AppError> {
+    fn path_for(&self, value: &Value, number: usize) -> Result<PathBuf, AppError> {
         let mut path = String::new();
         let mut rest = self.template.as_str();
         while let Some(start) = rest.find('{') {
@@ -281,10 +285,10 @@ fn placeholders(template: &str) -> Result<Vec<&str>, AppError> {
     Ok(placeholders)
 }
 
-fn field_placeholder(value: &serde_json::Value, selector: &str) -> Result<String, AppError> {
+fn field_placeholder(value: &Value, selector: &str) -> Result<String, AppError> {
     let selected = select_placeholder_values(value, selector);
     match selected.as_slice() {
-        [value] => hubuum_filter::scalar_text(value).ok_or_else(|| {
+        [value] => scalar_text(value).ok_or_else(|| {
             AppError::ParseError(format!(
                 "each: placeholder '{{{selector}}}' resolved to a non-scalar value"
             ))
@@ -298,21 +302,18 @@ fn field_placeholder(value: &serde_json::Value, selector: &str) -> Result<String
     }
 }
 
-fn select_placeholder_values<'a>(
-    value: &'a serde_json::Value,
-    selector: &str,
-) -> Vec<&'a serde_json::Value> {
+fn select_placeholder_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
     if selector == "value" && !value.is_object() {
         return vec![value];
     }
 
-    if let serde_json::Value::Object(object) = value {
+    if let Value::Object(object) = value {
         if let Some(value) = object.get(selector) {
             return vec![value];
         }
     }
 
-    hubuum_filter::select_values(value, selector)
+    select_values(value, selector)
 }
 
 fn sanitize_path_value(value: &str) -> String {
@@ -387,11 +388,11 @@ fn expand_user_template(template: &str) -> String {
 
 fn expand_user_path(path: &str) -> PathBuf {
     if path == "~" {
-        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(path));
+        return home_dir().unwrap_or_else(|| PathBuf::from(path));
     }
 
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             return home.join(rest);
         }
     }
@@ -401,12 +402,18 @@ fn expand_user_path(path: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::{read_to_string, write};
+    use std::path::PathBuf;
+
     use super::{
         redirect_completion_context, split_redirect_candidate, write_file_with_color_choice,
         write_output, RedirectTarget,
     };
     use crate::output::{OutputSnapshot, RenderFormat};
     use anstream::ColorChoice;
+    use hubuum_filter::OutputEnvelope;
+    use serde_json::json;
+    use tempfile::tempdir;
 
     #[test]
     fn splits_trailing_redirects() {
@@ -417,7 +424,7 @@ mod tests {
         assert_eq!(candidate.line, "object list | P Name");
         assert_eq!(
             candidate.redirect.target,
-            RedirectTarget::File(std::path::PathBuf::from("out.json"))
+            RedirectTarget::File(PathBuf::from("out.json"))
         );
         assert!(!candidate.redirect.append);
     }
@@ -479,30 +486,21 @@ mod tests {
 
     #[test]
     fn file_redirects_apply_color_choice() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");
         let styled = "\x1b[31mred\x1b[0m\n";
 
         write_file_with_color_choice(styled, &path, false, ColorChoice::Auto)
             .expect("auto redirect");
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("auto output"),
-            "red\n"
-        );
+        assert_eq!(read_to_string(&path).expect("auto output"), "red\n");
 
         write_file_with_color_choice(styled, &path, false, ColorChoice::Never)
             .expect("never redirect");
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("never output"),
-            "red\n"
-        );
+        assert_eq!(read_to_string(&path).expect("never output"), "red\n");
 
         write_file_with_color_choice(styled, &path, false, ColorChoice::Always)
             .expect("always redirect");
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("always output"),
-            styled
-        );
+        assert_eq!(read_to_string(&path).expect("always output"), styled);
     }
 
     #[test]
@@ -526,7 +524,7 @@ mod tests {
 
     #[test]
     fn writes_one_file_per_semantic_row_with_field_template() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let template = dir.path().join("{Name}-{n}.json");
         let command = format!("object list --json > each:{}", template.display());
         let redirect = split_redirect_candidate(&command)
@@ -534,10 +532,10 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::rows(
+            semantic: vec![OutputEnvelope::rows(
                 vec![
-                    serde_json::json!({"Name": "alpha", "os_version": "26"}),
-                    serde_json::json!({"Name": "beta", "os_version": "25"}),
+                    json!({"Name": "alpha", "os_version": "26"}),
+                    json!({"Name": "beta", "os_version": "25"}),
                 ],
                 vec!["Name".to_string(), "os_version".to_string()],
             )],
@@ -548,18 +546,18 @@ mod tests {
         write_output(&snapshot, &redirect).expect("each redirect should write");
 
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("alpha-1.json")).expect("alpha file"),
+            read_to_string(dir.path().join("alpha-1.json")).expect("alpha file"),
             "{\n  \"Name\": \"alpha\",\n  \"os_version\": \"26\"\n}\n"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("beta-2.json")).expect("beta file"),
+            read_to_string(dir.path().join("beta-2.json")).expect("beta file"),
             "{\n  \"Name\": \"beta\",\n  \"os_version\": \"25\"\n}\n"
         );
     }
 
     #[test]
     fn each_redirect_supports_value_placeholders() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let template = dir.path().join("{value}.txt");
         let command = format!("object list | VALUE Name > each:{}", template.display());
         let redirect = split_redirect_candidate(&command)
@@ -567,10 +565,7 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::values(vec![
-                serde_json::json!("alpha"),
-                serde_json::json!("beta"),
-            ])],
+            semantic: vec![OutputEnvelope::values(vec![json!("alpha"), json!("beta")])],
             render_format: RenderFormat::Text,
             ..Default::default()
         };
@@ -578,20 +573,20 @@ mod tests {
         write_output(&snapshot, &redirect).expect("each redirect should write values");
 
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("alpha.txt")).expect("alpha file"),
+            read_to_string(dir.path().join("alpha.txt")).expect("alpha file"),
             "alpha\n"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("beta.txt")).expect("beta file"),
+            read_to_string(dir.path().join("beta.txt")).expect("beta file"),
             "beta\n"
         );
     }
 
     #[test]
     fn each_redirect_append_mode_appends_each_item_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let target = dir.path().join("alpha.txt");
-        std::fs::write(&target, "existing\n").expect("seed file");
+        write(&target, "existing\n").expect("seed file");
         let template = dir.path().join("{value}.txt");
         let command = format!("object list | VALUE Name >> each:{}", template.display());
         let redirect = split_redirect_candidate(&command)
@@ -599,9 +594,7 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::values(vec![
-                serde_json::json!("alpha"),
-            ])],
+            semantic: vec![OutputEnvelope::values(vec![json!("alpha")])],
             render_format: RenderFormat::Text,
             ..Default::default()
         };
@@ -609,14 +602,14 @@ mod tests {
         write_output(&snapshot, &redirect).expect("each redirect should append values");
 
         assert_eq!(
-            std::fs::read_to_string(target).expect("target file"),
+            read_to_string(target).expect("target file"),
             "existing\nalpha\n"
         );
     }
 
     #[test]
     fn each_redirect_rejects_duplicate_paths_before_writing() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let template = dir.path().join("{Name}.json");
         let command = format!("object list --json > each:{}", template.display());
         let redirect = split_redirect_candidate(&command)
@@ -624,11 +617,8 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::rows(
-                vec![
-                    serde_json::json!({"Name": "alpha"}),
-                    serde_json::json!({"Name": "alpha"}),
-                ],
+            semantic: vec![OutputEnvelope::rows(
+                vec![json!({"Name": "alpha"}), json!({"Name": "alpha"})],
                 vec!["Name".to_string()],
             )],
             render_format: RenderFormat::Json,
@@ -652,8 +642,8 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::rows(
-                vec![serde_json::json!({"Name": "alpha", "ips": ["one", "two"]})],
+            semantic: vec![OutputEnvelope::rows(
+                vec![json!({"Name": "alpha", "ips": ["one", "two"]})],
                 vec!["Name".to_string()],
             )],
             render_format: RenderFormat::Json,
@@ -677,8 +667,8 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::rows(
-                vec![serde_json::json!({"Name": "alpha", "metadata": {"owner": "ops"}})],
+            semantic: vec![OutputEnvelope::rows(
+                vec![json!({"Name": "alpha", "metadata": {"owner": "ops"}})],
                 vec!["Name".to_string()],
             )],
             render_format: RenderFormat::Json,
@@ -693,7 +683,7 @@ mod tests {
 
     #[test]
     fn each_redirect_sanitizes_field_values_in_paths() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempdir().expect("tempdir");
         let template = dir.path().join("{Name}.txt");
         let command = format!("object list > each:{}", template.display());
         let redirect = split_redirect_candidate(&command)
@@ -701,8 +691,8 @@ mod tests {
             .expect("redirect should exist")
             .redirect;
         let snapshot = OutputSnapshot {
-            semantic: vec![hubuum_filter::OutputEnvelope::rows(
-                vec![serde_json::json!({"Name": "../bad/name"})],
+            semantic: vec![OutputEnvelope::rows(
+                vec![json!({"Name": "../bad/name"})],
                 vec!["Name".to_string()],
             )],
             render_format: RenderFormat::Text,

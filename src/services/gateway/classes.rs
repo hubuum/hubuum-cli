@@ -1,4 +1,5 @@
-use hubuum_client::{ClassPatch, ClassPost};
+use hubuum_client::{ClassPatch, ClassPost, FilterOperator};
+use serde_json::Value;
 
 use crate::domain::{build_related_class_tree, ClassRecord, ClassShowRecord, ObjectRecord};
 use crate::errors::AppError;
@@ -15,7 +16,7 @@ pub struct CreateClassInput {
     pub name: String,
     pub collection: String,
     pub description: String,
-    pub json_schema: Option<serde_json::Value>,
+    pub json_schema: Option<Value>,
     pub validate_schema: Option<bool>,
 }
 
@@ -25,7 +26,7 @@ pub struct ClassUpdateInput {
     pub rename: Option<String>,
     pub collection: Option<String>,
     pub description: Option<String>,
-    pub json_schema: Option<serde_json::Value>,
+    pub json_schema: Option<Value>,
     pub validate_schema: Option<bool>,
 }
 
@@ -41,7 +42,7 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn class_schema(&self, name: &str) -> Result<Option<serde_json::Value>, AppError> {
+    pub fn class_schema(&self, name: &str) -> Result<Option<Value>, AppError> {
         Ok(self
             .client
             .classes()
@@ -78,7 +79,7 @@ impl HubuumGateway {
             .related_graph()
             .filter(
                 "depth",
-                hubuum_client::FilterOperator::Lte { is_negated: false },
+                FilterOperator::Lte { is_negated: false },
                 options.max_depth,
             )
             .fetch()?;

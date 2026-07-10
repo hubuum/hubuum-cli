@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::once;
 
 use hubuum_client::{
     Class, ClassRelation, ClassWithPath, Collection, Object, ObjectRelation, ObjectWithPath,
@@ -215,7 +216,7 @@ pub fn build_related_object_tree(
     let object_class_map = objects
         .iter()
         .map(|object| (object.id, object.hubuum_class_id))
-        .chain(std::iter::once((root_object_id, root_class_id)))
+        .chain(once((root_object_id, root_class_id)))
         .collect::<HashMap<_, _>>();
     let nodes = objects
         .iter()
@@ -376,9 +377,10 @@ fn sort_class_tree(nodes: &mut [RelatedClassTreeNode]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{from_value, json};
 
     fn collection(id: i32, name: &str) -> Collection {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
@@ -389,7 +391,7 @@ mod tests {
     }
 
     fn class(id: i32, collection_id: i32, name: &str) -> Class {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
@@ -415,7 +417,7 @@ mod tests {
         name: &str,
         path: &[i32],
     ) -> ObjectWithPath {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
@@ -430,7 +432,7 @@ mod tests {
     }
 
     fn related_class(id: i32, collection_id: i32, name: &str, path: &[i32]) -> ClassWithPath {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
