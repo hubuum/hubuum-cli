@@ -21,7 +21,7 @@ use crate::tokenizer::CommandTokenizer;
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "list",
                 EventSubscriptionList::default(),
@@ -29,7 +29,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "show",
                 EventSubscriptionShow::default(),
@@ -37,7 +37,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "create",
                 EventSubscriptionCreate::default(),
@@ -45,7 +45,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "update",
                 EventSubscriptionUpdate::default(),
@@ -53,7 +53,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "delete",
                 EventSubscriptionDelete::default(),
@@ -178,7 +178,7 @@ impl CliCommand for EventSubscriptionCreate {
         let record = services.gateway().create_event_subscription(
             collection_id,
             NewEventSubscription {
-                sink_id,
+                sink_id: sink_id.into(),
                 name: query.name,
                 entity_types: split_csv(&query.entity_types),
                 actions: split_csv(&query.actions),
@@ -245,7 +245,7 @@ impl CliCommand for EventSubscriptionUpdate {
             collection_id,
             required_str(query.subscription.as_deref(), "subscription")?,
             UpdateEventSubscription {
-                sink_id: resolve_optional_sink_id(services, query.sink)?,
+                sink_id: resolve_optional_sink_id(services, query.sink)?.map(Into::into),
                 name: query.name,
                 description: query.description,
                 entity_types: query.entity_types.map(|value| split_csv(&value)),

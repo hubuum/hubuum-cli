@@ -18,7 +18,7 @@ pub struct ExportTemplateRecord {
 impl ExportTemplateRecord {
     pub fn new(template: &ExportTemplate, collectionmap: &HashMap<i32, Collection>) -> Self {
         let collection = collectionmap
-            .get(&template.collection_id)
+            .get(&template.collection_id.into())
             .map(|collection| collection.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 

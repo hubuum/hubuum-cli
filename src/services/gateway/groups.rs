@@ -40,25 +40,23 @@ impl HubuumGateway {
         let group = self
             .client
             .groups()
-            .create()
-            .params(GroupPost {
-                groupname: input.groupname,
-                description: input.description,
-            })
+            .create_checked()
+            .groupname(input.groupname)
+            .description(input.description)
             .send()?;
         Ok(GroupRecord::from(group))
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
         let group = self.client.groups().get_by_name(group_name)?;
-        let principal_id = self.client.users().get_by_name(username)?.id().into();
+        let principal_id = self.client.users().get_by_name(username)?.id();
         group.add_member(principal_id)?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
         let group = self.client.groups().get_by_name(group_name)?;
-        let principal_id = self.client.users().get_by_name(username)?.id().into();
+        let principal_id = self.client.users().get_by_name(username)?.id();
         group.remove_member(principal_id)?;
         Ok(())
     }
@@ -150,4 +148,4 @@ pub(crate) const GROUP_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
-use hubuum_client::{GroupPatch, GroupPost};
+use hubuum_client::GroupPatch;

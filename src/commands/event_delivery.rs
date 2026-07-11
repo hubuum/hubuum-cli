@@ -15,7 +15,7 @@ use crate::tokenizer::CommandTokenizer;
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "list",
                 EventDeliveryList::default(),
@@ -23,7 +23,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "show",
                 EventDeliveryShow::default(),
@@ -31,7 +31,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "health",
                 EventDeliveryHealth::default(),
@@ -39,7 +39,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "retry",
                 EventDeliveryRetry::default(),
@@ -47,7 +47,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "dead",
                 EventDeliveryDead::default(),

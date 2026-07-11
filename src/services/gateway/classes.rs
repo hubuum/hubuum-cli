@@ -56,7 +56,7 @@ impl HubuumGateway {
         let collection = self.client.collections().get_by_name(&input.collection)?;
         let class = self.client.classes().create_raw(ClassPost {
             name: input.name,
-            collection_id: collection.id().into(),
+            collection_id: collection.id(),
             description: input.description,
             json_schema: input.json_schema,
             validate_schema: input.validate_schema,
@@ -82,7 +82,7 @@ impl HubuumGateway {
                 FilterOperator::Lte { is_negated: false },
                 options.max_depth,
             )
-            .fetch()?;
+            .send()?;
         let collection_map = self.collection_map_from_ids(
             related_graph
                 .classes
@@ -111,14 +111,9 @@ impl HubuumGateway {
     pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
         let class = self.client.classes().get_by_name(&input.name)?;
 
-        let collection_id: i32 = match input.collection {
-            Some(collection) => self
-                .client
-                .collections()
-                .get_by_name(&collection)?
-                .id()
-                .into(),
-            None => class.resource().collection.id.into(),
+        let collection_id = match input.collection {
+            Some(collection) => self.client.collections().get_by_name(&collection)?.id(),
+            None => class.resource().collection.id,
         };
 
         let updated = self.client.classes().update_raw(

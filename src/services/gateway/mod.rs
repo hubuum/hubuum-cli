@@ -10,6 +10,7 @@ mod relations;
 mod remote_targets;
 mod search;
 mod service_accounts;
+mod settings;
 mod shared;
 mod tasks;
 mod users;

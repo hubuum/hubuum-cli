@@ -27,12 +27,12 @@ impl ResolvedObjectRecord {
         collectionmap: &HashMap<i32, Collection>,
     ) -> Self {
         let collection = collectionmap
-            .get(&object.collection_id)
+            .get(&object.collection_id.into())
             .map(|collection| collection.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 
         let class = classmap
-            .get(&object.hubuum_class_id)
+            .get(&object.hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 

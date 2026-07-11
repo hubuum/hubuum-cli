@@ -54,7 +54,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     long_about: Some(
                         "Lists audit events scoped to a resource such as a collection, class, object, user, group, template, or remote target.",
                     ),
-                    examples: Some("--resource collection --name Math\n--resource object --class Hosts --name adlet.uio.no"),
+                    examples: Some("--resource collection --name Math\n--resource object --class Hosts --name host.example.org"),
                 },
             ),
         );

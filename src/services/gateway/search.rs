@@ -50,7 +50,7 @@ impl HubuumGateway {
         let mut mapped = Vec::new();
 
         for event in self.build_search_request(input).stream()? {
-            match event {
+            match event? {
                 UnifiedSearchEvent::Started(payload) => {
                     mapped.push(SearchStreamEvent::Started(SearchQueryEvent {
                         query: payload.query,
@@ -69,6 +69,8 @@ impl HubuumGateway {
                         message: payload.message,
                     }))
                 }
+                UnifiedSearchEvent::Unknown { .. } => {}
+                _ => {}
             }
         }
 
@@ -158,7 +160,7 @@ impl HubuumGateway {
 
         let missing_class_ids = objects
             .iter()
-            .filter(|object| !class_map.contains_key(&object.hubuum_class_id))
+            .filter(|object| !class_map.contains_key(&object.hubuum_class_id.into()))
             .count();
         if missing_class_ids > 0 {
             class_map.extend(find_entities_by_ids(
@@ -170,7 +172,7 @@ impl HubuumGateway {
 
         let missing_collection_ids = objects
             .iter()
-            .filter(|object| !collection_map.contains_key(&object.collection_id))
+            .filter(|object| !collection_map.contains_key(&object.collection_id.into()))
             .count();
         if missing_collection_ids > 0 {
             collection_map.extend(find_entities_by_ids(

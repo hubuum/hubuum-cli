@@ -1,7 +1,5 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use hubuum_client::{
-    FilterOperator, HubuumDateTime, NewTokenRequest, Permissions, UserPatch, UserPost,
-};
+use hubuum_client::{FilterOperator, HubuumDateTime, NewTokenRequest, Permissions, UserPatch};
 use std::str::FromStr;
 
 use crate::domain::{CreatedUser, PrincipalTokenRecord, UserRecord};
@@ -58,17 +56,16 @@ impl HubuumGateway {
 
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
         // Create user with name/email/password
-        let user = self
+        let mut create = self
             .client
             .users()
-            .create()
-            .params(UserPost {
-                name: input.username.clone(),
-                password: input.password.clone(),
-                email: input.email.clone(),
-                proper_name: None,
-            })
-            .send()?;
+            .create_checked()
+            .name(input.username.clone())
+            .password(input.password.clone());
+        if let Some(email) = input.email {
+            create = create.email(email);
+        }
+        let user = create.send()?;
 
         Ok(CreatedUser {
             user: UserRecord::from(user),

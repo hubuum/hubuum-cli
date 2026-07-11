@@ -11,13 +11,13 @@ Use a test server and an account that can create temporary collections,
 classes, objects, event resources, exports, imports, and remote targets.
 
 ```sh
-hubuum-cli --hostname hubuum.math.uiocloud.no --protocol https --port 443 --username admin help --tree
+hubuum-cli --hostname hubuum.example.org --protocol https --port 443 --username admin help --tree
 ```
 
 For repeated testing, start the REPL with the same connection flags:
 
 ```sh
-hubuum-cli --hostname hubuum.math.uiocloud.no --protocol https --port 443 --username admin
+hubuum-cli --hostname hubuum.example.org --protocol https --port 443 --username admin
 ```
 
 Local commands that should not require login:
@@ -272,10 +272,10 @@ Expected results:
 Smoke event infrastructure:
 
 ```text
-event-sink list
-event-subscription list
-event-delivery health
-event-delivery list --limit 5
+event sink list
+event subscription list
+event delivery health
+event delivery list --limit 5
 audit list --limit 5
 audit show --id <audit-event-id>
 history class SmokeHost

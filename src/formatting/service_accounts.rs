@@ -19,7 +19,7 @@ impl TableRenderable for ServiceAccountRecord {
         vec![
             sa.id.to_string(),
             sa.name.clone(),
-            sa.description.clone().unwrap_or_default(),
+            sa.description.clone(),
             sa.owner_group_id.to_string(),
             sa.disabled_at
                 .as_ref()
@@ -37,12 +37,7 @@ impl DetailRenderable for ServiceAccountRecord {
         vec![
             ("ID", sa.id.to_string()),
             ("Name", sa.name.clone()),
-            (
-                "Description",
-                sa.description
-                    .clone()
-                    .unwrap_or_else(|| "<none>".to_string()),
-            ),
+            ("Description", sa.description.clone()),
             ("Owner Group ID", sa.owner_group_id.to_string()),
             (
                 "Created By",

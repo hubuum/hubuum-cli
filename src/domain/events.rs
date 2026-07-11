@@ -158,8 +158,8 @@ mod tests {
             "op": "U",
             "valid_from": "2026-07-05T23:31:49.388144+00:00",
             "valid_to": null,
-            "name": "abacus-as.uio.no",
-            "description": "abacus-as.uio.no (129.240.75.230)",
+            "name": "host.example.org",
+            "description": "host.example.org (192.0.2.10)",
             "updated_at": "2026-07-05T23:31:49.388144+00:00"
         }));
 
@@ -167,9 +167,9 @@ mod tests {
             record.row(),
             vec![
                 "5031".to_string(),
-                "abacus-as.uio.no".to_string(),
+                "host.example.org".to_string(),
                 "U".to_string(),
-                "abacus-as.uio.no (129.240.75.230)".to_string(),
+                "host.example.org (192.0.2.10)".to_string(),
                 "2026-07-05T23:31:49.388144+00:00".to_string(),
             ]
         );

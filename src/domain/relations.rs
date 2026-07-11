@@ -18,11 +18,11 @@ pub struct ResolvedClassRelationRecord {
 impl ResolvedClassRelationRecord {
     pub fn new(class_relation: &ClassRelation, classmap: &HashMap<i32, Class>) -> Self {
         let class_a = classmap
-            .get(&class_relation.from_hubuum_class_id)
+            .get(&class_relation.from_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let class_b = classmap
-            .get(&class_relation.to_hubuum_class_id)
+            .get(&class_relation.to_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
 
@@ -55,19 +55,19 @@ impl ResolvedObjectRelationRecord {
         classmap: &HashMap<i32, Class>,
     ) -> Self {
         let class_a = classmap
-            .get(&class_relation.from_hubuum_class_id)
+            .get(&class_relation.from_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let class_b = classmap
-            .get(&class_relation.to_hubuum_class_id)
+            .get(&class_relation.to_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let object_a = objectmap
-            .get(&object_relation.from_hubuum_object_id)
+            .get(&object_relation.from_hubuum_object_id.into())
             .map(|object| object.name.clone())
             .unwrap_or_default();
         let object_b = objectmap
-            .get(&object_relation.to_hubuum_object_id)
+            .get(&object_relation.to_hubuum_object_id.into())
             .map(|object| object.name.clone())
             .unwrap_or_default();
 
@@ -102,12 +102,12 @@ impl ResolvedRelatedClassRecord {
         path_labels: Vec<String>,
     ) -> Self {
         let collection = collectionmap
-            .get(&class.collection_id)
+            .get(&class.collection_id.into())
             .map(|collection| collection.name.clone())
             .unwrap_or_else(|| class.collection_id.to_string());
 
         Self {
-            id: class.id,
+            id: class.id.into(),
             name: class.name.clone(),
             description: class.description.clone(),
             collection,
@@ -140,16 +140,16 @@ impl ResolvedRelatedObjectRecord {
         path_labels: Vec<String>,
     ) -> Self {
         let collection = collectionmap
-            .get(&object.collection_id)
+            .get(&object.collection_id.into())
             .map(|collection| collection.name.clone())
             .unwrap_or_else(|| object.collection_id.to_string());
         let class = classmap
-            .get(&object.hubuum_class_id)
+            .get(&object.hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_else(|| object.hubuum_class_id.to_string());
 
         Self {
-            id: object.id,
+            id: object.id.into(),
             name: object.name.clone(),
             description: object.description.clone(),
             collection,
@@ -215,23 +215,23 @@ pub fn build_related_object_tree(
 ) -> Vec<RelatedObjectTreeNode> {
     let object_class_map = objects
         .iter()
-        .map(|object| (object.id, object.hubuum_class_id))
+        .map(|object| (object.id.into(), object.hubuum_class_id.into()))
         .chain(once((root_object_id, root_class_id)))
         .collect::<HashMap<_, _>>();
     let nodes = objects
         .iter()
         .map(|object| {
             (
-                object.id,
+                object.id.into(),
                 RelatedObjectTreeNode {
-                    id: object.id,
+                    id: object.id.into(),
                     class: class_map
-                        .get(&object.hubuum_class_id)
+                        .get(&object.hubuum_class_id.into())
                         .map(|class| class.name.clone())
                         .unwrap_or_else(|| object.hubuum_class_id.to_string()),
                     name: object.name.clone(),
                     collection: collection_map
-                        .get(&object.collection_id)
+                        .get(&object.collection_id.into())
                         .map(|collection| collection.name.clone())
                         .unwrap_or_else(|| object.collection_id.to_string()),
                     depth: object.path.len().saturating_sub(1),
@@ -243,7 +243,7 @@ pub fn build_related_object_tree(
 
     let mut roots = Vec::new();
     for object in objects {
-        if ignore_same_class && object.hubuum_class_id == root_class_id {
+        if ignore_same_class && i32::from(object.hubuum_class_id) == root_class_id {
             continue;
         }
 
@@ -251,14 +251,15 @@ pub fn build_related_object_tree(
             .path
             .iter()
             .copied()
+            .map(i32::from)
             .filter(|object_id| *object_id != root_object_id)
             .filter(|object_id| {
                 !ignore_same_class
                     || object_class_map.get(object_id).copied().unwrap_or_default() != root_class_id
             })
             .collect::<Vec<_>>();
-        if path.last().copied() != Some(object.id) {
-            path.push(object.id);
+        if path.last().copied() != Some(object.id.into()) {
+            path.push(object.id.into());
         }
         insert_object_path(&mut roots, &path, &nodes);
     }
@@ -276,12 +277,12 @@ pub fn build_related_class_tree(
         .iter()
         .map(|class| {
             (
-                class.id,
+                class.id.into(),
                 RelatedClassTreeNode {
-                    id: class.id,
+                    id: class.id.into(),
                     name: class.name.clone(),
                     collection: collection_map
-                        .get(&class.collection_id)
+                        .get(&class.collection_id.into())
                         .map(|collection| collection.name.clone())
                         .unwrap_or_else(|| class.collection_id.to_string()),
                     depth: class.path.len().saturating_sub(1),
@@ -297,15 +298,16 @@ pub fn build_related_class_tree(
             .path
             .iter()
             .copied()
+            .map(i32::from)
             .enumerate()
             .filter(|(index, class_id)| !(*index == 0 && *class_id == root_class_id))
             .filter(|(_, class_id)| !ignore_same_class || *class_id != root_class_id)
             .map(|(_, class_id)| class_id)
             .collect::<Vec<_>>();
-        if (!ignore_same_class || class.id != root_class_id)
-            && path.last().copied() != Some(class.id)
+        if (!ignore_same_class || i32::from(class.id) != root_class_id)
+            && path.last().copied() != Some(class.id.into())
         {
-            path.push(class.id);
+            path.push(class.id.into());
         }
         insert_class_path(&mut roots, &path, &nodes);
     }

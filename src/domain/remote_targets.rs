@@ -51,6 +51,7 @@ impl DetailRenderable for RemoteTargetRecord {
             RemoteAuthConfig::ApiKeySecret { header, .. } => {
                 format!("ApiKey header={header}, secret <redacted>")
             }
+            _ => "Unknown <redacted>".to_string(),
         };
         rows.push(("Auth config", auth_display));
         rows.push(("Created at", self.0.created_at.to_string()));

@@ -8,7 +8,8 @@ use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 use tokio::runtime::Handle;
 
 use crate::background::BackgroundManager;
-use crate::config::AppConfig;
+use crate::config::{get_config, AppConfig, UserPreferences};
+use crate::errors::AppError;
 
 pub use completion::CompletionContext;
 use completion::CompletionStore;
@@ -71,6 +72,15 @@ impl AppServices {
 
     pub fn invalidate_completion(&self) {
         self.completion.invalidate_all();
+    }
+
+    pub fn sync_user_preferences_if_enabled(&self) -> Result<(), AppError> {
+        let config = get_config();
+        if config.settings.store_on_server {
+            self.gateway
+                .store_user_preferences(&UserPreferences::from_config(&config))?;
+        }
+        Ok(())
     }
 
     pub(crate) fn completion_store(&self) -> CompletionStore {

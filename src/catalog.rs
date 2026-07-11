@@ -1070,7 +1070,13 @@ mod tests {
         assert!(plain.contains("create, delete, list, modify, show"));
         assert!(plain.contains("object"));
         assert!(plain.contains("create, delete, list, modify, show"));
-        assert!(plain.contains("event-subscription create, delete, list, show, update"));
+        assert!(plain.contains("event"));
+        assert!(plain.contains("delivery, sink, subscription"));
+        assert!(!plain.contains("event-subscription"));
+        let event_help = strip_ansi(&catalog.render_scope_help(&["event".to_string()]));
+        assert!(event_help.contains("delivery"));
+        assert!(event_help.contains("sink"));
+        assert!(event_help.contains("subscription"));
         assert!(plain.contains("collection"));
         assert!(plain.contains("principal-permissions"));
         assert_eq!(
@@ -1085,6 +1091,28 @@ mod tests {
         assert!(plain.contains("Shell:"));
         assert!(plain.contains("Use help shell"));
         assert!(!plain.contains("repl.enter_fetches_next_page"));
+    }
+
+    #[test]
+    fn event_commands_are_grouped_under_one_root_scope() {
+        let catalog = build_command_catalog();
+
+        for path in [
+            ["event", "sink", "list"],
+            ["event", "subscription", "list"],
+            ["event", "delivery", "list"],
+        ] {
+            let path = path.map(str::to_string);
+            assert!(catalog.resolve_command(&[], &path).is_ok(), "{path:?}");
+        }
+        for old_path in [
+            ["event-sink", "list"],
+            ["event-subscription", "list"],
+            ["event-delivery", "list"],
+        ] {
+            let path = old_path.map(str::to_string);
+            assert!(catalog.resolve_command(&[], &path).is_err(), "{path:?}");
+        }
     }
 
     #[test]
@@ -1146,21 +1174,21 @@ mod tests {
         let lines = render_scope_summary_at_width(
             "collection",
             "permissions, create, delete, list, modify, principal-permissions, show",
-            "event-subscription".len(),
+            "service-account".len(),
             120,
         );
 
         assert_eq!(
             lines,
             vec![
-                "  collection         permissions, create, delete, list, modify, principal-permissions, show"
+                "  collection      permissions, create, delete, list, modify, principal-permissions, show"
             ]
         );
     }
 
     #[test]
     fn scope_summary_wraps_at_a_fixed_narrow_width() {
-        let name_width = "event-subscription".len();
+        let name_width = "service-account".len();
         let lines = render_scope_summary_at_width(
             "collection",
             "permissions, create, delete, list, modify, principal-permissions, show",
@@ -1171,7 +1199,7 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("permissions, create, delete, list"));
         assert!(lines[1].starts_with(&" ".repeat(2 + name_width + 1)));
-        assert_eq!(lines[1].trim(), "modify, principal-permissions, show");
+        assert_eq!(lines[1].trim(), "principal-permissions, show");
     }
 
     #[test]
@@ -1351,9 +1379,9 @@ mod tests {
             "bg output --id",
             "bg show --id",
             "bg watch --task",
-            "event-delivery dead --id",
-            "event-delivery retry --id",
-            "event-delivery show --id",
+            "event delivery dead --id",
+            "event delivery retry --id",
+            "event delivery show --id",
             "import results --id",
             "import show --id",
             "jobs forget --id",
@@ -1415,9 +1443,9 @@ mod tests {
             (&["remote-target", "update"][..], "--name"),
             (&["remote-target", "delete"][..], "--name"),
             (&["remote-target", "invoke"][..], "--name"),
-            (&["event-delivery", "show"][..], "--id"),
-            (&["event-delivery", "retry"][..], "--id"),
-            (&["event-delivery", "dead"][..], "--id"),
+            (&["event", "delivery", "show"][..], "--id"),
+            (&["event", "delivery", "retry"][..], "--id"),
+            (&["event", "delivery", "dead"][..], "--id"),
             (&["audit", "resource"][..], "--name"),
             (&["collection", "principal-permissions"][..], "--principal"),
         ] {

@@ -9,8 +9,9 @@ use super::{desired_format, CliCommand};
 use crate::autocomplete::{config_keys, config_values};
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::{
-    config_key_names, get_config_state, reload_runtime_config, set_persisted_value,
-    unset_persisted_value, ConfigEntry, ConfigSource,
+    config_key_names, get_config, get_config_state, is_user_preference_key,
+    persist_user_preferences, reload_runtime_config, set_persisted_value, unset_persisted_value,
+    ConfigEntry, ConfigSource, UserPreferences,
 };
 use crate::errors::AppError;
 use crate::models::OutputFormat;
@@ -79,6 +80,48 @@ show --key server.hostname"#,
                         "Remove a configuration value from the active writable config file so lower-precedence sources can take effect again, then reload the current CLI session.",
                     ),
                     examples: Some("--key repl.enter_fetches_next_page"),
+                },
+            ),
+        )
+        .add_command(
+            &["config"],
+            catalog_command(
+                "export",
+                ConfigExport::default(),
+                CommandDocs {
+                    about: Some("Export local preferences to the server"),
+                    long_about: Some(
+                        "Store portable CLI preferences in the authenticated principal's settings under the 'hubuum-cli' namespace. Connection credentials and machine-specific settings are excluded.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["config"],
+            catalog_command(
+                "import",
+                ConfigImport::default(),
+                CommandDocs {
+                    about: Some("Import preferences from the server"),
+                    long_about: Some(
+                        "Load the authenticated principal's 'hubuum-cli' settings into the active writable config file and reload the current session.",
+                    ),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["config"],
+            catalog_command(
+                "store",
+                ConfigStore::default(),
+                CommandDocs {
+                    about: Some("Configure automatic server storage"),
+                    long_about: Some(
+                        "Enable or disable copying portable preferences to the server after local config set and unset operations. Enabling it also exports the current preferences immediately.",
+                    ),
+                    examples: Some("--enabled true\n--enabled false"),
                 },
             ),
         );
@@ -168,11 +211,14 @@ pub struct ConfigSet {
 }
 
 impl CliCommand for ConfigSet {
-    fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let path = set_persisted_value(&query.key, &query.value)?;
         reload_runtime_config()?;
-        _services.invalidate_completion();
+        services.invalidate_completion();
+        if is_user_preference_key(&query.key) {
+            services.sync_user_preferences_if_enabled()?;
+        }
         let message = PersistMessage {
             key: query.key,
             path: path.display().to_string(),
@@ -203,11 +249,14 @@ pub struct ConfigUnset {
 }
 
 impl CliCommand for ConfigUnset {
-    fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let path = unset_persisted_value(&query.key)?;
         reload_runtime_config()?;
-        _services.invalidate_completion();
+        services.invalidate_completion();
+        if is_user_preference_key(&query.key) {
+            services.sync_user_preferences_if_enabled()?;
+        }
         let message = PersistMessage {
             key: query.key,
             path: path.display().to_string(),
@@ -224,6 +273,85 @@ impl CliCommand for ConfigUnset {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Serialize, Clone, CommandArgs, Default)]
+pub struct ConfigExport {}
+
+impl CliCommand for ConfigExport {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let _query = Self::parse_tokens(tokens)?;
+        let preferences = UserPreferences::from_config(&get_config());
+        let stored = services.gateway().store_user_preferences(&preferences)?;
+        render_preferences_result(tokens, &stored, "Exported preferences to the server.")
+    }
+}
+
+#[derive(Debug, Serialize, Clone, CommandArgs, Default)]
+pub struct ConfigImport {}
+
+impl CliCommand for ConfigImport {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let _query = Self::parse_tokens(tokens)?;
+        let preferences = services.gateway().load_user_preferences()?;
+        let path = persist_user_preferences(&preferences)?;
+        reload_runtime_config()?;
+        services.invalidate_completion();
+        render_preferences_result(
+            tokens,
+            &preferences,
+            &format!(
+                "Imported server preferences into {} and reloaded the current session.",
+                path.display()
+            ),
+        )
+    }
+}
+
+#[derive(Debug, Serialize, Clone, CommandArgs, Default)]
+pub struct ConfigStore {
+    #[option(
+        long = "enabled",
+        help = "Whether local config changes are copied to the server"
+    )]
+    pub enabled: bool,
+}
+
+impl CliCommand for ConfigStore {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let path = set_persisted_value("settings.store_on_server", &query.enabled.to_string())?;
+        reload_runtime_config()?;
+        services.invalidate_completion();
+        if query.enabled {
+            services.sync_user_preferences_if_enabled()?;
+        }
+        let message = format!(
+            "Automatic server storage {} in {}.",
+            if query.enabled { "enabled" } else { "disabled" },
+            path.display()
+        );
+        match desired_format(tokens) {
+            OutputFormat::Json => append_line(to_string_pretty(&json!({
+                "enabled": query.enabled,
+                "path": path,
+            }))?)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+        Ok(())
+    }
+}
+
+fn render_preferences_result(
+    tokens: &CommandTokenizer,
+    preferences: &UserPreferences,
+    message: &str,
+) -> Result<(), AppError> {
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(to_string_pretty(preferences)?)?,
+        OutputFormat::Text => append_line(message)?,
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -294,8 +422,10 @@ fn format_source_kind(entry: &ConfigEntry) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::format_source_kind;
+    use super::{format_source_kind, ConfigStore};
+    use crate::commands::command_options;
     use crate::config::{ConfigEntry, ConfigSource};
+    use crate::tokenizer::CommandTokenizer;
 
     #[test]
     fn format_source_kind_uses_short_labels() {
@@ -309,5 +439,17 @@ mod tests {
             }),
             "env"
         );
+    }
+
+    #[test]
+    fn store_command_requires_and_parses_boolean_value() {
+        let tokens = CommandTokenizer::new(
+            "store --enabled true",
+            "store",
+            &command_options::<ConfigStore>(),
+        )
+        .expect("tokenization should succeed");
+        let parsed = ConfigStore::parse_tokens(&tokens).expect("store options should parse");
+        assert!(parsed.enabled);
     }
 }

@@ -123,7 +123,7 @@ impl HubuumGateway {
                     .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
                 let object = self.object_handle_by_name(class_name, name)?;
                 Ok(AuditScope::Object {
-                    class_id: object.resource().hubuum_class_id,
+                    class_id: object.resource().hubuum_class_id.into(),
                     object_id: object.id().into(),
                 })
             }
@@ -266,7 +266,7 @@ impl HubuumGateway {
             } => {
                 let object = self.object_handle_by_name(&class_name, &object_name)?;
                 Ok(HistoryScope::Object {
-                    class_id: object.resource().hubuum_class_id,
+                    class_id: object.resource().hubuum_class_id.into(),
                     object_id: object.id().into(),
                 })
             }
@@ -427,7 +427,7 @@ impl HubuumGateway {
             .limit(2)
             .page()?;
         match page.items.as_slice() {
-            [subscription] => Ok(subscription.id),
+            [subscription] => Ok(subscription.id.into()),
             [] => Err(AppError::EntityNotFound(format!(
                 "event subscription '{name}'"
             ))),

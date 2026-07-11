@@ -117,8 +117,9 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenti
             config.server.protocol, config.server.hostname, config.server.port
         ))?;
 
-        let client =
-            BlockingClient::new_with_certificate_validation(baseurl, config.server.ssl_validation);
+        let client = BlockingClient::builder(baseurl)
+            .validate_certs(config.server.ssl_validation)
+            .build()?;
 
         authenticate(
             client,
@@ -156,7 +157,7 @@ fn authenticate(
     write_token_to_tokenfile(TokenEntry {
         hostname: hostname.to_string(),
         username: username.to_string(),
-        token: client.get_token().to_string(),
+        token: client.token().to_string(),
     })?;
 
     Ok(client)

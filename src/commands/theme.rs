@@ -234,6 +234,7 @@ impl CliCommand for ThemeUse {
         let path = set_persisted_value("output.theme", &name)?;
         reload_runtime_config()?;
         services.invalidate_completion();
+        services.sync_user_preferences_if_enabled()?;
 
         match desired_format(tokens) {
             OutputFormat::Json => append_line(&to_string_pretty(&json!({

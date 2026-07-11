@@ -45,12 +45,13 @@ impl HubuumGateway {
             .collect()
     }
 
-    pub(super) fn class_map_from_ids<I>(
+    pub(super) fn class_map_from_ids<I, Id>(
         &self,
         class_ids: I,
     ) -> Result<HashMap<i32, Class>, AppError>
     where
-        I: IntoIterator<Item = i32>,
+        I: IntoIterator<Item = Id>,
+        Id: Into<i32>,
     {
         fetch_entities_for_ids(&self.client.classes(), unique_ids(class_ids))
     }
@@ -171,12 +172,13 @@ impl HubuumGateway {
         Ok(self.client.collections().get_by_name(name)?.id().into())
     }
 
-    pub(super) fn collection_map_from_ids<I>(
+    pub(super) fn collection_map_from_ids<I, Id>(
         &self,
         collection_ids: I,
     ) -> Result<HashMap<i32, Collection>, AppError>
     where
-        I: IntoIterator<Item = i32>,
+        I: IntoIterator<Item = Id>,
+        Id: Into<i32>,
     {
         fetch_entities_for_ids(&self.client.collections(), unique_ids(collection_ids))
     }
@@ -213,7 +215,7 @@ fn is_missing_api_error(error: &ClientApiError) -> bool {
     ) || matches!(error, ClientApiError::EmptyResult(_))
 }
 
-pub(super) fn find_entities_by_ids<T, I, F>(
+pub(super) fn find_entities_by_ids<T, I, F, Id>(
     resource: &Resource<T>,
     objects: I,
     extract_id: F,
@@ -222,29 +224,33 @@ where
     T: ApiResource,
     I: IntoIterator,
     I::Item: Copy,
-    F: Fn(I::Item) -> i32,
+    F: Fn(I::Item) -> Id,
+    Id: Into<i32>,
     T::GetOutput: GetID,
 {
     fetch_entities_for_ids(resource, unique_ids(objects.into_iter().map(extract_id)))
 }
 
-fn unique_ids<I>(ids: I) -> Vec<i32>
+fn unique_ids<I, Id>(ids: I) -> Vec<i32>
 where
-    I: IntoIterator<Item = i32>,
+    I: IntoIterator<Item = Id>,
+    Id: Into<i32>,
 {
     ids.into_iter()
+        .map(Into::into)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect()
 }
 
-fn fetch_entities_for_ids<T, I>(
+fn fetch_entities_for_ids<T, I, Id>(
     resource: &Resource<T>,
     ids: I,
 ) -> Result<HashMap<i32, T::GetOutput>, AppError>
 where
     T: ApiResource,
-    I: IntoIterator<Item = i32>,
+    I: IntoIterator<Item = Id>,
+    Id: Into<i32>,
     T::GetOutput: GetID,
 {
     let ids = unique_ids(ids);

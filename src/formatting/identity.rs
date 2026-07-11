@@ -9,6 +9,7 @@ impl DetailRenderable for MeRecord {
             ("Principal ID", me.principal.principal_id.to_string()),
             ("Kind", me.principal.kind.clone()),
             ("Name", me.principal.name.clone()),
+            ("Identity Scope", me.principal.identity_scope.clone()),
             ("Token ID", me.token.id.to_string()),
             (
                 "Token Name",
@@ -158,3 +159,40 @@ impl TableRenderable for PrincipalPermissionsRecord {
     }
 }
 use std::collections::HashSet;
+
+#[cfg(test)]
+mod tests {
+    use hubuum_client::MeResponse;
+    use serde_json::json;
+
+    use super::DetailRenderable;
+    use crate::domain::MeRecord;
+
+    #[test]
+    fn me_details_show_identity_scope() {
+        let response: MeResponse = serde_json::from_value(json!({
+            "principal": {
+                "principal_id": 1,
+                "identity_scope": "example-directory",
+                "kind": "human",
+                "name": "admin",
+                "created_at": null,
+                "updated_at": null
+            },
+            "token": {
+                "id": 9,
+                "name": null,
+                "description": null,
+                "scoped": false,
+                "scopes": null,
+                "issued": "2026-07-11T08:47:51Z",
+                "expires_at": null,
+                "last_used_at": null
+            }
+        }))
+        .expect("me response should deserialize");
+
+        let rows = MeRecord(response).detail_rows();
+        assert!(rows.contains(&("Identity Scope", "example-directory".to_string())));
+    }
+}

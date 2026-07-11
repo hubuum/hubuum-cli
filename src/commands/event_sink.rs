@@ -18,11 +18,11 @@ use crate::tokenizer::CommandTokenizer;
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command("list", EventSinkList::default(), docs("List event sinks")),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "show",
                 EventSinkShow::default(),
@@ -30,7 +30,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "create",
                 EventSinkCreate::default(),
@@ -38,7 +38,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "update",
                 EventSinkUpdate::default(),
@@ -46,7 +46,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "delete",
                 EventSinkDelete::default(),

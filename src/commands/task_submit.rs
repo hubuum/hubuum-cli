@@ -48,7 +48,7 @@ pub fn run_task_backed(
     task: TaskRecord,
 ) -> Result<(), AppError> {
     let label = label.into();
-    let task_id = task.0.id;
+    let task_id = task.0.id.into();
     let kind = task.0.kind;
 
     if opts.wait {

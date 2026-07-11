@@ -91,11 +91,70 @@ pub enum ConfigSource {
 pub struct AppConfig {
     pub server: ServerConfig,
     pub cache: CacheConfig,
+    #[serde(default)]
+    pub settings: SettingsConfig,
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
     pub relations: RelationsConfig,
     pub output: OutputConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SettingsConfig {
+    pub store_on_server: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserPreferences {
+    pub completion: CompletionConfig,
+    pub background: BackgroundConfig,
+    pub repl: ReplConfig,
+    pub relations: RelationsConfig,
+    pub output: UserOutputPreferences,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserOutputPreferences {
+    pub format: OutputFormat,
+    pub color: OutputColor,
+    pub theme: String,
+    pub padding: i8,
+    pub table_style: TableStyle,
+    pub table_width: TableWidth,
+    pub table_wrap: TableWrap,
+    pub table_bands: TableBands,
+    pub empty_result: EmptyResult,
+    pub object_show_data: bool,
+    pub object_list_data_columns: ObjectListDataColumns,
+    pub object_list_class_columns: HashMap<String, Vec<String>>,
+    pub object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
+}
+
+impl UserPreferences {
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self {
+            completion: config.completion.clone(),
+            background: config.background.clone(),
+            repl: config.repl.clone(),
+            relations: config.relations.clone(),
+            output: UserOutputPreferences {
+                format: config.output.format.clone(),
+                color: config.output.color,
+                theme: config.output.theme.clone(),
+                padding: config.output.padding,
+                table_style: config.output.table_style.clone(),
+                table_width: config.output.table_width.clone(),
+                table_wrap: config.output.table_wrap.clone(),
+                table_bands: config.output.table_bands,
+                empty_result: config.output.empty_result,
+                object_show_data: config.output.object_show_data,
+                object_list_data_columns: config.output.object_list_data_columns,
+                object_list_class_columns: config.output.object_list_class_columns.clone(),
+                object_list_class_meta: config.output.object_list_class_meta.clone(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -190,6 +249,13 @@ struct ConfigKeyDescriptor {
 }
 
 const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
+    ConfigKeyDescriptor {
+        key: "settings.store_on_server",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__SETTINGS__STORE_ON_SERVER",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
     ConfigKeyDescriptor {
         key: "server.hostname",
         cli_arg: Some("hostname"),
@@ -412,6 +478,7 @@ impl Default for AppConfig {
                 size: Defaults::CACHE_SIZE,
                 disable: Defaults::CACHE_DISABLE,
             },
+            settings: SettingsConfig::default(),
             completion: CompletionConfig {
                 disable_api_related: Defaults::COMPLETION_DISABLE_API_RELATED,
             },
@@ -456,6 +523,15 @@ pub fn config_key_names() -> Vec<&'static str> {
         .iter()
         .map(|descriptor| descriptor.key)
         .collect()
+}
+
+pub fn is_user_preference_key(key: &str) -> bool {
+    (key.starts_with("completion.")
+        || key.starts_with("background.")
+        || key.starts_with("repl.")
+        || key.starts_with("relations.")
+        || key.starts_with("output."))
+        && key != "output.theme_file"
 }
 
 pub fn config_value_candidates(key: &str) -> Vec<String> {
@@ -592,6 +668,49 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
     Ok(path)
 }
 
+pub fn persist_user_preferences(preferences: &UserPreferences) -> Result<PathBuf, AppError> {
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    merge_user_preferences(&mut root, preferences)?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
+}
+
+fn merge_user_preferences(
+    root: &mut TomlValue,
+    preferences: &UserPreferences,
+) -> Result<(), AppError> {
+    let serialized = TomlValue::try_from(preferences)
+        .map_err(|error| AppError::ConfigError(error.to_string()))?;
+    let preference_sections = serialized.as_table().ok_or_else(|| {
+        AppError::ConfigError("Serialized user preferences must be a TOML table".to_string())
+    })?;
+    let target = root
+        .as_table_mut()
+        .ok_or_else(|| AppError::ConfigError("Config root is not a TOML table".to_string()))?;
+
+    for section in ["completion", "background", "repl", "relations"] {
+        if let Some(value) = preference_sections.get(section) {
+            target.insert(section.to_string(), value.clone());
+        }
+    }
+    let output = preference_sections
+        .get("output")
+        .and_then(TomlValue::as_table)
+        .ok_or_else(|| {
+            AppError::ConfigError("Serialized output preferences must be a TOML table".to_string())
+        })?;
+    let target_output = target
+        .entry("output".to_string())
+        .or_insert_with(|| TomlValue::Table(TomlMap::new()))
+        .as_table_mut()
+        .ok_or_else(|| AppError::ConfigError("Config output must be a TOML table".to_string()))?;
+    for (key, value) in output {
+        target_output.insert(key.clone(), value.clone());
+    }
+    Ok(())
+}
+
 pub fn reload_runtime_config() -> Result<(), AppError> {
     let previous_state = get_config_state();
     let custom = previous_state.paths.custom.clone();
@@ -725,6 +844,7 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default("cache.time", Defaults::CACHE_TIME)?
         .set_default("cache.size", Defaults::CACHE_SIZE)?
         .set_default("cache.disable", Defaults::CACHE_DISABLE)?
+        .set_default("settings.store_on_server", false)?
         .set_default(
             "completion.disable_api_related",
             Defaults::COMPLETION_DISABLE_API_RELATED,
@@ -893,6 +1013,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "cache.time" => ConfigValueRef::U64(config.cache.time),
         "cache.size" => ConfigValueRef::I32(config.cache.size),
         "cache.disable" => ConfigValueRef::Bool(config.cache.disable),
+        "settings.store_on_server" => ConfigValueRef::Bool(config.settings.store_on_server),
         "completion.disable_api_related" => {
             ConfigValueRef::Bool(config.completion.disable_api_related)
         }
@@ -1239,6 +1360,7 @@ mod tests {
     /// Helper to clear all HUBUUM_CLI_... vars we use in this test.
     fn clear_env() {
         for &var in &[
+            "HUBUUM_CLI__SETTINGS__STORE_ON_SERVER",
             "HUBUUM_CLI__SERVER__HOSTNAME",
             "HUBUUM_CLI__SERVER__PORT",
             "HUBUUM_CLI__SERVER__SSL_VALIDATION",
@@ -1466,6 +1588,18 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
     }
 
     #[test]
+    fn server_sync_only_includes_portable_preference_keys() {
+        assert!(is_user_preference_key("output.theme"));
+        assert!(is_user_preference_key(
+            "output.object_list_class_columns.Hosts"
+        ));
+        assert!(is_user_preference_key("repl.enter_fetches_next_page"));
+        assert!(!is_user_preference_key("output.theme_file"));
+        assert!(!is_user_preference_key("server.hostname"));
+        assert!(!is_user_preference_key("settings.store_on_server"));
+    }
+
+    #[test]
     #[serial]
     fn source_resolution_prefers_env_over_user_file() {
         clear_env();
@@ -1576,5 +1710,52 @@ object_show_data = false
 
         let _ = remove_file(config_path);
         clear_env();
+    }
+
+    #[test]
+    fn imported_preferences_preserve_local_and_server_specific_values() {
+        let mut root: TomlValue = parse_toml(
+            r#"
+[server]
+hostname = "local.example.com"
+
+[cache]
+time = 123
+
+[settings]
+store_on_server = true
+
+[output]
+theme = "old-theme"
+theme_file = "/machine/specific/themes.toml"
+"#,
+        )
+        .expect("test TOML should parse");
+        let mut config = AppConfig::default();
+        config.output.theme = "hubuum-light".to_string();
+        let preferences = UserPreferences::from_config(&config);
+
+        merge_user_preferences(&mut root, &preferences).expect("preferences should merge");
+
+        assert_eq!(
+            toml_get(&root, "server.hostname").and_then(TomlValue::as_str),
+            Some("local.example.com")
+        );
+        assert_eq!(
+            toml_get(&root, "cache.time").and_then(TomlValue::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            toml_get(&root, "settings.store_on_server").and_then(TomlValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme").and_then(TomlValue::as_str),
+            Some("hubuum-light")
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme_file").and_then(TomlValue::as_str),
+            Some("/machine/specific/themes.toml")
+        );
     }
 }

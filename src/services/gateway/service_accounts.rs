@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions, ServiceAccountPost};
+use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions};
 use std::str::FromStr;
 
 use crate::domain::{PrincipalTokenRecord, ServiceAccountRecord};
@@ -35,16 +35,16 @@ impl HubuumGateway {
         &self,
         input: CreateServiceAccountInput,
     ) -> Result<ServiceAccountRecord, AppError> {
-        let sa = self
+        let mut create = self
             .client
             .service_accounts()
-            .create()
-            .params(ServiceAccountPost {
-                name: input.name,
-                description: input.description,
-                owner_group_id: input.owner_group_id,
-            })
-            .send()?;
+            .create_checked()
+            .name(input.name)
+            .owner_group_id(input.owner_group_id);
+        if let Some(description) = input.description {
+            create = create.description(description);
+        }
+        let sa = create.send()?;
 
         Ok(ServiceAccountRecord::from(sa))
     }

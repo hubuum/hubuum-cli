@@ -98,13 +98,17 @@ fn parse_subject_type(type_str: &str) -> Result<RemoteTargetSubjectType, AppErro
 fn parse_auth_config(input: RemoteAuthConfigInput) -> RemoteAuthConfig {
     match input {
         RemoteAuthConfigInput::None => RemoteAuthConfig::None,
-        RemoteAuthConfigInput::BearerSecret { secret } => RemoteAuthConfig::BearerSecret { secret },
-        RemoteAuthConfigInput::BasicSecret { username, secret } => {
-            RemoteAuthConfig::BasicSecret { username, secret }
-        }
-        RemoteAuthConfigInput::ApiKeySecret { header, secret } => {
-            RemoteAuthConfig::ApiKeySecret { header, secret }
-        }
+        RemoteAuthConfigInput::BearerSecret { secret } => RemoteAuthConfig::BearerSecret {
+            secret: secret.into(),
+        },
+        RemoteAuthConfigInput::BasicSecret { username, secret } => RemoteAuthConfig::BasicSecret {
+            username,
+            secret: secret.into(),
+        },
+        RemoteAuthConfigInput::ApiKeySecret { header, secret } => RemoteAuthConfig::ApiKeySecret {
+            header,
+            secret: secret.into(),
+        },
     }
 }
 
@@ -117,14 +121,16 @@ fn build_invocation_subject(
             let collection_id = gateway.collection_id(input.collection.as_deref().ok_or_else(|| {
                 AppError::MissingOptions(vec!["collection".to_string()])
             })?)?;
-            Ok(RemoteInvocationSubject::Collection { collection_id })
+            Ok(RemoteInvocationSubject::Collection {
+                collection_id: collection_id.into(),
+            })
         }
         "class" => {
             let class_id = gateway
                 .class_handle_by_name(input.class.as_deref().ok_or_else(|| {
                     AppError::MissingOptions(vec!["class".to_string()])
                 })?)?
-                .id().into();
+                .id();
             Ok(RemoteInvocationSubject::Class { class_id })
         }
         "object" => {
@@ -140,7 +146,7 @@ fn build_invocation_subject(
                     .ok_or_else(|| AppError::MissingOptions(vec!["object".to_string()]))?,
             )?;
             let class_id = object.resource().hubuum_class_id;
-            let object_id = object.id().into();
+            let object_id = object.id();
             Ok(RemoteInvocationSubject::Object { class_id, object_id })
         }
         "class_relation" | "classrelation" => {
@@ -155,7 +161,9 @@ fn build_invocation_subject(
                     .ok_or_else(|| AppError::MissingOptions(vec!["class-b".to_string()]))?,
             )?;
             let relation_id = relation.id;
-            Ok(RemoteInvocationSubject::ClassRelation { relation_id })
+            Ok(RemoteInvocationSubject::ClassRelation {
+                relation_id: relation_id.into(),
+            })
         }
         "object_relation" | "objectrelation" => {
             let relation = gateway.get_object_relation_v2(&RelationTarget {
@@ -177,7 +185,9 @@ fn build_invocation_subject(
                     .ok_or_else(|| AppError::MissingOptions(vec!["object-b".to_string()]))?),
             })?;
             let relation_id = relation.id;
-            Ok(RemoteInvocationSubject::ObjectRelation { relation_id })
+            Ok(RemoteInvocationSubject::ObjectRelation {
+                relation_id: relation_id.into(),
+            })
         }
         _ => Err(AppError::ParseError(format!(
             "Invalid subject kind '{}'. Valid values: collection, class, object, class_relation, object_relation",
@@ -211,7 +221,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let new_target = NewRemoteTarget {
-            collection_id: self.collection_id(&input.collection)?,
+            collection_id: self.collection_id(&input.collection)?.into(),
             name: input.name,
             description: input.description,
             method,
@@ -222,22 +232,14 @@ impl HubuumGateway {
             class_id: input
                 .class
                 .as_deref()
-                .map(|class| {
-                    self.class_handle_by_name(class)
-                        .map(|handle| handle.id().into())
-                })
+                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
                 .transpose()?,
             enabled: input.enabled,
             headers_template: input.headers_template,
             timeout_ms: input.timeout_ms,
         };
 
-        let target = self
-            .client
-            .remote_targets()
-            .create()
-            .params(new_target)
-            .send()?;
+        let target = self.client.remote_targets().create_raw(new_target)?;
         Ok(RemoteTargetRecord::from(target))
     }
 
@@ -295,7 +297,8 @@ impl HubuumGateway {
                 .collection
                 .as_deref()
                 .map(|collection| self.collection_id(collection))
-                .transpose()?,
+                .transpose()?
+                .map(Into::into),
             method,
             url_template: input.url_template,
             headers_template: input.headers_template,
@@ -305,10 +308,7 @@ impl HubuumGateway {
             class_id: input
                 .class
                 .as_deref()
-                .map(|class| {
-                    self.class_handle_by_name(class)
-                        .map(|handle| handle.id().into())
-                })
+                .map(|class| self.class_handle_by_name(class).map(|handle| handle.id()))
                 .transpose()?,
             enabled: input.enabled,
             timeout_ms: input.timeout_ms,

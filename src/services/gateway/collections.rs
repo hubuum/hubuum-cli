@@ -46,7 +46,7 @@ impl HubuumGateway {
         let collection = self.client.collections().create_raw(CollectionPost {
             name: input.name,
             description: input.description,
-            group_id: group.id().into(),
+            group_id: group.id(),
             parent_collection_id: None,
         })?;
         Ok(CollectionRecord::from(collection))
@@ -130,7 +130,7 @@ impl HubuumGateway {
         let collection = self.client.collections().get_by_name(collection_name)?;
         let group = self.client.groups().get_by_name(group_name)?;
         collection.grant_permissions(
-            group.id().into(),
+            group.id(),
             permissions
                 .iter()
                 .map(|permission| permission.api_name())

@@ -77,8 +77,8 @@ impl HubuumGateway {
 
         let object = self.client.objects(class.id()).create_raw(ObjectPost {
             name: input.name,
-            hubuum_class_id: class.id().into(),
-            collection_id: collection.id().into(),
+            hubuum_class_id: class.id(),
+            collection_id: collection.id(),
             description: input.description,
             data: input.data,
         })?;
@@ -141,7 +141,7 @@ impl HubuumGateway {
                 FilterOperator::Lte { is_negated: false },
                 options.max_depth,
             )
-            .fetch()?;
+            .send()?;
         let graph_class_map = self.class_map_from_ids(
             related_graph
                 .objects
@@ -237,11 +237,11 @@ impl HubuumGateway {
 
         if let Some(collection) = input.collection {
             let collection = self.client.collections().get_by_name(&collection)?;
-            patch.collection_id = Some(collection.id().into());
+            patch.collection_id = Some(collection.id());
         }
         if let Some(reclass) = input.reclass {
             let reclass = self.client.classes().get_by_name(&reclass)?;
-            patch.hubuum_class_id = Some(reclass.id().into());
+            patch.hubuum_class_id = Some(reclass.id());
         }
         if let Some(rename) = input.rename {
             patch.name = Some(rename);

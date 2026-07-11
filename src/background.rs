@@ -145,7 +145,7 @@ impl BackgroundManager {
                     id,
                     BackgroundJob {
                         id,
-                        task_id: task.0.id,
+                        task_id: task.0.id.into(),
                         label: label.into(),
                         task: Some(task.clone()),
                         last_error: None,
@@ -157,7 +157,7 @@ impl BackgroundManager {
                 (
                     BackgroundWatchRegistration {
                         local_id: id,
-                        task_id: task.0.id,
+                        task_id: task.0.id.into(),
                         created: true,
                     },
                     should_spawn,
@@ -445,7 +445,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use hubuum_client::{TaskKind, TaskLinks, TaskProgress, TaskResponse, TaskStatus};
+    use hubuum_client::{TaskResponse, TaskStatus};
+    use serde_json::json;
     use tokio::runtime::{Handle, Runtime};
     use tokio::time::sleep;
 
@@ -524,40 +525,34 @@ mod tests {
     }
 
     fn task(task_id: i32, status: TaskStatus, summary: Option<&str>) -> TaskRecord {
-        TaskRecord(TaskResponse {
-            id: task_id,
-            kind: TaskKind::Import,
-            status,
-            submitted_by: Some(1),
-            created_at: Default::default(),
-            started_at: None,
-            finished_at: None,
-            progress: TaskProgress {
-                total_items: 1,
-                processed_items: if matches!(status, TaskStatus::Queued) {
-                    0
-                } else {
-                    1
-                },
-                success_items: if matches!(status, TaskStatus::Succeeded) {
-                    1
-                } else {
-                    0
-                },
-                failed_items: 0,
+        let response: TaskResponse = serde_json::from_value(json!({
+            "id": task_id,
+            "kind": "import",
+            "status": status,
+            "submitted_by": 1,
+            "created_at": "1970-01-01T00:00:00Z",
+            "started_at": null,
+            "finished_at": null,
+            "progress": {
+                "total_items": 1,
+                "processed_items": if matches!(status, TaskStatus::Queued) { 0 } else { 1 },
+                "success_items": if matches!(status, TaskStatus::Succeeded) { 1 } else { 0 },
+                "failed_items": 0
             },
-            summary: summary.map(str::to_string),
-            request_redacted_at: None,
-            links: TaskLinks {
-                task: format!("/api/v1/tasks/{task_id}"),
-                events: format!("/api/v1/tasks/{task_id}/events"),
-                import_url: Some(format!("/api/v1/imports/{task_id}")),
-                import_results: Some(format!("/api/v1/imports/{task_id}/results")),
-                export: None,
-                export_output: None,
+            "summary": summary,
+            "request_redacted_at": null,
+            "links": {
+                "task": format!("/api/v1/tasks/{task_id}"),
+                "events": format!("/api/v1/tasks/{task_id}/events"),
+                "import": format!("/api/v1/imports/{task_id}"),
+                "import_results": format!("/api/v1/imports/{task_id}/results"),
+                "export": null,
+                "export_output": null
             },
-            details: None,
-        })
+            "details": null
+        }))
+        .expect("test task should deserialize");
+        TaskRecord(response)
     }
 
     #[test]

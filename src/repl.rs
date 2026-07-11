@@ -135,6 +135,7 @@ fn run_thread(
                 clear_pending_pagination(&session);
                 continue;
             }
+            _ => continue,
         }
     }
 
@@ -1386,7 +1387,7 @@ mod tests {
             "collection".to_string(),
             "modify".to_string(),
             "--name".to_string(),
-            "UiO-wide".to_string(),
+            "Organization-wide".to_string(),
         ];
         assert!(!is_completing_option_value(&parts, true));
     }

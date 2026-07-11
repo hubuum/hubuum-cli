@@ -4,8 +4,7 @@ use std::str::FromStr;
 use hubuum_client::{
     ClassId, ExportContentType, ExportInclude, ExportIncludeRelatedObject, ExportLimits,
     ExportMissingDataPolicy, ExportRelationContext, ExportRequest, ExportScope, ExportScopeKind,
-    ExportTemplateKind, ExportTemplatePatch, ExportTemplatePost, ExportTemplateRunRequest,
-    ObjectId, ResourceId,
+    ExportTemplateKind, ExportTemplatePatch, ExportTemplateRunRequest, ObjectId,
 };
 
 use crate::domain::{ExportTemplateRecord, TaskRecord};
@@ -65,7 +64,7 @@ fn parse_include_related_spec(
     spec: &str,
 ) -> Result<(String, ExportIncludeRelatedObject), AppError> {
     let (key, class_name, max_depth) = parse_include_related_spec_parts(spec)?;
-    let class_id = gateway.class_handle_by_name(&class_name)?.id().into();
+    let class_id = gateway.class_handle_by_name(&class_name)?.id();
 
     Ok((
         key,
@@ -193,22 +192,13 @@ impl HubuumGateway {
         let template = self
             .client
             .export_templates()
-            .create()
-            .params(ExportTemplatePost {
-                collection_id: collection.id().into(),
-                name: input.name,
-                description: input.description,
-                content_type,
-                template: input.template,
-                kind: ExportTemplateKind::Export,
-                scope_kind: None,
-                class_id: None,
-                default_query: None,
-                include: None,
-                relation_context: None,
-                default_missing_data_policy: None,
-                default_limits: None,
-            })
+            .create_checked()
+            .collection_id(collection.id())
+            .name(input.name)
+            .description(input.description)
+            .content_type(content_type)
+            .template(input.template)
+            .kind(ExportTemplateKind::Export)
             .send()?;
 
         let collectionmap =
@@ -221,14 +211,8 @@ impl HubuumGateway {
         input: UpdateExportTemplateInput,
     ) -> Result<ExportTemplateRecord, AppError> {
         let template = self.client.export_templates().get_by_name(&input.name)?;
-        let collection_id: Option<i32> = match input.collection {
-            Some(collection) => Some(
-                self.client
-                    .collections()
-                    .get_by_name(&collection)?
-                    .id()
-                    .into(),
-            ),
+        let collection_id = match input.collection {
+            Some(collection) => Some(self.client.collections().get_by_name(&collection)?.id()),
             None => None,
         };
 
@@ -323,9 +307,9 @@ impl HubuumGateway {
             missing_data_policy,
             query: input.query.clone(),
             scope: ExportScope {
-                class_id: class_id.map(ResourceId::get),
+                class_id,
                 kind: scope_kind,
-                object_id: object_id.map(ResourceId::get),
+                object_id,
             },
             include,
             relation_context,
@@ -360,7 +344,7 @@ impl HubuumGateway {
             };
             let request = ExportTemplateRunRequest {
                 query: input.query,
-                object_id: object_id.map(ResourceId::get),
+                object_id,
                 missing_data_policy,
                 limits,
             };
@@ -466,6 +450,11 @@ fn validate_export_scope(
             if object_id.is_none() {
                 return Err(AppError::MissingOptions(vec!["object".to_string()]));
             }
+        }
+        _ => {
+            return Err(AppError::ParseError(format!(
+                "unsupported export scope: {scope_kind}"
+            )));
         }
     }
 
