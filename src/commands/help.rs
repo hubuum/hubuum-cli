@@ -8,6 +8,7 @@ use crate::tokenizer::CommandTokenizer;
 use super::builder::{catalog_command, CommandDocs};
 use super::CliCommand;
 use crate::catalog::CommandCatalogBuilder;
+use crate::commands::build_command_catalog;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder.add_command(
@@ -35,7 +36,7 @@ impl CliCommand for Help {
         let options = tokens.get_options();
         if options.get("tree").is_some() {
             let _ = services;
-            append_line(crate::commands::build_command_catalog().render_tree())?;
+            append_line(build_command_catalog().render_tree())?;
             return Ok(());
         }
 

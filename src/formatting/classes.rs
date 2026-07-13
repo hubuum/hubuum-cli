@@ -10,7 +10,7 @@ impl DetailRenderable for ClassRecord {
         vec![
             ("Name", class.name.clone()),
             ("Description", class.description.clone()),
-            ("Namespace", class.namespace.name.clone()),
+            ("Collection", class.collection.name.clone()),
             ("Schema", schema),
             (
                 "Validate",
@@ -30,7 +30,7 @@ impl TableRenderable for ClassRecord {
             "id",
             "Name",
             "Description",
-            "Namespace",
+            "Collection",
             "Schema",
             "Validate",
             "Created",
@@ -44,7 +44,7 @@ impl TableRenderable for ClassRecord {
             class.id.to_string(),
             class.name.clone(),
             class.description.clone(),
-            class.namespace.name.clone(),
+            class.collection.name.clone(),
             schema_label(class.json_schema.as_ref()),
             class
                 .validate_schema
@@ -55,7 +55,7 @@ impl TableRenderable for ClassRecord {
     }
 }
 
-fn schema_label(schema: Option<&serde_json::Value>) -> String {
+fn schema_label(schema: Option<&Value>) -> String {
     let schema_id = schema
         .and_then(|value| value.as_object())
         .and_then(|value| value.get("$id"))
@@ -67,3 +67,4 @@ fn schema_label(schema: Option<&serde_json::Value>) -> String {
         (None, _) => "<no schema>".to_string(),
     }
 }
+use serde_json::Value;

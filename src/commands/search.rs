@@ -2,9 +2,11 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{desired_format, option_or_pos, CliCommand};
 use crate::autocomplete::search_kinds;
 use crate::catalog::CommandCatalogBuilder;
+use crate::command_line::rebuild_with_replaced_options;
+use crate::config::get_config;
 use crate::domain::{
     SearchBatchRecord, SearchCursorSet, SearchResponseRecord, SearchResultsRecord,
     SearchStreamEvent,
@@ -25,7 +27,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             CommandDocs {
                 about: Some("Run a unified search"),
                 long_about: Some(
-                    "Search across namespaces, classes, and objects. Pass the query as the first positional argument or with --query. Use --stream to consume the server-sent event variant of the endpoint.",
+                    "Search across collections, classes, and objects. Pass the query as the first positional argument or with --query. Use --stream to consume the server-sent event variant of the endpoint.",
                 ),
                 examples: Some(
                     r#"server
@@ -44,7 +46,7 @@ pub struct SearchCommand {
     #[option(
         short = "k",
         long = "kind",
-        help = "Restrict to namespace, class, or object (repeatable)",
+        help = "Restrict to collection, class, or object (repeatable)",
         autocomplete = "search_kinds"
     )]
     pub kinds: Vec<SearchKind>,
@@ -54,10 +56,10 @@ pub struct SearchCommand {
     )]
     pub limit_per_kind: Option<usize>,
     #[option(
-        long = "cursor-namespaces",
-        help = "Cursor for the next namespace result page"
+        long = "cursor-collections",
+        help = "Cursor for the next collection result page"
     )]
-    pub cursor_namespaces: Option<String>,
+    pub cursor_collections: Option<String>,
     #[option(
         long = "cursor-classes",
         help = "Cursor for the next class result page"
@@ -91,7 +93,7 @@ pub struct SearchCommand {
 impl CliCommand for SearchCommand {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.query = query_or_pos(&query, tokens, 0)?;
+        query.query = option_or_pos(query.query, tokens, 0, "query")?;
 
         let query_string = query
             .query
@@ -102,7 +104,7 @@ impl CliCommand for SearchCommand {
             query: query_string,
             kinds: query.kinds,
             limit_per_kind: query.limit_per_kind,
-            cursor_namespaces: query.cursor_namespaces,
+            cursor_collections: query.cursor_collections,
             cursor_classes: query.cursor_classes,
             cursor_objects: query.cursor_objects,
             search_class_schema: query.search_class_schema.unwrap_or(false),
@@ -119,31 +121,6 @@ impl CliCommand for SearchCommand {
     }
 }
 
-trait GetQuery {
-    fn query(&self) -> Option<String>;
-}
-
-impl GetQuery for &SearchCommand {
-    fn query(&self) -> Option<String> {
-        self.query.clone()
-    }
-}
-
-fn query_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetQuery,
-{
-    if query.query().is_some() {
-        return Ok(query.query());
-    }
-
-    Ok(tokens.get_positionals().get(pos).cloned())
-}
-
 fn render_search_response(
     tokens: &CommandTokenizer,
     response: &SearchResponseRecord,
@@ -156,8 +133,8 @@ fn render_search_response(
     append_line(format!("Query: {}", response.query))?;
     render_search_results(&response.results)?;
     append_line(format!(
-        "Returned {} namespace(s), {} class(es), {} object(s)",
-        response.results.namespaces.len(),
+        "Returned {} collection(s), {} class(es), {} object(s)",
+        response.results.collections.len(),
         response.results.classes.len(),
         response.results.objects.len()
     ))?;
@@ -211,7 +188,7 @@ fn render_search_stream(
 fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> {
     let mut rendered_any = false;
 
-    rendered_any |= render_group("Namespaces", &results.namespaces)?;
+    rendered_any |= render_group("Collections", &results.collections)?;
     rendered_any |= render_group("Classes", &results.classes)?;
     rendered_any |= render_group("Objects", &results.objects)?;
 
@@ -223,7 +200,7 @@ fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> 
 }
 
 fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
-    let rendered_any = render_group("Namespaces", &batch.namespaces)?
+    let rendered_any = render_group("Collections", &batch.collections)?
         | render_group("Classes", &batch.classes)?
         | render_group("Objects", &batch.objects)?;
 
@@ -236,7 +213,7 @@ fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
 
 fn render_group<T>(title: &str, items: &[T]) -> Result<bool, AppError>
 where
-    T: serde::Serialize + Clone + TableRenderable,
+    T: Serialize + Clone + TableRenderable,
 {
     if items.is_empty() {
         return Ok(false);
@@ -256,7 +233,7 @@ fn next_from_stream(events: &[SearchStreamEvent]) -> SearchCursorSet {
         };
 
         match batch.kind.as_str() {
-            "namespaces" => next.namespaces = batch.next.clone(),
+            "collections" => next.collections = batch.next.clone(),
             "classes" => next.classes = batch.next.clone(),
             "objects" => next.objects = batch.next.clone(),
             _ => {}
@@ -282,80 +259,39 @@ fn apply_next_page_state(
         return Ok(());
     }
 
-    if crate::config::get_config().repl.enter_fetches_next_page {
+    if get_config().repl.enter_fetches_next_page {
         append_line(
-            "Paginated results available. Press Enter for the next page, or Ctrl-C to stop.",
+            "Paginated results available. Press Enter for the next page, or Esc/Ctrl-C to stop.",
         )?;
     } else {
-        append_line("Paginated results available. Type 'next' for the next page.")?;
+        append_line(
+            "Paginated results available. Type 'next' for the next page, or Esc/Ctrl-C to stop.",
+        )?;
     }
 
     Ok(())
 }
 
 fn next_cursor_command(tokens: &CommandTokenizer, next: &SearchCursorSet) -> String {
-    let mut rebuilt = Vec::new();
-    let mut skip_next = false;
-
-    for token in tokens.raw_tokens() {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-
-        if matches!(
-            token.as_str(),
-            "--cursor-namespaces" | "--cursor-classes" | "--cursor-objects"
-        ) {
-            skip_next = true;
-            continue;
-        }
-
-        if token.starts_with("--cursor-namespaces=")
-            || token.starts_with("--cursor-classes=")
-            || token.starts_with("--cursor-objects=")
-        {
-            continue;
-        }
-
-        rebuilt.push(shell_escape(token));
-    }
-
-    if let Some(cursor) = &next.namespaces {
-        rebuilt.push("--cursor-namespaces".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-    if let Some(cursor) = &next.classes {
-        rebuilt.push("--cursor-classes".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-    if let Some(cursor) = &next.objects {
-        rebuilt.push("--cursor-objects".to_string());
-        rebuilt.push(shell_escape(cursor));
-    }
-
-    rebuilt.join(" ")
-}
-
-fn shell_escape(token: &str) -> String {
-    if token.is_empty() {
-        return "''".to_string();
-    }
-
-    if token
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '='))
-    {
-        token.to_string()
-    } else {
-        format!("'{}'", token.replace('\'', "'\\''"))
-    }
+    rebuild_with_replaced_options(
+        tokens,
+        &[
+            "--cursor-collections",
+            "--cursor-classes",
+            "--cursor-objects",
+        ],
+        [
+            ("--cursor-collections", next.collections.as_deref()),
+            ("--cursor-classes", next.classes.as_deref()),
+            ("--cursor-objects", next.objects.as_deref()),
+        ],
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{next_cursor_command, query_or_pos, SearchCommand};
-    use crate::commands::command_options;
+    use super::{next_cursor_command, SearchCommand};
+    use crate::commands::{command_options, option_or_pos};
     use crate::domain::SearchCursorSet;
     use crate::services::SearchKind;
     use crate::tokenizer::CommandTokenizer;
@@ -369,7 +305,7 @@ mod tests {
         )
         .expect("tokenization should succeed");
 
-        let query = query_or_pos(&SearchCommand::default(), &tokens, 0)
+        let query = option_or_pos(SearchCommand::default().query, &tokens, 0, "query")
             .expect("query resolution should succeed");
         assert_eq!(query.as_deref(), Some("server"));
     }
@@ -400,7 +336,7 @@ mod tests {
     #[test]
     fn parse_tokens_accepts_repeatable_kind_values() {
         let tokens = CommandTokenizer::new(
-            "search --query server --kind namespace --kind object",
+            "search --query server --kind collection --kind object",
             "search",
             &command_options::<SearchCommand>(),
         )
@@ -409,7 +345,7 @@ mod tests {
         let parsed = SearchCommand::parse_tokens(&tokens).expect("parse should succeed");
         assert_eq!(
             parsed.kinds,
-            vec![SearchKind::Namespace, SearchKind::Object]
+            vec![SearchKind::Collection, SearchKind::Object]
         );
     }
 }

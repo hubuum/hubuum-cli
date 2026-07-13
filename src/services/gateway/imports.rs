@@ -1,3 +1,5 @@
+use hubuum_client::ImportRequest;
+
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
@@ -8,14 +10,13 @@ use super::HubuumGateway;
 
 #[derive(Debug, Clone)]
 pub struct SubmitImportInput {
-    pub request_json: String,
+    pub request: ImportRequest,
     pub idempotency_key: Option<String>,
 }
 
 impl HubuumGateway {
     pub fn submit_import(&self, input: SubmitImportInput) -> Result<TaskRecord, AppError> {
-        let request: hubuum_client::ImportRequest = serde_json::from_str(&input.request_json)?;
-        let submit = self.client.imports().submit(request);
+        let submit = self.client.imports().submit(input.request);
         let task = match input.idempotency_key {
             Some(key) => submit.idempotency_key(key).send()?,
             None => submit.send()?,

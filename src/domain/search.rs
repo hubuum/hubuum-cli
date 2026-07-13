@@ -1,23 +1,23 @@
 use serde::{Deserialize, Serialize};
 
-use super::{ClassRecord, NamespaceRecord, ResolvedObjectRecord};
+use super::{ClassRecord, CollectionRecord, ResolvedObjectRecord};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchCursorSet {
-    pub namespaces: Option<String>,
+    pub collections: Option<String>,
     pub classes: Option<String>,
     pub objects: Option<String>,
 }
 
 impl SearchCursorSet {
     pub fn is_empty(&self) -> bool {
-        self.namespaces.is_none() && self.classes.is_none() && self.objects.is_none()
+        self.collections.is_none() && self.classes.is_none() && self.objects.is_none()
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchResultsRecord {
-    pub namespaces: Vec<NamespaceRecord>,
+    pub collections: Vec<CollectionRecord>,
     pub classes: Vec<ClassRecord>,
     pub objects: Vec<ResolvedObjectRecord>,
 }
@@ -32,7 +32,7 @@ pub struct SearchResponseRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchBatchRecord {
     pub kind: String,
-    pub namespaces: Vec<NamespaceRecord>,
+    pub collections: Vec<CollectionRecord>,
     pub classes: Vec<ClassRecord>,
     pub objects: Vec<ResolvedObjectRecord>,
     pub next: Option<String>,

@@ -1,11 +1,17 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{EventSubscriptionFilter, NewEventSubscription, UpdateEventSubscription};
 use serde::{Deserialize, Serialize};
+use serde_json::from_value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::event_sink::{id_or_pos, parse_json_object, render_record, required_i32};
-use super::{build_list_query, render_list_page, CliCommand};
-use crate::autocomplete::{event_actions, event_entity_types, event_sinks, namespaces};
+use super::event_sink::parse_json_object;
+use super::{
+    build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
+    CliCommand,
+};
+use crate::autocomplete::{
+    collections, event_actions, event_entity_types, event_sinks, event_subscriptions,
+};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::append_json_message;
@@ -15,7 +21,7 @@ use crate::tokenizer::CommandTokenizer;
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "list",
                 EventSubscriptionList::default(),
@@ -23,7 +29,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "show",
                 EventSubscriptionShow::default(),
@@ -31,7 +37,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "create",
                 EventSubscriptionCreate::default(),
@@ -39,7 +45,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "update",
                 EventSubscriptionUpdate::default(),
@@ -47,7 +53,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-subscription"],
+            &["event", "subscription"],
             catalog_command(
                 "delete",
                 EventSubscriptionDelete::default(),
@@ -65,14 +71,12 @@ fn docs(about: &'static str) -> CommandDocs {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSubscriptionList {
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
+    pub collection: Option<String>,
     #[option(long = "where", help = "Filter clause: 'field op value'", nargs = 3)]
     pub where_clauses: Vec<String>,
     #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
@@ -86,7 +90,7 @@ pub struct EventSubscriptionList {
 impl CliCommand for EventSubscriptionList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let namespace_id = resolve_namespace_id(services, query.namespace_id, query.namespace)?;
+        let collection_id = resolve_collection_id(services, query.collection)?;
         let list_query = build_list_query(
             &query.where_clauses,
             &query.sort_clauses,
@@ -98,49 +102,48 @@ impl CliCommand for EventSubscriptionList {
             tokens,
             &services
                 .gateway()
-                .event_subscriptions(namespace_id, &list_query)?,
+                .event_subscriptions(collection_id, &list_query)?,
         )
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSubscriptionShow {
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
-    #[option(long = "id", help = "Subscription ID")]
-    pub id: Option<i32>,
+    pub collection: Option<String>,
+    #[option(
+        long = "name",
+        help = "Subscription name",
+        autocomplete = "event_subscriptions"
+    )]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSubscriptionShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        let namespace_id = resolve_namespace_id(services, query.namespace_id, query.namespace)?;
-        let record = services
-            .gateway()
-            .event_subscription(namespace_id, required_i32(query.id, "id")?)?;
-        render_record(tokens, &record)
+        query.name = name_or_first_pos(query.name, tokens);
+        let collection_id = resolve_collection_id(services, query.collection)?;
+        let record = services.gateway().event_subscription_by_name(
+            collection_id,
+            required_str(query.name.as_deref(), "name")?,
+        )?;
+        render_json_record(tokens, &record)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSubscriptionCreate {
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
-    #[option(long = "sink-id", help = "Sink ID")]
-    pub sink_id: Option<i32>,
+    pub collection: Option<String>,
     #[option(long = "sink", help = "Sink name", autocomplete = "event_sinks")]
     pub sink: Option<String>,
     #[option(long = "name", help = "Subscription name")]
@@ -159,9 +162,9 @@ pub struct EventSubscriptionCreate {
         autocomplete = "event_actions"
     )]
     pub actions: String,
-    #[option(long = "filter", help = "Filter JSON object")]
+    #[option(long = "filter", help = "Filter JSON object", value_source = true)]
     pub filter: Option<String>,
-    #[option(long = "routing", help = "Routing JSON object")]
+    #[option(long = "routing", help = "Routing JSON object", value_source = true)]
     pub routing: Option<String>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
     pub enabled: Option<bool>,
@@ -170,12 +173,12 @@ pub struct EventSubscriptionCreate {
 impl CliCommand for EventSubscriptionCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let namespace_id = resolve_namespace_id(services, query.namespace_id, query.namespace)?;
-        let sink_id = resolve_sink_id(services, query.sink_id, query.sink)?;
+        let collection_id = resolve_collection_id(services, query.collection)?;
+        let sink_id = resolve_sink_id(services, query.sink)?;
         let record = services.gateway().create_event_subscription(
-            namespace_id,
+            collection_id,
             NewEventSubscription {
-                sink_id,
+                sink_id: sink_id.into(),
                 name: query.name,
                 entity_types: split_csv(&query.entity_types),
                 actions: split_csv(&query.actions),
@@ -185,27 +188,31 @@ impl CliCommand for EventSubscriptionCreate {
                 filter: parse_subscription_filter(query.filter)?,
             },
         )?;
-        render_record(tokens, &record)
+        render_json_record(tokens, &record)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSubscriptionUpdate {
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
-    #[option(long = "id", help = "Subscription ID")]
-    pub id: Option<i32>,
-    #[option(long = "sink-id", help = "Sink ID")]
-    pub sink_id: Option<i32>,
+    pub collection: Option<String>,
+    #[option(
+        long = "subscription",
+        help = "Subscription name",
+        autocomplete = "event_subscriptions"
+    )]
+    pub subscription: Option<String>,
     #[option(long = "sink", help = "Sink name", autocomplete = "event_sinks")]
     pub sink: Option<String>,
-    #[option(long = "name", help = "Subscription name")]
+    #[option(
+        long = "name",
+        help = "Subscription name",
+        autocomplete = "event_subscriptions"
+    )]
     pub name: Option<String>,
     #[option(long = "description", help = "Description")]
     pub description: Option<String>,
@@ -221,9 +228,9 @@ pub struct EventSubscriptionUpdate {
         autocomplete = "event_actions"
     )]
     pub actions: Option<String>,
-    #[option(long = "filter", help = "Filter JSON object")]
+    #[option(long = "filter", help = "Filter JSON object", value_source = true)]
     pub filter: Option<String>,
-    #[option(long = "routing", help = "Routing JSON object")]
+    #[option(long = "routing", help = "Routing JSON object", value_source = true)]
     pub routing: Option<String>,
     #[option(long = "enabled", help = "Enabled flag")]
     pub enabled: Option<bool>,
@@ -232,13 +239,13 @@ pub struct EventSubscriptionUpdate {
 impl CliCommand for EventSubscriptionUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        let namespace_id = resolve_namespace_id(services, query.namespace_id, query.namespace)?;
+        query.subscription = name_or_first_pos(query.subscription, tokens);
+        let collection_id = resolve_collection_id(services, query.collection)?;
         let record = services.gateway().update_event_subscription(
-            namespace_id,
-            required_i32(query.id, "id")?,
+            collection_id,
+            required_str(query.subscription.as_deref(), "subscription")?,
             UpdateEventSubscription {
-                sink_id: resolve_optional_sink_id(services, query.sink_id, query.sink)?,
+                sink_id: resolve_optional_sink_id(services, query.sink)?.map(Into::into),
                 name: query.name,
                 description: query.description,
                 entity_types: query.entity_types.map(|value| split_csv(&value)),
@@ -248,32 +255,31 @@ impl CliCommand for EventSubscriptionUpdate {
                 filter: parse_subscription_filter(query.filter)?,
             },
         )?;
-        render_record(tokens, &record)
+        render_json_record(tokens, &record)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSubscriptionDelete {
-    #[option(long = "namespace-id", help = "Namespace ID")]
-    pub namespace_id: Option<i32>,
     #[option(
-        long = "namespace",
-        help = "Namespace name",
-        autocomplete = "namespaces"
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
     )]
-    pub namespace: Option<String>,
-    #[option(long = "id", help = "Subscription ID")]
-    pub id: Option<i32>,
+    pub collection: Option<String>,
+    #[option(long = "name", help = "Subscription name")]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSubscriptionDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        let namespace_id = resolve_namespace_id(services, query.namespace_id, query.namespace)?;
-        services
-            .gateway()
-            .delete_event_subscription(namespace_id, required_i32(query.id, "id")?)?;
+        query.name = name_or_first_pos(query.name, tokens);
+        let collection_id = resolve_collection_id(services, query.collection)?;
+        services.gateway().delete_event_subscription_by_name(
+            collection_id,
+            required_str(query.name.as_deref(), "name")?,
+        )?;
         append_json_message("event subscription deleted")
     }
 }
@@ -291,48 +297,31 @@ fn parse_subscription_filter(
     input: Option<String>,
 ) -> Result<Option<EventSubscriptionFilter>, AppError> {
     parse_json_object(input)?
-        .map(serde_json::from_value)
+        .map(from_value)
         .transpose()
         .map_err(AppError::from)
 }
 
-fn resolve_namespace_id(
+fn resolve_collection_id(
     services: &AppServices,
-    namespace_id: Option<i32>,
-    namespace: Option<String>,
+    collection: Option<String>,
 ) -> Result<i32, AppError> {
-    match (namespace_id, namespace) {
-        (Some(id), None) => Ok(id),
-        (None, Some(name)) => services.gateway().namespace_id_by_name(&name),
-        (Some(_), Some(_)) => Err(AppError::DuplicateOptions(vec![
-            "namespace-id".to_string(),
-            "namespace".to_string(),
-        ])),
-        (None, None) => Err(AppError::MissingOptions(vec!["namespace".to_string()])),
-    }
+    collection
+        .as_deref()
+        .ok_or_else(|| AppError::MissingOptions(vec!["collection".to_string()]))
+        .and_then(|name| services.gateway().collection_id_by_name(name))
 }
 
-fn resolve_sink_id(
-    services: &AppServices,
-    sink_id: Option<i32>,
-    sink: Option<String>,
-) -> Result<i32, AppError> {
-    resolve_optional_sink_id(services, sink_id, sink)?
+fn resolve_sink_id(services: &AppServices, sink: Option<String>) -> Result<i32, AppError> {
+    resolve_optional_sink_id(services, sink)?
         .ok_or_else(|| AppError::MissingOptions(vec!["sink".to_string()]))
 }
 
 fn resolve_optional_sink_id(
     services: &AppServices,
-    sink_id: Option<i32>,
     sink: Option<String>,
 ) -> Result<Option<i32>, AppError> {
-    match (sink_id, sink) {
-        (Some(id), None) => Ok(Some(id)),
-        (None, Some(name)) => services.gateway().event_sink_id_by_name(&name).map(Some),
-        (Some(_), Some(_)) => Err(AppError::DuplicateOptions(vec![
-            "sink-id".to_string(),
-            "sink".to_string(),
-        ])),
-        (None, None) => Ok(None),
-    }
+    sink.as_deref()
+        .map(|name| services.gateway().event_sink_id_by_name(name).map(Some))
+        .unwrap_or(Ok(None))
 }

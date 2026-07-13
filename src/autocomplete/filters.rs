@@ -1,3 +1,6 @@
+use serde_json::Value;
+
+use crate::json_schema::schema_paths;
 use crate::list_query::{
     completion_operators, resolve_filter_field_spec, FilterFieldSpec, FilterValueProfile,
 };
@@ -13,6 +16,7 @@ pub(crate) struct FilterCompletion {
 pub(crate) fn complete_where_clause(
     ctx: &CompletionContext,
     command_path: &[String],
+    command_parts: &[String],
     clause: &str,
     ends_with_space: bool,
 ) -> Vec<FilterCompletion> {
@@ -21,7 +25,9 @@ pub(crate) fn complete_where_clause(
     };
 
     match clause_stage(clause, ends_with_space, specs) {
-        ClauseStage::Field { prefix } => complete_field(prefix, specs),
+        ClauseStage::Field { prefix } => {
+            complete_field_or_json_path(ctx, command_path, command_parts, prefix, specs)
+        }
         ClauseStage::Operator { field, prefix } => {
             let Some((spec, _)) = resolve_filter_field_spec(specs, field) else {
                 return complete_field(field, specs);
@@ -46,19 +52,19 @@ pub(crate) fn complete_where_clause(
 }
 
 pub fn class_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["class", "list"], prefix)
+    complete_for_path(ctx, &["class", "list"], prefix, _parts)
 }
 
 pub fn group_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["group", "list"], prefix)
+    complete_for_path(ctx, &["group", "list"], prefix, _parts)
 }
 
-pub fn namespace_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["namespace", "list"], prefix)
+pub fn collection_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_for_path(ctx, &["collection", "list"], prefix, _parts)
 }
 
 pub fn object_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["object", "list"], prefix)
+    complete_for_path(ctx, &["object", "list"], prefix, _parts)
 }
 
 pub fn relation_class_list_where(
@@ -66,7 +72,7 @@ pub fn relation_class_list_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "class", "list"], prefix)
+    complete_for_path(ctx, &["relation", "class", "list"], prefix, _parts)
 }
 
 pub fn relation_class_direct_where(
@@ -74,7 +80,7 @@ pub fn relation_class_direct_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "class", "direct"], prefix)
+    complete_for_path(ctx, &["relation", "class", "direct"], prefix, _parts)
 }
 
 pub fn relation_class_graph_where(
@@ -82,7 +88,7 @@ pub fn relation_class_graph_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "class", "graph"], prefix)
+    complete_for_path(ctx, &["relation", "class", "graph"], prefix, _parts)
 }
 
 pub fn relation_object_where(
@@ -90,7 +96,7 @@ pub fn relation_object_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "object", "list"], prefix)
+    complete_for_path(ctx, &["relation", "object", "list"], prefix, _parts)
 }
 
 pub fn relation_object_direct_where(
@@ -98,7 +104,7 @@ pub fn relation_object_direct_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "object", "direct"], prefix)
+    complete_for_path(ctx, &["relation", "object", "direct"], prefix, _parts)
 }
 
 pub fn relation_object_graph_where(
@@ -106,23 +112,28 @@ pub fn relation_object_graph_where(
     prefix: &str,
     _parts: &[String],
 ) -> Vec<String> {
-    complete_for_path(ctx, &["relation", "object", "graph"], prefix)
+    complete_for_path(ctx, &["relation", "object", "graph"], prefix, _parts)
 }
 
-pub fn report_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["report", "list"], prefix)
+pub fn export_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_for_path(ctx, &["export", "list"], prefix, _parts)
 }
 
 pub fn user_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_for_path(ctx, &["user", "list"], prefix)
+    complete_for_path(ctx, &["user", "list"], prefix, _parts)
 }
 
-fn complete_for_path(ctx: &CompletionContext, command_path: &[&str], clause: &str) -> Vec<String> {
+fn complete_for_path(
+    ctx: &CompletionContext,
+    command_path: &[&str],
+    clause: &str,
+    command_parts: &[String],
+) -> Vec<String> {
     let owned_path = command_path
         .iter()
         .map(|part| (*part).to_string())
         .collect::<Vec<_>>();
-    complete_where_clause(ctx, &owned_path, clause, false)
+    complete_where_clause(ctx, &owned_path, command_parts, clause, false)
         .into_iter()
         .map(|completion| completion.value)
         .collect()
@@ -156,7 +167,9 @@ fn clause_stage<'a>(
         [] => ClauseStage::Field { prefix: "" },
         [field] if ends_with_space => ClauseStage::Operator { field, prefix: "" },
         [field] => {
-            if resolve_filter_field_spec(specs, field).is_some() {
+            if is_dotted_json_path(specs, field) {
+                ClauseStage::Field { prefix: field }
+            } else if resolve_filter_field_spec(specs, field).is_some() {
                 ClauseStage::Operator { field, prefix: "" }
             } else {
                 ClauseStage::Field { prefix: field }
@@ -178,6 +191,152 @@ fn clause_stage<'a>(
             value_prefix: remainder.last().copied().unwrap_or(operator),
         },
     }
+}
+
+fn is_dotted_json_path(specs: &[FilterFieldSpec], field: &str) -> bool {
+    field.contains('.')
+        && resolve_filter_field_spec(specs, field)
+            .map(|(spec, path)| spec.json_root && !path.is_empty())
+            .unwrap_or(false)
+}
+
+fn complete_field_or_json_path(
+    ctx: &CompletionContext,
+    command_path: &[String],
+    command_parts: &[String],
+    prefix: &str,
+    specs: &[FilterFieldSpec],
+) -> Vec<FilterCompletion> {
+    let completions = complete_field(prefix, specs);
+    if !completions.is_empty() {
+        return completions;
+    }
+
+    let schema_completions =
+        complete_json_data_path_from_schema(ctx, command_path, command_parts, prefix);
+    if !schema_completions.is_empty() {
+        return schema_completions;
+    }
+
+    complete_json_path_fallback(prefix, specs)
+}
+
+fn complete_json_path_fallback(prefix: &str, specs: &[FilterFieldSpec]) -> Vec<FilterCompletion> {
+    if is_dotted_json_path(specs, prefix) {
+        return vec![FilterCompletion {
+            value: prefix.to_string(),
+            description: Some("JSON path".to_string()),
+            append_whitespace: true,
+        }];
+    }
+
+    Vec::new()
+}
+
+fn complete_json_data_path_from_schema(
+    ctx: &CompletionContext,
+    command_path: &[String],
+    command_parts: &[String],
+    prefix: &str,
+) -> Vec<FilterCompletion> {
+    if !matches!(command_path, [scope, command] if scope == "object" && command == "list")
+        || !prefix.starts_with("json_data.")
+    {
+        return Vec::new();
+    }
+
+    let Some(class_name) = class_name_from_parts(command_parts) else {
+        return Vec::new();
+    };
+
+    let Some(schema) = ctx.class_schema(&class_name) else {
+        return Vec::new();
+    };
+
+    let Some(schema) = schema else {
+        return status_completions(prefix, "no schema");
+    };
+
+    let schema_paths = schema_paths(&schema, false);
+    if schema_paths.is_empty() {
+        return status_completions(prefix, "no schema");
+    }
+
+    let completions =
+        schema_path_completions_from_paths("json_data", prefix, &schema, schema_paths);
+    if completions.is_empty() {
+        return status_completions(prefix, "no schema match");
+    }
+
+    completions
+}
+
+fn status_completions(prefix: &str, status: &str) -> Vec<FilterCompletion> {
+    vec![
+        FilterCompletion {
+            value: prefix.to_string(),
+            description: Some(status.to_string()),
+            append_whitespace: false,
+        },
+        FilterCompletion {
+            value: prefix.to_string(),
+            description: Some("type path manually".to_string()),
+            append_whitespace: false,
+        },
+    ]
+}
+
+fn class_name_from_parts(parts: &[String]) -> Option<String> {
+    parts
+        .windows(2)
+        .find(|pair| pair[0] == "--class" || pair[0] == "-c")
+        .map(|pair| pair[1].clone())
+}
+
+fn schema_path_completions_from_paths(
+    root: &str,
+    prefix: &str,
+    schema: &Value,
+    paths: Vec<String>,
+) -> Vec<FilterCompletion> {
+    paths
+        .into_iter()
+        .flat_map(|path| {
+            let field = format!("{root}.{path}");
+            let field_completion = FilterCompletion {
+                value: field.clone(),
+                description: Some("schema field".to_string()),
+                append_whitespace: true,
+            };
+            let nested_completion =
+                schema_path_points_to_object(schema, &path).then(|| FilterCompletion {
+                    value: format!("{field}."),
+                    description: Some("schema object".to_string()),
+                    append_whitespace: false,
+                });
+            [Some(field_completion), nested_completion]
+        })
+        .flatten()
+        .filter(|candidate| candidate.value.starts_with(prefix))
+        .collect()
+}
+
+fn schema_path_points_to_object(schema: &Value, path: &str) -> bool {
+    let Some(node) = schema_node_for_path(schema, path) else {
+        return false;
+    };
+
+    node.get("properties")
+        .and_then(|value| value.as_object())
+        .map(|properties| !properties.is_empty())
+        .unwrap_or(false)
+}
+
+fn schema_node_for_path<'a>(mut schema: &'a Value, path: &str) -> Option<&'a Value> {
+    for part in path.split('.') {
+        schema = schema.get("properties")?.get(part)?;
+    }
+    Some(schema)
 }
 
 fn complete_field(prefix: &str, specs: &[FilterFieldSpec]) -> Vec<FilterCompletion> {
@@ -218,7 +377,7 @@ fn complete_value(
     };
 
     let values = match spec.public_name {
-        "namespace" => values(ctx.namespaces(prefix)),
+        "collection" => values(ctx.collections(prefix)),
         "class" | "class_a" | "class_b" | "root_class" | "related_class" => {
             values(ctx.classes(prefix))
         }
@@ -272,10 +431,14 @@ fn placeholder_value(spec: FilterFieldSpec, operator: &str) -> FilterCompletion 
 
 #[cfg(test)]
 mod tests {
-    use crate::list_query::{FilterOperatorProfile, FilterValueProfile};
+    use serde_json::json;
 
-    use super::{clause_stage, complete_field, placeholder_value, ClauseStage};
-    use crate::list_query::FilterFieldSpec;
+    use super::{
+        class_name_from_parts, clause_stage, complete_field, complete_json_path_fallback,
+        placeholder_value, schema_path_completions_from_paths, status_completions, ClauseStage,
+    };
+    use crate::json_schema::schema_paths;
+    use crate::list_query::{FilterFieldSpec, FilterOperatorProfile, FilterValueProfile};
 
     #[test]
     fn clause_stage_understands_field_and_operator_boundaries() {
@@ -346,6 +509,116 @@ mod tests {
         assert!(completions
             .iter()
             .any(|candidate| candidate.value == "data."));
+    }
+
+    #[test]
+    fn dotted_json_path_completion_preserves_field_and_appends_space() {
+        let specs = [FilterFieldSpec::new(
+            "json_data",
+            "json_data",
+            FilterOperatorProfile::Any,
+            FilterValueProfile::Any,
+        )
+        .json_root()];
+
+        assert_eq!(
+            clause_stage("json_data.contact", false, &specs),
+            ClauseStage::Field {
+                prefix: "json_data.contact"
+            }
+        );
+
+        let completions = complete_json_path_fallback("json_data.contact", &specs);
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].value, "json_data.contact");
+        assert!(completions[0].append_whitespace);
+    }
+
+    #[test]
+    fn dotted_json_schema_path_completion_preserves_field_and_appends_space() {
+        let specs = [FilterFieldSpec::new(
+            "json_schema",
+            "json_schema",
+            FilterOperatorProfile::Any,
+            FilterValueProfile::Any,
+        )
+        .json_root()];
+
+        let completions = complete_json_path_fallback("json_schema.contact", &specs);
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].value, "json_schema.contact");
+        assert!(completions[0].append_whitespace);
+    }
+
+    #[test]
+    fn schema_path_completion_expands_json_schema_properties() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "contact": { "type": "string" },
+                "owner": {
+                    "type": "object",
+                    "properties": {
+                        "email": { "type": "string" }
+                    }
+                }
+            }
+        });
+
+        let completions = schema_path_completions_from_paths(
+            "json_data",
+            "json_data.o",
+            &schema,
+            schema_paths(&schema, false),
+        );
+        let values = completions
+            .iter()
+            .map(|completion| completion.value.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(values.contains(&"json_data.owner"));
+        assert!(values.contains(&"json_data.owner."));
+        assert!(values.contains(&"json_data.owner.email"));
+    }
+
+    #[test]
+    fn class_name_completion_context_accepts_long_and_short_options() {
+        assert_eq!(
+            class_name_from_parts(&[
+                "object".to_string(),
+                "list".to_string(),
+                "--class".to_string(),
+                "Hosts".to_string(),
+            ]),
+            Some("Hosts".to_string())
+        );
+        assert_eq!(
+            class_name_from_parts(&[
+                "object".to_string(),
+                "list".to_string(),
+                "-c".to_string(),
+                "Hosts".to_string(),
+            ]),
+            Some("Hosts".to_string())
+        );
+    }
+
+    #[test]
+    fn status_completions_do_not_collapse_to_single_quick_completion() {
+        let completions = status_completions("json_data.", "no schema");
+
+        assert_eq!(completions.len(), 2);
+        assert!(completions
+            .iter()
+            .all(|completion| completion.value == "json_data."));
+        assert_eq!(completions[0].description.as_deref(), Some("no schema"));
+        assert_eq!(
+            completions[1].description.as_deref(),
+            Some("type path manually")
+        );
+        assert!(completions
+            .iter()
+            .all(|completion| !completion.append_whitespace));
     }
 
     #[test]

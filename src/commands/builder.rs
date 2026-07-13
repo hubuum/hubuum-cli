@@ -1,14 +1,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tokio::task::spawn_blocking;
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
-use crate::commands::{self, command_options, CliCommand};
+use crate::commands::{self, command_options, render_format, CliCommand};
 use crate::errors::AppError;
-use crate::output::{reset_output, take_output};
+use crate::output::{
+    reset_output, set_pipeline, set_pipeline_suffix, set_render_format, take_output,
+};
+use crate::tokenizer::CommandTokenizer;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct CommandDocs {
@@ -24,12 +28,13 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::jobs::register_commands(&mut builder);
     commands::class::register_commands(&mut builder);
     commands::config::register_commands(&mut builder);
-    commands::namespace::register_commands(&mut builder);
+    commands::collection::register_commands(&mut builder);
     commands::user::register_commands(&mut builder);
     commands::group::register_commands(&mut builder);
-    commands::report::register_commands(&mut builder);
+    commands::export::register_commands(&mut builder);
     commands::imports::register_commands(&mut builder);
     commands::task::register_commands(&mut builder);
+    commands::theme::register_commands(&mut builder);
     commands::object::register_commands(&mut builder);
     commands::relations::register_commands(&mut builder);
     commands::remote_target::register_commands(&mut builder);
@@ -63,6 +68,7 @@ where
             greedy: option.greedy,
             nargs: option.nargs,
             repeatable: option.repeatable,
+            value_source: option.value_source,
             completion: match option.autocomplete {
                 Some(completion) => CompletionSpec::Dynamic(completion),
                 None => CompletionSpec::None,
@@ -102,18 +108,18 @@ where
         let command = self.command.clone();
         let services = ctx.app.services.clone();
         let raw_line = invocation.raw_line.clone();
+        let pipeline = invocation.pipeline.clone();
 
-        tokio::task::spawn_blocking(move || {
+        spawn_blocking(move || {
             reset_output()?;
+            set_pipeline(pipeline)?;
+            set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
             let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
                 AppError::CommandExecutionError("Missing command name".to_string())
             })?;
 
-            let tokens = crate::tokenizer::CommandTokenizer::new(
-                &raw_line,
-                &cmd_name,
-                &command_options::<C>(),
-            )?;
+            let tokens = CommandTokenizer::new(&raw_line, &cmd_name, &command_options::<C>())?;
+            set_render_format(render_format(&tokens)?)?;
 
             command.execute(services.as_ref(), &tokens)?;
             services.invalidate_completion();
@@ -121,6 +127,7 @@ where
             Ok(CommandOutcome {
                 output: take_output()?,
                 scope_action: ScopeAction::None,
+                ..Default::default()
             })
         })
         .await

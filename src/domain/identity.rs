@@ -1,7 +1,8 @@
-transparent_record!(MeRecord, hubuum_client::MeResponse);
-transparent_record!(PrincipalTokenRecord, hubuum_client::PrincipalTokenMetadata);
-transparent_record!(
-    PrincipalPermissionsRecord,
-    hubuum_client::PrincipalNamespacePermissions
-);
-transparent_record!(ServiceAccountRecord, hubuum_client::ServiceAccount);
+use hubuum_client::{
+    MeResponse, PrincipalCollectionPermissions, PrincipalTokenMetadata, ServiceAccount,
+};
+
+transparent_record!(MeRecord, MeResponse);
+transparent_record!(PrincipalTokenRecord, PrincipalTokenMetadata);
+transparent_record!(PrincipalPermissionsRecord, PrincipalCollectionPermissions);
+transparent_record!(ServiceAccountRecord, ServiceAccount);

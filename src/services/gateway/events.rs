@@ -1,30 +1,29 @@
 use hubuum_client::{
     client::sync::{EventListRequest, HistoryRequest},
     types::SortDirection,
-    HubuumDateTime, NewEventSink, NewEventSubscription, QueryFilter, UpdateEventSink,
-    UpdateEventSubscription,
+    FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, Page, QueryFilter,
+    UpdateEventSink, UpdateEventSubscription,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde_json::{from_value, Value};
 
 use crate::domain::JsonRecord;
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
     validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery,
-    PagedResult, SortFieldSpec,
+    PagedResult, SortFieldSpec, ValidatedFilterClause,
 };
 
 use super::HubuumGateway;
 
 #[derive(Debug, Clone, Default)]
 pub struct AuditListInput {
-    pub entity_type: Option<String>,
-    pub entity_id: Option<i32>,
     pub action: Option<String>,
     pub actor_kind: Option<String>,
     pub actor_user_id: Option<i32>,
-    pub namespace_id: Option<i32>,
+    pub collection_id: Option<i32>,
     pub occurred_after: Option<String>,
     pub occurred_before: Option<String>,
     pub limit: Option<usize>,
@@ -35,7 +34,7 @@ pub struct AuditListInput {
 #[derive(Debug, Clone)]
 pub enum AuditScope {
     Global,
-    Namespace(i32),
+    Collection(i32),
     Class(i32),
     Object { class_id: i32, object_id: i32 },
     User(i32),
@@ -47,7 +46,15 @@ pub enum AuditScope {
 #[derive(Debug, Clone)]
 pub enum HistoryScope {
     Class(i32),
-    Object { class_id: i32, object_id: i32 },
+    Object {
+        class_id: i32,
+        object_id: i32,
+    },
+    ClassName(String),
+    ObjectName {
+        class_name: String,
+        object_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -63,19 +70,81 @@ impl HubuumGateway {
         Ok(self
             .client
             .event_sinks()
-            .find()
-            .execute()?
+            .query()
+            .list()?
             .into_iter()
             .map(|sink| sink.name)
             .collect())
     }
 
     pub fn event_sink_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.event_sinks().select_by_name(name)?.id())
+        Ok(self.client.event_sinks().get_by_name(name)?.id().get())
     }
 
-    pub fn namespace_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        self.namespace_id(name)
+    pub fn list_event_subscription_names_for_collection(
+        &self,
+        collection: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let collection_id = self.collection_id(collection)?;
+        Ok(self
+            .client
+            .event_subscriptions(collection_id)
+            .query()
+            .limit(200)
+            .page()?
+            .items
+            .into_iter()
+            .map(|subscription| subscription.name)
+            .collect())
+    }
+
+    pub fn collection_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        self.collection_id(name)
+    }
+
+    pub fn user_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self.client.users().get_by_name(name)?.id().into())
+    }
+
+    pub fn audit_scope_by_name(
+        &self,
+        resource: &str,
+        name: Option<&str>,
+        class_name: Option<&str>,
+    ) -> Result<AuditScope, AppError> {
+        let name = name.ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        match resource {
+            "collection" => Ok(AuditScope::Collection(self.collection_id(name)?)),
+            "class" => Ok(AuditScope::Class(
+                self.class_handle_by_name(name)?.id().into(),
+            )),
+            "object" => {
+                let class_name = class_name
+                    .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
+                let object = self.object_handle_by_name(class_name, name)?;
+                Ok(AuditScope::Object {
+                    class_id: object.resource().hubuum_class_id.into(),
+                    object_id: object.id().into(),
+                })
+            }
+            "user" => Ok(AuditScope::User(
+                self.client.users().get_by_name(name)?.id().into(),
+            )),
+            "group" => Ok(AuditScope::Group(
+                self.client.groups().get_by_name(name)?.id().into(),
+            )),
+            "template" => Ok(AuditScope::Template(
+                self.client
+                    .export_templates()
+                    .get_by_name(name)?
+                    .id()
+                    .into(),
+            )),
+            "remote-target" => Ok(AuditScope::RemoteTarget(
+                self.client.remote_targets().get_by_name(name)?.id().get(),
+            )),
+            other => Err(AppError::InvalidOption(format!("resource={other}"))),
+        }
     }
 
     pub fn audit_events(
@@ -83,16 +152,9 @@ impl HubuumGateway {
         scope: AuditScope,
         input: AuditListInput,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
-        if input.entity_type.is_some() || input.entity_id.is_some() {
-            return Err(AppError::InvalidOption(
-                "entity-type/entity-id filters are not exposed by the official hubuum_client yet"
-                    .to_string(),
-            ));
-        }
-
         let request = match scope {
             AuditScope::Global => self.client.events(),
-            AuditScope::Namespace(id) => self.client.namespace_events(id),
+            AuditScope::Collection(id) => self.client.collection_events(id),
             AuditScope::Class(id) => self.client.class_events(id),
             AuditScope::Object {
                 class_id,
@@ -108,11 +170,48 @@ impl HubuumGateway {
         page_to_json(request.page()?, input.limit)
     }
 
+    pub fn audit_event_by_id(&self, id: i64) -> Result<JsonRecord, AppError> {
+        const PAGE_LIMIT: usize = 100;
+        const MAX_PAGES: usize = 100;
+
+        let mut cursor = None;
+        for _ in 0..MAX_PAGES {
+            let page = self.audit_events(
+                AuditScope::Global,
+                AuditListInput {
+                    limit: Some(PAGE_LIMIT),
+                    sort: Some("-occurred_at".to_string()),
+                    cursor: cursor.clone(),
+                    ..AuditListInput::default()
+                },
+            )?;
+
+            if let Some(record) = page
+                .items
+                .into_iter()
+                .find(|record| json_record_event_id(record) == Some(id))
+            {
+                return Ok(record);
+            }
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        Err(AppError::EntityNotFound(format!(
+            "audit event {id} not found in the first {} visible events",
+            PAGE_LIMIT * MAX_PAGES
+        )))
+    }
+
     pub fn history(
         &self,
         scope: HistoryScope,
         input: HistoryInput,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
+        let scope = self.resolve_history_scope(scope)?;
         if let Some(at) = input.at {
             let at = parse_hubuum_datetime(&at)?;
             let record = match scope {
@@ -125,6 +224,9 @@ impl HubuumGateway {
                 } => JsonRecord::from_serializable(
                     self.client.object_history_as_of(class_id, object_id, at)?,
                 )?,
+                HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
+                    unreachable!("history name scopes are resolved before request execution")
+                }
             };
             return Ok(PagedResult {
                 items: vec![record],
@@ -147,6 +249,28 @@ impl HubuumGateway {
                     apply_history_input(self.client.object_history(class_id, object_id), &input)?;
                 page_to_json(request.page()?, input.limit)
             }
+            HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
+                unreachable!("history name scopes are resolved before request execution")
+            }
+        }
+    }
+
+    fn resolve_history_scope(&self, scope: HistoryScope) -> Result<HistoryScope, AppError> {
+        match scope {
+            HistoryScope::ClassName(class_name) => Ok(HistoryScope::Class(
+                self.class_handle_by_name(&class_name)?.id().into(),
+            )),
+            HistoryScope::ObjectName {
+                class_name,
+                object_name,
+            } => {
+                let object = self.object_handle_by_name(&class_name, &object_name)?;
+                Ok(HistoryScope::Object {
+                    class_id: object.resource().hubuum_class_id.into(),
+                    object_id: object.id().into(),
+                })
+            }
+            other => Ok(other),
         }
     }
 
@@ -158,7 +282,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
         let page = apply_query_paging(
-            self.client.event_sinks().find().filters(filters),
+            self.client.event_sinks().query().filters(filters),
             query,
             &validated_sorts,
         )
@@ -166,9 +290,15 @@ impl HubuumGateway {
         page_to_json(page, query.limit)
     }
 
-    pub fn event_sink(&self, id: i32) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_sinks().select(id)?.resource().clone())
-            .map_err(AppError::from)
+    pub fn event_sink_by_name(&self, name: &str) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client
+                .event_sinks()
+                .get_by_name(name)?
+                .resource()
+                .clone(),
+        )
+        .map_err(AppError::from)
     }
 
     pub fn create_event_sink(&self, input: NewEventSink) -> Result<JsonRecord, AppError> {
@@ -178,21 +308,23 @@ impl HubuumGateway {
 
     pub fn update_event_sink(
         &self,
-        id: i32,
+        name: &str,
         input: UpdateEventSink,
     ) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_sinks().update_raw(id, input)?)
+        let sink = self.client.event_sinks().get_by_name(name)?;
+        JsonRecord::from_serializable(self.client.event_sinks().update_raw(sink.id(), input)?)
             .map_err(AppError::from)
     }
 
-    pub fn delete_event_sink(&self, id: i32) -> Result<(), AppError> {
-        self.client.event_sinks().delete(id)?;
+    pub fn delete_event_sink_by_name(&self, name: &str) -> Result<(), AppError> {
+        let sink = self.client.event_sinks().get_by_name(name)?;
+        self.client.event_sinks().delete(sink.id())?;
         Ok(())
     }
 
     pub fn event_subscriptions(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         query: &ListQuery,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
@@ -200,7 +332,7 @@ impl HubuumGateway {
         let filters = self.resolve_event_filters(&validated)?;
         let page = apply_cursor_request_paging(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .query()
                 .filters(filters),
             query,
@@ -212,25 +344,34 @@ impl HubuumGateway {
 
     pub fn event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_id: i32,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .get(subscription_id)?,
         )
         .map_err(AppError::from)
     }
 
+    pub fn event_subscription_by_name(
+        &self,
+        collection_id: i32,
+        name: &str,
+    ) -> Result<JsonRecord, AppError> {
+        let subscription = self.event_subscription_id_by_name(collection_id, name)?;
+        self.event_subscription(collection_id, subscription)
+    }
+
     pub fn create_event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         input: NewEventSubscription,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .create(input)?,
         )
         .map_err(AppError::from)
@@ -238,13 +379,15 @@ impl HubuumGateway {
 
     pub fn update_event_subscription(
         &self,
-        namespace_id: i32,
-        subscription_id: i32,
+        collection_id: i32,
+        subscription_name: &str,
         input: UpdateEventSubscription,
     ) -> Result<JsonRecord, AppError> {
+        let subscription_id =
+            self.event_subscription_id_by_name(collection_id, subscription_name)?;
         JsonRecord::from_serializable(
             self.client
-                .event_subscriptions(namespace_id)
+                .event_subscriptions(collection_id)
                 .update(subscription_id, input)?,
         )
         .map_err(AppError::from)
@@ -252,13 +395,46 @@ impl HubuumGateway {
 
     pub fn delete_event_subscription(
         &self,
-        namespace_id: i32,
+        collection_id: i32,
         subscription_id: i32,
     ) -> Result<(), AppError> {
         self.client
-            .event_subscriptions(namespace_id)
+            .event_subscriptions(collection_id)
             .delete(subscription_id)?;
         Ok(())
+    }
+
+    pub fn delete_event_subscription_by_name(
+        &self,
+        collection_id: i32,
+        subscription_name: &str,
+    ) -> Result<(), AppError> {
+        let subscription_id =
+            self.event_subscription_id_by_name(collection_id, subscription_name)?;
+        self.delete_event_subscription(collection_id, subscription_id)
+    }
+
+    fn event_subscription_id_by_name(
+        &self,
+        collection_id: i32,
+        name: &str,
+    ) -> Result<i32, AppError> {
+        let page = self
+            .client
+            .event_subscriptions(collection_id)
+            .query()
+            .filter("name", FilterOperator::Equals { is_negated: false }, name)
+            .limit(2)
+            .page()?;
+        match page.items.as_slice() {
+            [subscription] => Ok(subscription.id.into()),
+            [] => Err(AppError::EntityNotFound(format!(
+                "event subscription '{name}'"
+            ))),
+            _ => Err(AppError::MultipleEntitiesFound(format!(
+                "event subscriptions named '{name}'"
+            ))),
+        }
     }
 
     pub fn event_deliveries(&self, query: &ListQuery) -> Result<PagedResult<JsonRecord>, AppError> {
@@ -296,13 +472,21 @@ impl HubuumGateway {
 
     fn resolve_event_filters(
         &self,
-        validated: &[crate::list_query::ValidatedFilterClause],
+        validated: &[ValidatedFilterClause],
     ) -> Result<Vec<QueryFilter>, AppError> {
         validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect()
     }
+}
+
+fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
+    record
+        .value
+        .get("id")
+        .or_else(|| record.value.get("event_id"))
+        .and_then(Value::as_i64)
 }
 
 fn apply_audit_input(
@@ -318,8 +502,8 @@ fn apply_audit_input(
     if let Some(actor_user_id) = input.actor_user_id {
         request = request.actor_user_id(actor_user_id);
     }
-    if let Some(namespace_id) = input.namespace_id {
-        request = request.namespace_id(namespace_id);
+    if let Some(collection_id) = input.collection_id {
+        request = request.collection_id(collection_id);
     }
     if let Some(occurred_after) = &input.occurred_after {
         request = request.occurred_after(occurred_after);
@@ -377,11 +561,11 @@ fn parse_single_sort(sort: Option<&str>) -> Result<Option<(&str, SortDirection)>
 }
 
 fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
-    serde_json::from_value(serde_json::Value::String(value.to_string())).map_err(AppError::from)
+    from_value(Value::String(value.to_string())).map_err(AppError::from)
 }
 
 fn page_to_json<T: Serialize>(
-    page: hubuum_client::Page<T>,
+    page: Page<T>,
     limit: Option<usize>,
 ) -> Result<PagedResult<JsonRecord>, AppError> {
     let items = page

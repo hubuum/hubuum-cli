@@ -1,15 +1,24 @@
 use clap::{parser::ValueSource, ArgMatches};
 use config::{Config, ConfigError, Environment, File};
+use hubuum_theme::{catalog as theme_catalog, theme_names};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use serde_json::to_string as to_json_string;
+use std::collections::{HashMap, HashSet};
+use std::env::var_os;
+use std::fs::{create_dir_all, read_to_string, write};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+use toml::map::Map as TomlMap;
+use toml::{from_str as parse_toml, to_string_pretty as format_toml, Value as TomlValue};
 
 use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
-use crate::models::{OutputFormat, Protocol, TableStyle};
+use crate::models::{
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
+    TableStyle, TableWidth, TableWrap,
+};
 
 static CONFIG: Lazy<RwLock<AppConfig>> = Lazy::new(|| RwLock::new(AppConfig::default()));
 static CONFIG_STATE: Lazy<RwLock<Option<ConfigState>>> = Lazy::new(|| RwLock::new(None));
@@ -82,11 +91,70 @@ pub enum ConfigSource {
 pub struct AppConfig {
     pub server: ServerConfig,
     pub cache: CacheConfig,
+    #[serde(default)]
+    pub settings: SettingsConfig,
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
     pub relations: RelationsConfig,
     pub output: OutputConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SettingsConfig {
+    pub store_on_server: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserPreferences {
+    pub completion: CompletionConfig,
+    pub background: BackgroundConfig,
+    pub repl: ReplConfig,
+    pub relations: RelationsConfig,
+    pub output: UserOutputPreferences,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserOutputPreferences {
+    pub format: OutputFormat,
+    pub color: OutputColor,
+    pub theme: String,
+    pub padding: i8,
+    pub table_style: TableStyle,
+    pub table_width: TableWidth,
+    pub table_wrap: TableWrap,
+    pub table_bands: TableBands,
+    pub empty_result: EmptyResult,
+    pub object_show_data: bool,
+    pub object_list_data_columns: ObjectListDataColumns,
+    pub object_list_class_columns: HashMap<String, Vec<String>>,
+    pub object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
+}
+
+impl UserPreferences {
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self {
+            completion: config.completion.clone(),
+            background: config.background.clone(),
+            repl: config.repl.clone(),
+            relations: config.relations.clone(),
+            output: UserOutputPreferences {
+                format: config.output.format.clone(),
+                color: config.output.color,
+                theme: config.output.theme.clone(),
+                padding: config.output.padding,
+                table_style: config.output.table_style.clone(),
+                table_width: config.output.table_width.clone(),
+                table_wrap: config.output.table_wrap.clone(),
+                table_bands: config.output.table_bands,
+                empty_result: config.output.empty_result,
+                object_show_data: config.output.object_show_data,
+                object_list_data_columns: config.output.object_list_data_columns,
+                object_list_class_columns: config.output.object_list_class_columns.clone(),
+                object_list_class_meta: config.output.object_list_class_meta.clone(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -132,9 +200,21 @@ pub struct RelationsConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputConfig {
     pub format: OutputFormat,
+    pub color: OutputColor,
+    pub theme: String,
+    pub theme_file: String,
     pub padding: i8,
     pub table_style: TableStyle,
+    pub table_width: TableWidth,
+    pub table_wrap: TableWrap,
+    pub table_bands: TableBands,
+    pub empty_result: EmptyResult,
     pub object_show_data: bool,
+    pub object_list_data_columns: ObjectListDataColumns,
+    #[serde(default)]
+    pub object_list_class_columns: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -147,7 +227,16 @@ enum ConfigValueKind {
     I32,
     Protocol,
     OutputFormat,
+    OutputColor,
+    ThemeName,
     TableStyle,
+    TableWidth,
+    TableWrap,
+    TableBands,
+    EmptyResult,
+    ObjectListDataColumns,
+    StringListMap,
+    StringNestedListMap,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -160,6 +249,13 @@ struct ConfigKeyDescriptor {
 }
 
 const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
+    ConfigKeyDescriptor {
+        key: "settings.store_on_server",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__SETTINGS__STORE_ON_SERVER",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
     ConfigKeyDescriptor {
         key: "server.hostname",
         cli_arg: Some("hostname"),
@@ -273,6 +369,27 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.color",
+        cli_arg: Some("color"),
+        env_var: "HUBUUM_CLI__OUTPUT__COLOR",
+        value_kind: ConfigValueKind::OutputColor,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.theme",
+        cli_arg: Some("theme"),
+        env_var: "HUBUUM_CLI__OUTPUT__THEME",
+        value_kind: ConfigValueKind::ThemeName,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.theme_file",
+        cli_arg: Some("theme_file"),
+        env_var: "HUBUUM_CLI__OUTPUT__THEME_FILE",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.padding",
         cli_arg: None,
         env_var: "HUBUUM_CLI__OUTPUT__PADDING",
@@ -281,9 +398,37 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
     },
     ConfigKeyDescriptor {
         key: "output.table_style",
-        cli_arg: None,
+        cli_arg: Some("table_style"),
         env_var: "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
         value_kind: ConfigValueKind::TableStyle,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.table_width",
+        cli_arg: Some("table_width"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
+        value_kind: ConfigValueKind::TableWidth,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.table_wrap",
+        cli_arg: Some("table_wrap"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
+        value_kind: ConfigValueKind::TableWrap,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.table_bands",
+        cli_arg: Some("table_bands"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
+        value_kind: ConfigValueKind::TableBands,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.empty_result",
+        cli_arg: Some("empty_result"),
+        env_var: "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
+        value_kind: ConfigValueKind::EmptyResult,
         sensitive: false,
     },
     ConfigKeyDescriptor {
@@ -291,6 +436,27 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: Some("output_object_show_data"),
         env_var: "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
         value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_list_data_columns",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
+        value_kind: ConfigValueKind::ObjectListDataColumns,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_list_class_columns",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_COLUMNS",
+        value_kind: ConfigValueKind::StringListMap,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_list_class_meta",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META",
+        value_kind: ConfigValueKind::StringNestedListMap,
         sensitive: false,
     },
 ];
@@ -312,6 +478,7 @@ impl Default for AppConfig {
                 size: Defaults::CACHE_SIZE,
                 disable: Defaults::CACHE_DISABLE,
             },
+            settings: SettingsConfig::default(),
             completion: CompletionConfig {
                 disable_api_related: Defaults::COMPLETION_DISABLE_API_RELATED,
             },
@@ -327,9 +494,19 @@ impl Default for AppConfig {
             },
             output: OutputConfig {
                 format: Defaults::OUTPUT_FORMAT,
+                color: Defaults::OUTPUT_COLOR,
+                theme: Defaults::OUTPUT_THEME.to_string(),
+                theme_file: Defaults::OUTPUT_THEME_FILE.to_string(),
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
+                table_width: Defaults::OUTPUT_TABLE_WIDTH,
+                table_wrap: Defaults::OUTPUT_TABLE_WRAP,
+                table_bands: Defaults::OUTPUT_TABLE_BANDS,
+                empty_result: Defaults::OUTPUT_EMPTY_RESULT,
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
+                object_list_data_columns: Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS,
+                object_list_class_columns: HashMap::new(),
+                object_list_class_meta: HashMap::new(),
             },
         }
     }
@@ -346,6 +523,57 @@ pub fn config_key_names() -> Vec<&'static str> {
         .iter()
         .map(|descriptor| descriptor.key)
         .collect()
+}
+
+pub fn is_user_preference_key(key: &str) -> bool {
+    (key.starts_with("completion.")
+        || key.starts_with("background.")
+        || key.starts_with("repl.")
+        || key.starts_with("relations.")
+        || key.starts_with("output."))
+        && key != "output.theme_file"
+}
+
+pub fn config_value_candidates(key: &str) -> Vec<String> {
+    let Ok(descriptor) = descriptor_for_key(key) else {
+        return Vec::new();
+    };
+
+    match descriptor.value_kind {
+        ConfigValueKind::Bool => strings(&["true", "false"]),
+        ConfigValueKind::Protocol => strings(&["http", "https"]),
+        ConfigValueKind::OutputFormat => strings(&["text", "json"]),
+        ConfigValueKind::OutputColor => strings(&["auto", "always", "never"]),
+        ConfigValueKind::ThemeName => theme_value_candidates(),
+        ConfigValueKind::TableStyle => {
+            strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
+        }
+        ConfigValueKind::TableWidth => strings(&["auto", "full"]),
+        ConfigValueKind::TableWrap => strings(&["auto", "never"]),
+        ConfigValueKind::TableBands => strings(&["auto", "always", "never"]),
+        ConfigValueKind::EmptyResult => strings(&["message", "silent"]),
+        ConfigValueKind::ObjectListDataColumns => strings(&["auto", "preview", "all"]),
+        ConfigValueKind::StringListMap | ConfigValueKind::StringNestedListMap => Vec::new(),
+        ConfigValueKind::String
+        | ConfigValueKind::U16
+        | ConfigValueKind::U64
+        | ConfigValueKind::I8
+        | ConfigValueKind::I32 => Vec::new(),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
+pub fn theme_value_candidates() -> Vec<String> {
+    let cfg = get_config();
+    let theme_file =
+        (!cfg.output.theme_file.is_empty()).then_some(Path::new(&cfg.output.theme_file));
+    match theme_catalog(theme_file) {
+        Ok(catalog) => catalog.names().into_iter().map(str::to_string).collect(),
+        Err(_) => theme_names().into_iter().collect(),
+    }
 }
 
 pub fn inspect_config_state(
@@ -409,9 +637,15 @@ fn inspect_config_state_inner(
 }
 
 pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> {
+    if let Some(class_name) = object_list_class_columns_key(key) {
+        return set_persisted_object_list_class_columns(class_name, value);
+    }
+    if let Some((class_name, alias)) = object_list_class_meta_key(key) {
+        return set_persisted_object_list_class_meta(class_name, alias, value);
+    }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
     let parsed = parse_config_value(descriptor, value)?;
     set_toml_path(&mut root, descriptor.key, parsed)?;
     write_toml_file(&path, &root)?;
@@ -419,12 +653,62 @@ pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> 
 }
 
 pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
+    if object_list_class_columns_key(key).is_some() || object_list_class_meta_key(key).is_some() {
+        let path = get_config_state().paths.write_target.clone();
+        let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+        remove_toml_path(&mut root, key);
+        write_toml_file(&path, &root)?;
+        return Ok(path);
+    }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(toml::Value::Table(toml::map::Map::new()));
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
     remove_toml_path(&mut root, descriptor.key);
     write_toml_file(&path, &root)?;
     Ok(path)
+}
+
+pub fn persist_user_preferences(preferences: &UserPreferences) -> Result<PathBuf, AppError> {
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    merge_user_preferences(&mut root, preferences)?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
+}
+
+fn merge_user_preferences(
+    root: &mut TomlValue,
+    preferences: &UserPreferences,
+) -> Result<(), AppError> {
+    let serialized = TomlValue::try_from(preferences)
+        .map_err(|error| AppError::ConfigError(error.to_string()))?;
+    let preference_sections = serialized.as_table().ok_or_else(|| {
+        AppError::ConfigError("Serialized user preferences must be a TOML table".to_string())
+    })?;
+    let target = root
+        .as_table_mut()
+        .ok_or_else(|| AppError::ConfigError("Config root is not a TOML table".to_string()))?;
+
+    for section in ["completion", "background", "repl", "relations"] {
+        if let Some(value) = preference_sections.get(section) {
+            target.insert(section.to_string(), value.clone());
+        }
+    }
+    let output = preference_sections
+        .get("output")
+        .and_then(TomlValue::as_table)
+        .ok_or_else(|| {
+            AppError::ConfigError("Serialized output preferences must be a TOML table".to_string())
+        })?;
+    let target_output = target
+        .entry("output".to_string())
+        .or_insert_with(|| TomlValue::Table(TomlMap::new()))
+        .as_table_mut()
+        .ok_or_else(|| AppError::ConfigError("Config output must be a TOML table".to_string()))?;
+    for (key, value) in output {
+        target_output.insert(key.clone(), value.clone());
+    }
+    Ok(())
 }
 
 pub fn reload_runtime_config() -> Result<(), AppError> {
@@ -488,6 +772,24 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.object_show_data" => {
                 target.output.object_show_data = source.output.object_show_data;
             }
+            "output.object_list_data_columns" => {
+                target.output.object_list_data_columns = source.output.object_list_data_columns;
+            }
+            "output.object_list_class_columns" => {
+                target.output.object_list_class_columns =
+                    source.output.object_list_class_columns.clone();
+            }
+            "output.object_list_class_meta" => {
+                target.output.object_list_class_meta = source.output.object_list_class_meta.clone();
+            }
+            "output.color" => target.output.color = source.output.color,
+            "output.theme" => target.output.theme = source.output.theme.clone(),
+            "output.theme_file" => target.output.theme_file = source.output.theme_file.clone(),
+            "output.table_style" => target.output.table_style = source.output.table_style.clone(),
+            "output.table_width" => target.output.table_width = source.output.table_width.clone(),
+            "output.table_wrap" => target.output.table_wrap = source.output.table_wrap.clone(),
+            "output.table_bands" => target.output.table_bands = source.output.table_bands,
+            "output.empty_result" => target.output.empty_result = source.output.empty_result,
             _ => {}
         }
     }
@@ -500,10 +802,38 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
     let mut builder = Config::builder()
         // Start with default values
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
+        .set_default("output.color", Defaults::OUTPUT_COLOR.to_string())?
+        .set_default("output.theme", Defaults::OUTPUT_THEME)?
+        .set_default("output.theme_file", Defaults::OUTPUT_THEME_FILE)?
         .set_default("output.padding", Defaults::OUTPUT_PADDING)?
         .set_default(
             "output.table_style",
             Defaults::OUTPUT_TABLE_STYLE.to_string(),
+        )?
+        .set_default(
+            "output.table_width",
+            Defaults::OUTPUT_TABLE_WIDTH.to_string(),
+        )?
+        .set_default("output.table_wrap", Defaults::OUTPUT_TABLE_WRAP.to_string())?
+        .set_default(
+            "output.table_bands",
+            Defaults::OUTPUT_TABLE_BANDS.to_string(),
+        )?
+        .set_default(
+            "output.empty_result",
+            Defaults::OUTPUT_EMPTY_RESULT.to_string(),
+        )?
+        .set_default(
+            "output.object_list_data_columns",
+            Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS.to_string(),
+        )?
+        .set_default(
+            "output.object_list_class_columns",
+            HashMap::<String, Vec<String>>::new(),
+        )?
+        .set_default(
+            "output.object_list_class_meta",
+            HashMap::<String, HashMap<String, Vec<String>>>::new(),
         )?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
@@ -514,6 +844,7 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default("cache.time", Defaults::CACHE_TIME)?
         .set_default("cache.size", Defaults::CACHE_SIZE)?
         .set_default("cache.disable", Defaults::CACHE_DISABLE)?
+        .set_default("settings.store_on_server", false)?
         .set_default(
             "completion.disable_api_related",
             Defaults::COMPLETION_DISABLE_API_RELATED,
@@ -578,11 +909,11 @@ fn descriptor_for_key(key: &str) -> Result<&'static ConfigKeyDescriptor, AppErro
 
 struct ConfigSourceResolutionContext<'a> {
     system_path: &'a Path,
-    system_toml: Option<&'a toml::Value>,
+    system_toml: Option<&'a TomlValue>,
     user_path: &'a Path,
-    user_toml: Option<&'a toml::Value>,
+    user_toml: Option<&'a TomlValue>,
     custom_path: Option<&'a Path>,
-    custom_toml: Option<&'a toml::Value>,
+    custom_toml: Option<&'a TomlValue>,
     runtime_cli_args: Option<&'a HashSet<String>>,
     matches: Option<&'a ArgMatches>,
 }
@@ -605,7 +936,7 @@ fn resolve_config_source(
             Some(context.user_path.display().to_string()),
         );
     }
-    if std::env::var_os(descriptor.env_var).is_some() {
+    if var_os(descriptor.env_var).is_some() {
         source = (
             ConfigSource::Environment,
             Some(descriptor.env_var.to_string()),
@@ -657,6 +988,14 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "background_poll_interval" => Some("--background-poll-interval"),
         "relations_ignore_same_class" => Some("--relations-ignore-same-class"),
         "relations_max_depth" => Some("--relations-max-depth"),
+        "color" => Some("--color"),
+        "theme" => Some("--theme"),
+        "theme_file" => Some("--theme-file"),
+        "table_style" => Some("--table-style"),
+        "table_width" => Some("--table-width"),
+        "table_wrap" => Some("--table-wrap"),
+        "table_bands" => Some("--table-bands"),
+        "empty_result" => Some("--empty-result"),
         "output_object_show_data" => Some("--output-object-show-data"),
         _ => None,
     }
@@ -674,6 +1013,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "cache.time" => ConfigValueRef::U64(config.cache.time),
         "cache.size" => ConfigValueRef::I32(config.cache.size),
         "cache.disable" => ConfigValueRef::Bool(config.cache.disable),
+        "settings.store_on_server" => ConfigValueRef::Bool(config.settings.store_on_server),
         "completion.disable_api_related" => {
             ConfigValueRef::Bool(config.completion.disable_api_related)
         }
@@ -684,9 +1024,25 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "relations.ignore_same_class" => ConfigValueRef::Bool(config.relations.ignore_same_class),
         "relations.max_depth" => ConfigValueRef::I32(config.relations.max_depth),
         "output.format" => ConfigValueRef::OutputFormat(&config.output.format),
+        "output.color" => ConfigValueRef::OutputColor(&config.output.color),
+        "output.theme" => ConfigValueRef::String(&config.output.theme),
+        "output.theme_file" => ConfigValueRef::String(&config.output.theme_file),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
+        "output.table_width" => ConfigValueRef::TableWidth(&config.output.table_width),
+        "output.table_wrap" => ConfigValueRef::TableWrap(&config.output.table_wrap),
+        "output.table_bands" => ConfigValueRef::TableBands(&config.output.table_bands),
+        "output.empty_result" => ConfigValueRef::EmptyResult(&config.output.empty_result),
         "output.object_show_data" => ConfigValueRef::Bool(config.output.object_show_data),
+        "output.object_list_data_columns" => {
+            ConfigValueRef::ObjectListDataColumns(&config.output.object_list_data_columns)
+        }
+        "output.object_list_class_columns" => {
+            ConfigValueRef::StringListMap(&config.output.object_list_class_columns)
+        }
+        "output.object_list_class_meta" => {
+            ConfigValueRef::StringNestedListMap(&config.output.object_list_class_meta)
+        }
         _ => ConfigValueRef::String(""),
     }
 }
@@ -701,7 +1057,15 @@ enum ConfigValueRef<'a> {
     I32(i32),
     Protocol(&'a Protocol),
     OutputFormat(&'a OutputFormat),
+    OutputColor(&'a OutputColor),
     TableStyle(&'a TableStyle),
+    TableWidth(&'a TableWidth),
+    TableWrap(&'a TableWrap),
+    TableBands(&'a TableBands),
+    EmptyResult(&'a EmptyResult),
+    ObjectListDataColumns(&'a ObjectListDataColumns),
+    StringListMap(&'a HashMap<String, Vec<String>>),
+    StringNestedListMap(&'a HashMap<String, HashMap<String, Vec<String>>>),
 }
 
 fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
@@ -728,23 +1092,31 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
             OutputFormat::Json => "json".to_string(),
             OutputFormat::Text => "text".to_string(),
         },
+        ConfigValueRef::OutputColor(value) => value.to_string(),
         ConfigValueRef::TableStyle(value) => value.to_string(),
+        ConfigValueRef::TableWidth(value) => value.to_string(),
+        ConfigValueRef::TableWrap(value) => value.to_string(),
+        ConfigValueRef::TableBands(value) => value.to_string(),
+        ConfigValueRef::EmptyResult(value) => value.to_string(),
+        ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
+        ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
+        ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
     }
 }
 
-fn read_toml_file(path: &Path) -> Option<toml::Value> {
-    let contents = std::fs::read_to_string(path).ok()?;
+fn read_toml_file(path: &Path) -> Option<TomlValue> {
+    let contents = read_to_string(path).ok()?;
     if contents.trim().is_empty() {
-        return Some(toml::Value::Table(toml::map::Map::new()));
+        return Some(TomlValue::Table(TomlMap::new()));
     }
-    toml::from_str(&contents).ok()
+    parse_toml(&contents).ok()
 }
 
-fn toml_has_key(root: Option<&toml::Value>, key: &str) -> bool {
+fn toml_has_key(root: Option<&TomlValue>, key: &str) -> bool {
     root.and_then(|value| toml_get(value, key)).is_some()
 }
 
-fn toml_get<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
+fn toml_get<'a>(value: &'a TomlValue, key: &str) -> Option<&'a TomlValue> {
     let mut current = value;
     for part in key.split('.') {
         current = current.get(part)?;
@@ -755,31 +1127,147 @@ fn toml_get<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
 fn parse_config_value(
     descriptor: &ConfigKeyDescriptor,
     value: &str,
-) -> Result<toml::Value, AppError> {
+) -> Result<TomlValue, AppError> {
     let value = match descriptor.value_kind {
-        ConfigValueKind::String => toml::Value::String(value.to_string()),
-        ConfigValueKind::Bool => toml::Value::Boolean(value.parse()?),
-        ConfigValueKind::U16 => toml::Value::Integer(value.parse::<u16>()?.into()),
-        ConfigValueKind::U64 => toml::Value::Integer(value.parse::<u64>()? as i64),
-        ConfigValueKind::I8 => toml::Value::Integer(i64::from(value.parse::<i8>()?)),
-        ConfigValueKind::I32 => toml::Value::Integer(i64::from(value.parse::<i32>()?)),
-        ConfigValueKind::Protocol => toml::Value::String(
+        ConfigValueKind::String => TomlValue::String(value.to_string()),
+        ConfigValueKind::Bool => TomlValue::Boolean(value.parse()?),
+        ConfigValueKind::U16 => TomlValue::Integer(value.parse::<u16>()?.into()),
+        ConfigValueKind::U64 => TomlValue::Integer(value.parse::<u64>()? as i64),
+        ConfigValueKind::I8 => TomlValue::Integer(i64::from(value.parse::<i8>()?)),
+        ConfigValueKind::I32 => TomlValue::Integer(i64::from(value.parse::<i32>()?)),
+        ConfigValueKind::Protocol => TomlValue::String(
             value
                 .parse::<Protocol>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
         ConfigValueKind::OutputFormat => {
-            toml::Value::String(parse_output_format(value)?.to_string().to_lowercase())
+            TomlValue::String(parse_output_format(value)?.to_string().to_lowercase())
         }
-        ConfigValueKind::TableStyle => toml::Value::String(
+        ConfigValueKind::OutputColor => TomlValue::String(
+            value
+                .parse::<OutputColor>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::ThemeName => {
+            validate_theme_name_config_value(value)?;
+            TomlValue::String(value.to_string())
+        }
+        ConfigValueKind::TableStyle => TomlValue::String(
             value
                 .parse::<TableStyle>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
+        ConfigValueKind::TableWidth => TomlValue::String(
+            value
+                .parse::<TableWidth>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::TableWrap => TomlValue::String(
+            value
+                .parse::<TableWrap>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::TableBands => TomlValue::String(
+            value
+                .parse::<TableBands>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::EmptyResult => TomlValue::String(
+            value
+                .parse::<EmptyResult>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::ObjectListDataColumns => TomlValue::String(
+            value
+                .parse::<ObjectListDataColumns>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::StringListMap => {
+            parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
+        ConfigValueKind::StringNestedListMap => {
+            parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
     };
     Ok(value)
+}
+
+fn validate_theme_name_config_value(value: &str) -> Result<(), AppError> {
+    let cfg = get_config();
+    let theme_file =
+        (!cfg.output.theme_file.is_empty()).then_some(Path::new(&cfg.output.theme_file));
+    let catalog = theme_catalog(theme_file).map_err(|err| {
+        AppError::ConfigError(format!("Could not load configured theme file: {err}"))
+    })?;
+    if catalog.get(value).is_some() {
+        return Ok(());
+    }
+    Err(AppError::ConfigError(format!(
+        "Unknown theme: {value}. Use one of: {}",
+        catalog.names().join(", ")
+    )))
+}
+
+fn object_list_class_columns_key(key: &str) -> Option<&str> {
+    key.strip_prefix("output.object_list_class_columns.")
+        .filter(|class_name| !class_name.is_empty())
+}
+
+fn object_list_class_meta_key(key: &str) -> Option<(&str, &str)> {
+    let rest = key.strip_prefix("output.object_list_class_meta.")?;
+    let (class_name, alias) = rest.split_once('.')?;
+    (!class_name.is_empty() && !alias.is_empty()).then_some((class_name, alias))
+}
+
+fn set_persisted_object_list_class_columns(
+    class_name: &str,
+    value: &str,
+) -> Result<PathBuf, AppError> {
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let columns = value
+        .split(',')
+        .map(str::trim)
+        .filter(|column| !column.is_empty())
+        .map(|column| TomlValue::String(column.to_string()))
+        .collect::<Vec<_>>();
+    set_toml_path(
+        &mut root,
+        &format!("output.object_list_class_columns.{class_name}"),
+        TomlValue::Array(columns),
+    )?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
+}
+
+fn set_persisted_object_list_class_meta(
+    class_name: &str,
+    alias: &str,
+    value: &str,
+) -> Result<PathBuf, AppError> {
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let selectors = value
+        .split(',')
+        .map(str::trim)
+        .filter(|selector| !selector.is_empty())
+        .map(|selector| TomlValue::String(selector.to_string()))
+        .collect::<Vec<_>>();
+    set_toml_path(
+        &mut root,
+        &format!("output.object_list_class_meta.{class_name}.{alias}"),
+        TomlValue::Array(selectors),
+    )?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
 }
 
 fn parse_output_format(value: &str) -> Result<OutputFormat, AppError> {
@@ -792,7 +1280,7 @@ fn parse_output_format(value: &str) -> Result<OutputFormat, AppError> {
     }
 }
 
-fn set_toml_path(root: &mut toml::Value, key: &str, value: toml::Value) -> Result<(), AppError> {
+fn set_toml_path(root: &mut TomlValue, key: &str, value: TomlValue) -> Result<(), AppError> {
     let mut current = root;
     let mut parts = key.split('.').peekable();
     while let Some(part) = parts.next() {
@@ -813,17 +1301,17 @@ fn set_toml_path(root: &mut toml::Value, key: &str, value: toml::Value) -> Resul
         };
         current = table
             .entry(part.to_string())
-            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+            .or_insert_with(|| TomlValue::Table(TomlMap::new()));
     }
     Ok(())
 }
 
-fn remove_toml_path(root: &mut toml::Value, key: &str) {
+fn remove_toml_path(root: &mut TomlValue, key: &str) {
     let parts = key.split('.').collect::<Vec<_>>();
     remove_toml_path_parts(root, &parts);
 }
 
-fn remove_toml_path_parts(current: &mut toml::Value, parts: &[&str]) -> bool {
+fn remove_toml_path_parts(current: &mut TomlValue, parts: &[&str]) -> bool {
     let Some(table) = current.as_table_mut() else {
         return false;
     };
@@ -845,28 +1333,34 @@ fn remove_toml_path_parts(current: &mut toml::Value, parts: &[&str]) -> bool {
     table.is_empty()
 }
 
-fn write_toml_file(path: &Path, root: &toml::Value) -> Result<(), AppError> {
+fn write_toml_file(path: &Path, root: &TomlValue) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        create_dir_all(parent)?;
     }
-    let rendered =
-        toml::to_string_pretty(root).map_err(|err| AppError::ConfigError(err.to_string()))?;
-    std::fs::write(path, rendered)?;
+    let rendered = format_toml(root).map_err(|err| AppError::ConfigError(err.to_string()))?;
+    write(path, rendered)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli;
-    use crate::models::Protocol;
+    use crate::cli::{build_cli, update_config_from_cli};
+    use crate::models::{
+        EmptyResult, ObjectListDataColumns, OutputColor, Protocol, TableBands, TableStyle,
+        TableWidth, TableWrap,
+    };
     use serial_test::serial;
-    use std::env;
-    use std::fs;
+    use std::env::{remove_var, set_var, temp_dir};
+    use std::fs::{remove_file, write};
+    use std::process::id;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::tempdir;
 
     /// Helper to clear all HUBUUM_CLI_... vars we use in this test.
     fn clear_env() {
         for &var in &[
+            "HUBUUM_CLI__SETTINGS__STORE_ON_SERVER",
             "HUBUUM_CLI__SERVER__HOSTNAME",
             "HUBUUM_CLI__SERVER__PORT",
             "HUBUUM_CLI__SERVER__SSL_VALIDATION",
@@ -882,10 +1376,20 @@ mod tests {
             "HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE",
             "HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS",
             "HUBUUM_CLI__RELATIONS__MAX_DEPTH",
+            "HUBUUM_CLI__OUTPUT__COLOR",
+            "HUBUUM_CLI__OUTPUT__THEME",
+            "HUBUUM_CLI__OUTPUT__THEME_FILE",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
+            "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
+            "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
+            "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
+            "HUBUUM_CLI__OUTPUT__EMPTY_RESULT",
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_COLUMNS",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META",
         ] {
-            env::remove_var(var);
+            remove_var(var);
         }
     }
 
@@ -893,24 +1397,33 @@ mod tests {
     #[serial]
     fn env_overrides_entire_config() {
         clear_env();
-        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
-        env::set_var("HUBUUM_CLI__SERVER__PORT", "4321");
-        env::set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
-        env::set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
-        env::set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
-        env::set_var("HUBUUM_CLI__SERVER__PASSWORD", "hunter2");
-        env::set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
+        set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+        set_var("HUBUUM_CLI__SERVER__PORT", "4321");
+        set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
+        set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
+        set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
+        set_var("HUBUUM_CLI__SERVER__PASSWORD", "hunter2");
+        set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
 
-        env::set_var("HUBUUM_CLI__CACHE__TIME", "99");
-        env::set_var("HUBUUM_CLI__CACHE__SIZE", "42");
-        env::set_var("HUBUUM_CLI__CACHE__DISABLE", "true");
+        set_var("HUBUUM_CLI__CACHE__TIME", "99");
+        set_var("HUBUUM_CLI__CACHE__SIZE", "42");
+        set_var("HUBUUM_CLI__CACHE__DISABLE", "true");
 
-        env::set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
-        env::set_var("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS", "7");
-        env::set_var("HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE", "true");
-        env::set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
-        env::set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
-        env::set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
+        set_var("HUBUUM_CLI__COMPLETION__DISABLE_API_RELATED", "true");
+        set_var("HUBUUM_CLI__BACKGROUND__POLL_INTERVAL_SECONDS", "7");
+        set_var("HUBUUM_CLI__REPL__ENTER_FETCHES_NEXT_PAGE", "true");
+        set_var("HUBUUM_CLI__RELATIONS__IGNORE_SAME_CLASS", "false");
+        set_var("HUBUUM_CLI__RELATIONS__MAX_DEPTH", "4");
+        set_var("HUBUUM_CLI__OUTPUT__COLOR", "never");
+        set_var("HUBUUM_CLI__OUTPUT__THEME", "solarized-dark");
+        set_var("HUBUUM_CLI__OUTPUT__THEME_FILE", "/tmp/hubuum-themes.toml");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_STYLE", "plain");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_WIDTH", "100");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_WRAP", "never");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_BANDS", "always");
+        set_var("HUBUUM_CLI__OUTPUT__EMPTY_RESULT", "silent");
+        set_var("HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA", "true");
+        set_var("HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS", "all");
 
         // 2. load and assert
         let cfg = load_config(None).expect("failed to load config from env");
@@ -932,7 +1445,77 @@ mod tests {
         assert!(cfg.repl.enter_fetches_next_page);
         assert!(!cfg.relations.ignore_same_class);
         assert_eq!(cfg.relations.max_depth, 4);
+        assert_eq!(cfg.output.color, OutputColor::Never);
+        assert_eq!(cfg.output.theme, "solarized-dark");
+        assert_eq!(cfg.output.theme_file, "/tmp/hubuum-themes.toml");
+        assert_eq!(cfg.output.table_style, TableStyle::Plain);
+        assert_eq!(cfg.output.table_width, TableWidth::Fixed(100));
+        assert_eq!(cfg.output.table_wrap, TableWrap::Never);
+        assert_eq!(cfg.output.table_bands, TableBands::Always);
+        assert_eq!(cfg.output.empty_result, EmptyResult::Silent);
         assert!(cfg.output.object_show_data);
+        assert_eq!(
+            cfg.output.object_list_data_columns,
+            ObjectListDataColumns::All
+        );
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn object_list_class_columns_load_from_toml() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[output.object_list_class_columns]
+Hosts = ["contact", "jack", "data.name"]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.output.object_list_class_columns.get("Hosts"),
+            Some(&vec![
+                "contact".to_string(),
+                "jack".to_string(),
+                "data.name".to_string()
+            ])
+        );
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn object_list_class_meta_load_from_toml() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[output.object_list_class_meta.Hosts]
+os_version = ["data.os.macos.version", "data.os.redhat.version"]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.output
+                .object_list_class_meta
+                .get("Hosts")
+                .and_then(|meta| meta.get("os_version")),
+            Some(&vec![
+                "data.os.macos.version".to_string(),
+                "data.os.redhat.version".to_string()
+            ])
+        );
         clear_env();
     }
 
@@ -942,7 +1525,7 @@ mod tests {
         clear_env();
         let baseline = load_config(None).unwrap();
         // Only override one value
-        env::set_var("HUBUUM_CLI__SERVER__PORT", "5555");
+        set_var("HUBUUM_CLI__SERVER__PORT", "5555");
         let cfg = load_config(None).unwrap();
 
         // port should be env value, everything else should match the non-env baseline
@@ -966,20 +1549,65 @@ mod tests {
             cfg.output.object_show_data,
             baseline.output.object_show_data
         );
+        assert_eq!(cfg.output.color, baseline.output.color);
+        assert_eq!(cfg.output.theme, baseline.output.theme);
+        assert_eq!(cfg.output.theme_file, baseline.output.theme_file);
+        assert_eq!(cfg.output.table_style, baseline.output.table_style);
+        assert_eq!(cfg.output.table_width, baseline.output.table_width);
+        assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
+        assert_eq!(cfg.output.table_bands, baseline.output.table_bands);
+        assert_eq!(cfg.output.empty_result, baseline.output.empty_result);
+        assert_eq!(
+            cfg.output.object_list_data_columns,
+            baseline.output.object_list_data_columns
+        );
         assert_eq!(cfg.server.password, baseline.server.password);
 
         clear_env();
     }
 
     #[test]
+    fn config_value_candidates_expose_enum_values() {
+        assert_eq!(
+            config_value_candidates("output.table_style"),
+            strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
+        );
+        assert_eq!(
+            config_value_candidates("output.table_bands"),
+            strings(&["auto", "always", "never"])
+        );
+        assert_eq!(
+            config_value_candidates("output.object_list_data_columns"),
+            strings(&["auto", "preview", "all"])
+        );
+        assert!(config_value_candidates("output.theme").contains(&"hubuum-dark".to_string()));
+        assert_eq!(
+            config_value_candidates("server.hostname"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn server_sync_only_includes_portable_preference_keys() {
+        assert!(is_user_preference_key("output.theme"));
+        assert!(is_user_preference_key(
+            "output.object_list_class_columns.Hosts"
+        ));
+        assert!(is_user_preference_key("repl.enter_fetches_next_page"));
+        assert!(!is_user_preference_key("output.theme_file"));
+        assert!(!is_user_preference_key("server.hostname"));
+        assert!(!is_user_preference_key("settings.store_on_server"));
+    }
+
+    #[test]
     #[serial]
     fn source_resolution_prefers_env_over_user_file() {
         clear_env();
-        env::set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
+        set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
 
         let descriptor = descriptor_for_key("server.hostname").expect("missing descriptor");
         let user_path = Path::new("/tmp/user.toml");
-        let user_toml: toml::Value = toml::from_str(
+        let user_toml: TomlValue = parse_toml(
             r#"
             [server]
             hostname = "user.example.com"
@@ -1010,14 +1638,14 @@ mod tests {
     fn reload_runtime_config_keeps_startup_cli_overrides() {
         clear_env();
 
-        let pid = std::process::id();
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let pid = id();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .expect("clock should be after epoch")
             .as_nanos();
-        let config_path = std::env::temp_dir().join(format!("hubuum-cli-{pid}-{unique}.toml"));
+        let config_path = temp_dir().join(format!("hubuum-cli-{pid}-{unique}.toml"));
 
-        fs::write(
+        write(
             &config_path,
             r#"
 [server]
@@ -1031,7 +1659,7 @@ object_show_data = false
         )
         .expect("should write test config file");
 
-        let matches = cli::build_cli()
+        let matches = build_cli()
             .try_get_matches_from([
                 "hubuum-cli",
                 "--config",
@@ -1046,7 +1674,7 @@ object_show_data = false
             .expect("cli should parse");
 
         let mut initial = load_config(Some(config_path.clone())).expect("config should load");
-        crate::cli::update_config_from_cli(&mut initial, &matches);
+        update_config_from_cli(&mut initial, &matches);
         init_config(initial.clone()).expect("should initialize config");
         init_config_state(inspect_config_state(
             &initial,
@@ -1080,7 +1708,54 @@ object_show_data = false
             Some(ConfigSource::CliOption)
         );
 
-        let _ = fs::remove_file(config_path);
+        let _ = remove_file(config_path);
         clear_env();
+    }
+
+    #[test]
+    fn imported_preferences_preserve_local_and_server_specific_values() {
+        let mut root: TomlValue = parse_toml(
+            r#"
+[server]
+hostname = "local.example.com"
+
+[cache]
+time = 123
+
+[settings]
+store_on_server = true
+
+[output]
+theme = "old-theme"
+theme_file = "/machine/specific/themes.toml"
+"#,
+        )
+        .expect("test TOML should parse");
+        let mut config = AppConfig::default();
+        config.output.theme = "hubuum-light".to_string();
+        let preferences = UserPreferences::from_config(&config);
+
+        merge_user_preferences(&mut root, &preferences).expect("preferences should merge");
+
+        assert_eq!(
+            toml_get(&root, "server.hostname").and_then(TomlValue::as_str),
+            Some("local.example.com")
+        );
+        assert_eq!(
+            toml_get(&root, "cache.time").and_then(TomlValue::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            toml_get(&root, "settings.store_on_server").and_then(TomlValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme").and_then(TomlValue::as_str),
+            Some("hubuum-light")
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme_file").and_then(TomlValue::as_str),
+            Some("/machine/specific/themes.toml")
+        );
     }
 }

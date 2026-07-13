@@ -1,4 +1,7 @@
-use crate::models::{OutputFormat, Protocol, TableStyle};
+use crate::models::{
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
+    TableStyle, TableWidth, TableWrap,
+};
 
 pub struct Defaults;
 
@@ -18,7 +21,16 @@ impl Defaults {
     pub const RELATIONS_IGNORE_SAME_CLASS: bool = true;
     pub const RELATIONS_MAX_DEPTH: i32 = 2;
     pub const OUTPUT_FORMAT: OutputFormat = OutputFormat::Text;
+    pub const OUTPUT_COLOR: OutputColor = OutputColor::Auto;
+    pub const OUTPUT_THEME: &'static str = DEFAULT_THEME;
+    pub const OUTPUT_THEME_FILE: &'static str = "";
     pub const OUTPUT_PADDING: i8 = 15;
     pub const OUTPUT_TABLE_STYLE: TableStyle = TableStyle::Rounded;
+    pub const OUTPUT_TABLE_WIDTH: TableWidth = TableWidth::Auto;
+    pub const OUTPUT_TABLE_WRAP: TableWrap = TableWrap::Auto;
+    pub const OUTPUT_TABLE_BANDS: TableBands = TableBands::Auto;
+    pub const OUTPUT_EMPTY_RESULT: EmptyResult = EmptyResult::Message;
     pub const OUTPUT_OBJECT_SHOW_DATA: bool = false;
+    pub const OUTPUT_OBJECT_LIST_DATA_COLUMNS: ObjectListDataColumns = ObjectListDataColumns::Auto;
 }
+use hubuum_theme::DEFAULT_THEME;

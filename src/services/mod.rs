@@ -4,23 +4,25 @@ mod gateway;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hubuum_client::{Authenticated, SyncClient};
+use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 use tokio::runtime::Handle;
 
 use crate::background::BackgroundManager;
-use crate::config::AppConfig;
+use crate::config::{get_config, AppConfig, UserPreferences};
+use crate::errors::AppError;
 
 pub use completion::CompletionContext;
+use completion::CompletionStore;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
-    AuditListInput, AuditScope, ClassUpdateInput, CreateClassInput, CreateGroupInput,
-    CreateNamespaceInput, CreateObjectInput, CreateRemoteTargetInput, CreateReportTemplateInput,
-    CreateServiceAccountInput, CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope,
-    HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NamespaceUpdateInput, NewTokenInput,
-    ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RelationTraversalOptions, RemoteAuthConfigInput, RunReportInput, SearchInput, SearchKind,
-    SubmitImportInput, TaskLookupInput, UpdateRemoteTargetInput, UpdateReportTemplateInput,
+    AuditListInput, AuditScope, ClassUpdateInput, CollectionUpdateInput, CreateClassInput,
+    CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
+    CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
+    HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
+    NewTokenInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions, RemoteAuthConfigInput, RunExportInput, SearchInput, SearchKind,
+    SubmitImportInput, TaskLookupInput, UpdateExportTemplateInput, UpdateRemoteTargetInput,
     UserFilter, UserUpdateInput,
 };
 
@@ -35,12 +37,12 @@ pub struct WaitTaskInput {
 pub struct AppServices {
     gateway: Arc<HubuumGateway>,
     background: BackgroundManager,
-    completion: completion::CompletionStore,
+    completion: CompletionStore,
 }
 
 impl AppServices {
     pub fn new(
-        client: Arc<SyncClient<Authenticated>>,
+        client: Arc<BlockingClient<Authenticated>>,
         runtime: Handle,
         background_poll_interval: Duration,
     ) -> Self {
@@ -48,7 +50,7 @@ impl AppServices {
         Self {
             background: BackgroundManager::new(runtime, gateway.clone(), background_poll_interval),
             gateway,
-            completion: completion::CompletionStore::default(),
+            completion: CompletionStore::default(),
         }
     }
 
@@ -72,7 +74,16 @@ impl AppServices {
         self.completion.invalidate_all();
     }
 
-    pub(crate) fn completion_store(&self) -> completion::CompletionStore {
+    pub fn sync_user_preferences_if_enabled(&self) -> Result<(), AppError> {
+        let config = get_config();
+        if config.settings.store_on_server {
+            self.gateway
+                .store_user_preferences(&UserPreferences::from_config(&config))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn completion_store(&self) -> CompletionStore {
         self.completion.clone()
     }
 }

@@ -9,6 +9,7 @@ impl DetailRenderable for MeRecord {
             ("Principal ID", me.principal.principal_id.to_string()),
             ("Kind", me.principal.kind.clone()),
             ("Name", me.principal.name.clone()),
+            ("Identity Scope", me.principal.identity_scope.clone()),
             ("Token ID", me.token.id.to_string()),
             (
                 "Token Name",
@@ -101,7 +102,7 @@ impl DetailRenderable for PrincipalPermissionsRecord {
             .collect();
 
         let unique_perms: Vec<String> = {
-            let mut set = std::collections::HashSet::new();
+            let mut set = HashSet::new();
             for p in all_perms {
                 set.insert(p);
             }
@@ -111,8 +112,8 @@ impl DetailRenderable for PrincipalPermissionsRecord {
         };
 
         vec![
-            ("Namespace ID", perms.namespace_id.to_string()),
-            ("Namespace", perms.namespace_name.clone()),
+            ("Collection ID", perms.collection_id.to_string()),
+            ("Collection", perms.collection_name.clone()),
             ("Groups", groups_str),
             ("Permissions", unique_perms.join(", ")),
         ]
@@ -121,7 +122,7 @@ impl DetailRenderable for PrincipalPermissionsRecord {
 
 impl TableRenderable for PrincipalPermissionsRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["Namespace ID", "Namespace", "Groups", "Permissions"]
+        vec!["Collection ID", "Collection", "Groups", "Permissions"]
     }
 
     fn row(&self) -> Vec<String> {
@@ -140,7 +141,7 @@ impl TableRenderable for PrincipalPermissionsRecord {
             .collect();
 
         let unique_perms: Vec<String> = {
-            let mut set = std::collections::HashSet::new();
+            let mut set = HashSet::new();
             for p in all_perms {
                 set.insert(p);
             }
@@ -150,10 +151,48 @@ impl TableRenderable for PrincipalPermissionsRecord {
         };
 
         vec![
-            perms.namespace_id.to_string(),
-            perms.namespace_name.clone(),
+            perms.collection_id.to_string(),
+            perms.collection_name.clone(),
             groups_str,
             unique_perms.join(", "),
         ]
+    }
+}
+use std::collections::HashSet;
+
+#[cfg(test)]
+mod tests {
+    use hubuum_client::MeResponse;
+    use serde_json::json;
+
+    use super::DetailRenderable;
+    use crate::domain::MeRecord;
+
+    #[test]
+    fn me_details_show_identity_scope() {
+        let response: MeResponse = serde_json::from_value(json!({
+            "principal": {
+                "principal_id": 1,
+                "identity_scope": "example-directory",
+                "kind": "human",
+                "name": "admin",
+                "created_at": null,
+                "updated_at": null
+            },
+            "token": {
+                "id": 9,
+                "name": null,
+                "description": null,
+                "scoped": false,
+                "scopes": null,
+                "issued": "2026-07-11T08:47:51Z",
+                "expires_at": null,
+                "last_used_at": null
+            }
+        }))
+        .expect("me response should deserialize");
+
+        let rows = MeRecord(response).detail_rows();
+        assert!(rows.contains(&("Identity Scope", "example-directory".to_string())));
     }
 }

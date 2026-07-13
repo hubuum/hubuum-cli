@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
@@ -81,7 +82,7 @@ impl CliCommand for MeShow {
         let me = services.gateway().me()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&me)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&me)?)?,
             OutputFormat::Text => me.format_noreturn()?,
         }
 
@@ -97,7 +98,7 @@ impl CliCommand for MeGroups {
         let groups = services.gateway().me_groups()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&groups)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&groups)?)?,
             OutputFormat::Text => groups.format_noreturn()?,
         }
 
@@ -113,7 +114,7 @@ impl CliCommand for MeTokens {
         let token_list = services.gateway().me_tokens()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&token_list)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&token_list)?)?,
             OutputFormat::Text => token_list.format_noreturn()?,
         }
 
@@ -129,7 +130,7 @@ impl CliCommand for MePermissions {
         let permissions = services.gateway().me_permissions()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&permissions)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&permissions)?)?,
             OutputFormat::Text => permissions.format_noreturn()?,
         }
 

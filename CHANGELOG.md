@@ -9,12 +9,20 @@
   workflows that use the newer related-resource endpoints.
 - Added class relation traversal support (`list`, `direct`, and `graph`) to match the newer
   object relation interface.
-- Switched search and relationship handling to the released `hubuum_client` crate and updated
-  the dependency to `0.0.2`.
+- Switched search and relationship handling to the released `hubuum_client` crate.
 - Improved relation UX with better nested scope help, depth defaults, object-name completion,
   and resolved relation paths.
 - Reduced relation hydration overhead by batching related class-relation lookups instead of
   repeatedly fetching the same relation ids.
+- Added rendered output redirects with `>` and `>>`, including REPL file path completion and
+  support for redirecting piped JSON projections.
+- Updated to `hubuum_client` 0.2.0 and made the CLI vocabulary match the current Hubuum API:
+  `collection` replaces namespace commands and `export` replaces report commands.
+- Added semantic `each:<template>` redirects, aggregate sorting support, themes, and expanded
+  pipe DSL help topics.
+- Fixed pipeline comparisons being mistaken for redirects, enabled jq-compatible `JQ`
+  transforms, included hidden values in broad search, and made direct redirects honor shell
+  argument and color-mode behavior.
 
 ## [0.0.1] - 2026-03-12
 

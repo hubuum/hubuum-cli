@@ -2,8 +2,11 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::event_sink::{id_or_pos, render_record, required_i64};
-use super::{build_list_query, render_list_page, CliCommand};
+use super::{
+    build_list_query, first_positional_or, render_json_record, render_list_page, required_i64,
+    CliCommand,
+};
+use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::services::AppServices;
@@ -12,7 +15,7 @@ use crate::tokenizer::CommandTokenizer;
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "list",
                 EventDeliveryList::default(),
@@ -20,7 +23,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "show",
                 EventDeliveryShow::default(),
@@ -28,7 +31,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "health",
                 EventDeliveryHealth::default(),
@@ -36,7 +39,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "retry",
                 EventDeliveryRetry::default(),
@@ -44,7 +47,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-delivery"],
+            &["event", "delivery"],
             catalog_command(
                 "dead",
                 EventDeliveryDead::default(),
@@ -88,15 +91,19 @@ impl CliCommand for EventDeliveryList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryShow {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 
 impl CliCommand for EventDeliveryShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()
@@ -110,21 +117,25 @@ pub struct EventDeliveryHealth {}
 
 impl CliCommand for EventDeliveryHealth {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        render_record(tokens, &services.gateway().event_delivery_health()?)
+        render_json_record(tokens, &services.gateway().event_delivery_health()?)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryRetry {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 
 impl CliCommand for EventDeliveryRetry {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()
@@ -135,15 +146,19 @@ impl CliCommand for EventDeliveryRetry {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventDeliveryDead {
-    #[option(long = "id", help = "Event delivery ID")]
+    #[option(
+        long = "id",
+        help = "Event delivery ID",
+        autocomplete = "event_delivery_ids"
+    )]
     pub id: Option<i64>,
 }
 
 impl CliCommand for EventDeliveryDead {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
-        render_record(
+        query.id = first_positional_or(query.id, tokens, "id")?;
+        render_json_record(
             tokens,
             &services
                 .gateway()

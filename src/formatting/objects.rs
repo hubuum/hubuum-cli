@@ -1,13 +1,17 @@
+use serde_json::Value;
+
 use crate::domain::ResolvedObjectRecord;
 
 use super::{DetailRenderable, TableRenderable};
+
+const DATA_PREVIEW_WIDTH: usize = 72;
 
 impl DetailRenderable for ResolvedObjectRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
         vec![
             ("Name", self.name.clone()),
             ("Description", self.description.clone()),
-            ("Namespace", self.namespace.clone()),
+            ("Collection", self.collection.clone()),
             ("Class", self.class.clone()),
             ("Data", human_readable_bytes(self.data_size())),
             ("Created", self.created_at.to_string()),
@@ -22,7 +26,7 @@ impl TableRenderable for ResolvedObjectRecord {
             "id",
             "Name",
             "Description",
-            "Namespace",
+            "Collection",
             "Class",
             "Data",
             "Created",
@@ -35,7 +39,7 @@ impl TableRenderable for ResolvedObjectRecord {
             self.id.to_string(),
             self.name.clone(),
             self.description.clone(),
-            self.namespace.clone(),
+            self.collection.clone(),
             self.class.clone(),
             data_preview(self.data.as_ref()),
             self.created_at.to_string(),
@@ -76,23 +80,44 @@ fn human_readable_bytes(size: usize) -> String {
     format!("{value:.1} PB")
 }
 
-fn data_preview(data: Option<&serde_json::Value>) -> String {
+pub(crate) fn data_preview(data: Option<&Value>) -> String {
     match data {
-        Some(value) => {
-            let compact = value.to_string();
-            if compact.len() > 48 {
-                format!("{}...", &compact[..45])
-            } else {
-                compact
-            }
-        }
+        Some(Value::Object(object)) => truncate_preview(
+            &object
+                .iter()
+                .map(|(key, value)| format!("{key}={}", preview_value(value)))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        Some(value) => truncate_preview(&preview_value(value)),
         None => String::new(),
     }
 }
 
+fn preview_value(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => value.clone(),
+        Value::Array(_) | Value::Object(_) => value.to_string(),
+    }
+}
+
+fn truncate_preview(value: &str) -> String {
+    if value.chars().count() <= DATA_PREVIEW_WIDTH {
+        return value.to_string();
+    }
+
+    let keep = DATA_PREVIEW_WIDTH.saturating_sub(3);
+    let truncated = value.chars().take(keep).collect::<String>();
+    format!("{truncated}...")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::human_readable_bytes;
+    use super::{data_preview, human_readable_bytes};
+    use serde_json::json;
 
     #[test]
     fn human_readable_bytes_formats_small_values() {
@@ -106,5 +131,30 @@ mod tests {
         assert_eq!(human_readable_bytes(1024), "1 KB");
         assert_eq!(human_readable_bytes(1536), "1.5 KB");
         assert_eq!(human_readable_bytes(2 * 1024 * 1024), "2 MB");
+    }
+
+    #[test]
+    fn data_preview_formats_object_as_key_value_pairs() {
+        let value = json!({
+            "contact": "Entry",
+            "cpu_cpuinfo": "8 x Apple M4",
+            "enabled": true
+        });
+
+        assert_eq!(
+            data_preview(Some(&value)),
+            "contact=Entry, cpu_cpuinfo=8 x Apple M4, enabled=true"
+        );
+    }
+
+    #[test]
+    fn data_preview_truncates_on_character_boundaries() {
+        let value = json!({
+            "cpu_cpuinfo": "8 x Apple M4 Pro øøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøøø"
+        });
+
+        let preview = data_preview(Some(&value));
+        assert!(preview.ends_with("..."));
+        assert!(preview.len() > 3);
     }
 }

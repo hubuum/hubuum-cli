@@ -72,7 +72,7 @@ impl DetailRenderable for ResolvedRelatedClassRecord {
         vec![
             ("Name", self.name.clone()),
             ("Description", self.description.clone()),
-            ("Namespace", self.namespace.clone()),
+            ("Collection", self.collection.clone()),
             ("Depth", self.depth.to_string()),
             ("Path", self.path.join(" -> ")),
             ("Created", self.created_at.clone()),
@@ -86,7 +86,7 @@ impl TableRenderable for ResolvedRelatedClassRecord {
         vec![
             "id",
             "Name",
-            "Namespace",
+            "Collection",
             "Depth",
             "Path",
             "Created",
@@ -98,7 +98,7 @@ impl TableRenderable for ResolvedRelatedClassRecord {
         vec![
             self.id.to_string(),
             self.name.clone(),
-            self.namespace.clone(),
+            self.collection.clone(),
             self.depth.to_string(),
             self.path.join(" -> "),
             self.created_at.clone(),
@@ -112,7 +112,7 @@ impl DetailRenderable for ResolvedRelatedObjectRecord {
         vec![
             ("Name", self.name.clone()),
             ("Description", self.description.clone()),
-            ("Namespace", self.namespace.clone()),
+            ("Collection", self.collection.clone()),
             ("Class", self.class.clone()),
             ("Depth", self.depth.to_string()),
             ("Path", self.path.join(" -> ")),
@@ -128,7 +128,7 @@ impl TableRenderable for ResolvedRelatedObjectRecord {
             "id",
             "Name",
             "Class",
-            "Namespace",
+            "Collection",
             "Depth",
             "Path",
             "Created",
@@ -141,7 +141,7 @@ impl TableRenderable for ResolvedRelatedObjectRecord {
             self.id.to_string(),
             self.name.clone(),
             self.class.clone(),
-            self.namespace.clone(),
+            self.collection.clone(),
             self.depth.to_string(),
             self.path.join(" -> "),
             self.created_at.clone(),
@@ -248,13 +248,13 @@ mod tests {
                 id: 2,
                 class: "Jacks".to_string(),
                 name: "Jack-1".to_string(),
-                namespace: "default".to_string(),
+                collection: "default".to_string(),
                 depth: 1,
                 children: vec![RelatedObjectTreeNode {
                     id: 2,
                     class: "Rooms".to_string(),
                     name: "B701".to_string(),
-                    namespace: "default".to_string(),
+                    collection: "default".to_string(),
                     depth: 2,
                     children: vec![],
                 }],
@@ -271,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn render_related_object_tree_with_key_aligns_follow_on_entries() {
         reset_output().expect("output should reset");
         render_related_object_tree_with_key(
@@ -280,7 +281,7 @@ mod tests {
                     id: 1,
                     class: "Contacts".to_string(),
                     name: "Entry".to_string(),
-                    namespace: "default".to_string(),
+                    collection: "default".to_string(),
                     depth: 1,
                     children: vec![],
                 },
@@ -288,13 +289,13 @@ mod tests {
                     id: 2,
                     class: "Jacks".to_string(),
                     name: "Jack-1".to_string(),
-                    namespace: "default".to_string(),
+                    collection: "default".to_string(),
                     depth: 1,
                     children: vec![RelatedObjectTreeNode {
                         id: 3,
                         class: "Rooms".to_string(),
                         name: "B701".to_string(),
-                        namespace: "default".to_string(),
+                        collection: "default".to_string(),
                         depth: 2,
                         children: vec![],
                     }],

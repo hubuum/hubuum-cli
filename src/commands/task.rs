@@ -1,9 +1,13 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::task_event_sort;
+use super::{
+    build_list_query, desired_format, option_or_pos, render_list_page, render_task_record,
+    CliCommand,
+};
+use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
@@ -71,38 +75,23 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
-trait GetTaskId {
-    fn task_id(&self) -> Option<i32>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskShow {
     #[option(short = "i", long = "id", help = "Task ID")]
     pub id: Option<i32>,
 }
 
-impl GetTaskId for &TaskShow {
-    fn task_id(&self) -> Option<i32> {
-        self.id
-    }
-}
-
 impl CliCommand for TaskShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = task_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let task = services.gateway().task(TaskLookupInput {
             task_id: query
                 .id
                 .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
         })?;
 
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&task)?)?,
-            OutputFormat::Text => task.format_noreturn()?,
-        }
-
-        Ok(())
+        render_task_record(tokens, &task)
     }
 }
 
@@ -123,16 +112,10 @@ pub struct TaskEvents {
     pub cursor: Option<String>,
 }
 
-impl GetTaskId for &TaskEvents {
-    fn task_id(&self) -> Option<i32> {
-        self.id
-    }
-}
-
 impl CliCommand for TaskEvents {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = task_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let list_query = build_list_query(&[], &query.sort_clauses, query.limit, query.cursor, [])?;
         let events = services.gateway().task_events(
             TaskLookupInput {
@@ -154,7 +137,7 @@ impl CliCommand for TaskQueue {
         let state = services.gateway().task_queue_state()?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&state)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
             OutputFormat::Text => state.format_noreturn()?,
         }
 
@@ -162,29 +145,19 @@ impl CliCommand for TaskQueue {
     }
 }
 
-fn task_id_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<i32>, AppError>
-where
-    U: GetTaskId,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.task_id().is_none() {
-        if let Some(value) = pos0 {
-            return Ok(Some(value.parse()?));
-        }
-        return Err(AppError::MissingOptions(vec!["id".to_string()]));
-    }
-    Ok(query.task_id())
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskList {
-    #[option(long = "kind", help = "Filter by task kind")]
+    #[option(
+        long = "kind",
+        help = "Filter by task kind",
+        autocomplete = "task_kinds"
+    )]
     pub kind: Option<String>,
-    #[option(long = "status", help = "Filter by task status")]
+    #[option(
+        long = "status",
+        help = "Filter by task status",
+        autocomplete = "task_statuses"
+    )]
     pub status: Option<String>,
     #[option(long = "limit", help = "Maximum number of results to return")]
     pub limit: Option<usize>,
@@ -211,23 +184,17 @@ pub struct TaskOutputCmd {
     pub id: Option<i32>,
 }
 
-impl GetTaskId for &TaskOutputCmd {
-    fn task_id(&self) -> Option<i32> {
-        self.id
-    }
-}
-
 impl CliCommand for TaskOutputCmd {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = task_id_or_pos(&query, tokens, 0)?;
+        query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let task_id = query
             .id
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
         let output = services.gateway().task_output(task_id)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&output)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
                     append_line(line)?;

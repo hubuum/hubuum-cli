@@ -1,9 +1,13 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::{group_sort, group_where};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
+use crate::autocomplete::{group_sort, group_where, groups, users};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
@@ -88,10 +92,6 @@ modify --groupname my-group --description "Updated description""#,
         );
 }
 
-trait GetGroupname {
-    fn groupname(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupNew {
     #[option(short = "g", long = "groupname", help = "Name of the group")]
@@ -119,9 +119,19 @@ impl CliCommand for GroupNew {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupAddUser {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
-    #[option(short = "u", long = "username", help = "Username to add to the group")]
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username to add to the group",
+        autocomplete = "users"
+    )]
     pub username: String,
 }
 impl CliCommand for GroupAddUser {
@@ -144,12 +154,18 @@ impl CliCommand for GroupAddUser {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupRemoveUser {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
     #[option(
         short = "u",
         long = "username",
-        help = "Username to remove from the group"
+        help = "Username to remove from the group",
+        autocomplete = "users"
     )]
     pub username: String,
 }
@@ -176,7 +192,12 @@ impl CliCommand for GroupRemoveUser {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupInfo {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: String,
 }
 impl CliCommand for GroupInfo {
@@ -185,7 +206,7 @@ impl CliCommand for GroupInfo {
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
         match desired_format(tokens) {
-            OutputFormat::Json => append_line(serde_json::to_string_pretty(&details)?)?,
+            OutputFormat::Json => append_line(to_string_pretty(&details)?)?,
             OutputFormat::Text => {
                 details.group.format()?;
                 details.members.format_noreturn()?
@@ -198,7 +219,12 @@ impl CliCommand for GroupInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct GroupModify {
-    #[option(short = "g", long = "groupname", help = "Name of the group")]
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
     pub groupname: Option<String>,
     #[option(short = "r", long = "rename", help = "Rename the group")]
     pub rename: Option<String>,
@@ -206,20 +232,10 @@ pub struct GroupModify {
     pub description: Option<String>,
 }
 
-impl GetGroupname for &GroupModify {
-    fn groupname(&self) -> Option<String> {
-        self.groupname.clone()
-    }
-}
-
 impl CliCommand for GroupModify {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.groupname = groupname_or_pos(&query, tokens, 0)?;
-        let groupname = query
-            .groupname
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["groupname".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let groupname = required_option_or_pos(query.groupname, tokens, 0, "groupname")?;
 
         let group = services.gateway().update_group(GroupUpdateInput {
             groupname,
@@ -282,24 +298,6 @@ impl CliCommand for GroupList {
         let groups = services.gateway().list_groups(&list_query)?;
         render_list_page(tokens, &groups)
     }
-}
-
-fn groupname_or_pos<U>(
-    query: U,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    U: GetGroupname,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.groupname().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["groupname".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    }
-    Ok(query.groupname().clone())
 }
 
 #[cfg(test)]

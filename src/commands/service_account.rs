@@ -1,6 +1,8 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string_pretty};
 
+use crate::autocomplete::{groups, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -10,7 +12,10 @@ use crate::services::{AppServices, CreateServiceAccountInput, NewTokenInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, contains_clause, desired_format, render_list_page, CliCommand};
+use super::{
+    build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
+    CliCommand,
+};
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
@@ -104,18 +109,19 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
-trait GetName {
-    fn name(&self) -> Option<String>;
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountCreate {
     #[option(short = "n", long = "name", help = "Name of the service account")]
     pub name: String,
     #[option(short = "d", long = "description", help = "Description")]
     pub description: Option<String>,
-    #[option(short = "o", long = "owner-group-id", help = "Owner group ID")]
-    pub owner_group_id: i32,
+    #[option(
+        short = "o",
+        long = "owner-group",
+        help = "Owner group name",
+        autocomplete = "groups"
+    )]
+    pub owner_group: String,
 }
 
 impl CliCommand for ServiceAccountCreate {
@@ -127,7 +133,7 @@ impl CliCommand for ServiceAccountCreate {
             .create_service_account(CreateServiceAccountInput {
                 name: query.name,
                 description: query.description,
-                owner_group_id: query.owner_group_id,
+                owner_group_id: services.gateway().group_id_by_name(&query.owner_group)?,
             })?;
 
         match desired_format(tokens) {
@@ -180,25 +186,19 @@ impl CliCommand for ServiceAccountList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountShow {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
-}
-
-impl GetName for &ServiceAccountShow {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
 }
 
 impl CliCommand for ServiceAccountShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let sa = services.gateway().service_account(&name)?;
 
@@ -213,25 +213,19 @@ impl CliCommand for ServiceAccountShow {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountDelete {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
-}
-
-impl GetName for &ServiceAccountDelete {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
 }
 
 impl CliCommand for ServiceAccountDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         services.gateway().delete_service_account(&name)?;
 
@@ -247,25 +241,19 @@ impl CliCommand for ServiceAccountDelete {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountDisable {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
-}
-
-impl GetName for &ServiceAccountDisable {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
 }
 
 impl CliCommand for ServiceAccountDisable {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let sa = services.gateway().disable_service_account(&name)?;
 
@@ -283,31 +271,25 @@ impl CliCommand for ServiceAccountDisable {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenList {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
-}
-
-impl GetName for &ServiceAccountTokenList {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
 }
 
 impl CliCommand for ServiceAccountTokenList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let token_list = services.gateway().service_account_tokens(&name)?;
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&token_list)?)?;
+                append_line(to_string_pretty(&token_list)?)?;
             }
             OutputFormat::Text => {
                 token_list.format_noreturn()?;
@@ -320,7 +302,12 @@ impl CliCommand for ServiceAccountTokenList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenCreate {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
     #[option(long = "token-name", help = "Token name")]
     pub token_name: Option<String>,
@@ -340,21 +327,10 @@ pub struct ServiceAccountTokenCreate {
     pub expires_at: Option<String>,
 }
 
-impl GetName for &ServiceAccountTokenCreate {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountTokenCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         let raw_token = services.gateway().service_account_token_create(
             &name,
@@ -368,7 +344,7 @@ impl CliCommand for ServiceAccountTokenCreate {
 
         match desired_format(tokens) {
             OutputFormat::Json => {
-                append_line(serde_json::to_string_pretty(&serde_json::json!({
+                append_line(to_string_pretty(&json!({
                     "token": raw_token,
                     "warning": "This token will not be shown again. Store it securely."
                 }))?)?;
@@ -386,27 +362,21 @@ impl CliCommand for ServiceAccountTokenCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenRevoke {
-    #[option(short = "n", long = "name", help = "Name of the service account")]
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
     pub name: Option<String>,
     #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
     pub token_id: i32,
 }
 
-impl GetName for &ServiceAccountTokenRevoke {
-    fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-}
-
 impl CliCommand for ServiceAccountTokenRevoke {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.name = name_or_pos(&query, tokens, 0)?;
-
-        let name = query
-            .name
-            .clone()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let query = Self::parse_tokens(tokens)?;
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
         services
             .gateway()
@@ -423,22 +393,4 @@ impl CliCommand for ServiceAccountTokenRevoke {
 
         Ok(())
     }
-}
-
-fn name_or_pos<N>(
-    query: N,
-    tokens: &CommandTokenizer,
-    pos: usize,
-) -> Result<Option<String>, AppError>
-where
-    N: GetName,
-{
-    let pos0 = tokens.get_positionals().get(pos);
-    if query.name().is_none() {
-        if pos0.is_none() {
-            return Err(AppError::MissingOptions(vec!["name".to_string()]));
-        }
-        return Ok(pos0.cloned());
-    }
-    Ok(query.name().clone())
 }

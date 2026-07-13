@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions};
 use std::str::FromStr;
 
 use crate::domain::{PrincipalTokenRecord, ServiceAccountRecord};
@@ -17,20 +19,32 @@ pub struct CreateServiceAccountInput {
 }
 
 impl HubuumGateway {
+    pub fn list_service_account_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .list_service_accounts(&ListQuery {
+                limit: Some(200),
+                ..ListQuery::default()
+            })?
+            .items
+            .into_iter()
+            .map(|account| account.0.name)
+            .collect())
+    }
+
     pub fn create_service_account(
         &self,
         input: CreateServiceAccountInput,
     ) -> Result<ServiceAccountRecord, AppError> {
-        let sa = self
+        let mut create = self
             .client
             .service_accounts()
-            .create()
-            .params(hubuum_client::ServiceAccountPost {
-                name: input.name,
-                description: input.description,
-                owner_group_id: input.owner_group_id,
-            })
-            .send()?;
+            .create_checked()
+            .name(input.name)
+            .owner_group_id(input.owner_group_id);
+        if let Some(description) = input.description {
+            create = create.description(description);
+        }
+        let sa = create.send()?;
 
         Ok(ServiceAccountRecord::from(sa))
     }
@@ -48,7 +62,7 @@ impl HubuumGateway {
 
         let mut query_op = self.client.service_accounts().query();
         for filter in filters {
-            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+            query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
@@ -60,18 +74,27 @@ impl HubuumGateway {
     }
 
     pub fn service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let sa = self.client.service_accounts().select_by_name(name)?;
+        let sa = self.client.service_accounts().get_by_name(name)?;
         Ok(ServiceAccountRecord::from(sa.resource().clone()))
     }
 
+    pub fn service_account_id_by_name(&self, name: &str) -> Result<i32, AppError> {
+        Ok(self
+            .client
+            .service_accounts()
+            .get_by_name(name)?
+            .id()
+            .into())
+    }
+
     pub fn delete_service_account(&self, name: &str) -> Result<(), AppError> {
-        let sa = self.client.service_accounts().select_by_name(name)?;
+        let sa = self.client.service_accounts().get_by_name(name)?;
         self.client.service_accounts().delete(sa.id())?;
         Ok(())
     }
 
     pub fn disable_service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         let disabled = handle.disable()?;
         Ok(ServiceAccountRecord::from(disabled))
     }
@@ -80,7 +103,7 @@ impl HubuumGateway {
         &self,
         name: &str,
     ) -> Result<Vec<PrincipalTokenRecord>, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         let tokens = handle.tokens()?;
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
@@ -90,8 +113,8 @@ impl HubuumGateway {
         name: &str,
         input: NewTokenInput,
     ) -> Result<String, AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
-        let mut req = hubuum_client::NewTokenRequest::new();
+        let handle = self.client.service_accounts().get_by_name(name)?;
+        let mut req = NewTokenRequest::new();
 
         if let Some(n) = input.name {
             req = req.name(n);
@@ -100,21 +123,21 @@ impl HubuumGateway {
             req = req.description(d);
         }
         if let Some(exp_str) = input.expires_at.as_deref() {
-            let dt = chrono::DateTime::parse_from_rfc3339(exp_str)
+            let dt = DateTime::parse_from_rfc3339(exp_str)
                 .map_err(|e| {
                     AppError::CommandExecutionError(format!(
                         "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
                     ))
                 })?
-                .with_timezone(&chrono::Utc);
-            req = req.expires_at(hubuum_client::HubuumDateTime(dt));
+                .with_timezone(&Utc);
+            req = req.expires_at(HubuumDateTime(dt));
         }
         if !input.scopes.is_empty() {
             let scopes: Result<Vec<_>, _> = input
                 .scopes
                 .iter()
                 .map(|s| {
-                    hubuum_client::Permissions::from_str(s).map_err(|_| {
+                    Permissions::from_str(s).map_err(|_| {
                         AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
                     })
                 })
@@ -126,7 +149,7 @@ impl HubuumGateway {
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
-        let handle = self.client.service_accounts().select_by_name(name)?;
+        let handle = self.client.service_accounts().get_by_name(name)?;
         handle.token_revoke(token_id)?;
         Ok(())
     }

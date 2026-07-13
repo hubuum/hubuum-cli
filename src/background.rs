@@ -5,6 +5,8 @@ use std::time::Duration;
 use hubuum_client::TaskStatus;
 use serde::Serialize;
 use tokio::runtime::Handle;
+use tokio::task::spawn_blocking;
+use tokio::time::sleep;
 
 use crate::domain::TaskRecord;
 use crate::errors::AppError;
@@ -143,7 +145,7 @@ impl BackgroundManager {
                     id,
                     BackgroundJob {
                         id,
-                        task_id: task.0.id,
+                        task_id: task.0.id.into(),
                         label: label.into(),
                         task: Some(task.clone()),
                         last_error: None,
@@ -155,7 +157,7 @@ impl BackgroundManager {
                 (
                     BackgroundWatchRegistration {
                         local_id: id,
-                        task_id: task.0.id,
+                        task_id: task.0.id.into(),
                         created: true,
                     },
                     should_spawn,
@@ -296,7 +298,7 @@ impl BackgroundManager {
                 }
 
                 let fetch_task = manager.fetch_task.clone();
-                let result = tokio::task::spawn_blocking(move || fetch_task(task_id)).await;
+                let result = spawn_blocking(move || fetch_task(task_id)).await;
 
                 match result {
                     Ok(Ok(task)) => {
@@ -315,7 +317,7 @@ impl BackgroundManager {
                     }
                 }
 
-                tokio::time::sleep(manager.poll_interval).await;
+                sleep(manager.poll_interval).await;
             }
         });
     }
@@ -443,8 +445,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use hubuum_client::{TaskKind, TaskLinks, TaskProgress, TaskResponse, TaskStatus};
+    use hubuum_client::{TaskResponse, TaskStatus};
+    use serde_json::json;
     use tokio::runtime::{Handle, Runtime};
+    use tokio::time::sleep;
 
     use super::{BackgroundJob, BackgroundManager, BackgroundState, PendingNotice};
     use crate::domain::TaskRecord;
@@ -510,7 +514,7 @@ mod tests {
             manager.watch_task(task(42, TaskStatus::Queued, Some("queued")), "import 42");
             assert_eq!(manager.take_prompt_badge().as_deref(), Some("[bg:1]"));
 
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            sleep(Duration::from_millis(40)).await;
 
             let job = manager.job(1).expect("job should exist");
             assert_eq!(job.status, "succeeded");
@@ -521,40 +525,34 @@ mod tests {
     }
 
     fn task(task_id: i32, status: TaskStatus, summary: Option<&str>) -> TaskRecord {
-        TaskRecord(TaskResponse {
-            id: task_id,
-            kind: TaskKind::Import,
-            status,
-            submitted_by: Some(1),
-            created_at: Default::default(),
-            started_at: None,
-            finished_at: None,
-            progress: TaskProgress {
-                total_items: 1,
-                processed_items: if matches!(status, TaskStatus::Queued) {
-                    0
-                } else {
-                    1
-                },
-                success_items: if matches!(status, TaskStatus::Succeeded) {
-                    1
-                } else {
-                    0
-                },
-                failed_items: 0,
+        let response: TaskResponse = serde_json::from_value(json!({
+            "id": task_id,
+            "kind": "import",
+            "status": status,
+            "submitted_by": 1,
+            "created_at": "1970-01-01T00:00:00Z",
+            "started_at": null,
+            "finished_at": null,
+            "progress": {
+                "total_items": 1,
+                "processed_items": if matches!(status, TaskStatus::Queued) { 0 } else { 1 },
+                "success_items": if matches!(status, TaskStatus::Succeeded) { 1 } else { 0 },
+                "failed_items": 0
             },
-            summary: summary.map(str::to_string),
-            request_redacted_at: None,
-            links: TaskLinks {
-                task: format!("/api/v1/tasks/{task_id}"),
-                events: format!("/api/v1/tasks/{task_id}/events"),
-                import_url: Some(format!("/api/v1/imports/{task_id}")),
-                import_results: Some(format!("/api/v1/imports/{task_id}/results")),
-                report: None,
-                report_output: None,
+            "summary": summary,
+            "request_redacted_at": null,
+            "links": {
+                "task": format!("/api/v1/tasks/{task_id}"),
+                "events": format!("/api/v1/tasks/{task_id}/events"),
+                "import": format!("/api/v1/imports/{task_id}"),
+                "import_results": format!("/api/v1/imports/{task_id}/results"),
+                "export": null,
+                "export_output": null
             },
-            details: None,
-        })
+            "details": null
+        }))
+        .expect("test task should deserialize");
+        TaskRecord(response)
     }
 
     #[test]

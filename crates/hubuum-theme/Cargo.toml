@@ -1,0 +1,11 @@
+[package]
+name = "hubuum-theme"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+anstyle = "1"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "1"

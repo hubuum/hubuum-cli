@@ -1,13 +1,9 @@
-use std::fmt::Display;
-
-use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS,
-    presets::{ASCII_FULL, ASCII_MARKDOWN, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
-    ContentArrangement, Table,
-};
 use serde::Serialize;
+use serde_json::{json, to_value, Map, Value};
 
-use crate::{config::get_config, errors::AppError, models::TableStyle, output::append_line};
+use hubuum_filter::OutputEnvelope;
+
+use crate::{errors::AppError, output::set_semantic_output};
 
 pub trait OutputFormatter: Sized + Serialize + Clone {
     fn format(&self) -> Result<Self, AppError>;
@@ -37,10 +33,13 @@ where
     T: DetailRenderable + Serialize + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        let padding = get_config().output.padding;
+        let mut object = Map::new();
+        let mut columns = Vec::new();
         for (key, value) in self.detail_rows() {
-            append_key_value(key, value, padding)?;
+            columns.push(key.to_string());
+            object.insert(key.to_string(), Value::String(value));
         }
+        set_semantic_output(OutputEnvelope::detail(Value::Object(object), columns))?;
         Ok(self.clone())
     }
 }
@@ -50,15 +49,28 @@ where
     T: TableRenderable + Serialize + Clone,
 {
     fn format(&self) -> Result<Self, AppError> {
-        if self.is_empty() {
-            append_line("No results.")?;
-            return Ok(self.clone());
-        }
-
-        for line in render_table(self)?.lines() {
-            append_line(line)?;
-        }
-
+        let columns = T::headers()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let rows = self
+            .iter()
+            .map(|row| {
+                let mut object = match to_value(row)? {
+                    Value::Object(object) => object,
+                    value => {
+                        let mut object = Map::new();
+                        object.insert("value".to_string(), value);
+                        object
+                    }
+                };
+                for (column, value) in columns.iter().zip(row.row()) {
+                    object.insert(column.clone(), Value::String(value));
+                }
+                Ok(Value::Object(object))
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        set_semantic_output(OutputEnvelope::rows(rows, columns))?;
         Ok(self.clone())
     }
 }
@@ -67,8 +79,8 @@ pub fn append_json_message<V>(value: V) -> Result<(), AppError>
 where
     V: Serialize,
 {
-    let message = serde_json::json!({ "message": value });
-    append_line(serde_json::to_string_pretty(&message)?)?;
+    let message = json!({ "message": value });
+    set_semantic_output(OutputEnvelope::message(message))?;
     Ok(())
 }
 
@@ -76,59 +88,101 @@ pub fn append_json<T>(value: &T) -> Result<(), AppError>
 where
     T: Serialize + ?Sized,
 {
-    append_line(serde_json::to_string_pretty(value)?)?;
+    set_semantic_output(OutputEnvelope::detail(to_value(value)?, Vec::new()))?;
     Ok(())
 }
 
-pub fn append_key_value<K, V>(key: K, value: V, padding: i8) -> Result<(), AppError>
-where
-    K: Display,
-    V: Display,
-{
-    append_line(pad_key_value(key, value, padding))
-}
+#[cfg(test)]
+mod tests {
+    use super::{OutputFormatter, TableRenderable};
+    use crate::{
+        config::{init_config, AppConfig},
+        models::{EmptyResult, TableStyle},
+        output::{reset_output, set_pipeline, take_output},
+    };
+    use hubuum_filter::PipeStage;
+    use serde::Serialize;
+    use serial_test::serial;
 
-fn pad_key_value<K, V>(key: K, value: V, padding: i8) -> String
-where
-    K: Display,
-    V: Display,
-{
-    let padding = padding as usize;
-    format!("{key:<padding$}: {value}")
-}
-
-fn render_table<T>(rows: &[T]) -> Result<String, AppError>
-where
-    T: TableRenderable,
-{
-    let mut table = Table::new();
-    table
-        .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(T::headers());
-
-    apply_table_style(&mut table, &get_config().output.table_style);
-
-    for row in rows {
-        table.add_row(row.row());
+    #[derive(Clone, Serialize)]
+    struct Row {
+        name: &'static str,
+        value: &'static str,
+        hidden: &'static str,
     }
 
-    Ok(table.to_string())
-}
+    impl TableRenderable for Row {
+        fn headers() -> Vec<&'static str> {
+            vec!["name", "value"]
+        }
 
-fn apply_table_style(table: &mut Table, style: &TableStyle) {
-    match style {
-        TableStyle::Ascii => {
-            table.load_preset(ASCII_FULL);
+        fn row(&self) -> Vec<String> {
+            vec![self.name.to_string(), self.value.to_string()]
         }
-        TableStyle::Compact => {
-            table.load_preset(UTF8_HORIZONTAL_ONLY);
-        }
-        TableStyle::Markdown => {
-            table.load_preset(ASCII_MARKDOWN);
-        }
-        TableStyle::Rounded => {
-            table.load_preset(UTF8_FULL);
-            table.apply_modifier(UTF8_ROUND_CORNERS);
-        }
+    }
+
+    #[test]
+    #[serial]
+    fn empty_table_can_be_silent() {
+        let mut config = AppConfig::default();
+        config.output.empty_result = EmptyResult::Silent;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+
+        Vec::<Row>::new().format_noreturn().expect("format");
+
+        assert!(take_output().expect("snapshot").is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn plain_table_style_removes_borders() {
+        let mut config = AppConfig::default();
+        config.output.table_style = TableStyle::Plain;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+
+        vec![Row {
+            name: "alpha",
+            value: "one",
+            hidden: "secret",
+        }]
+        .format_noreturn()
+        .expect("format");
+
+        let rendered = take_output().expect("snapshot").render();
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains('+'));
+        assert!(!rendered.contains('│'));
+    }
+
+    #[test]
+    #[serial]
+    fn table_pipe_filter_matches_visible_fields_and_shows_hit_column() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("output should reset");
+        set_pipeline(vec![PipeStage::Grep("one".to_string())]).expect("pipeline should set");
+
+        vec![
+            Row {
+                name: "alpha",
+                value: "one",
+                hidden: "cpu eko payload",
+            },
+            Row {
+                name: "beta",
+                value: "two",
+                hidden: "other payload",
+            },
+        ]
+        .format_noreturn()
+        .expect("format");
+
+        let rendered = take_output().expect("snapshot").render();
+        assert!(rendered.contains("alpha"));
+        assert!(!rendered.contains("beta"));
+        assert!(rendered.contains("Match"));
+        assert!(rendered.contains("value"));
+        assert!(!rendered.contains("cpu eko payload"));
     }
 }

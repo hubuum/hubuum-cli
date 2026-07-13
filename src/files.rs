@@ -1,14 +1,19 @@
+use std::fs::{create_dir_all, read_to_string, write};
 use std::path::PathBuf;
+
+use dirs::{config_dir, data_dir};
+use log::{debug, trace};
+use serde_json::{from_str, to_string};
 
 use crate::{errors::AppError, models::TokenEntry};
 
 fn ensure_root_dir() -> Result<PathBuf, AppError> {
-    let root_dir = dirs::data_dir()
+    let root_dir = data_dir()
         .ok_or_else(|| AppError::DataDirError("Could not determine data directory".to_string()))?
         .join("hubuum_cli");
 
     if !root_dir.exists() {
-        std::fs::create_dir_all(&root_dir)?;
+        create_dir_all(&root_dir)?;
     }
 
     Ok(root_dir)
@@ -25,7 +30,7 @@ pub fn get_system_config_path() -> PathBuf {
 }
 
 pub fn get_user_config_path() -> PathBuf {
-    dirs::config_dir()
+    config_dir()
         .map(|mut path| {
             path.push(".hubuum_cli/config.toml");
             path
@@ -35,13 +40,13 @@ pub fn get_user_config_path() -> PathBuf {
 
 fn ensure_file_exists(file: &str) -> Result<PathBuf, AppError> {
     let fqfile = ensure_root_dir()?.join(file);
-    log::trace!("Checking file: {fqfile:?}");
+    trace!("Checking file: {fqfile:?}");
     if !fqfile.exists() {
-        log::debug!("Creating file: {fqfile:?}");
+        debug!("Creating file: {fqfile:?}");
         if file == "token.json" {
-            std::fs::write(fqfile.clone(), "[]")?;
+            write(fqfile.clone(), "[]")?;
         } else {
-            std::fs::write(fqfile.clone(), "")?;
+            write(fqfile.clone(), "")?;
         }
     }
     Ok(fqfile)
@@ -64,8 +69,8 @@ pub fn get_token_from_tokenfile(
     username: &str,
 ) -> Result<Option<String>, AppError> {
     let token_file_path = get_token_file()?;
-    let token_file_content = std::fs::read_to_string(token_file_path)?;
-    let token_entries: Vec<TokenEntry> = serde_json::from_str(&token_file_content)?;
+    let token_file_content = read_to_string(token_file_path)?;
+    let token_entries: Vec<TokenEntry> = from_str(&token_file_content)?;
 
     for token_entry in &token_entries {
         if token_entry.hostname == hostname && token_entry.username == username {
@@ -77,8 +82,8 @@ pub fn get_token_from_tokenfile(
 
 pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError> {
     let token_file_path = get_token_file()?;
-    let mut token_entries: Vec<TokenEntry> = match std::fs::read_to_string(&token_file_path) {
-        Ok(content) => serde_json::from_str(&content)?,
+    let mut token_entries: Vec<TokenEntry> = match read_to_string(&token_file_path) {
+        Ok(content) => from_str(&content)?,
         Err(_) => Vec::new(),
     };
 
@@ -87,8 +92,8 @@ pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError>
     });
     token_entries.push(token_entry);
 
-    let token_file_content = serde_json::to_string(&token_entries)?;
-    std::fs::write(token_file_path, token_file_content)?;
+    let token_file_content = to_string(&token_entries)?;
+    write(token_file_path, token_file_content)?;
 
     Ok(())
 }

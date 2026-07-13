@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
-use hubuum_client::{Class, Namespace, Object, UnifiedSearchBatchResponse, UnifiedSearchKind};
+use hubuum_client::{
+    client::sync::UnifiedSearchRequest, Class, Collection, Object, UnifiedSearchBatchResponse,
+    UnifiedSearchEvent, UnifiedSearchKind, UnifiedSearchNext, UnifiedSearchResults,
+};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
 use crate::domain::{
-    ClassRecord, NamespaceRecord, ResolvedObjectRecord, SearchBatchRecord, SearchErrorEvent,
-    SearchQueryEvent, SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
+    ClassRecord, CollectionRecord, ResolvedObjectRecord, SearchBatchRecord, SearchCursorSet,
+    SearchErrorEvent, SearchQueryEvent, SearchResponseRecord, SearchResultsRecord,
+    SearchStreamEvent,
 };
 use crate::errors::AppError;
 
@@ -15,7 +19,7 @@ use super::{shared::find_entities_by_ids, HubuumGateway};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, Display)]
 #[strum(serialize_all = "lowercase")]
 pub enum SearchKind {
-    Namespace,
+    Collection,
     Class,
     Object,
 }
@@ -25,7 +29,7 @@ pub struct SearchInput {
     pub query: String,
     pub kinds: Vec<SearchKind>,
     pub limit_per_kind: Option<usize>,
-    pub cursor_namespaces: Option<String>,
+    pub cursor_collections: Option<String>,
     pub cursor_classes: Option<String>,
     pub cursor_objects: Option<String>,
     pub search_class_schema: bool,
@@ -34,7 +38,7 @@ pub struct SearchInput {
 
 impl HubuumGateway {
     pub fn search(&self, input: &SearchInput) -> Result<SearchResponseRecord, AppError> {
-        let raw = self.build_search_request(input).execute()?;
+        let raw = self.build_search_request(input).send()?;
         Ok(SearchResponseRecord {
             query: raw.query,
             results: self.map_search_results(raw.results)?,
@@ -46,35 +50,34 @@ impl HubuumGateway {
         let mut mapped = Vec::new();
 
         for event in self.build_search_request(input).stream()? {
-            match event {
-                hubuum_client::UnifiedSearchEvent::Started(payload) => {
+            match event? {
+                UnifiedSearchEvent::Started(payload) => {
                     mapped.push(SearchStreamEvent::Started(SearchQueryEvent {
                         query: payload.query,
                     }))
                 }
-                hubuum_client::UnifiedSearchEvent::Batch(batch) => {
+                UnifiedSearchEvent::Batch(batch) => {
                     mapped.push(SearchStreamEvent::Batch(self.map_search_batch(batch)?))
                 }
-                hubuum_client::UnifiedSearchEvent::Done(payload) => {
+                UnifiedSearchEvent::Done(payload) => {
                     mapped.push(SearchStreamEvent::Done(SearchQueryEvent {
                         query: payload.query,
                     }))
                 }
-                hubuum_client::UnifiedSearchEvent::Error(payload) => {
+                UnifiedSearchEvent::Error(payload) => {
                     mapped.push(SearchStreamEvent::Error(SearchErrorEvent {
                         message: payload.message,
                     }))
                 }
+                UnifiedSearchEvent::Unknown { .. } => {}
+                _ => {}
             }
         }
 
         Ok(mapped)
     }
 
-    fn build_search_request(
-        &self,
-        input: &SearchInput,
-    ) -> hubuum_client::client::sync::UnifiedSearchRequest {
+    fn build_search_request(&self, input: &SearchInput) -> UnifiedSearchRequest {
         let mut request = self.client.search(input.query.clone());
 
         if !input.kinds.is_empty() {
@@ -83,8 +86,8 @@ impl HubuumGateway {
         if let Some(limit) = input.limit_per_kind {
             request = request.limit_per_kind(limit);
         }
-        if let Some(cursor) = &input.cursor_namespaces {
-            request = request.cursor_namespaces(cursor.clone());
+        if let Some(cursor) = &input.cursor_collections {
+            request = request.cursor_collections(cursor.clone());
         }
         if let Some(cursor) = &input.cursor_classes {
             request = request.cursor_classes(cursor.clone());
@@ -104,14 +107,14 @@ impl HubuumGateway {
 
     fn map_search_results(
         &self,
-        raw: hubuum_client::UnifiedSearchResults,
+        raw: UnifiedSearchResults,
     ) -> Result<SearchResultsRecord, AppError> {
-        let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.namespaces)?;
+        let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.collections)?;
         Ok(SearchResultsRecord {
-            namespaces: raw
-                .namespaces
+            collections: raw
+                .collections
                 .into_iter()
-                .map(NamespaceRecord::from)
+                .map(CollectionRecord::from)
                 .collect(),
             classes: raw.classes.into_iter().map(ClassRecord::from).collect(),
             objects,
@@ -122,13 +125,13 @@ impl HubuumGateway {
         &self,
         raw: UnifiedSearchBatchResponse,
     ) -> Result<SearchBatchRecord, AppError> {
-        let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.namespaces)?;
+        let objects = self.resolve_search_objects(&raw.objects, &raw.classes, &raw.collections)?;
         Ok(SearchBatchRecord {
             kind: raw.kind,
-            namespaces: raw
-                .namespaces
+            collections: raw
+                .collections
                 .into_iter()
-                .map(NamespaceRecord::from)
+                .map(CollectionRecord::from)
                 .collect(),
             classes: raw.classes.into_iter().map(ClassRecord::from).collect(),
             objects,
@@ -140,7 +143,7 @@ impl HubuumGateway {
         &self,
         objects: &[Object],
         classes: &[Class],
-        namespaces: &[Namespace],
+        collections: &[Collection],
     ) -> Result<Vec<ResolvedObjectRecord>, AppError> {
         if objects.is_empty() {
             return Ok(Vec::new());
@@ -148,16 +151,16 @@ impl HubuumGateway {
 
         let mut class_map = classes
             .iter()
-            .map(|class| (class.id, class.clone()))
+            .map(|class| (class.id.into(), class.clone()))
             .collect::<HashMap<_, _>>();
-        let mut namespace_map = namespaces
+        let mut collection_map = collections
             .iter()
-            .map(|namespace| (namespace.id, namespace.clone()))
+            .map(|collection| (collection.id.into(), collection.clone()))
             .collect::<HashMap<_, _>>();
 
         let missing_class_ids = objects
             .iter()
-            .filter(|object| !class_map.contains_key(&object.hubuum_class_id))
+            .filter(|object| !class_map.contains_key(&object.hubuum_class_id.into()))
             .count();
         if missing_class_ids > 0 {
             class_map.extend(find_entities_by_ids(
@@ -167,21 +170,21 @@ impl HubuumGateway {
             )?);
         }
 
-        let missing_namespace_ids = objects
+        let missing_collection_ids = objects
             .iter()
-            .filter(|object| !namespace_map.contains_key(&object.namespace_id))
+            .filter(|object| !collection_map.contains_key(&object.collection_id.into()))
             .count();
-        if missing_namespace_ids > 0 {
-            namespace_map.extend(find_entities_by_ids(
-                &self.client.namespaces(),
+        if missing_collection_ids > 0 {
+            collection_map.extend(find_entities_by_ids(
+                &self.client.collections(),
                 objects.iter(),
-                |object| object.namespace_id,
+                |object| object.collection_id,
             )?);
         }
 
         Ok(objects
             .iter()
-            .map(|object| ResolvedObjectRecord::new(object, &class_map, &namespace_map))
+            .map(|object| ResolvedObjectRecord::new(object, &class_map, &collection_map))
             .collect())
     }
 }
@@ -189,17 +192,17 @@ impl HubuumGateway {
 impl From<SearchKind> for UnifiedSearchKind {
     fn from(value: SearchKind) -> Self {
         match value {
-            SearchKind::Namespace => UnifiedSearchKind::Namespace,
+            SearchKind::Collection => UnifiedSearchKind::Collection,
             SearchKind::Class => UnifiedSearchKind::Class,
             SearchKind::Object => UnifiedSearchKind::Object,
         }
     }
 }
 
-impl From<hubuum_client::UnifiedSearchNext> for crate::domain::SearchCursorSet {
-    fn from(value: hubuum_client::UnifiedSearchNext) -> Self {
+impl From<UnifiedSearchNext> for SearchCursorSet {
+    fn from(value: UnifiedSearchNext) -> Self {
         Self {
-            namespaces: value.namespaces,
+            collections: value.collections,
             classes: value.classes,
             objects: value.objects,
         }
@@ -215,8 +218,8 @@ mod tests {
     #[test]
     fn search_kind_maps_to_client_search_kind() {
         assert_eq!(
-            UnifiedSearchKind::from(SearchKind::Namespace),
-            UnifiedSearchKind::Namespace
+            UnifiedSearchKind::from(SearchKind::Collection),
+            UnifiedSearchKind::Collection
         );
         assert_eq!(
             UnifiedSearchKind::from(SearchKind::Class),

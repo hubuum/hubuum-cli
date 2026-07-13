@@ -1,7 +1,9 @@
+use darling::FromField;
 use proc_macro::TokenStream;
 use quote::quote;
-use darling::FromField;
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{
+    parse_macro_input, Data, DeriveInput, Fields, GenericArgument, Path, PathArguments, Type,
+};
 
 #[derive(FromField, Default)]
 #[darling(default, attributes(option))]
@@ -13,7 +15,8 @@ struct FieldOpts {
     flag: Option<bool>,
     greedy: Option<bool>,
     nargs: Option<usize>,
-    autocomplete: Option<syn::Path>,
+    value_source: Option<bool>,
+    autocomplete: Option<Path>,
 }
 
 #[proc_macro_derive(CommandArgs, attributes(option))]
@@ -22,11 +25,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     let fields = match input.data {
-        Data::Struct(ref data) => {
-            match data.fields {
-                Fields::Named(ref fields) => fields,
-                _ => panic!("CommandArgs can only be derived for structs with named fields"),
-            }
+        Data::Struct(ref data) => match data.fields {
+            Fields::Named(ref fields) => fields,
+            _ => panic!("CommandArgs can only be derived for structs with named fields"),
         },
         _ => panic!("CommandArgs can only be derived for structs"),
     };
@@ -44,8 +45,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
 
         let is_optional = is_outer_type(field_type, "Option");
         let is_vec = is_outer_type(field_type, "Vec");
+        let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
 
-        let required = if is_optional || is_vec {
+        let required = if is_optional || is_vec || opts.flag.unwrap_or(false) {
             quote! { false }
         } else {
             opts.required.map(|r| quote! { #r }).unwrap_or(quote! { true })
@@ -56,9 +58,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
             quote! { false }
         };
 
-        let flag = opts.flag.map(|f| quote! { #f }).unwrap_or(quote! { false });
         let greedy = opts.greedy.map(|g| quote! { #g }).unwrap_or(quote! { false });
         let nargs = opts.nargs.map(|n| quote! { Some(#n) }).unwrap_or(quote! { None });
+        let value_source = opts.value_source.map(|v| quote! { #v }).unwrap_or(quote! { false });
 
         let autocomplete_fn = opts.autocomplete.as_ref().map(|fn_path| {
             quote! { Some(#fn_path as fn(&crate::services::CompletionContext, &str, &[String]) -> Vec<String>) }
@@ -77,11 +79,11 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
                 greedy: #greedy,
                 nargs: #nargs,
                 repeatable: #repeatable,
+                value_source: #value_source,
                 autocomplete: #autocomplete_fn,
             }
         }
     }).collect();
-
 
     let field_setters: Vec<_> = fields.named.iter().map(|f| {
         let opts       = FieldOpts::from_field(f).unwrap_or_default();
@@ -227,9 +229,9 @@ pub fn derive_command_args(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn is_outer_type(field_type: &syn::Type, expected: &str) -> bool {
+fn is_outer_type(field_type: &Type, expected: &str) -> bool {
     match field_type {
-        syn::Type::Path(type_path) => type_path
+        Type::Path(type_path) => type_path
             .path
             .segments
             .last()
@@ -239,16 +241,16 @@ fn is_outer_type(field_type: &syn::Type, expected: &str) -> bool {
     }
 }
 
-fn option_inner_type(field_type: &syn::Type) -> Option<&syn::Type> {
+fn option_inner_type(field_type: &Type) -> Option<&Type> {
     path_inner_type(field_type, "Option")
 }
 
-fn vec_inner_type(field_type: &syn::Type) -> Option<&syn::Type> {
+fn vec_inner_type(field_type: &Type) -> Option<&Type> {
     path_inner_type(field_type, "Vec")
 }
 
-fn path_inner_type<'a>(field_type: &'a syn::Type, expected: &str) -> Option<&'a syn::Type> {
-    let syn::Type::Path(type_path) = field_type else {
+fn path_inner_type<'a>(field_type: &'a Type, expected: &str) -> Option<&'a Type> {
+    let Type::Path(type_path) = field_type else {
         return None;
     };
     let segment = type_path.path.segments.last()?;
@@ -256,11 +258,11 @@ fn path_inner_type<'a>(field_type: &'a syn::Type, expected: &str) -> Option<&'a 
         return None;
     }
 
-    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
         return None;
     };
     arguments.args.iter().find_map(|arg| {
-        if let syn::GenericArgument::Type(inner_type) = arg {
+        if let GenericArgument::Type(inner_type) = arg {
             Some(inner_type)
         } else {
             None

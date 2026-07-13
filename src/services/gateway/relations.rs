@@ -1,4 +1,12 @@
 use std::collections::HashMap;
+use std::iter::once;
+use std::mem::swap;
+use std::slice::from_ref;
+
+use hubuum_client::{
+    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, FilterOperator,
+    Object, ObjectRelation, ObjectWithPath, Page,
+};
 
 use crate::domain::{
     ResolvedClassRelationRecord, ResolvedObjectRelationRecord, ResolvedRelatedClassGraph,
@@ -6,8 +14,9 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
-    FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
+    apply_cursor_request_paging, validate_filter_clauses, validate_sort_clauses, FilterClause,
+    FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult,
+    SortFieldSpec,
 };
 
 use super::{shared::find_entities_by_ids, HubuumGateway};
@@ -97,7 +106,7 @@ impl HubuumGateway {
     pub fn related_class_graph(
         &self,
         root_class: &str,
-        filters: &[crate::list_query::FilterClause],
+        filters: &[FilterClause],
     ) -> Result<ResolvedRelatedClassGraph, AppError> {
         let validated = validate_filter_clauses(filters, RELATED_CLASS_FILTER_SPECS)?;
         let class = self.class_handle_by_name(root_class)?;
@@ -105,7 +114,7 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = class.related_graph().filters(filters).fetch()?;
+        let graph = class.related_graph().filters(filters).send()?;
 
         let class_map = self.class_map_from_ids(
             graph
@@ -115,15 +124,15 @@ impl HubuumGateway {
                 .chain(graph.relations.iter().flat_map(|relation| {
                     [relation.from_hubuum_class_id, relation.to_hubuum_class_id]
                 }))
-                .chain(std::iter::once(class.id()))
+                .chain(once(class.id()))
                 .collect::<Vec<_>>(),
         )?;
-        let namespace_map = self.namespace_map_from_ids(
+        let collection_map = self.collection_map_from_ids(
             graph
                 .classes
                 .iter()
-                .map(|related_class| related_class.namespace_id)
-                .chain(std::iter::once(class.resource().namespace.id))
+                .map(|related_class| related_class.collection_id)
+                .chain(once(class.resource().collection.id))
                 .collect::<Vec<_>>(),
         )?;
 
@@ -134,8 +143,12 @@ impl HubuumGateway {
                 .map(|related_class| {
                     ResolvedRelatedClassRecord::new(
                         related_class,
-                        &namespace_map,
-                        self.related_class_path_labels(&related_class.path, class.id(), &class_map),
+                        &collection_map,
+                        self.related_class_path_labels(
+                            &related_class.path,
+                            class.id().into(),
+                            &class_map,
+                        ),
                     )
                 })
                 .collect(),
@@ -147,35 +160,16 @@ impl HubuumGateway {
         })
     }
 
-    pub fn get_class_relation_by_id(
-        &self,
-        relation_id: i32,
-    ) -> Result<ResolvedClassRelationRecord, AppError> {
-        let relation = self
-            .client
-            .class_relation()
-            .select(relation_id)?
-            .resource()
-            .clone();
-        let class_map =
-            self.class_map_from_ids([relation.from_hubuum_class_id, relation.to_hubuum_class_id])?;
-        Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
-    }
-
     pub fn get_class_relation_by_pair(
         &self,
         class_a: &str,
         class_b: &str,
     ) -> Result<ResolvedClassRelationRecord, AppError> {
         let classes = self.class_pair(class_a, class_b)?;
-        let relation = self.find_class_relation_between(classes.0.id, classes.1.id)?;
+        let relation =
+            self.find_class_relation_between(classes.0.id.into(), classes.1.id.into())?;
         let class_map = self.class_map_from_classes([&classes.0, &classes.1]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
-    }
-
-    pub fn delete_class_relation_by_id(&self, relation_id: i32) -> Result<(), AppError> {
-        self.client.class_relation().delete(relation_id)?;
-        Ok(())
     }
 
     pub fn delete_class_relation_by_pair(
@@ -184,7 +178,8 @@ impl HubuumGateway {
         class_b: &str,
     ) -> Result<(), AppError> {
         let classes = self.class_pair(class_a, class_b)?;
-        let relation = self.find_class_relation_between(classes.0.id, classes.1.id)?;
+        let relation =
+            self.find_class_relation_between(classes.0.id.into(), classes.1.id.into())?;
         self.class_handle_by_name(class_a)?
             .delete_relation(relation.id)?;
         Ok(())
@@ -211,19 +206,6 @@ impl HubuumGateway {
         self.resolve_object_relation_page(page, query.limit)
     }
 
-    pub fn get_object_relation_by_id(
-        &self,
-        relation_id: i32,
-    ) -> Result<ResolvedObjectRelationRecord, AppError> {
-        let relation = self
-            .client
-            .object_relation()
-            .select(relation_id)?
-            .resource()
-            .clone();
-        self.resolve_object_relation_record(&relation)
-    }
-
     pub fn get_object_relation_v2(
         &self,
         target: &RelationTarget,
@@ -242,8 +224,10 @@ impl HubuumGateway {
             self.class_handle_by_name(class_a)?,
             self.class_handle_by_name(class_b)?,
         );
-        if classes.0.id() > classes.1.id() {
-            std::mem::swap(&mut classes.0, &mut classes.1);
+        let class_a_id: i32 = classes.0.id().into();
+        let class_b_id: i32 = classes.1.id().into();
+        if class_a_id > class_b_id {
+            swap(&mut classes.0, &mut classes.1);
         }
         let relation = classes.0.create_relation(classes.1.id())?;
         let class_map =
@@ -259,11 +243,6 @@ impl HubuumGateway {
         let relation =
             object_a.create_relation_to(object_b.resource().hubuum_class_id, object_b.id())?;
         self.resolve_object_relation_record(&relation)
-    }
-
-    pub fn delete_object_relation_by_id(&self, relation_id: i32) -> Result<(), AppError> {
-        self.client.object_relation().delete(relation_id)?;
-        Ok(())
     }
 
     pub fn delete_object_relation_v2(&self, target: &RelationTarget) -> Result<(), AppError> {
@@ -286,7 +265,7 @@ impl HubuumGateway {
             .iter()
             .map(|class_name| {
                 self.class_handle_by_name(class_name)
-                    .map(|class| class.id())
+                    .map(|class| class.id().into())
             })
             .collect::<Result<Vec<_>, _>>()?;
         let filters = validated
@@ -309,7 +288,7 @@ impl HubuumGateway {
     pub fn related_object_graph(
         &self,
         root: &RelationRoot,
-        filters: &[crate::list_query::FilterClause],
+        filters: &[FilterClause],
     ) -> Result<ResolvedRelatedObjectGraph, AppError> {
         let validated = validate_filter_clauses(filters, RELATED_OBJECT_FILTER_SPECS)?;
         let object = self.object_handle_by_name(&root.root_class, &root.root_object)?;
@@ -317,7 +296,7 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = object.related_graph().filters(filters).fetch()?;
+        let graph = object.related_graph().filters(filters).send()?;
 
         let class_map = self.class_map_from_ids(
             graph
@@ -326,32 +305,18 @@ impl HubuumGateway {
                 .map(|object| object.hubuum_class_id)
                 .collect::<Vec<_>>(),
         )?;
-        let namespace_map = self.namespace_map_from_ids(
+        let collection_map = self.collection_map_from_ids(
             graph
                 .objects
                 .iter()
-                .map(|object| object.namespace_id)
+                .map(|object| object.collection_id)
                 .collect::<Vec<_>>(),
         )?;
         let object_map = graph
             .objects
             .iter()
-            .map(|object| {
-                (
-                    object.id,
-                    hubuum_client::Object {
-                        id: object.id,
-                        name: object.name.clone(),
-                        namespace_id: object.namespace_id,
-                        hubuum_class_id: object.hubuum_class_id,
-                        description: object.description.clone(),
-                        data: Some(object.data.clone()),
-                        created_at: object.created_at.clone(),
-                        updated_at: object.updated_at.clone(),
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
+            .map(|object| Ok((i32::from(object.id), object_from_path(object)?)))
+            .collect::<Result<HashMap<_, _>, AppError>>()?;
         let class_relation_map = find_entities_by_ids(
             &self.client.class_relation(),
             graph.relations.iter(),
@@ -366,10 +331,10 @@ impl HubuumGateway {
                     ResolvedRelatedObjectRecord::new(
                         related_object,
                         &class_map,
-                        &namespace_map,
+                        &collection_map,
                         self.related_object_path_labels(
                             &related_object.path,
-                            object.resource().id,
+                            object.resource().id.into(),
                             &object_map,
                         ),
                     )
@@ -380,7 +345,7 @@ impl HubuumGateway {
                 .iter()
                 .filter_map(|relation| {
                     class_relation_map
-                        .get(&relation.class_relation_id)
+                        .get(&relation.class_relation_id.into())
                         .map(|class_relation| {
                             ResolvedObjectRelationRecord::new(
                                 relation,
@@ -396,18 +361,18 @@ impl HubuumGateway {
 
     fn resolve_object_relation_record(
         &self,
-        relation: &hubuum_client::ObjectRelation,
+        relation: &ObjectRelation,
     ) -> Result<ResolvedObjectRelationRecord, AppError> {
         let class_relation = self
             .client
             .class_relation()
-            .select(relation.class_relation_id)?
+            .get(relation.class_relation_id)?
             .resource()
             .clone();
         let object_map = self.object_map_for_relation(
-            std::slice::from_ref(relation),
-            class_relation.from_hubuum_class_id,
-            class_relation.to_hubuum_class_id,
+            from_ref(relation),
+            class_relation.from_hubuum_class_id.into(),
+            class_relation.to_hubuum_class_id.into(),
         )?;
         let class_map = self.class_map_from_ids([
             class_relation.from_hubuum_class_id,
@@ -423,7 +388,7 @@ impl HubuumGateway {
 
     fn resolve_object_relation_page(
         &self,
-        page: hubuum_client::Page<hubuum_client::ObjectRelation>,
+        page: Page<ObjectRelation>,
         limit: Option<usize>,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         if page.items.is_empty() {
@@ -451,7 +416,7 @@ impl HubuumGateway {
 
         Ok(PagedResult::from_page(page, limit, |relation| {
             let class_relation = class_relation_map
-                .get(&relation.class_relation_id)
+                .get(&relation.class_relation_id.into())
                 .expect("class relation should be loaded");
             ResolvedObjectRelationRecord::new(&relation, class_relation, &object_map, &class_map)
         }))
@@ -459,20 +424,21 @@ impl HubuumGateway {
 
     fn resolve_object_map_from_relations(
         &self,
-        relations: &[hubuum_client::ObjectRelation],
-        class_relation_map: &HashMap<i32, hubuum_client::ClassRelation>,
-    ) -> Result<HashMap<i32, hubuum_client::Object>, AppError> {
+        relations: &[ObjectRelation],
+        class_relation_map: &HashMap<i32, ClassRelation>,
+    ) -> Result<HashMap<i32, Object>, AppError> {
         let mut grouped = HashMap::<i32, Vec<i32>>::new();
         for relation in relations {
-            if let Some(class_relation) = class_relation_map.get(&relation.class_relation_id) {
+            if let Some(class_relation) = class_relation_map.get(&relation.class_relation_id.into())
+            {
                 grouped
-                    .entry(class_relation.from_hubuum_class_id)
+                    .entry(class_relation.from_hubuum_class_id.into())
                     .or_default()
-                    .push(relation.from_hubuum_object_id);
+                    .push(relation.from_hubuum_object_id.into());
                 grouped
-                    .entry(class_relation.to_hubuum_class_id)
+                    .entry(class_relation.to_hubuum_class_id.into())
                     .or_default()
-                    .push(relation.to_hubuum_object_id);
+                    .push(relation.to_hubuum_object_id.into());
             }
         }
 
@@ -486,11 +452,15 @@ impl HubuumGateway {
             for object in self
                 .client
                 .objects(class_id)
-                .find()
-                .add_filter_equals("id", joined.clone())
-                .execute()?
+                .query()
+                .filter(
+                    "id",
+                    FilterOperator::Equals { is_negated: false },
+                    joined.clone(),
+                )
+                .list()?
             {
-                objects.insert(object.id, object);
+                objects.insert(object.id.into(), object);
             }
         }
 
@@ -499,9 +469,9 @@ impl HubuumGateway {
 
     fn resolve_related_object_page(
         &self,
-        page: hubuum_client::Page<hubuum_client::ObjectWithPath>,
+        page: Page<ObjectWithPath>,
         limit: Option<usize>,
-        root_object: &hubuum_client::Object,
+        root_object: &Object,
     ) -> Result<PagedResult<ResolvedRelatedObjectRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
@@ -518,48 +488,40 @@ impl HubuumGateway {
                 .map(|object| object.hubuum_class_id)
                 .collect::<Vec<_>>(),
         )?;
-        let namespace_map = self.namespace_map_from_ids(
+        let collection_map = self.collection_map_from_ids(
             page.items
                 .iter()
-                .map(|object| object.namespace_id)
+                .map(|object| object.collection_id)
                 .collect::<Vec<_>>(),
         )?;
         let path_object_map = page
             .items
             .iter()
-            .map(|object| {
-                (
-                    object.id,
-                    hubuum_client::Object {
-                        id: object.id,
-                        name: object.name.clone(),
-                        namespace_id: object.namespace_id,
-                        hubuum_class_id: object.hubuum_class_id,
-                        description: object.description.clone(),
-                        data: Some(object.data.clone()),
-                        created_at: object.created_at.clone(),
-                        updated_at: object.updated_at.clone(),
-                    },
-                )
-            })
-            .chain(std::iter::once((root_object.id, root_object.clone())))
+            .map(|object| Ok((i32::from(object.id), object_from_path(object)?)))
+            .collect::<Result<HashMap<_, _>, AppError>>()?
+            .into_iter()
+            .chain(once((root_object.id.into(), root_object.clone())))
             .collect::<HashMap<_, _>>();
 
         Ok(PagedResult::from_page(page, limit, |object| {
             ResolvedRelatedObjectRecord::new(
                 &object,
                 &class_map,
-                &namespace_map,
-                self.related_object_path_labels(&object.path, root_object.id, &path_object_map),
+                &collection_map,
+                self.related_object_path_labels(
+                    &object.path,
+                    root_object.id.into(),
+                    &path_object_map,
+                ),
             )
         }))
     }
 
     fn resolve_related_class_page(
         &self,
-        page: hubuum_client::Page<hubuum_client::ClassWithPath>,
+        page: Page<ClassWithPath>,
         limit: Option<usize>,
-        root_class: &hubuum_client::Class,
+        root_class: &Class,
     ) -> Result<PagedResult<ResolvedRelatedClassRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
@@ -573,35 +535,39 @@ impl HubuumGateway {
         let class_map = self.class_map_from_ids(
             page.items
                 .iter()
-                .flat_map(|class| class.path.iter().copied().chain(std::iter::once(class.id)))
-                .chain(std::iter::once(root_class.id))
+                .flat_map(|class| class.path.iter().copied().chain(once(class.id)))
+                .chain(once(root_class.id))
                 .collect::<Vec<_>>(),
         )?;
-        let namespace_map = self.namespace_map_from_ids(
+        let collection_map = self.collection_map_from_ids(
             page.items
                 .iter()
-                .map(|class| class.namespace_id)
-                .chain(std::iter::once(root_class.namespace.id))
+                .map(|class| class.collection_id)
+                .chain(once(root_class.collection.id))
                 .collect::<Vec<_>>(),
         )?;
 
         Ok(PagedResult::from_page(page, limit, |class| {
             ResolvedRelatedClassRecord::new(
                 &class,
-                &namespace_map,
-                self.related_class_path_labels(&class.path, root_class.id, &class_map),
+                &collection_map,
+                self.related_class_path_labels(&class.path, root_class.id.into(), &class_map),
             )
         }))
     }
 
-    fn related_class_path_labels(
+    fn related_class_path_labels<Id>(
         &self,
-        path: &[i32],
+        path: &[Id],
         root_class_id: i32,
-        class_map: &HashMap<i32, hubuum_client::Class>,
-    ) -> Vec<String> {
+        class_map: &HashMap<i32, Class>,
+    ) -> Vec<String>
+    where
+        Id: Copy + Into<i32>,
+    {
         path.iter()
             .copied()
+            .map(Into::into)
             .filter(|class_id| *class_id != root_class_id)
             .map(|class_id| {
                 class_map
@@ -612,14 +578,18 @@ impl HubuumGateway {
             .collect()
     }
 
-    fn related_object_path_labels(
+    fn related_object_path_labels<Id>(
         &self,
-        path: &[i32],
+        path: &[Id],
         root_object_id: i32,
-        object_map: &HashMap<i32, hubuum_client::Object>,
-    ) -> Vec<String> {
+        object_map: &HashMap<i32, Object>,
+    ) -> Vec<String>
+    where
+        Id: Copy + Into<i32>,
+    {
         path.iter()
             .copied()
+            .map(Into::into)
             .filter(|object_id| *object_id != root_object_id)
             .map(|object_id| {
                 object_map
@@ -633,21 +603,17 @@ impl HubuumGateway {
     fn canonical_object_relation_handles(
         &self,
         target: &RelationTarget,
-    ) -> Result<
-        (
-            hubuum_client::client::sync::Handle<hubuum_client::Object>,
-            hubuum_client::client::sync::Handle<hubuum_client::Object>,
-        ),
-        AppError,
-    > {
+    ) -> Result<(SyncHandle<Object>, SyncHandle<Object>), AppError> {
         let (object_a_name, object_b_name) = validate_object_names(target)?;
         let class_a = self.class_handle_by_name(&target.class_a)?;
         let class_b = self.class_handle_by_name(&target.class_b)?;
         let object_a = class_a.object_by_name(object_a_name)?;
         let object_b = class_b.object_by_name(object_b_name)?;
-        let class_relation = self.find_class_relation_between(class_a.id(), class_b.id())?;
+        let class_a_id: i32 = class_a.id().into();
+        let class_b_id: i32 = class_b.id().into();
+        let class_relation = self.find_class_relation_between(class_a_id, class_b_id)?;
 
-        if class_relation.from_hubuum_class_id == class_a.id() {
+        if class_relation.from_hubuum_class_id == class_a_id {
             Ok((object_a, object_b))
         } else {
             Ok((object_b, object_a))
@@ -728,14 +694,14 @@ pub(crate) const RELATED_CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace_id",
-        "namespace_id",
+        "collection_id",
+        "collection_id",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
     FilterFieldSpec::new(
-        "namespaces",
-        "namespace_id",
+        "collections",
+        "collection_id",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
@@ -776,14 +742,14 @@ pub(crate) const RELATED_CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::Integer,
     ),
     FilterFieldSpec::new(
-        "from_namespaces",
-        "from_namespaces",
+        "from_collections",
+        "from_collections",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
     FilterFieldSpec::new(
-        "to_namespaces",
-        "to_namespaces",
+        "to_collections",
+        "to_collections",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
@@ -853,16 +819,16 @@ pub(crate) const RELATED_CLASS_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),
-    SortFieldSpec::new("namespace_id", "namespace_id"),
-    SortFieldSpec::new("namespaces", "namespace_id"),
+    SortFieldSpec::new("collection_id", "collection_id"),
+    SortFieldSpec::new("collections", "collection_id"),
     SortFieldSpec::new("class_id", "id"),
     SortFieldSpec::new("classes", "id"),
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
     SortFieldSpec::new("from_classes", "from_classes"),
     SortFieldSpec::new("to_classes", "to_classes"),
-    SortFieldSpec::new("from_namespaces", "from_namespaces"),
-    SortFieldSpec::new("to_namespaces", "to_namespaces"),
+    SortFieldSpec::new("from_collections", "from_collections"),
+    SortFieldSpec::new("to_collections", "to_collections"),
     SortFieldSpec::new("from_name", "from_name"),
     SortFieldSpec::new("to_name", "to_name"),
     SortFieldSpec::new("from_description", "from_description"),
@@ -943,8 +909,8 @@ pub(crate) const RELATED_OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::String,
     ),
     FilterFieldSpec::new(
-        "namespace_id",
-        "namespace_id",
+        "collection_id",
+        "collection_id",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
@@ -991,14 +957,14 @@ pub(crate) const RELATED_OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
         FilterValueProfile::Integer,
     ),
     FilterFieldSpec::new(
-        "from_namespace_id",
-        "from_namespaces",
+        "from_collection_id",
+        "from_collections",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
     FilterFieldSpec::new(
-        "to_namespace_id",
-        "to_namespaces",
+        "to_collection_id",
+        "to_collections",
         FilterOperatorProfile::NumericOrDate,
         FilterValueProfile::Integer,
     ),
@@ -1082,7 +1048,7 @@ pub(crate) const RELATED_OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("id", "id"),
     SortFieldSpec::new("name", "name"),
     SortFieldSpec::new("description", "description"),
-    SortFieldSpec::new("namespace_id", "namespace_id"),
+    SortFieldSpec::new("collection_id", "collection_id"),
     SortFieldSpec::new("class_id", "class_id"),
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
@@ -1090,8 +1056,8 @@ pub(crate) const RELATED_OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("to_object_id", "to_objects"),
     SortFieldSpec::new("from_class_id", "from_classes"),
     SortFieldSpec::new("to_class_id", "to_classes"),
-    SortFieldSpec::new("from_namespace_id", "from_namespaces"),
-    SortFieldSpec::new("to_namespace_id", "to_namespaces"),
+    SortFieldSpec::new("from_collection_id", "from_collections"),
+    SortFieldSpec::new("to_collection_id", "to_collections"),
     SortFieldSpec::new("from_name", "from_name"),
     SortFieldSpec::new("to_name", "to_name"),
     SortFieldSpec::new("from_description", "from_description"),
@@ -1103,6 +1069,10 @@ pub(crate) const RELATED_OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("depth", "depth"),
     SortFieldSpec::new("path", "path"),
 ];
+
+fn object_from_path(object: &ObjectWithPath) -> Result<Object, AppError> {
+    Ok(serde_json::from_value(serde_json::to_value(object)?)?)
+}
 
 fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppError> {
     match (target.object_a.as_deref(), target.object_b.as_deref()) {

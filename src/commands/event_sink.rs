@@ -1,26 +1,28 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{EventSinkKind, NewEventSink, UpdateEventSink};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{from_str, from_value, Value};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
-use crate::autocomplete::event_sink_kinds;
+use super::{
+    build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
+    CliCommand,
+};
+use crate::autocomplete::{event_sink_kinds, event_sinks};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
-use crate::formatting::{append_json_message, OutputFormatter};
-use crate::models::OutputFormat;
+use crate::formatting::append_json_message;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command("list", EventSinkList::default(), docs("List event sinks")),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "show",
                 EventSinkShow::default(),
@@ -28,7 +30,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "create",
                 EventSinkCreate::default(),
@@ -36,7 +38,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "update",
                 EventSinkUpdate::default(),
@@ -44,7 +46,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             ),
         )
         .add_command(
-            &["event-sink"],
+            &["event", "sink"],
             catalog_command(
                 "delete",
                 EventSinkDelete::default(),
@@ -88,18 +90,18 @@ impl CliCommand for EventSinkList {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkShow {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSinkShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.name = name_or_first_pos(query.name, tokens);
         let sink = services
             .gateway()
-            .event_sink(required_i32(query.id, "id")?)?;
-        render_record(tokens, &sink)
+            .event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
+        render_json_record(tokens, &sink)
     }
 }
 
@@ -113,7 +115,7 @@ pub struct EventSinkCreate {
         autocomplete = "event_sink_kinds"
     )]
     pub kind: String,
-    #[option(long = "config", help = "Sink config JSON object")]
+    #[option(long = "config", help = "Sink config JSON object", value_source = true)]
     pub config: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,
@@ -131,19 +133,23 @@ impl CliCommand for EventSinkCreate {
             enabled: query.enabled.or(Some(true)),
             secret_ref: query.secret_ref,
         })?;
-        render_record(tokens, &sink)
+        render_json_record(tokens, &sink)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkUpdate {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "sink", help = "Event sink name", autocomplete = "event_sinks")]
+    pub current_name: Option<String>,
     #[option(long = "name", help = "New name")]
     pub name: Option<String>,
     #[option(long = "kind", help = "New kind", autocomplete = "event_sink_kinds")]
     pub kind: Option<String>,
-    #[option(long = "config", help = "Replacement config JSON object")]
+    #[option(
+        long = "config",
+        help = "Replacement config JSON object",
+        value_source = true
+    )]
     pub config: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,
@@ -160,7 +166,7 @@ pub struct EventSinkUpdate {
 impl CliCommand for EventSinkUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.current_name = name_or_first_pos(query.current_name, tokens);
         if query.clear_secret_ref.unwrap_or(false) {
             return Err(AppError::InvalidOption(
                 "clear-secret-ref is not exposed by the official hubuum_client update type yet"
@@ -168,7 +174,7 @@ impl CliCommand for EventSinkUpdate {
             ));
         }
         let sink = services.gateway().update_event_sink(
-            required_i32(query.id, "id")?,
+            required_str(query.current_name.as_deref(), "name")?,
             UpdateEventSink {
                 name: query.name,
                 kind: query
@@ -181,23 +187,23 @@ impl CliCommand for EventSinkUpdate {
                 secret_ref: query.secret_ref,
             },
         )?;
-        render_record(tokens, &sink)
+        render_json_record(tokens, &sink)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkDelete {
-    #[option(long = "id", help = "Event sink ID")]
-    pub id: Option<i32>,
+    #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
+    pub name: Option<String>,
 }
 
 impl CliCommand for EventSinkDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
-        query.id = id_or_pos(query.id, tokens)?;
+        query.name = name_or_first_pos(query.name, tokens);
         services
             .gateway()
-            .delete_event_sink(required_i32(query.id, "id")?)?;
+            .delete_event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
         append_json_message("event sink deleted")
     }
 }
@@ -205,7 +211,7 @@ impl CliCommand for EventSinkDelete {
 pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, AppError> {
     input
         .map(|raw| {
-            let value: Value = serde_json::from_str(&raw)?;
+            let value: Value = from_str(&raw)?;
             if !value.is_object() {
                 return Err(AppError::ParseError(
                     "JSON value must be an object".to_string(),
@@ -217,38 +223,5 @@ pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, 
 }
 
 pub(super) fn parse_event_sink_kind(value: &str) -> Result<EventSinkKind, AppError> {
-    serde_json::from_value(Value::String(value.to_string())).map_err(AppError::from)
-}
-
-pub(super) fn id_or_pos<T>(id: Option<T>, tokens: &CommandTokenizer) -> Result<Option<T>, AppError>
-where
-    T: std::str::FromStr,
-    AppError: From<<T as std::str::FromStr>::Err>,
-{
-    if id.is_some() {
-        return Ok(id);
-    }
-    tokens
-        .get_positionals()
-        .first()
-        .map(|value| value.parse().map_err(AppError::from))
-        .transpose()
-}
-
-pub(super) fn required_i32(value: Option<i32>, name: &str) -> Result<i32, AppError> {
-    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
-}
-
-pub(super) fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
-    value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
-}
-
-pub(super) fn render_record(
-    tokens: &CommandTokenizer,
-    record: &crate::domain::JsonRecord,
-) -> Result<(), AppError> {
-    match desired_format(tokens) {
-        OutputFormat::Json => record.format_json_noreturn(),
-        OutputFormat::Text => record.format_noreturn(),
-    }
+    from_value(Value::String(value.to_string())).map_err(AppError::from)
 }

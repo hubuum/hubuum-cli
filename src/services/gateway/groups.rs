@@ -32,35 +32,37 @@ impl HubuumGateway {
             .collect())
     }
 
+    pub fn group_id_by_name(&self, group_name: &str) -> Result<i32, AppError> {
+        Ok(self.client.groups().get_by_name(group_name)?.id().into())
+    }
+
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
         let group = self
             .client
             .groups()
-            .create()
-            .params(hubuum_client::GroupPost {
-                groupname: input.groupname,
-                description: input.description,
-            })
+            .create_checked()
+            .groupname(input.groupname)
+            .description(input.description)
             .send()?;
         Ok(GroupRecord::from(group))
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().select_by_name(group_name)?;
-        let principal_id = self.client.users().select_by_name(username)?.id();
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self.client.users().get_by_name(username)?.id();
         group.add_member(principal_id)?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().select_by_name(group_name)?;
-        let principal_id = self.client.users().select_by_name(username)?.id();
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self.client.users().get_by_name(username)?.id();
         group.remove_member(principal_id)?;
         Ok(())
     }
 
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
-        let handle = self.client.groups().select_by_name(group_name)?;
+        let handle = self.client.groups().get_by_name(group_name)?;
         let members = handle
             .members()?
             .into_iter()
@@ -74,12 +76,12 @@ impl HubuumGateway {
     }
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
-        let handle = self.client.groups().select_by_name(&input.groupname)?;
+        let handle = self.client.groups().get_by_name(&input.groupname)?;
         let updated = self
             .client
             .groups()
             .update(handle.id())
-            .params(hubuum_client::GroupPatch {
+            .params(GroupPatch {
                 groupname: input.rename,
                 description: input.description,
             })
@@ -98,7 +100,7 @@ impl HubuumGateway {
 
         let mut query_op = self.client.groups().query();
         for filter in filters {
-            query_op = query_op.add_filter(&filter.key, filter.operator, &filter.value);
+            query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
@@ -146,3 +148,4 @@ pub(crate) const GROUP_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+use hubuum_client::GroupPatch;

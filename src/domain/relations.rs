@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::iter::once;
 
 use hubuum_client::{
-    Class, ClassRelation, ClassWithPath, Namespace, Object, ObjectRelation, ObjectWithPath,
+    Class, ClassRelation, ClassWithPath, Collection, Object, ObjectRelation, ObjectWithPath,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,16 +18,16 @@ pub struct ResolvedClassRelationRecord {
 impl ResolvedClassRelationRecord {
     pub fn new(class_relation: &ClassRelation, classmap: &HashMap<i32, Class>) -> Self {
         let class_a = classmap
-            .get(&class_relation.from_hubuum_class_id)
+            .get(&class_relation.from_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let class_b = classmap
-            .get(&class_relation.to_hubuum_class_id)
+            .get(&class_relation.to_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
 
         Self {
-            id: class_relation.id,
+            id: class_relation.id.into(),
             class_a,
             class_b,
             created_at: class_relation.created_at.to_string(),
@@ -54,24 +55,24 @@ impl ResolvedObjectRelationRecord {
         classmap: &HashMap<i32, Class>,
     ) -> Self {
         let class_a = classmap
-            .get(&class_relation.from_hubuum_class_id)
+            .get(&class_relation.from_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let class_b = classmap
-            .get(&class_relation.to_hubuum_class_id)
+            .get(&class_relation.to_hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let object_a = objectmap
-            .get(&object_relation.from_hubuum_object_id)
+            .get(&object_relation.from_hubuum_object_id.into())
             .map(|object| object.name.clone())
             .unwrap_or_default();
         let object_b = objectmap
-            .get(&object_relation.to_hubuum_object_id)
+            .get(&object_relation.to_hubuum_object_id.into())
             .map(|object| object.name.clone())
             .unwrap_or_default();
 
         Self {
-            id: object_relation.id,
+            id: object_relation.id.into(),
             class_a,
             class_b,
             object_a,
@@ -87,7 +88,7 @@ pub struct ResolvedRelatedClassRecord {
     pub id: i32,
     pub name: String,
     pub description: String,
-    pub namespace: String,
+    pub collection: String,
     pub depth: usize,
     pub path: Vec<String>,
     pub created_at: String,
@@ -97,19 +98,19 @@ pub struct ResolvedRelatedClassRecord {
 impl ResolvedRelatedClassRecord {
     pub fn new(
         class: &ClassWithPath,
-        namespacemap: &HashMap<i32, Namespace>,
+        collectionmap: &HashMap<i32, Collection>,
         path_labels: Vec<String>,
     ) -> Self {
-        let namespace = namespacemap
-            .get(&class.namespace_id)
-            .map(|namespace| namespace.name.clone())
-            .unwrap_or_else(|| class.namespace_id.to_string());
+        let collection = collectionmap
+            .get(&class.collection_id.into())
+            .map(|collection| collection.name.clone())
+            .unwrap_or_else(|| class.collection_id.to_string());
 
         Self {
-            id: class.id,
+            id: class.id.into(),
             name: class.name.clone(),
             description: class.description.clone(),
-            namespace,
+            collection,
             depth: class.path.len().saturating_sub(1),
             path: path_labels,
             created_at: class.created_at.to_string(),
@@ -123,7 +124,7 @@ pub struct ResolvedRelatedObjectRecord {
     pub id: i32,
     pub name: String,
     pub description: String,
-    pub namespace: String,
+    pub collection: String,
     pub class: String,
     pub depth: usize,
     pub path: Vec<String>,
@@ -135,23 +136,23 @@ impl ResolvedRelatedObjectRecord {
     pub fn new(
         object: &ObjectWithPath,
         classmap: &HashMap<i32, Class>,
-        namespacemap: &HashMap<i32, Namespace>,
+        collectionmap: &HashMap<i32, Collection>,
         path_labels: Vec<String>,
     ) -> Self {
-        let namespace = namespacemap
-            .get(&object.namespace_id)
-            .map(|namespace| namespace.name.clone())
-            .unwrap_or_else(|| object.namespace_id.to_string());
+        let collection = collectionmap
+            .get(&object.collection_id.into())
+            .map(|collection| collection.name.clone())
+            .unwrap_or_else(|| object.collection_id.to_string());
         let class = classmap
-            .get(&object.hubuum_class_id)
+            .get(&object.hubuum_class_id.into())
             .map(|class| class.name.clone())
             .unwrap_or_else(|| object.hubuum_class_id.to_string());
 
         Self {
-            id: object.id,
+            id: object.id.into(),
             name: object.name.clone(),
             description: object.description.clone(),
-            namespace,
+            collection,
             class,
             depth: object.path.len().saturating_sub(1),
             path: path_labels,
@@ -178,7 +179,7 @@ pub struct RelatedObjectTreeNode {
     pub id: i32,
     pub class: String,
     pub name: String,
-    pub namespace: String,
+    pub collection: String,
     pub depth: usize,
     pub children: Vec<RelatedObjectTreeNode>,
 }
@@ -193,7 +194,7 @@ impl RelatedObjectTreeNode {
 pub struct RelatedClassTreeNode {
     pub id: i32,
     pub name: String,
-    pub namespace: String,
+    pub collection: String,
     pub depth: usize,
     pub children: Vec<RelatedClassTreeNode>,
 }
@@ -207,32 +208,32 @@ impl RelatedClassTreeNode {
 pub fn build_related_object_tree(
     objects: &[ObjectWithPath],
     class_map: &HashMap<i32, Class>,
-    namespace_map: &HashMap<i32, Namespace>,
+    collection_map: &HashMap<i32, Collection>,
     root_object_id: i32,
     root_class_id: i32,
     ignore_same_class: bool,
 ) -> Vec<RelatedObjectTreeNode> {
     let object_class_map = objects
         .iter()
-        .map(|object| (object.id, object.hubuum_class_id))
-        .chain(std::iter::once((root_object_id, root_class_id)))
+        .map(|object| (object.id.into(), object.hubuum_class_id.into()))
+        .chain(once((root_object_id, root_class_id)))
         .collect::<HashMap<_, _>>();
     let nodes = objects
         .iter()
         .map(|object| {
             (
-                object.id,
+                object.id.into(),
                 RelatedObjectTreeNode {
-                    id: object.id,
+                    id: object.id.into(),
                     class: class_map
-                        .get(&object.hubuum_class_id)
+                        .get(&object.hubuum_class_id.into())
                         .map(|class| class.name.clone())
                         .unwrap_or_else(|| object.hubuum_class_id.to_string()),
                     name: object.name.clone(),
-                    namespace: namespace_map
-                        .get(&object.namespace_id)
-                        .map(|namespace| namespace.name.clone())
-                        .unwrap_or_else(|| object.namespace_id.to_string()),
+                    collection: collection_map
+                        .get(&object.collection_id.into())
+                        .map(|collection| collection.name.clone())
+                        .unwrap_or_else(|| object.collection_id.to_string()),
                     depth: object.path.len().saturating_sub(1),
                     children: Vec::new(),
                 },
@@ -242,7 +243,7 @@ pub fn build_related_object_tree(
 
     let mut roots = Vec::new();
     for object in objects {
-        if ignore_same_class && object.hubuum_class_id == root_class_id {
+        if ignore_same_class && i32::from(object.hubuum_class_id) == root_class_id {
             continue;
         }
 
@@ -250,14 +251,15 @@ pub fn build_related_object_tree(
             .path
             .iter()
             .copied()
+            .map(i32::from)
             .filter(|object_id| *object_id != root_object_id)
             .filter(|object_id| {
                 !ignore_same_class
                     || object_class_map.get(object_id).copied().unwrap_or_default() != root_class_id
             })
             .collect::<Vec<_>>();
-        if path.last().copied() != Some(object.id) {
-            path.push(object.id);
+        if path.last().copied() != Some(object.id.into()) {
+            path.push(object.id.into());
         }
         insert_object_path(&mut roots, &path, &nodes);
     }
@@ -267,7 +269,7 @@ pub fn build_related_object_tree(
 
 pub fn build_related_class_tree(
     classes: &[ClassWithPath],
-    namespace_map: &HashMap<i32, Namespace>,
+    collection_map: &HashMap<i32, Collection>,
     root_class_id: i32,
     ignore_same_class: bool,
 ) -> Vec<RelatedClassTreeNode> {
@@ -275,14 +277,14 @@ pub fn build_related_class_tree(
         .iter()
         .map(|class| {
             (
-                class.id,
+                class.id.into(),
                 RelatedClassTreeNode {
-                    id: class.id,
+                    id: class.id.into(),
                     name: class.name.clone(),
-                    namespace: namespace_map
-                        .get(&class.namespace_id)
-                        .map(|namespace| namespace.name.clone())
-                        .unwrap_or_else(|| class.namespace_id.to_string()),
+                    collection: collection_map
+                        .get(&class.collection_id.into())
+                        .map(|collection| collection.name.clone())
+                        .unwrap_or_else(|| class.collection_id.to_string()),
                     depth: class.path.len().saturating_sub(1),
                     children: Vec::new(),
                 },
@@ -296,15 +298,16 @@ pub fn build_related_class_tree(
             .path
             .iter()
             .copied()
+            .map(i32::from)
             .enumerate()
             .filter(|(index, class_id)| !(*index == 0 && *class_id == root_class_id))
             .filter(|(_, class_id)| !ignore_same_class || *class_id != root_class_id)
             .map(|(_, class_id)| class_id)
             .collect::<Vec<_>>();
-        if (!ignore_same_class || class.id != root_class_id)
-            && path.last().copied() != Some(class.id)
+        if (!ignore_same_class || i32::from(class.id) != root_class_id)
+            && path.last().copied() != Some(class.id.into())
         {
-            path.push(class.id);
+            path.push(class.id.into());
         }
         insert_class_path(&mut roots, &path, &nodes);
     }
@@ -376,25 +379,26 @@ fn sort_class_tree(nodes: &mut [RelatedClassTreeNode]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{from_value, json};
 
-    fn namespace(id: i32, name: &str) -> Namespace {
-        serde_json::from_value(serde_json::json!({
+    fn collection(id: i32, name: &str) -> Collection {
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z"
         }))
-        .expect("namespace fixture should deserialize")
+        .expect("collection fixture should deserialize")
     }
 
-    fn class(id: i32, namespace_id: i32, name: &str) -> Class {
-        serde_json::from_value(serde_json::json!({
+    fn class(id: i32, collection_id: i32, name: &str) -> Class {
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
-            "namespace": {
-                "id": namespace_id,
+            "collection": {
+                "id": collection_id,
                 "name": "default",
                 "description": "",
                 "created_at": "2024-01-01T00:00:00Z",
@@ -411,15 +415,15 @@ mod tests {
     fn related_object(
         id: i32,
         class_id: i32,
-        namespace_id: i32,
+        collection_id: i32,
         name: &str,
         path: &[i32],
     ) -> ObjectWithPath {
-        serde_json::from_value(serde_json::json!({
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
-            "namespace_id": namespace_id,
+            "collection_id": collection_id,
             "hubuum_class_id": class_id,
             "data": {},
             "created_at": "2024-01-01T00:00:00Z",
@@ -429,12 +433,12 @@ mod tests {
         .expect("related object fixture should deserialize")
     }
 
-    fn related_class(id: i32, namespace_id: i32, name: &str, path: &[i32]) -> ClassWithPath {
-        serde_json::from_value(serde_json::json!({
+    fn related_class(id: i32, collection_id: i32, name: &str, path: &[i32]) -> ClassWithPath {
+        from_value(json!({
             "id": id,
             "name": name,
             "description": "",
-            "namespace_id": namespace_id,
+            "collection_id": collection_id,
             "json_schema": {},
             "validate_schema": false,
             "created_at": "2024-01-01T00:00:00Z",
@@ -456,9 +460,9 @@ mod tests {
             (3, class(3, 1, "Jacks")),
             (4, class(4, 1, "Rooms")),
         ]);
-        let namespace_map = HashMap::from([(1, namespace(1, "default"))]);
+        let collection_map = HashMap::from([(1, collection(1, "default"))]);
 
-        let tree = build_related_object_tree(&objects, &class_map, &namespace_map, 9, 1, false);
+        let tree = build_related_object_tree(&objects, &class_map, &collection_map, 9, 1, false);
 
         assert_eq!(tree.len(), 2);
         assert_eq!(tree[0].label(), "Contacts/Entry");
@@ -479,9 +483,9 @@ mod tests {
             (3, class(3, 1, "Jacks")),
             (4, class(4, 1, "Rooms")),
         ]);
-        let namespace_map = HashMap::from([(1, namespace(1, "default"))]);
+        let collection_map = HashMap::from([(1, collection(1, "default"))]);
 
-        let tree = build_related_object_tree(&objects, &class_map, &namespace_map, 9, 1, true);
+        let tree = build_related_object_tree(&objects, &class_map, &collection_map, 9, 1, true);
 
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].label(), "Jacks/Jack-1");
@@ -496,9 +500,9 @@ mod tests {
             related_class(3, 1, "Rooms", &[1, 2, 3]),
             related_class(2, 1, "Jacks", &[1, 2]),
         ];
-        let namespace_map = HashMap::from([(1, namespace(1, "default"))]);
+        let collection_map = HashMap::from([(1, collection(1, "default"))]);
 
-        let tree = build_related_class_tree(&classes, &namespace_map, 1, true);
+        let tree = build_related_class_tree(&classes, &collection_map, 1, true);
 
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].label(), "Jacks");
