@@ -110,13 +110,26 @@ pub struct TaskEvents {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for TaskEvents {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
-        let list_query = build_list_query(&[], &query.sort_clauses, query.limit, query.cursor, [])?;
+        let list_query = build_list_query(
+            &[],
+            &query.sort_clauses,
+            query.limit,
+            query.cursor,
+            query.include_total.unwrap_or(false),
+            [],
+        )?;
         let events = services.gateway().task_events(
             TaskLookupInput {
                 task_id: query
@@ -163,6 +176,12 @@ pub struct TaskList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for TaskList {
@@ -173,6 +192,7 @@ impl CliCommand for TaskList {
             status: query.status,
             limit: query.limit,
             cursor: query.cursor,
+            include_total: query.include_total.unwrap_or(false),
         })?;
         render_list_page(tokens, &tasks)
     }

@@ -85,6 +85,12 @@ pub struct EventSubscriptionList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for EventSubscriptionList {
@@ -96,6 +102,7 @@ impl CliCommand for EventSubscriptionList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [],
         )?;
         render_list_page(

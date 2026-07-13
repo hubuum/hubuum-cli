@@ -1,3 +1,4 @@
+mod admin;
 mod classes;
 mod collections;
 mod events;

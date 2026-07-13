@@ -66,6 +66,7 @@ pub fn get_log_file() -> Result<PathBuf, AppError> {
 
 pub fn get_token_from_tokenfile(
     hostname: &str,
+    identity_scope: Option<&str>,
     username: &str,
 ) -> Result<Option<String>, AppError> {
     let token_file_path = get_token_file()?;
@@ -73,7 +74,10 @@ pub fn get_token_from_tokenfile(
     let token_entries: Vec<TokenEntry> = from_str(&token_file_content)?;
 
     for token_entry in &token_entries {
-        if token_entry.hostname == hostname && token_entry.username == username {
+        if token_entry.hostname == hostname
+            && token_entry.identity_scope.as_deref() == identity_scope
+            && token_entry.username == username
+        {
             return Ok(Some(token_entry.token.clone()));
         }
     }
@@ -88,7 +92,9 @@ pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError>
     };
 
     token_entries.retain(|entry| {
-        entry.hostname != token_entry.hostname || entry.username != token_entry.username
+        entry.hostname != token_entry.hostname
+            || entry.identity_scope != token_entry.identity_scope
+            || entry.username != token_entry.username
     });
     token_entries.push(token_entry);
 

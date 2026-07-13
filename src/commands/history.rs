@@ -47,6 +47,12 @@ pub struct ClassHistory {
     pub sort: Option<String>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for ClassHistory {
@@ -66,6 +72,7 @@ impl CliCommand for ClassHistory {
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,
+                include_total: query.include_total.unwrap_or(false),
             },
         )?;
         render_list_page(tokens, &history)
@@ -90,6 +97,12 @@ pub struct ObjectHistory {
     pub sort: Option<String>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for ObjectHistory {
@@ -116,6 +129,7 @@ impl CliCommand for ObjectHistory {
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,
+                include_total: query.include_total.unwrap_or(false),
             },
         )?;
         render_list_page(tokens, &history)

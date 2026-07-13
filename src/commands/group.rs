@@ -276,6 +276,12 @@ pub struct GroupList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for GroupList {
@@ -286,6 +292,7 @@ impl CliCommand for GroupList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [
                 query.name.map(|value| contains_clause("groupname", value)),
                 query

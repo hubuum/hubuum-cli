@@ -24,7 +24,9 @@ pub(crate) struct CommandDocs {
 pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
 
+    commands::admin::register_commands(&mut builder);
     commands::audit::register_commands(&mut builder);
+    commands::auth::register_commands(&mut builder);
     commands::jobs::register_commands(&mut builder);
     commands::class::register_commands(&mut builder);
     commands::config::register_commands(&mut builder);
@@ -46,6 +48,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::me::register_commands(&mut builder);
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
+    commands::version::register_commands(&mut builder);
 
     builder.build()
 }

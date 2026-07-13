@@ -212,6 +212,12 @@ pub struct RelatedClassList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for RelatedClassList {
@@ -222,6 +228,7 @@ impl CliCommand for RelatedClassList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             Some(lte_clause(
                 "depth",
                 query
@@ -359,6 +366,12 @@ pub struct RelatedClassRelationList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for RelatedClassRelationList {
@@ -369,6 +382,7 @@ impl CliCommand for RelatedClassRelationList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [],
         )?;
         let relations = services
@@ -406,6 +420,7 @@ impl CliCommand for RelatedClassGraphCommand {
                 &[],
                 None,
                 None,
+                false,
                 Some(lte_clause(
                     "depth",
                     query
@@ -608,6 +623,12 @@ pub struct RelatedRelationList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for RelatedRelationList {
@@ -618,6 +639,7 @@ impl CliCommand for RelatedRelationList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [],
         )?;
         let relations = services.gateway().list_related_object_relations(
@@ -676,6 +698,12 @@ pub struct RelatedObjectList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for RelatedObjectList {
@@ -686,6 +714,7 @@ impl CliCommand for RelatedObjectList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             Some(lte_clause(
                 "depth",
                 query
@@ -746,6 +775,7 @@ impl CliCommand for RelatedObjectGraphCommand {
                 &[],
                 None,
                 None,
+                false,
                 Some(lte_clause(
                     "depth",
                     query

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 pub fn build_cli() -> Command {
     Command::new("Hubuum CLI")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(crate::build_info::VERSION)
         .disable_version_flag(false)
         .after_help(
             "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli config show \\| P key value \\| L 5\n  hubuum-cli object list --class Hosts \\| G os_version AS \"OS Version\" \\| A count AS Hosts\n  hubuum-cli object list --json --class Hosts \\| P Name os_version \\> each:/tmp/host-{Name}.json\n  hubuum-cli config show '>>' config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree\n\nIn POSIX shells, escape or quote |, >, and >> so the operators reach Hubuum CLI.",
@@ -53,6 +53,13 @@ pub fn build_cli() -> Command {
                 .value_parser(BoolishValueParser::new())
                 .env("HUBUUM_CLI__SERVER__SSL_VALIDATION")
                 .help("Enable or disable SSL validation"),
+        )
+        .arg(
+            Arg::new("identity_scope")
+                .long("identity-scope")
+                .value_name("PROVIDER")
+                .env("HUBUUM_CLI__SERVER__IDENTITY_SCOPE")
+                .help("Set the authentication provider or identity scope"),
         )
         .arg(
             Arg::new("username")
@@ -338,6 +345,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--hostname"
             | "--port"
             | "--protocol"
+            | "--identity-scope"
             | "--username"
             | "--password"
             | "--cache-time"
@@ -418,6 +426,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(ssl_validation) = get_command_line_value::<bool>(matches, "ssl_validation") {
         config.server.ssl_validation = *ssl_validation;
+    }
+    if let Some(identity_scope) = get_command_line_value::<String>(matches, "identity_scope") {
+        config.server.identity_scope = Some(identity_scope.to_string());
     }
     if let Some(username) = get_command_line_value::<String>(matches, "username") {
         config.server.username = username.to_string();
@@ -517,6 +528,20 @@ mod tests {
     }
 
     #[test]
+    fn update_config_from_cli_applies_identity_scope() {
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--identity-scope", "corp-directory"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(
+            config.server.identity_scope.as_deref(),
+            Some("corp-directory")
+        );
+    }
+
+    #[test]
     fn update_config_from_cli_applies_relation_and_output_flags() {
         let matches = build_cli()
             .try_get_matches_from([
@@ -591,6 +616,8 @@ mod tests {
             "hubuum-cli",
             "--hostname",
             "api.example.com",
+            "--identity-scope",
+            "corp-directory",
             "--table-style",
             "plain",
             "object",
@@ -605,6 +632,8 @@ mod tests {
                 "hubuum-cli",
                 "--hostname",
                 "api.example.com",
+                "--identity-scope",
+                "corp-directory",
                 "--table-style",
                 "plain"
             ]

@@ -215,6 +215,12 @@ pub struct RemoteTargetList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for RemoteTargetList {
@@ -225,6 +231,7 @@ impl CliCommand for RemoteTargetList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             empty(),
         )?;
         let targets = services.gateway().list_remote_targets(&list_query)?;

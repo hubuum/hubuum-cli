@@ -16,7 +16,21 @@ fn help_and_version_do_not_require_login() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(contains(env!("CARGO_PKG_VERSION")));
+        .stdout(contains(format!("v{}", env!("CARGO_PKG_VERSION"))));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(contains(format!("v{}", env!("CARGO_PKG_VERSION"))))
+        .stdout(contains("Target"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["version", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(contains("\"cli_version\""))
+        .stdout(contains("\"target\""));
 }
 
 #[test]
@@ -48,6 +62,18 @@ fn direct_help_and_config_paths_do_not_require_login() {
         .stdout(contains("System"))
         .stdout(contains("User"))
         .stdout(contains("Write"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "auth", "providers"])
+        .assert()
+        .success()
+        .stdout(contains("without logging in"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "admin", "config"])
+        .assert()
+        .success()
+        .stdout(contains("Secrets are redacted"));
 }
 
 #[test]

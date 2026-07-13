@@ -159,6 +159,12 @@ pub struct ServiceAccountList {
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
 }
 
 impl CliCommand for ServiceAccountList {
@@ -169,6 +175,7 @@ impl CliCommand for ServiceAccountList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [
                 query.name.map(|value| contains_clause("name", value)),
                 query
