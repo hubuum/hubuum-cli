@@ -163,6 +163,8 @@ pub struct ServerConfig {
     pub port: u16,
     pub ssl_validation: bool,
     pub api_version: String,
+    #[serde(default)]
+    pub identity_scope: Option<String>,
     pub username: String,
     #[serde(default)]
     pub password: Option<String>,
@@ -281,6 +283,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         key: "server.api_version",
         cli_arg: None,
         env_var: "HUBUUM_CLI__SERVER__API_VERSION",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "server.identity_scope",
+        cli_arg: Some("identity_scope"),
+        env_var: "HUBUUM_CLI__SERVER__IDENTITY_SCOPE",
         value_kind: ConfigValueKind::String,
         sensitive: false,
     },
@@ -469,6 +478,7 @@ impl Default for AppConfig {
                 port: Defaults::SERVER_PORT,
                 ssl_validation: Defaults::SERVER_SSL_VALIDATION,
                 api_version: Defaults::API_VERSION.to_string(),
+                identity_scope: None,
                 username: Defaults::USER_USERNAME.to_string(),
                 password: None,
                 protocol: Defaults::PROTOCOL,
@@ -753,6 +763,9 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "server.hostname" => target.server.hostname = source.server.hostname.clone(),
             "server.port" => target.server.port = source.server.port,
             "server.ssl_validation" => target.server.ssl_validation = source.server.ssl_validation,
+            "server.identity_scope" => {
+                target.server.identity_scope = source.server.identity_scope.clone();
+            }
             "server.username" => target.server.username = source.server.username.clone(),
             "server.password" => target.server.password = source.server.password.clone(),
             "server.protocol" => target.server.protocol = source.server.protocol.clone(),
@@ -979,6 +992,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "port" => Some("--port"),
         "protocol" => Some("--protocol"),
         "ssl_validation" => Some("--ssl-validation"),
+        "identity_scope" => Some("--identity-scope"),
         "username" => Some("--username"),
         "password" => Some("--password"),
         "cache_time" => Some("--cache-time"),
@@ -1007,6 +1021,9 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "server.port" => ConfigValueRef::U16(config.server.port),
         "server.ssl_validation" => ConfigValueRef::Bool(config.server.ssl_validation),
         "server.api_version" => ConfigValueRef::String(&config.server.api_version),
+        "server.identity_scope" => {
+            ConfigValueRef::OptionalString(config.server.identity_scope.as_deref())
+        }
         "server.username" => ConfigValueRef::String(&config.server.username),
         "server.password" => ConfigValueRef::OptionalString(config.server.password.as_deref()),
         "server.protocol" => ConfigValueRef::Protocol(&config.server.protocol),

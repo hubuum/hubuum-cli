@@ -398,6 +398,7 @@ mod tests {
             next_cursor: None,
             limit: None,
             returned_count: 2,
+            total_count: None,
         };
 
         assert_eq!(
@@ -525,6 +526,7 @@ mod tests {
             next_cursor: None,
             limit: None,
             returned_count: 2,
+            total_count: None,
         };
 
         let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
@@ -553,6 +555,7 @@ mod tests {
             next_cursor: None,
             limit: None,
             returned_count: 1,
+            total_count: None,
         };
 
         let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
@@ -569,6 +572,7 @@ mod tests {
             next_cursor: None,
             limit: None,
             returned_count: 1,
+            total_count: None,
         };
 
         let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, true);
@@ -616,6 +620,7 @@ mod tests {
                     next_cursor: None,
                     limit: None,
                     returned_count: 2,
+                    total_count: None,
                 },
             ),
             vec![
@@ -795,6 +800,12 @@ pub struct ObjectList {
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
     #[option(
+        long = "include-total",
+        help = "Request the exact matching count",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
+    #[option(
         long = "data-columns",
         help = "Object data columns: auto, preview, all, or comma-separated keys",
         autocomplete = "object_data_columns"
@@ -811,6 +822,7 @@ impl CliCommand for ObjectList {
             &query.sort_clauses,
             query.limit,
             query.cursor,
+            query.include_total.unwrap_or(false),
             [
                 query.class.map(|value| equals_clause("class", value)),
                 query.name.map(|value| contains_clause("name", value)),
@@ -868,6 +880,7 @@ impl CliCommand for ObjectFields {
             &[],
             Some(sample_limit),
             None,
+            false,
             [equals_clause("class", query.class.clone())],
         )?;
         let objects = services.gateway().list_objects(&list_query)?;

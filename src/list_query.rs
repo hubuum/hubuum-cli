@@ -27,6 +27,7 @@ pub struct ListQuery {
     pub sorts: Vec<SortClause>,
     pub limit: Option<usize>,
     pub cursor: Option<String>,
+    pub include_total: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +49,8 @@ pub struct PagedResult<T> {
     pub next_cursor: Option<String>,
     pub limit: Option<usize>,
     pub returned_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -162,6 +165,7 @@ impl<T> PagedResult<T> {
     where
         F: Fn(U) -> T,
     {
+        let total_count = page.total_count;
         let items = page.items.into_iter().map(map).collect::<Vec<_>>();
         let returned_count = items.len();
         Self {
@@ -169,6 +173,7 @@ impl<T> PagedResult<T> {
             next_cursor: page.next_cursor,
             limit,
             returned_count,
+            total_count,
         }
     }
 }
@@ -192,6 +197,7 @@ pub fn list_query_from_raw(
         sorts,
         limit,
         cursor,
+        include_total: false,
     })
 }
 
@@ -294,6 +300,7 @@ pub fn apply_query_paging<T>(
 where
     T: ApiResource,
 {
+    let query = query.include_total(list_query.include_total);
     let query = if sorts.is_empty() {
         query
     } else {
@@ -421,6 +428,7 @@ pub fn apply_cursor_request_paging<T>(
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
 ) -> CursorRequest<T> {
+    let request = request.include_total(list_query.include_total);
     let request = if sorts.is_empty() {
         request
     } else {
@@ -748,17 +756,25 @@ pub(crate) fn append_paging_footer<T>(
         return Ok(());
     }
 
-    if paged.limit.is_none() && paged.next_cursor.is_none() {
+    if paged.limit.is_none() && paged.next_cursor.is_none() && paged.total_count.is_none() {
         return Ok(());
     }
 
+    let qualifiers = [
+        paged.limit.map(|limit| format!("limit: {limit}")),
+        paged.total_count.map(|total| format!("total: {total}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
     append_line(format!(
         "Returned {} item(s){}",
         paged.returned_count,
-        paged
-            .limit
-            .map(|limit| format!(" (limit: {limit})"))
-            .unwrap_or_default()
+        if qualifiers.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", qualifiers.join(", "))
+        }
     ))?;
     if should_offer_next_page(tokens, paged) {
         let next_cursor = paged.next_cursor.as_deref().expect("checked above");
@@ -778,7 +794,8 @@ pub(crate) fn append_paging_footer<T>(
 }
 
 fn should_wrap_paged_json<T>(tokens: &CommandTokenizer, paged: &PagedResult<T>) -> bool {
-    tokens.get_options().contains_key("cursor")
+    paged.total_count.is_some()
+        || tokens.get_options().contains_key("cursor")
         || (!tokens.get_options().contains_key("limit") && paged.next_cursor.is_some())
 }
 
@@ -988,6 +1005,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: Some(10),
             returned_count: 2,
+            total_count: None,
         };
 
         assert!(!should_wrap_paged_json(&tokens, &paged));
@@ -1002,6 +1020,7 @@ mod tests {
             next_cursor: None,
             limit: Some(10),
             returned_count: 2,
+            total_count: None,
         };
 
         assert!(should_wrap_paged_json(&tokens, &paged));
@@ -1016,6 +1035,22 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: None,
             returned_count: 2,
+            total_count: None,
+        };
+
+        assert!(should_wrap_paged_json(&tokens, &paged));
+    }
+
+    #[test]
+    fn paged_json_wraps_when_total_count_is_available() {
+        let tokens =
+            CommandTokenizer::new("class list", "list", &[]).expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![1, 2],
+            next_cursor: None,
+            limit: None,
+            returned_count: 2,
+            total_count: Some(42),
         };
 
         assert!(should_wrap_paged_json(&tokens, &paged));
@@ -1050,6 +1085,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: None,
             returned_count: 1,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Text)
@@ -1092,6 +1128,7 @@ mod tests {
                 next_cursor: Some("abc123".to_string()),
                 limit: Some(1),
                 returned_count: 1,
+                total_count: None,
             };
 
             render_paged_result(&tokens, &paged, OutputFormat::Text)
@@ -1130,6 +1167,7 @@ mod tests {
             next_cursor: None,
             limit: None,
             returned_count: 1,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Json)
@@ -1168,6 +1206,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: Some(1),
             returned_count: 1,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Text)
@@ -1187,6 +1226,33 @@ mod tests {
 
     #[test]
     #[serial]
+    fn text_output_reports_exact_total_count() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        reset_output().expect("output should reset");
+        let tokens = CommandTokenizer::new("class list --include-total", "list", &[])
+            .expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }],
+            next_cursor: None,
+            limit: None,
+            returned_count: 1,
+            total_count: Some(42),
+        };
+
+        render_paged_result(&tokens, &paged, OutputFormat::Text)
+            .expect("text output should render");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert!(snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Returned 1 item(s) (total: 42)")));
+    }
+
+    #[test]
+    #[serial]
     fn text_output_keeps_pagination_for_explicit_cursor_with_limit() {
         CONFIG_INIT.call_once(|| {
             let _ = init_config(AppConfig::default());
@@ -1199,6 +1265,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: Some(1),
             returned_count: 1,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Text)
@@ -1234,6 +1301,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: Some(100),
             returned_count: 100,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Text)
@@ -1276,6 +1344,7 @@ mod tests {
             next_cursor: Some("abc123".to_string()),
             limit: None,
             returned_count: 100,
+            total_count: None,
         };
 
         render_paged_result(&tokens, &paged, OutputFormat::Text)

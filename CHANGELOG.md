@@ -8,6 +8,9 @@
   Apple Silicon macOS, and Windows, with SHA-256 checksums for every artifact.
 - Added an offline `version` command for one-shot and REPL use, optional server version
   lookup, and commit-derived SemVer build metadata for rolling `main` binaries.
+- Updated all dependencies, including `hubuum_client` 0.4.0, and added authentication
+  provider discovery, provider-scoped login, redacted administrative server configuration,
+  and opt-in exact totals for supported paginated commands.
 - Using `show` on an object or class now displays the object's or class's relations. Defaults
   to depth 2 and ignoring self-class relations. This behavior can be configured with the
   `--max-depth` and `--include-self-class` flags.

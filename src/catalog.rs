@@ -1345,6 +1345,7 @@ mod tests {
             assert!(option_names.contains(&"sort_clauses"));
             assert!(option_names.contains(&"limit"));
             assert!(option_names.contains(&"cursor"));
+            assert!(option_names.contains(&"include_total"));
         }
 
         for path in [["task", "events"], ["import", "results"]] {
@@ -1364,6 +1365,21 @@ mod tests {
             assert!(option_names.contains(&"sort_clauses"));
             assert!(option_names.contains(&"limit"));
             assert!(option_names.contains(&"cursor"));
+            assert!(option_names.contains(&"include_total"));
+        }
+    }
+
+    #[test]
+    fn client_capability_commands_are_registered() {
+        let catalog = build_command_catalog();
+
+        for path in [["auth", "providers"], ["admin", "config"]] {
+            assert!(catalog
+                .resolve_command(
+                    &[],
+                    &path.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
+                )
+                .is_ok());
         }
     }
 

@@ -124,6 +124,7 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenti
         authenticate(
             client,
             config.server.hostname.as_str(),
+            config.server.identity_scope.as_deref(),
             config.server.username.as_str(),
             config.server.password.clone(),
         )
@@ -136,10 +137,11 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenti
 fn authenticate(
     client: BlockingClient<Unauthenticated>,
     hostname: &str,
+    identity_scope: Option<&str>,
     username: &str,
     password: Option<String>,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
-    let token = get_token_from_tokenfile(hostname, username)?;
+    let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");
         if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
@@ -149,13 +151,25 @@ fn authenticate(
 
     let password = match password {
         Some(password) => password,
-        None => prompt_password(format!("Password for {username} @ {hostname}: "))?,
+        None => {
+            let scope = identity_scope
+                .map(|scope| format!(" via {scope}"))
+                .unwrap_or_default();
+            prompt_password(format!("Password for {username}{scope} @ {hostname}: "))?
+        }
     };
 
-    let client = client.login(Credentials::new(username.to_string(), password))?;
+    let credentials = match identity_scope {
+        Some(identity_scope) => {
+            Credentials::scoped(identity_scope.to_string(), username.to_string(), password)
+        }
+        None => Credentials::new(username.to_string(), password),
+    };
+    let client = client.login(credentials)?;
 
     write_token_to_tokenfile(TokenEntry {
         hostname: hostname.to_string(),
+        identity_scope: identity_scope.map(str::to_string),
         username: username.to_string(),
         token: client.token().to_string(),
     })?;
@@ -178,9 +192,15 @@ impl AppRuntime {
 
     pub fn prompt(&self, session: &SharedSession) -> String {
         let config = get_config();
+        let identity = config
+            .server
+            .identity_scope
+            .as_deref()
+            .map(|scope| format!("{}[{scope}]", config.server.username))
+            .unwrap_or_else(|| config.server.username.clone());
         let base = format!(
             "{}@{}:{}",
-            config.server.username, config.server.hostname, config.server.port
+            identity, config.server.hostname, config.server.port
         );
         let scope = session.scope();
         let pagination = session.next_page_command().map(|_| {

@@ -24,6 +24,7 @@ pub struct ListTasksInput {
     pub status: Option<String>,
     pub limit: Option<usize>,
     pub cursor: Option<String>,
+    pub include_total: bool,
 }
 
 impl HubuumGateway {
@@ -97,6 +98,7 @@ impl HubuumGateway {
         if let Some(c) = input.cursor {
             q = q.cursor(c);
         }
+        q = q.include_total(input.include_total);
         let page = q.page()?;
         Ok(PagedResult::from_page(page, input.limit, TaskRecord::from))
     }

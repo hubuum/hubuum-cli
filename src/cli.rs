@@ -55,6 +55,13 @@ pub fn build_cli() -> Command {
                 .help("Enable or disable SSL validation"),
         )
         .arg(
+            Arg::new("identity_scope")
+                .long("identity-scope")
+                .value_name("PROVIDER")
+                .env("HUBUUM_CLI__SERVER__IDENTITY_SCOPE")
+                .help("Set the authentication provider or identity scope"),
+        )
+        .arg(
             Arg::new("username")
                 .long("username")
                 .value_name("NAME")
@@ -338,6 +345,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--hostname"
             | "--port"
             | "--protocol"
+            | "--identity-scope"
             | "--username"
             | "--password"
             | "--cache-time"
@@ -418,6 +426,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(ssl_validation) = get_command_line_value::<bool>(matches, "ssl_validation") {
         config.server.ssl_validation = *ssl_validation;
+    }
+    if let Some(identity_scope) = get_command_line_value::<String>(matches, "identity_scope") {
+        config.server.identity_scope = Some(identity_scope.to_string());
     }
     if let Some(username) = get_command_line_value::<String>(matches, "username") {
         config.server.username = username.to_string();
@@ -517,6 +528,20 @@ mod tests {
     }
 
     #[test]
+    fn update_config_from_cli_applies_identity_scope() {
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--identity-scope", "corp-directory"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(
+            config.server.identity_scope.as_deref(),
+            Some("corp-directory")
+        );
+    }
+
+    #[test]
     fn update_config_from_cli_applies_relation_and_output_flags() {
         let matches = build_cli()
             .try_get_matches_from([
@@ -591,6 +616,8 @@ mod tests {
             "hubuum-cli",
             "--hostname",
             "api.example.com",
+            "--identity-scope",
+            "corp-directory",
             "--table-style",
             "plain",
             "object",
@@ -605,6 +632,8 @@ mod tests {
                 "hubuum-cli",
                 "--hostname",
                 "api.example.com",
+                "--identity-scope",
+                "corp-directory",
                 "--table-style",
                 "plain"
             ]

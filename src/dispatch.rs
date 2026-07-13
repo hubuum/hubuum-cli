@@ -8,6 +8,7 @@ use crate::app::{AppRuntime, SharedSession};
 use crate::catalog::{
     CommandCatalog, CommandContext, CommandInvocation, CommandOutcome, ResolvedCommand, ScopeAction,
 };
+use crate::commands::auth::render_auth_providers;
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::render_format;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
@@ -156,6 +157,7 @@ pub fn can_execute_offline(line: &str) -> bool {
         || command_path_is(&parts, &["theme", "list"])
         || command_path_is(&parts, &["theme", "show"])
         || command_path_is(&parts, &["theme", "preview"])
+        || command_path_is(&parts, &["auth", "providers"])
         || command_path_is(&parts, &["version"])
 }
 
@@ -228,6 +230,11 @@ fn execute_offline_line_inner(
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
         render_theme_preview(&tokens)?;
+    } else if command_path_is(&parts, &["auth", "providers"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_auth_providers(&tokens)?;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -521,6 +528,7 @@ mod tests {
         assert!(can_execute_offline("config paths"));
         assert!(can_execute_offline("theme list"));
         assert!(can_execute_offline("theme preview hubuum-dark"));
+        assert!(can_execute_offline("auth providers"));
         assert!(can_execute_offline("version"));
         assert!(can_execute_offline("version --server"));
         assert!(!can_execute_offline("theme use hubuum-dark"));

@@ -65,13 +65,37 @@ hubuum-cli script commands.hubuum
 ```
 
 `help`, `help --tree`, `version`, `config show`, and `config paths` run from the local
-command catalog and configuration files without logging in. `version --server` makes
-an unauthenticated metadata request. API-backed commands authenticate before execution.
+command catalog and configuration files without logging in. `version --server` and
+`auth providers` make unauthenticated metadata requests. Other API-backed commands
+authenticate before execution.
 
 Global configuration flags go before the command:
 
 ```sh
 hubuum-cli --hostname api.example.com --username alice object list --limit 5
+```
+
+Discover identity providers before login, then select one for scoped credentials:
+
+```sh
+hubuum-cli --hostname api.example.com auth providers
+hubuum-cli --hostname api.example.com --identity-scope corp-directory --username alice object list
+hubuum-cli config set --key server.identity_scope --value corp-directory
+```
+
+Administrators can inspect the server's redacted effective process configuration:
+
+```sh
+hubuum-cli admin config
+hubuum-cli admin config --output json
+```
+
+Paginated commands accept `--include-total` when an exact count is useful. Exact counts
+can require additional server work, so they remain opt-in:
+
+```sh
+hubuum-cli object list --class Hosts --limit 25 --include-total
+hubuum-cli task list --include-total --output json
 ```
 
 Colored output defaults to terminal-aware `auto` mode and can be controlled per run or via `output.color`:

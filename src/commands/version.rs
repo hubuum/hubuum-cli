@@ -28,7 +28,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 long_about: Some(
                     "Show the CLI version, build target, and commit identity. Use --server to also query the configured Hubuum server's OpenAPI version.",
                 ),
-                examples: Some("  version\n  version --server\n  version --output json"),
+                examples: Some("--server\n--output json"),
             },
         ),
     );

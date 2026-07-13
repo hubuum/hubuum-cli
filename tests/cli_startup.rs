@@ -62,6 +62,18 @@ fn direct_help_and_config_paths_do_not_require_login() {
         .stdout(contains("System"))
         .stdout(contains("User"))
         .stdout(contains("Write"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "auth", "providers"])
+        .assert()
+        .success()
+        .stdout(contains("without logging in"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "admin", "config"])
+        .assert()
+        .success()
+        .stdout(contains("Secrets are redacted"));
 }
 
 #[test]

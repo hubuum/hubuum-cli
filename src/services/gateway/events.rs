@@ -63,6 +63,7 @@ pub struct HistoryInput {
     pub sort: Option<String>,
     pub cursor: Option<String>,
     pub at: Option<String>,
+    pub include_total: bool,
 }
 
 impl HubuumGateway {
@@ -233,6 +234,7 @@ impl HubuumGateway {
                 next_cursor: None,
                 limit: Some(1),
                 returned_count: 1,
+                total_count: input.include_total.then_some(1),
             });
         }
 
@@ -533,6 +535,7 @@ where
     if let Some(limit) = input.limit {
         request = request.limit(limit);
     }
+    request = request.include_total(input.include_total);
     if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
         request = request.sort(field, direction);
     }
@@ -568,6 +571,7 @@ fn page_to_json<T: Serialize>(
     page: Page<T>,
     limit: Option<usize>,
 ) -> Result<PagedResult<JsonRecord>, AppError> {
+    let total_count = page.total_count;
     let items = page
         .items
         .into_iter()
@@ -579,6 +583,7 @@ fn page_to_json<T: Serialize>(
         next_cursor: page.next_cursor,
         limit,
         returned_count,
+        total_count,
     })
 }
 

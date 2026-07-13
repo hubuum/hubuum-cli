@@ -8,7 +8,9 @@ use std::str::FromStr;
 
 use hubuum_client::FilterOperator;
 
+mod admin;
 mod audit;
+pub(crate) mod auth;
 mod builder;
 mod class;
 mod collection;
@@ -299,9 +301,11 @@ pub fn build_list_query(
     sort_clauses: &[String],
     limit: Option<usize>,
     cursor: Option<String>,
+    include_total: bool,
     compatibility_filters: impl IntoIterator<Item = FilterClause>,
 ) -> Result<ListQuery, AppError> {
     let mut query = list_query_from_raw(where_clauses, sort_clauses, limit, cursor)?;
+    query.include_total = include_total;
     query.filters.extend(compatibility_filters);
     Ok(query)
 }

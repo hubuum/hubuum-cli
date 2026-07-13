@@ -94,6 +94,7 @@ impl HubuumGateway {
                 next_cursor: page.next_cursor,
                 limit: query.limit,
                 returned_count: 0,
+                total_count: page.total_count,
             });
         }
 
@@ -397,6 +398,7 @@ impl HubuumGateway {
                 next_cursor: page.next_cursor,
                 limit,
                 returned_count: 0,
+                total_count: page.total_count,
             });
         }
 
@@ -479,6 +481,7 @@ impl HubuumGateway {
                 next_cursor: page.next_cursor,
                 limit,
                 returned_count: 0,
+                total_count: page.total_count,
             });
         }
 
@@ -529,6 +532,7 @@ impl HubuumGateway {
                 next_cursor: page.next_cursor,
                 limit,
                 returned_count: 0,
+                total_count: page.total_count,
             });
         }
 
