@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 pub fn build_cli() -> Command {
     Command::new("Hubuum CLI")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(crate::build_info::VERSION)
         .disable_version_flag(false)
         .after_help(
             "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli config show \\| P key value \\| L 5\n  hubuum-cli object list --class Hosts \\| G os_version AS \"OS Version\" \\| A count AS Hosts\n  hubuum-cli object list --json --class Hosts \\| P Name os_version \\> each:/tmp/host-{Name}.json\n  hubuum-cli config show '>>' config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree\n\nIn POSIX shells, escape or quote |, >, and >> so the operators reach Hubuum CLI.",

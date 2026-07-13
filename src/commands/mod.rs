@@ -32,6 +32,7 @@ mod task;
 mod task_submit;
 pub(crate) mod theme;
 mod user;
+pub(crate) mod version;
 
 pub use builder::build_command_catalog;
 

@@ -11,6 +11,7 @@ use crate::catalog::{
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::render_format;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
+use crate::commands::version::render_version;
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, reset_output, set_pipeline, set_pipeline_suffix,
@@ -155,6 +156,7 @@ pub fn can_execute_offline(line: &str) -> bool {
         || command_path_is(&parts, &["theme", "list"])
         || command_path_is(&parts, &["theme", "show"])
         || command_path_is(&parts, &["theme", "preview"])
+        || command_path_is(&parts, &["version"])
 }
 
 pub fn execute_offline_line(
@@ -226,6 +228,11 @@ fn execute_offline_line_inner(
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
         render_theme_preview(&tokens)?;
+    } else if command_path_is(&parts, &["version"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_version(&tokens)?;
     } else {
         catalog.resolve_command(&[], &parts)?;
         return Err(AppError::CommandNotFound(parts.join(" ")));
@@ -514,6 +521,8 @@ mod tests {
         assert!(can_execute_offline("config paths"));
         assert!(can_execute_offline("theme list"));
         assert!(can_execute_offline("theme preview hubuum-dark"));
+        assert!(can_execute_offline("version"));
+        assert!(can_execute_offline("version --server"));
         assert!(!can_execute_offline("theme use hubuum-dark"));
         assert!(!can_execute_offline(
             "config set --key server.hostname --value localhost"

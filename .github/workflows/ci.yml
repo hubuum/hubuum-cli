@@ -8,6 +8,10 @@ on:
       - "v*"
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CRATE_NAME: hubuum-cli
   GITHUB_TOKEN: ${{ github.token }}
@@ -19,6 +23,7 @@ permissions:
 jobs:
   lint:
     name: Lint
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -38,6 +43,7 @@ jobs:
 
   test:
     name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
@@ -73,7 +79,6 @@ jobs:
           target: ${{ matrix.platform.target }}
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release"
-          strip: true
 
       - name: Run tests
         if: ${{ !matrix.platform.skip_tests }}
@@ -84,12 +89,47 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release"
 
+  verify-tag-main-ci-success:
+    name: Verify tagged commit already passed CI on main
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check for successful main CI run on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api="https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${SHA}&status=completed&per_page=100"
+          response="$(
+            curl --silent --show-error --fail \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              "${api}"
+          )"
+          successful_run_count="$(
+            jq '[.workflow_runs[] | select(.head_branch == "main" and .conclusion == "success")] | length' <<<"${response}"
+          )"
+
+          if [[ "${successful_run_count}" -eq 0 ]]; then
+            echo "No successful CI run on main was found for commit ${SHA}." >&2
+            echo "Version tags must point at a green main commit." >&2
+            exit 1
+          fi
+
+          echo "Found a successful main CI run for ${SHA}."
+
   validate-release:
     name: Validate tagged release metadata
     if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - lint
-      - test
+    needs: verify-tag-main-ci-success
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -104,106 +144,228 @@ jobs:
           manifest_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 
           if [[ -z "${manifest_version}" ]]; then
-            echo "Unable to determine package version from Cargo.toml"
+            echo "Unable to determine package version from Cargo.toml" >&2
             exit 1
           fi
 
           if [[ "${manifest_version}" != "${version}" ]]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${manifest_version}"
+            echo "Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${manifest_version}" >&2
             exit 1
           fi
 
           if [[ ! -f CHANGELOG.md ]]; then
-            echo "CHANGELOG.md is required for versioned releases"
+            echo "CHANGELOG.md is required for versioned releases" >&2
             exit 1
           fi
 
           if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
-            echo "CHANGELOG.md is missing an entry for ${version}"
+            echo "CHANGELOG.md is missing an entry for ${version}" >&2
             exit 1
           fi
 
       - name: Validate lockfile
         run: cargo check --locked
 
-  build-main-binaries:
-    name: Build main binaries (${{ matrix.platform.os_name }})
-    if: github.ref == 'refs/heads/main'
+  build-release-artifacts:
+    name: Build release artifact (${{ matrix.platform.name }})
+    if: >-
+      always() &&
+      (
+        (
+          github.ref == 'refs/heads/main' &&
+          needs.lint.result == 'success' &&
+          needs.test.result == 'success'
+        ) ||
+        (
+          startsWith(github.ref, 'refs/tags/v') &&
+          needs.validate-release.result == 'success'
+        )
+      )
     needs:
       - lint
       - test
-    runs-on: ${{ matrix.platform.os }}
+      - validate-release
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
         platform:
-          - os_name: Linux-x86_64
-            os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            binary: hubuum-cli
-            archive: hubuum-cli-Linux-x86_64-gnu-main.tar.gz
-          - os_name: macOS-aarch64
-            os: macos-latest
+          - name: Linux-x86_64-musl
+            kind: linux
+            arch: amd64
+            os_name: linux-x86_64-musl
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            rustflags: ""
+          - name: Linux-aarch64-musl
+            kind: linux
+            arch: arm64
+            os_name: linux-aarch64-musl
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            rustflags: ""
+          - name: macOS-ARM64
+            kind: native
+            arch: arm64
+            os_name: macos-aarch64
+            runner: macos-latest
             target: aarch64-apple-darwin
-            binary: hubuum-cli
-            archive: hubuum-cli-Darwin-aarch64-main.tar.gz
-          - os_name: Windows-x86_64
-            os: windows-latest
+            rustflags: "-C link-arg=-Wl,-dead_strip"
+          - name: Windows-x86_64
+            kind: native
+            arch: amd64
+            os_name: windows-x86_64
+            runner: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: hubuum-cli.exe
-            archive: hubuum-cli-Windows-x86_64-main.zip
+            rustflags: "-C target-feature=+crt-static"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Cache cargo and target directories
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Buildx
+        if: matrix.platform.kind == 'linux'
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build binary
-        uses: houseabsolute/actions-rust-cross@v0
+      - name: Export stripped static Linux binary
+        if: matrix.platform.kind == 'linux'
+        uses: docker/build-push-action@v6
         with:
-          command: build
-          target: ${{ matrix.platform.target }}
-          toolchain: stable
-          args: "--locked --release"
-          strip: true
+          context: .
+          file: Dockerfile
+          target: release-artifacts
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=local,dest=dist/bin
+          build-args: |
+            CARGO_BUILD_FLAGS=--locked --release
+            HUBUUM_CLI_BUILD_CHANNEL=${{ github.ref == 'refs/heads/main' && 'main' || 'release' }}
+            HUBUUM_CLI_BUILD_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=static-${{ matrix.platform.os_name }}
+          cache-to: type=gha,mode=max,scope=static-${{ matrix.platform.os_name }}
 
-      - name: Package artifact (Unix)
-        if: runner.os != 'Windows'
+      - name: Install stable Rust toolchain
+        if: matrix.platform.kind == 'native'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Cache cargo and target directories
+        if: matrix.platform.kind == 'native'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.platform.target }}-stable-release
+
+      - name: Build self-contained native binary
+        if: matrix.platform.kind == 'native'
+        env:
+          HUBUUM_CLI_BUILD_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'main' || 'release' }}
+          HUBUUM_CLI_BUILD_GIT_SHA: ${{ github.sha }}
+          RUSTFLAGS: ${{ matrix.platform.rustflags }}
+        run: cargo build --locked --release --target ${{ matrix.platform.target }}
+
+      - name: Verify static linkage and package Linux archive
+        if: matrix.platform.kind == 'linux'
         shell: bash
         run: |
-          mkdir -p dist
-          tar czvf "dist/${{ matrix.platform.archive }}" \
-            -C "target/${{ matrix.platform.target }}/release" \
-            "${{ matrix.platform.binary }}"
+          set -euo pipefail
 
-      - name: Package artifact (Windows)
-        if: runner.os == 'Windows'
+          binary_path="dist/bin/hubuum-cli"
+          if readelf --dynamic "${binary_path}" | grep --quiet '(NEEDED)'; then
+            echo "${binary_path} unexpectedly has dynamic runtime dependencies" >&2
+            readelf --dynamic "${binary_path}" >&2
+            exit 1
+          fi
+          "${binary_path}" --version
+
+          suffix="main"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            suffix="${GITHUB_REF_NAME}"
+          fi
+          archive_name="hubuum-cli-${{ matrix.platform.os_name }}-${suffix}.tar.gz"
+          tar czf "dist/${archive_name}" -C dist/bin hubuum-cli
+          (
+            cd dist
+            sha256sum "${archive_name}" > "${archive_name}.sha256"
+          )
+
+      - name: Verify macOS runtime dependencies
+        if: matrix.platform.os_name == 'macos-aarch64'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          binary_path="target/${{ matrix.platform.target }}/release/hubuum-cli"
+          "${binary_path}" --version
+          if xcrun otool -L "${binary_path}" | grep --extended-regexp --quiet '(/opt/homebrew|/usr/local|libssl|libcrypto)'; then
+            echo "${binary_path} unexpectedly depends on a package-manager library" >&2
+            xcrun otool -L "${binary_path}" >&2
+            exit 1
+          fi
+
+      - name: Package macOS archive
+        if: matrix.platform.os_name == 'macos-aarch64'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          suffix="main"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            suffix="${GITHUB_REF_NAME}"
+          fi
+          archive_name="hubuum-cli-${{ matrix.platform.os_name }}-${suffix}.tar.gz"
+          mkdir -p dist
+          tar czf "dist/${archive_name}" \
+            -C "target/${{ matrix.platform.target }}/release" \
+            hubuum-cli
+          (
+            cd dist
+            shasum -a 256 "${archive_name}" > "${archive_name}.sha256"
+          )
+
+      - name: Verify Windows binary starts
+        if: matrix.platform.os_name == 'windows-x86_64'
         shell: pwsh
         run: |
+          & "target/${{ matrix.platform.target }}/release/hubuum-cli.exe" --version
+
+      - name: Package Windows archive
+        if: matrix.platform.os_name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          $suffix = "main"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $suffix = $env:GITHUB_REF_NAME
+          }
+          $archiveName = "hubuum-cli-${{ matrix.platform.os_name }}-$suffix.zip"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Compress-Archive `
-            -Path "target/${{ matrix.platform.target }}/release/${{ matrix.platform.binary }}" `
-            -DestinationPath "dist/${{ matrix.platform.archive }}" `
+            -Path "target/${{ matrix.platform.target }}/release/hubuum-cli.exe" `
+            -DestinationPath "dist/$archiveName" `
             -Force
+          $hash = (Get-FileHash "dist/$archiveName" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archiveName" | Out-File -FilePath "dist/$archiveName.sha256" -Encoding ascii
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: main-${{ matrix.platform.os_name }}
-          path: dist/${{ matrix.platform.archive }}
+          name: binaries-${{ matrix.platform.os_name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
 
-  publish-main-release:
-    name: Publish rolling main release
-    if: github.ref == 'refs/heads/main'
-    needs:
-      - build-main-binaries
+  publish-release:
+    name: Publish release
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v')
+    needs: build-release-artifacts
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     concurrency:
-      group: publish-main-release
-      cancel-in-progress: true
+      group: publish-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -213,20 +375,23 @@ jobs:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: main-*
+          pattern: binaries-*
           path: dist
           merge-multiple: true
 
       - name: Move main release tag
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f main-latest "${GITHUB_SHA}"
           git push --force origin refs/tags/main-latest
 
-      - name: Write release notes
+      - name: Write main release notes
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           cat <<EOF > RELEASE_NOTES.md
@@ -235,105 +400,8 @@ jobs:
           Commit: ${GITHUB_SHA}
           EOF
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: main-latest
-          name: main
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: false
-          make_latest: false
-          overwrite_files: true
-          fail_on_unmatched_files: true
-          files: dist/*
-
-  build-versioned-binaries:
-    name: Build release binaries (${{ matrix.platform.os_name }})
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - validate-release
-    runs-on: ${{ matrix.platform.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - os_name: Linux-x86_64
-            os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            binary: hubuum-cli
-            archive: hubuum-cli-Linux-x86_64-gnu.tar.gz
-          - os_name: macOS-aarch64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            binary: hubuum-cli
-            archive: hubuum-cli-Darwin-aarch64.tar.gz
-          - os_name: Windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: hubuum-cli.exe
-            archive: hubuum-cli-Windows-x86_64.zip
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Cache cargo and target directories
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build binary
-        uses: houseabsolute/actions-rust-cross@v0
-        with:
-          command: build
-          target: ${{ matrix.platform.target }}
-          toolchain: stable
-          args: "--locked --release"
-          strip: true
-
-      - name: Package artifact (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          mkdir -p dist
-          tar czvf "dist/${{ matrix.platform.archive }}" \
-            -C "target/${{ matrix.platform.target }}/release" \
-            "${{ matrix.platform.binary }}"
-
-      - name: Package artifact (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Compress-Archive `
-            -Path "target/${{ matrix.platform.target }}/release/${{ matrix.platform.binary }}" `
-            -DestinationPath "dist/${{ matrix.platform.archive }}" `
-            -Force
-
-      - name: Upload packaged artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.platform.os_name }}
-          path: dist/${{ matrix.platform.archive }}
-
-  publish-versioned-release:
-    name: Publish versioned release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - build-versioned-binaries
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: dist
-          merge-multiple: true
-
-      - name: Extract release notes from changelog
+      - name: Extract tagged release notes from changelog
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -346,17 +414,19 @@ jobs:
           ' CHANGELOG.md > RELEASE_NOTES.md
 
           if [[ ! -s RELEASE_NOTES.md ]]; then
-            echo "Failed to extract release notes for ${version}"
+            echo "Failed to extract release notes for ${version}" >&2
             exit 1
           fi
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'main-latest' || github.ref_name }}
+          name: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
+          make_latest: ${{ github.ref == 'refs/heads/main' && 'false' || 'true' }}
+          overwrite_files: true
           fail_on_unmatched_files: true
           files: dist/*

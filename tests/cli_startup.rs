@@ -16,7 +16,21 @@ fn help_and_version_do_not_require_login() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(contains(env!("CARGO_PKG_VERSION")));
+        .stdout(contains(format!("v{}", env!("CARGO_PKG_VERSION"))));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(contains(format!("v{}", env!("CARGO_PKG_VERSION"))))
+        .stdout(contains("Target"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["version", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(contains("\"cli_version\""))
+        .stdout(contains("\"target\""));
 }
 
 #[test]

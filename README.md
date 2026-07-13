@@ -3,6 +3,32 @@
 This CLI interface for [Hubuum](https://github.com/hubuum/hubuum) is still in
 pre-release state and under heavy development.
 
+## Release binaries
+
+Successful pushes to `main` publish rolling binaries in the
+[`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
+Version tags such as `v0.0.1` publish immutable, versioned GitHub releases.
+
+Each release provides four small, stripped archives and matching SHA-256 files:
+
+- Linux x86_64 and ARM64 binaries are statically linked with musl.
+- The Apple Silicon macOS binary depends only on Apple-provided system libraries.
+- The Windows x86_64 binary uses the MSVC ABI with a statically linked C runtime;
+  Windows system DLLs remain platform dependencies.
+
+Rolling builds identify their source commit using SemVer build metadata, for example
+`v0.0.1+main.g0123456789ab`. Tagged releases use the clean package version. Show the
+current build identity without logging in, or also query the configured server:
+
+```sh
+hubuum-cli version
+hubuum-cli version --server
+hubuum-cli version --output json
+```
+
+The same `version` commands are available in the REPL. The server version comes from
+the server's unauthenticated OpenAPI metadata.
+
 ## Usage
 
 Start the interactive REPL:
@@ -38,7 +64,9 @@ Run commands from a script file:
 hubuum-cli script commands.hubuum
 ```
 
-`help`, `help --tree`, `config show`, and `config paths` run from the local command catalog and configuration files without logging in. API-backed commands authenticate before execution.
+`help`, `help --tree`, `version`, `config show`, and `config paths` run from the local
+command catalog and configuration files without logging in. `version --server` makes
+an unauthenticated metadata request. API-backed commands authenticate before execution.
 
 Global configuration flags go before the command:
 

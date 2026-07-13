@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-07-13
+
+- Added rolling `main` and version-tagged release archives for static musl Linux binaries,
+  Apple Silicon macOS, and Windows, with SHA-256 checksums for every artifact.
+- Added an offline `version` command for one-shot and REPL use, optional server version
+  lookup, and commit-derived SemVer build metadata for rolling `main` binaries.
 - Using `show` on an object or class now displays the object's or class's relations. Defaults
   to depth 2 and ignoring self-class relations. This behavior can be configured with the
   `--max-depth` and `--include-self-class` flags.
@@ -23,8 +29,6 @@
 - Fixed pipeline comparisons being mistaken for redirects, enabled jq-compatible `JQ`
   transforms, included hidden values in broad search, and made direct redirects honor shell
   argument and color-mode behavior.
-
-## [0.0.1] - 2026-03-12
 
 - Switched the CLI to the published `hubuum_client` crate on crates.io.
 - Added GitHub Actions release automation for rolling `main` binaries and tagged `v*` releases.

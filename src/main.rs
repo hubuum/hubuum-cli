@@ -22,6 +22,7 @@ use tokio::runtime::Handle;
 mod app;
 mod autocomplete;
 mod background;
+mod build_info;
 mod catalog;
 mod cli;
 mod command_line;

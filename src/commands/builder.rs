@@ -46,6 +46,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::me::register_commands(&mut builder);
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
+    commands::version::register_commands(&mut builder);
 
     builder.build()
 }
