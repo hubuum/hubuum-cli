@@ -2,8 +2,14 @@
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-18
+
 - Updated `hubuum_client` to 0.5.1 for Hubuum server v0.0.2 and refreshed all
   compatible direct and transitive dependencies.
+- Added a compatibility matrix recording the CLI, client-library, and declared
+  Hubuum server targets.
+- Expanded user list and detail output with proper names, identity scopes,
+  provider ownership, management state, and synchronization timestamps.
 - Added unauthenticated Prometheus metrics retrieval from the default `/metrics`
   route or a runtime-configured path.
 - Added shared and personal computed-field list, create, update, delete, preview,
