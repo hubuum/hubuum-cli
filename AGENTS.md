@@ -6,6 +6,7 @@
 - `cargo clippy` must pass for all code before changes are considered complete.
 - Run clippy as `cargo clippy --all-targets -- -D warnings`.
 - `rustfmt` must pass for all Rust code. Keep formatting mechanical and avoid hand-formatting that fights `rustfmt`.
+- Markdown lint must pass for all tracked Markdown files. Run it as `git ls-files -z '*.md' | xargs -0 npx --yes markdownlint-cli2@0.23.0 --config .markdownlint.json`.
 
 ## Architecture
 

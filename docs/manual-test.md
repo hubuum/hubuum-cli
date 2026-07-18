@@ -110,6 +110,7 @@ object list --class SmokeHost --computed none
 object show --class SmokeHost smoke-1 --computed S:owner_copy
 config unset --key output.object_class_computed_fields.SmokeHost
 ```
+
 Configure a local display alias and verify both the canonical and legacy names
 load it:
 
