@@ -144,7 +144,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        Ok(PagedResult::from_page(page, query.limit, ClassRecord::from))
+        Ok(PagedResult::from_page(page, ClassRecord::from))
     }
 }
 

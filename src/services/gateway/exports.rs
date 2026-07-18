@@ -150,7 +150,6 @@ impl HubuumGateway {
             return Ok(PagedResult {
                 items: Vec::new(),
                 next_cursor: page.next_cursor,
-                limit: query.limit,
                 returned_count: 0,
                 total_count: page.total_count,
             });
@@ -161,7 +160,7 @@ impl HubuumGateway {
                 template.collection_id
             })?;
 
-        Ok(PagedResult::from_page(page, query.limit, |template| {
+        Ok(PagedResult::from_page(page, |template| {
             ExportTemplateRecord::new(&template, &collectionmap)
         }))
     }

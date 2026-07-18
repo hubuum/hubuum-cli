@@ -18,6 +18,7 @@ use repl::run;
 use services::AppServices;
 use tokio::fs::read_to_string;
 use tokio::runtime::Handle;
+use tokio::task::spawn_blocking;
 
 mod app;
 mod autocomplete;
@@ -56,7 +57,11 @@ async fn main() -> Result<(), AppError> {
 
     match &mode {
         StartupMode::Command(command) if can_execute_offline(command) => {
-            let outcome = execute_offline_line(catalog.as_ref(), command);
+            let catalog = catalog.clone();
+            let command = command.clone();
+            let outcome = spawn_blocking(move || execute_offline_line(catalog.as_ref(), &command))
+                .await
+                .map_err(|err| AppError::CommandExecutionError(err.to_string()))?;
             if !render_dispatch_result(&sessionless(), outcome) {
                 exit(1);
             }
@@ -64,7 +69,7 @@ async fn main() -> Result<(), AppError> {
         }
         StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
             let session = SharedSession::new();
-            if !execute_offline_script(catalog.as_ref(), &session, filename).await? {
+            if !execute_offline_script(catalog.clone(), &session, filename).await? {
                 exit(1);
             }
             return Ok(());
@@ -142,13 +147,17 @@ async fn can_execute_script_offline(filename: &str) -> Result<bool, AppError> {
 }
 
 async fn execute_offline_script(
-    catalog: &CommandCatalog,
+    catalog: Arc<CommandCatalog>,
     session: &SharedSession,
     filename: &str,
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        let outcome = execute_offline_line(catalog, line);
+        let catalog = catalog.clone();
+        let line = line.to_string();
+        let outcome = spawn_blocking(move || execute_offline_line(catalog.as_ref(), &line))
+            .await
+            .map_err(|err| AppError::CommandExecutionError(err.to_string()))?;
         if !render_dispatch_result(session, outcome) {
             return Ok(false);
         }

@@ -104,7 +104,7 @@ impl HubuumGateway {
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
-        Ok(PagedResult::from_page(page, query.limit, GroupRecord::from))
+        Ok(PagedResult::from_page(page, GroupRecord::from))
     }
 }
 

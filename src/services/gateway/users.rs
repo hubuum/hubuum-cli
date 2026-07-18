@@ -117,7 +117,7 @@ impl HubuumGateway {
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
-        Ok(PagedResult::from_page(page, query.limit, UserRecord::from))
+        Ok(PagedResult::from_page(page, UserRecord::from))
     }
 
     pub fn delete_user(&self, username: &str) -> Result<(), AppError> {

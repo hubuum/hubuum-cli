@@ -272,7 +272,7 @@ pub struct GroupList {
         autocomplete = "group_sort"
     )]
     pub sort_clauses: Vec<String>,
-    #[option(long = "limit", help = "Maximum number of results to return")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,

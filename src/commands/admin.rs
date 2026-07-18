@@ -41,6 +41,10 @@ impl CliCommand for AdminConfig {
 }
 
 fn render_server_config(config: Value, format: OutputFormat) -> Result<(), AppError> {
+    render_structured_value(config, format)
+}
+
+pub(super) fn render_structured_value(config: Value, format: OutputFormat) -> Result<(), AppError> {
     match format {
         OutputFormat::Json => set_semantic_output(OutputEnvelope::detail(config, Vec::new())),
         OutputFormat::Text => {

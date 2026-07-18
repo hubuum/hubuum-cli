@@ -41,11 +41,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        Ok(PagedResult::from_page(
-            page,
-            query.limit,
-            ImportResultRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, ImportResultRecord::from))
     }
 }
 

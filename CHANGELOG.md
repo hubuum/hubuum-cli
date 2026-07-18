@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+- Updated `hubuum_client` to 0.5.1 for Hubuum server v0.0.2 and refreshed all
+  compatible direct and transitive dependencies.
+- Added unauthenticated Prometheus metrics retrieval from the default `/metrics`
+  route or a runtime-configured path.
+- Added shared and personal computed-field list, create, update, delete, preview,
+  and rebuild commands, plus computed scopes on object reads.
+- Added computed-field JSON Pointer completion from the class schema, falling
+  back to observed paths from a cached sample of up to 100 class objects.
+- Expanded computed values in object-list text output as compact `S:<key>` and
+  `P:<key>` columns instead of a truncated envelope preview.
+- Added repeatable, dynamically completed `--computed S:<key>` and
+  `--computed P:<key>` selections for object list and show commands, plus
+  `--computed all`; computed values remain off by default.
+- Added portable per-class computed defaults under
+  `output.object_class_computed_fields`, with dynamic config completion and
+  explicit `--computed none` overrides.
+- Made `S:<key>` and `P:<key>` first-class semantic pipe selectors for object
+  list and show output, preserving computed JSON types through pipe stages.
+- Added local object-list sorting by `S:<key>` and `P:<key>`, including dynamic
+  completion from enabled definitions. Computed sorts run before `--limit` and
+  reject server cursors because server v0.0.2 cannot represent that ordering.
+- Treats `--limit` as a requested page size while enforcing the Hubuum server
+  v0.0.2 maximum of 250. Larger values are truncated with a warning, and generated
+  next-page commands use the effective value.
+- Renamed class-specific local meta columns to display aliases under
+  `output.object_list_class_aliases`; the former config and stored-preference
+  name remains readable for compatibility.
+- Added administrator backup submission, task inspection, secure download, and
+  high-level create commands.
+- Added two-step destructive restore staging, status, and confirmation. One-time
+  capabilities are kept in owner-only receipt files and confirmation requires
+  an explicit `--yes`.
+- Extended task-kind filtering and completion with backup tasks. The existing
+  administrator configuration dump now includes the server v0.0.2 settings.
+- Adapted object JSONPath handling for the refreshed `jsonpath-rust` API.
+
 ## [0.0.1] - 2026-07-13
 
 - Added rolling `main` and version-tagged release archives for static musl Linux binaries,

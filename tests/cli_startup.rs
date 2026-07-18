@@ -1,4 +1,7 @@
 use std::fs::{read_to_string, write};
+use std::io::{Read, Write as _};
+use std::net::TcpListener;
+use std::thread;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
@@ -74,6 +77,63 @@ fn direct_help_and_config_paths_do_not_require_login() {
         .assert()
         .success()
         .stdout(contains("Secrets are redacted"));
+}
+
+#[test]
+fn metrics_uses_the_configured_path_without_authentication() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("metrics listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("metrics listener should have an address")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("metrics request should arrive");
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let count = stream
+                .read(&mut buffer)
+                .expect("request should be readable");
+            if count == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..count]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        let request = String::from_utf8(request).expect("request should be UTF-8");
+        assert!(request.starts_with("GET /internal/metrics HTTP/1.1\r\n"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+
+        let body = "# TYPE hubuum_up gauge\nhubuum_up 1\n";
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .expect("metrics response should be written");
+    });
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--protocol",
+            "http",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "metrics",
+            "--path",
+            "/internal/metrics",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("# TYPE hubuum_up gauge"))
+        .stdout(contains("hubuum_up 1"));
+
+    server.join().expect("metrics server should finish");
 }
 
 #[test]

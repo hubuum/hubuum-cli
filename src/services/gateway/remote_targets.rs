@@ -260,11 +260,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        Ok(PagedResult::from_page(
-            page,
-            query.limit,
-            RemoteTargetRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, RemoteTargetRecord::from))
     }
 
     pub fn remote_target(&self, name: &str) -> Result<RemoteTargetRecord, AppError> {

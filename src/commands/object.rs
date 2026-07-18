@@ -13,15 +13,19 @@ use hubuum_filter::{scalar_text, select_values, OutputEnvelope};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, want_json,
-    CliCommand,
+    build_list_query, contains_clause, desired_format, equals_clause, normalize_server_page_size,
+    option_or_pos, want_json, CliCommand,
 };
 use crate::autocomplete::{
-    classes, collections, object_data_columns, object_sort, object_where, objects_from_class,
+    classes, collections, computed_fields, object_data_columns, object_sort, object_where,
+    objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
-use crate::domain::{ObjectShowRecord, ResolvedObjectRecord};
+use crate::domain::{
+    visit_observed_data_fields, ComputedFieldSelector, ComputedFieldSet, ObjectShowRecord,
+    ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+};
 use crate::errors::AppError;
 use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
@@ -39,8 +43,6 @@ use crate::terminal::terminal_width;
 const AUTO_OBJECT_DATA_COLUMN_LIMIT: usize = 4;
 const AUTO_OBJECT_DATA_TARGET_WIDTH: usize = 100;
 const AUTO_OBJECT_DATA_MAX_COLUMN_WIDTH: usize = 24;
-const OBJECT_FIELD_SAMPLE_LIMIT: usize = 100;
-const OBJECT_FIELD_DEPTH: usize = 6;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -217,6 +219,13 @@ pub struct ObjectInfo {
         help = "Maximum traversal depth to include in related object output"
     )]
     pub max_depth: Option<i32>,
+    #[option(
+        long = "computed",
+        help = "Computed field to show: S:key, P:key, all, or none (repeatable)",
+        nargs = 1,
+        autocomplete = "computed_fields"
+    )]
+    pub computed: Vec<String>,
 }
 
 impl CliCommand for ObjectInfo {
@@ -228,6 +237,8 @@ impl CliCommand for ObjectInfo {
             .name
             .as_ref()
             .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let computed_selection =
+            ComputedFieldSelection::resolve(&query.computed, Some(&query.class))?;
         let config = get_config();
         let object = services.gateway().object_show_details(
             &query.class,
@@ -238,14 +249,30 @@ impl CliCommand for ObjectInfo {
                     .unwrap_or(!config.relations.ignore_same_class),
                 max_depth: query.max_depth.unwrap_or(config.relations.max_depth),
             },
+            computed_selection.requests_values(),
         )?;
 
+        if has_pipeline()? {
+            let (value, columns) = object_show_pipeline_value(&object, &computed_selection)?;
+            set_semantic_output(OutputEnvelope::detail(value, columns))?;
+            return Ok(());
+        }
+
         if want_json(tokens) {
-            append_line(to_string_pretty(&object)?)?;
+            append_line(to_string_pretty(
+                &computed_selection.project_object_show(&object),
+            )?)?;
             return Ok(());
         }
 
         render_object_show_text(&object)?;
+
+        let computed_columns = computed_selection.columns(std::slice::from_ref(&object.object));
+        if !computed_columns.is_empty() {
+            append_line("")?;
+            append_line("Computed fields")?;
+            render_computed_fields(object.object.computed.as_ref(), &computed_columns)?;
+        }
 
         let show_data = should_render_object_data(
             query.data,
@@ -283,8 +310,8 @@ fn render_object_data(json_data: Option<&Value>, jsonpath: Option<&str>) -> Resu
 
         let mut key_values = HashMap::new();
         for result in results {
-            let pretty_path = prettify_slice_path(&result.clone().path());
-            let value = display_json_value(result.val());
+            let pretty_path = prettify_slice_path(&result.path);
+            let value = display_json_value(result.val);
             key_values.insert(pretty_path, value);
         }
 
@@ -340,23 +367,151 @@ fn display_json_value(value: &Value) -> String {
 mod tests {
     use std::collections::HashMap;
 
+    use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage, ProjectTerm, SortCast};
     use serde_json::{json, Value};
     use serial_test::serial;
 
     use super::{
-        bounded_auto_data_columns, data_column_display_value, data_column_value,
-        display_json_value, explicit_data_columns, first_seen_data_keys, object_data_column_label,
-        object_field_summaries, object_list_row, ObjectListColumns, OBJECT_FIELD_DEPTH,
+        all_computed_value_columns, bounded_auto_data_columns, data_column_display_value,
+        data_column_value, display_json_value, explicit_data_columns, first_seen_data_keys,
+        object_data_column_label, object_field_summaries, object_list_row,
+        object_show_pipeline_value, ComputedFieldSelection, ComputedValueColumn,
+        ComputedValueScope, ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
+    use crate::commands::command_options;
     use crate::config::{init_config, AppConfig};
-    use crate::domain::{ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord};
+    use crate::domain::{
+        ComputedFieldSet, ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord,
+    };
     use crate::list_query::PagedResult;
     use crate::output::{append_line, reset_output, take_output};
+    use crate::tokenizer::CommandTokenizer;
 
     #[test]
     fn display_json_value_unquotes_strings() {
         assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    fn computed_object_reads_default_off_and_accept_scoped_fields_or_all() {
+        assert_eq!(
+            ComputedFieldSelection::parse(&[]).expect("default should resolve"),
+            ComputedFieldSelection::None
+        );
+        assert_eq!(
+            ComputedFieldSelection::parse(&["all".to_string()]).expect("all should resolve"),
+            ComputedFieldSelection::All
+        );
+        assert_eq!(
+            ComputedFieldSelection::parse(&["none".to_string()]).expect("none should resolve"),
+            ComputedFieldSelection::None
+        );
+        assert_eq!(
+            ComputedFieldSelection::parse(&["S:load,P:label".to_string(), "S:load".to_string(),])
+                .expect("scoped fields should resolve"),
+            ComputedFieldSelection::Fields(vec![
+                ComputedValueColumn::new(ComputedValueScope::Shared, "load"),
+                ComputedValueColumn::new(ComputedValueScope::Personal, "label"),
+            ])
+        );
+        assert!(ComputedFieldSelection::parse(&["all".to_string(), "S:load".to_string()]).is_err());
+        assert!(
+            ComputedFieldSelection::parse(&["none".to_string(), "S:load".to_string()]).is_err()
+        );
+        assert!(ComputedFieldSelection::parse(&["load".to_string()]).is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn configured_computed_fields_apply_per_class_and_explicit_values_override_them() {
+        let mut config = AppConfig::default();
+        config.output.object_class_computed_fields.insert(
+            "Hosts".to_string(),
+            ComputedFieldSet::from_values(&["S:load,P:note".to_string()])
+                .expect("configured fields should parse"),
+        );
+        init_config(config).expect("config should initialize");
+
+        assert_eq!(
+            ComputedFieldSelection::resolve(&[], Some("Hosts"))
+                .expect("configured fields should resolve"),
+            ComputedFieldSelection::Fields(vec![
+                ComputedValueColumn::new(ComputedValueScope::Shared, "load"),
+                ComputedValueColumn::new(ComputedValueScope::Personal, "note"),
+            ])
+        );
+        assert_eq!(
+            ComputedFieldSelection::resolve(&["none".to_string()], Some("Hosts"))
+                .expect("none should override configured fields"),
+            ComputedFieldSelection::None
+        );
+        assert_eq!(
+            ComputedFieldSelection::resolve(&["S:other".to_string()], Some("Hosts"))
+                .expect("explicit fields should override configured fields"),
+            ComputedFieldSelection::Fields(vec![ComputedValueColumn::new(
+                ComputedValueScope::Shared,
+                "other",
+            )])
+        );
+        assert_eq!(
+            ComputedFieldSelection::resolve(&[], Some("Other"))
+                .expect("unconfigured class should resolve"),
+            ComputedFieldSelection::None
+        );
+
+        init_config(AppConfig::default()).expect("default config should be restored");
+    }
+
+    #[test]
+    fn object_list_parses_repeatable_computed_selections() {
+        let tokens = CommandTokenizer::new(
+            "object list --class Hosts --computed S:load --computed P:note",
+            "list",
+            &command_options::<ObjectList>(),
+        )
+        .expect("command should tokenize");
+
+        let query = ObjectList::parse_tokens(&tokens).expect("command should parse");
+
+        assert_eq!(query.computed, vec!["S:load", "P:note"]);
+    }
+
+    #[test]
+    fn computed_field_selection_projects_only_requested_scope_values() {
+        let selection =
+            ComputedFieldSelection::parse(&["S:load".to_string(), "P:label".to_string()])
+                .expect("selection should parse");
+        let projected = selection
+            .project_computed(Some(&json!({
+                "shared": {
+                    "revision": 4,
+                    "values": {"load": 1.5, "hidden": 99},
+                    "errors": {"broken": {"message": "nope"}}
+                },
+                "personal": {
+                    "values": {"label": "mine", "hidden": true},
+                    "errors": {}
+                }
+            })))
+            .expect("computed envelope should remain");
+
+        assert_eq!(projected["shared"]["revision"], json!(4));
+        assert_eq!(projected["shared"]["values"], json!({"load": 1.5}));
+        assert_eq!(projected["shared"]["errors"], json!({}));
+        assert_eq!(projected["personal"]["values"], json!({"label": "mine"}));
+    }
+
+    #[test]
+    fn unrequested_computed_values_are_removed_from_projected_records() {
+        let mut object = test_object(1, json!({}));
+        object.computed = Some(json!({
+            "shared": {"values": {"load": 1.5}, "errors": {}}
+        }));
+
+        let projected = ComputedFieldSelection::None.project_record(&object);
+
+        assert!(projected.computed.is_none());
     }
 
     #[test]
@@ -396,7 +551,6 @@ mod tests {
                 ),
             ],
             next_cursor: None,
-            limit: None,
             returned_count: 2,
             total_count: None,
         };
@@ -420,6 +574,7 @@ mod tests {
         let columns = ObjectListColumns {
             data_keys: vec!["contact".to_string(), "name".to_string()],
             compact_base: false,
+            computed_columns: Vec::new(),
         };
 
         let row = object_list_row(&object, &columns)
@@ -439,6 +594,7 @@ mod tests {
         let columns = ObjectListColumns {
             data_keys: vec!["data.name".to_string(), "data.hardware.cpu".to_string()],
             compact_base: true,
+            computed_columns: Vec::new(),
         };
 
         let row = object_list_row(&object, &columns)
@@ -449,6 +605,118 @@ mod tests {
 
         assert_eq!(row.get("data.name"), Some(&json!("data-name")));
         assert_eq!(row.get("data.hardware.cpu"), Some(&json!("M2")));
+    }
+
+    #[test]
+    fn object_list_row_expands_computed_values_into_scoped_columns() {
+        let mut object = test_object(1, json!({"load": 1}));
+        object.computed = Some(json!({
+            "shared": {
+                "values": {"average_load": 1.5},
+                "errors": {"broken": {"message": "missing input"}}
+            },
+            "personal": {"values": {"note": "mine"}, "errors": {}}
+        }));
+        let columns = ObjectListColumns {
+            data_keys: Vec::new(),
+            compact_base: false,
+            computed_columns: all_computed_value_columns(std::slice::from_ref(&object)),
+        };
+        let displayed = columns.display_columns();
+        assert!(displayed.ends_with(&[
+            "S:average_load".to_string(),
+            "S:broken".to_string(),
+            "P:note".to_string(),
+        ]));
+
+        let row = object_list_row(&object, &columns)
+            .expect("row should render")
+            .as_object()
+            .cloned()
+            .expect("row should be object");
+
+        assert_eq!(row.get("S:average_load"), Some(&json!(1.5)));
+        assert_eq!(row.get("S:broken"), Some(&json!("ERROR: missing input")));
+        assert_eq!(row.get("P:note"), Some(&json!("mine")));
+        assert!(!row.contains_key("Computed"));
+    }
+
+    #[test]
+    fn scoped_computed_columns_support_semantic_pipe_stages() {
+        let mut first = test_object(1, json!({}));
+        first.computed = Some(json!({
+            "shared": {"values": {"load": 1.5}, "errors": {}},
+            "personal": {"values": {"label": "one"}, "errors": {}}
+        }));
+        let mut second = test_object(2, json!({}));
+        second.computed = Some(json!({
+            "shared": {"values": {"load": 3.0}, "errors": {}},
+            "personal": {"values": {"label": "two"}, "errors": {}}
+        }));
+        let objects = vec![first, second];
+        let columns = ObjectListColumns {
+            data_keys: Vec::new(),
+            compact_base: false,
+            computed_columns: all_computed_value_columns(&objects),
+        };
+        let rows = objects
+            .iter()
+            .map(|object| object_list_row(object, &columns).expect("row should render"))
+            .collect();
+
+        let output = apply_pipeline(
+            OutputEnvelope::rows(rows, columns.display_columns()),
+            &[
+                PipeStage::Grep("S:load>=2".to_string()),
+                PipeStage::Columns(vec![
+                    ProjectTerm::keep("Name"),
+                    ProjectTerm::keep("S:load"),
+                    ProjectTerm::keep("P:label"),
+                ]),
+                PipeStage::SortColumn {
+                    column: "S:load".to_string(),
+                    descending: true,
+                    cast: SortCast::Number,
+                },
+            ],
+        )
+        .expect("scoped fields should work in semantic pipelines");
+
+        assert_eq!(
+            output.value,
+            json!([{
+                "Name": "host-2",
+                "S:load": 3.0,
+                "P:label": "two"
+            }])
+        );
+    }
+
+    #[test]
+    fn object_show_pipeline_exposes_scoped_computed_fields() {
+        let mut object = test_object(1, json!({"owner": "ops"}));
+        object.computed = Some(json!({
+            "shared": {"values": {"load": 1.5}, "errors": {}},
+            "personal": {"values": {"label": "mine"}, "errors": {}}
+        }));
+        let selection = ComputedFieldSelection::Fields(vec![
+            ComputedValueColumn::new(ComputedValueScope::Shared, "load"),
+            ComputedValueColumn::new(ComputedValueScope::Personal, "label"),
+        ]);
+        let (value, columns) = object_show_pipeline_value(
+            &ObjectShowRecord {
+                object,
+                related_objects: Vec::new(),
+            },
+            &selection,
+        )
+        .expect("show pipeline value should render");
+
+        assert_eq!(value.get("S:load"), Some(&json!(1.5)));
+        assert_eq!(value.get("P:label"), Some(&json!("mine")));
+        assert_eq!(value.get("related_objects"), Some(&json!([])));
+        assert!(columns.contains(&"S:load".to_string()));
+        assert!(columns.contains(&"P:label".to_string()));
     }
 
     #[test]
@@ -488,9 +756,9 @@ mod tests {
 
     #[test]
     #[serial]
-    fn object_list_row_inserts_configured_meta_columns() {
+    fn object_list_row_inserts_configured_display_aliases() {
         let mut config = AppConfig::default();
-        config.output.object_list_class_meta.insert(
+        config.output.object_list_class_aliases.insert(
             "Hosts".to_string(),
             HashMap::from([(
                 "os_version".to_string(),
@@ -505,6 +773,7 @@ mod tests {
         let columns = ObjectListColumns {
             data_keys: vec!["os_version".to_string()],
             compact_base: true,
+            computed_columns: Vec::new(),
         };
 
         let row = object_list_row(&object, &columns)
@@ -524,12 +793,11 @@ mod tests {
                 test_object(2, json!({"contact": "Dell", "hardware": {"cpu": "i3"}})),
             ],
             next_cursor: None,
-            limit: None,
             returned_count: 2,
             total_count: None,
         };
 
-        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
+        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, false);
 
         assert_eq!(
             summaries.get("data.contact").map(|summary| summary.count),
@@ -553,12 +821,11 @@ mod tests {
                 json!({"network": {"interfaces": [{"ipv4": "127.0.0.1"}]}}),
             )],
             next_cursor: None,
-            limit: None,
             returned_count: 1,
             total_count: None,
         };
 
-        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, false);
+        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, false);
 
         assert!(summaries.contains_key("data.network.interfaces[*].ipv4"));
         assert!(!summaries.contains_key("data.network"));
@@ -570,12 +837,11 @@ mod tests {
         let page = PagedResult {
             items: vec![test_object(1, json!({"hardware": {"cpu": "M2"}}))],
             next_cursor: None,
-            limit: None,
             returned_count: 1,
             total_count: None,
         };
 
-        let summaries = object_field_summaries(&page, OBJECT_FIELD_DEPTH, true);
+        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, true);
 
         assert!(summaries.contains_key("data.hardware"));
         assert!(summaries.contains_key("data.hardware.cpu"));
@@ -618,7 +884,6 @@ mod tests {
                         ),
                     ],
                     next_cursor: None,
-                    limit: None,
                     returned_count: 2,
                     total_count: None,
                 },
@@ -652,6 +917,7 @@ mod tests {
                 collection: "default".to_string(),
                 class: "Contacts".to_string(),
                 data: Some(json!({"email": "a@example.com"})),
+                computed: None,
                 created_at: "2024-01-01 00:00:00".to_string(),
                 updated_at: "2024-01-01 00:00:00".to_string(),
             },
@@ -703,6 +969,7 @@ mod tests {
             collection: "Math".to_string(),
             class: "Hosts".to_string(),
             data: Some(data),
+            computed: None,
             created_at: "2026-07-05 03:44:41".to_string(),
             updated_at: "2026-07-05 03:44:41".to_string(),
         }
@@ -790,12 +1057,12 @@ pub struct ObjectList {
     pub where_clauses: Vec<String>,
     #[option(
         long = "sort",
-        help = "Sort clause: 'field asc|desc'",
+        help = "Sort clause: 'field asc|desc', including S:key or P:key",
         nargs = 2,
         autocomplete = "object_sort"
     )]
     pub sort_clauses: Vec<String>,
-    #[option(long = "limit", help = "Maximum number of results to return")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
@@ -811,11 +1078,20 @@ pub struct ObjectList {
         autocomplete = "object_data_columns"
     )]
     pub data_columns: Option<String>,
+    #[option(
+        long = "computed",
+        help = "Computed field to show: S:key, P:key, all, or none (repeatable)",
+        nargs = 1,
+        autocomplete = "computed_fields"
+    )]
+    pub computed: Vec<String>,
 }
 
 impl CliCommand for ObjectList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;
+        let computed_selection =
+            ComputedFieldSelection::resolve(&query.computed, query.class.as_deref())?;
         let class_filter = query.class.clone();
         let list_query = build_list_query(
             &query.where_clauses,
@@ -833,13 +1109,21 @@ impl CliCommand for ObjectList {
             .into_iter()
             .flatten(),
         )?;
-        let objects = services.gateway().list_objects(&list_query)?;
+        let include_computed = computed_selection.requests_values()
+            || list_query
+                .sorts
+                .iter()
+                .any(|sort| sort.field.starts_with("S:") || sort.field.starts_with("P:"));
+        let objects = services
+            .gateway()
+            .list_objects(&list_query, include_computed)?;
         render_object_list_page(
             services,
             tokens,
             &objects,
             class_filter.as_deref(),
             query.data_columns.as_deref(),
+            &computed_selection,
         )
     }
 }
@@ -855,7 +1139,7 @@ pub struct ObjectFields {
     pub class: String,
     #[option(
         long = "limit",
-        help = "Maximum number of objects to sample (default: 100)"
+        help = "Maximum objects to sample (default: 100; server maximum: 250)"
     )]
     pub limit: Option<usize>,
     #[option(
@@ -874,7 +1158,8 @@ pub struct ObjectFields {
 impl CliCommand for ObjectFields {
     fn execute(&self, services: &AppServices, _tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(_tokens)?;
-        let sample_limit = query.limit.unwrap_or(OBJECT_FIELD_SAMPLE_LIMIT);
+        let sample_limit =
+            normalize_server_page_size(query.limit)?.unwrap_or(DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT);
         let list_query = build_list_query(
             &[],
             &[],
@@ -883,11 +1168,11 @@ impl CliCommand for ObjectFields {
             false,
             [equals_clause("class", query.class.clone())],
         )?;
-        let objects = services.gateway().list_objects(&list_query)?;
+        let objects = services.gateway().list_objects(&list_query, false)?;
         render_object_fields(
             &objects,
             sample_limit,
-            query.depth.unwrap_or(OBJECT_FIELD_DEPTH),
+            query.depth.unwrap_or(DEFAULT_OBJECT_FIELD_DEPTH),
             query.containers.unwrap_or(false),
         )
     }
@@ -939,67 +1224,28 @@ fn object_field_summaries(
     depth: usize,
     include_containers: bool,
 ) -> BTreeMap<String, FieldSummary> {
-    let mut summaries = BTreeMap::new();
-    for object in &objects.items {
-        if let Some(data) = object.data.as_ref() {
-            collect_object_field_summaries(
-                data,
-                "data",
-                0,
-                depth,
-                include_containers,
-                &mut summaries,
-            );
-        }
-    }
+    let mut summaries: BTreeMap<String, FieldSummary> = BTreeMap::new();
+    visit_observed_data_fields(
+        objects
+            .items
+            .iter()
+            .filter_map(|object| object.data.as_ref()),
+        depth,
+        |path, value| {
+            let is_container = matches!(value, Value::Object(_) | Value::Array(_));
+            if is_container && !include_containers {
+                return;
+            }
+
+            let summary = summaries.entry(path.display().to_string()).or_default();
+            summary.count += 1;
+            summary.types.insert(json_type_name(value));
+            summary
+                .example
+                .get_or_insert_with(|| data_preview(Some(value)));
+        },
+    );
     summaries
-}
-
-fn collect_object_field_summaries(
-    value: &Value,
-    path: &str,
-    depth: usize,
-    max_depth: usize,
-    include_containers: bool,
-    summaries: &mut BTreeMap<String, FieldSummary>,
-) {
-    let is_container = matches!(value, Value::Object(_) | Value::Array(_));
-    if path != "data" && (!is_container || include_containers) {
-        let summary = summaries.entry(path.to_string()).or_default();
-        summary.count += 1;
-        summary.types.insert(json_type_name(value));
-        summary
-            .example
-            .get_or_insert_with(|| data_preview(Some(value)));
-    }
-
-    if depth >= max_depth {
-        return;
-    }
-
-    if let Some(object) = value.as_object() {
-        for (key, value) in object {
-            collect_object_field_summaries(
-                value,
-                &format!("{path}.{key}"),
-                depth + 1,
-                max_depth,
-                include_containers,
-                summaries,
-            );
-        }
-    } else if let Some(array) = value.as_array() {
-        for item in array {
-            collect_object_field_summaries(
-                item,
-                &format!("{path}[*]"),
-                depth + 1,
-                max_depth,
-                include_containers,
-                summaries,
-            );
-        }
-    }
 }
 
 fn json_type_name(value: &Value) -> &'static str {
@@ -1019,11 +1265,22 @@ fn render_object_list_page(
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
     data_columns: Option<&str>,
+    computed_selection: &ComputedFieldSelection,
 ) -> Result<(), AppError> {
     match (desired_format(tokens), has_pipeline()?) {
-        (OutputFormat::Json, false) => render_paged_result(tokens, objects, OutputFormat::Json),
+        (OutputFormat::Json, false) => render_paged_result(
+            tokens,
+            &computed_selection.project_page(objects),
+            OutputFormat::Json,
+        ),
         (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
-            let columns = object_list_columns(services, objects, class_filter, data_columns)?;
+            let columns = object_list_columns(
+                services,
+                objects,
+                class_filter,
+                data_columns,
+                computed_selection,
+            )?;
             let rows = objects
                 .items
                 .iter()
@@ -1039,6 +1296,7 @@ fn render_object_list_page(
 struct ObjectListColumns {
     data_keys: Vec<String>,
     compact_base: bool,
+    computed_columns: Vec<ComputedValueColumn>,
 }
 
 impl ObjectListColumns {
@@ -1063,8 +1321,222 @@ impl ObjectListColumns {
         if !self.compact_base {
             columns.extend(["Created".to_string(), "Updated".to_string()]);
         }
+        columns.extend(self.computed_columns.iter().map(ComputedValueColumn::label));
         columns
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ComputedValueScope {
+    Shared,
+    Personal,
+}
+
+impl ComputedValueScope {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Personal => "personal",
+        }
+    }
+
+    fn column_prefix(self) -> &'static str {
+        match self {
+            Self::Shared => "S",
+            Self::Personal => "P",
+        }
+    }
+
+    fn parse(prefix: &str) -> Option<Self> {
+        match prefix {
+            "S" => Some(Self::Shared),
+            "P" => Some(Self::Personal),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ComputedValueColumn {
+    scope: ComputedValueScope,
+    key: String,
+}
+
+impl ComputedValueColumn {
+    fn new(scope: ComputedValueScope, key: impl Into<String>) -> Self {
+        Self {
+            scope,
+            key: key.into(),
+        }
+    }
+
+    fn label(&self) -> String {
+        format!("{}:{}", self.scope.column_prefix(), self.key)
+    }
+
+    fn from_selector(selector: &ComputedFieldSelector) -> Option<Self> {
+        let (prefix, key) = selector.scoped_parts()?;
+        Some(Self::new(ComputedValueScope::parse(prefix)?, key))
+    }
+
+    fn semantic_value(&self, computed: &Value) -> Option<Value> {
+        let scope = computed.get(self.scope.name())?;
+        if let Some(value) = scope.get("values").and_then(|values| values.get(&self.key)) {
+            return Some(value.clone());
+        }
+
+        scope
+            .get("errors")
+            .and_then(|errors| errors.get(&self.key))
+            .map(computed_error_display)
+            .map(Value::String)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ComputedFieldSelection {
+    None,
+    All,
+    Fields(Vec<ComputedValueColumn>),
+}
+
+impl ComputedFieldSelection {
+    fn parse(values: &[String]) -> Result<Self, AppError> {
+        let fields = ComputedFieldSet::from_values(values).map_err(AppError::InvalidOption)?;
+        Ok(Self::from_field_set(&fields))
+    }
+
+    fn resolve(values: &[String], class_name: Option<&str>) -> Result<Self, AppError> {
+        if !values.is_empty() {
+            return Self::parse(values);
+        }
+        let config = get_config();
+        let fields = class_name
+            .and_then(|class_name| config.output.object_class_computed_fields.get(class_name));
+        Ok(fields.map_or(Self::None, Self::from_field_set))
+    }
+
+    fn from_field_set(fields: &ComputedFieldSet) -> Self {
+        if fields.is_empty() {
+            return Self::None;
+        }
+        if fields.is_all() {
+            return Self::All;
+        }
+        Self::Fields(
+            fields
+                .selectors()
+                .iter()
+                .filter_map(ComputedValueColumn::from_selector)
+                .collect(),
+        )
+    }
+
+    fn requests_values(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    fn columns(&self, objects: &[ResolvedObjectRecord]) -> Vec<ComputedValueColumn> {
+        match self {
+            Self::None => Vec::new(),
+            Self::All => all_computed_value_columns(objects),
+            Self::Fields(fields) => fields.clone(),
+        }
+    }
+
+    fn project_computed(&self, computed: Option<&Value>) -> Option<Value> {
+        let computed = computed?;
+        match self {
+            Self::None => None,
+            Self::All => Some(computed.clone()),
+            Self::Fields(fields) => {
+                let mut projected = computed.clone();
+                let Some(envelope) = projected.as_object_mut() else {
+                    return Some(projected);
+                };
+                for scope in [ComputedValueScope::Shared, ComputedValueScope::Personal] {
+                    let selected = fields
+                        .iter()
+                        .filter(|field| field.scope == scope)
+                        .map(|field| field.key.as_str())
+                        .collect::<HashSet<_>>();
+                    if selected.is_empty() {
+                        envelope.remove(scope.name());
+                        continue;
+                    }
+                    let Some(scope_value) = envelope.get_mut(scope.name()) else {
+                        continue;
+                    };
+                    for section in ["values", "errors"] {
+                        if let Some(values) =
+                            scope_value.get_mut(section).and_then(Value::as_object_mut)
+                        {
+                            values.retain(|key, _| selected.contains(key.as_str()));
+                        }
+                    }
+                }
+                Some(projected)
+            }
+        }
+    }
+
+    fn project_record(&self, object: &ResolvedObjectRecord) -> ResolvedObjectRecord {
+        let mut projected = object.clone();
+        projected.computed = self.project_computed(object.computed.as_ref());
+        projected
+    }
+
+    fn project_object_show(&self, object: &ObjectShowRecord) -> ObjectShowRecord {
+        let mut projected = object.clone();
+        projected.object = self.project_record(&object.object);
+        projected
+    }
+
+    fn project_page(
+        &self,
+        objects: &PagedResult<ResolvedObjectRecord>,
+    ) -> PagedResult<ResolvedObjectRecord> {
+        let mut projected = objects.clone();
+        projected.items = objects
+            .items
+            .iter()
+            .map(|object| self.project_record(object))
+            .collect();
+        projected
+    }
+}
+
+fn all_computed_value_columns(objects: &[ResolvedObjectRecord]) -> Vec<ComputedValueColumn> {
+    let mut columns = BTreeSet::new();
+    for object in objects {
+        let Some(computed) = object.computed.as_ref() else {
+            continue;
+        };
+        for scope in [ComputedValueScope::Shared, ComputedValueScope::Personal] {
+            let Some(scope_value) = computed.get(scope.name()) else {
+                continue;
+            };
+            for section in ["values", "errors"] {
+                if let Some(fields) = scope_value.get(section).and_then(Value::as_object) {
+                    columns.extend(
+                        fields
+                            .keys()
+                            .map(|key| ComputedValueColumn::new(scope, key)),
+                    );
+                }
+            }
+        }
+    }
+    columns.into_iter().collect()
+}
+
+fn computed_error_display(error: &Value) -> String {
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| display_json_value(error));
+    format!("ERROR: {message}")
 }
 
 fn object_list_columns(
@@ -1072,6 +1544,7 @@ fn object_list_columns(
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
     requested: Option<&str>,
+    computed_selection: &ComputedFieldSelection,
 ) -> Result<ObjectListColumns, AppError> {
     let (data_keys, compact_base) = match requested {
         Some(value) => match value.parse::<ObjectListDataColumns>() {
@@ -1100,6 +1573,7 @@ fn object_list_columns(
     Ok(ObjectListColumns {
         data_keys,
         compact_base,
+        computed_columns: computed_selection.columns(&objects.items),
     })
 }
 
@@ -1265,7 +1739,7 @@ fn object_list_row(
     row.insert("Class".to_string(), Value::String(object.class.clone()));
     let data_object = object.data.as_ref().and_then(Value::as_object);
     if let Some(data) = data_object {
-        insert_meta_columns(&mut row, &object.class, data);
+        insert_display_aliases(&mut row, &object.class, data);
     }
 
     if columns.data_keys.is_empty() {
@@ -1275,7 +1749,7 @@ fn object_list_row(
         );
     } else if let Some(data) = data_object {
         for key in &columns.data_keys {
-            if let Some(value) = data_or_meta_column_display_value(&object.class, data, key) {
+            if let Some(value) = data_or_alias_display_value(&object.class, data, key) {
                 row.insert(object_data_column_label(key), Value::String(value));
             }
         }
@@ -1288,14 +1762,69 @@ fn object_list_row(
         "Updated".to_string(),
         Value::String(object.updated_at.clone()),
     );
+    if let Some(computed) = object.computed.as_ref() {
+        for column in &columns.computed_columns {
+            if let Some(value) = column.semantic_value(computed) {
+                row.insert(column.label(), value);
+            }
+        }
+    }
 
     Ok(Value::Object(row))
 }
 
-fn insert_meta_columns(row: &mut Map<String, Value>, class_name: &str, data: &Map<String, Value>) {
-    if let Some(meta) = get_config().output.object_list_class_meta.get(class_name) {
-        for (alias, selectors) in meta {
-            if let Some(value) = meta_column_display_value(data, selectors) {
+fn object_show_pipeline_value(
+    object: &ObjectShowRecord,
+    computed_selection: &ComputedFieldSelection,
+) -> Result<(Value, Vec<String>), AppError> {
+    let columns = ObjectListColumns {
+        data_keys: Vec::new(),
+        compact_base: false,
+        computed_columns: computed_selection.columns(std::slice::from_ref(&object.object)),
+    };
+    let mut value = object_list_row(&object.object, &columns)?;
+    if let Some(row) = value.as_object_mut() {
+        row.insert(
+            "related_objects".to_string(),
+            to_value(&object.related_objects)?,
+        );
+    }
+    Ok((value, columns.display_columns()))
+}
+
+fn render_computed_fields(
+    computed: Option<&Value>,
+    columns: &[ComputedValueColumn],
+) -> Result<(), AppError> {
+    let padding = columns
+        .iter()
+        .map(|column| column.label().len())
+        .max()
+        .unwrap_or(15)
+        .max(15);
+    for column in columns {
+        let value = computed
+            .and_then(|computed| column.semantic_value(computed))
+            .as_ref()
+            .map(display_json_value)
+            .unwrap_or_default();
+        append_key_value(column.label(), value, padding)?;
+    }
+    Ok(())
+}
+
+fn insert_display_aliases(
+    row: &mut Map<String, Value>,
+    class_name: &str,
+    data: &Map<String, Value>,
+) {
+    if let Some(aliases) = get_config()
+        .output
+        .object_list_class_aliases
+        .get(class_name)
+    {
+        for (alias, selectors) in aliases {
+            if let Some(value) = display_alias_value(data, selectors) {
                 row.insert(alias.clone(), Value::String(value));
             }
         }
@@ -1340,7 +1869,7 @@ fn data_column_display_value(data: &Map<String, Value>, key: &str) -> Option<Str
     }
 }
 
-fn data_or_meta_column_display_value(
+fn data_or_alias_display_value(
     class_name: &str,
     data: &Map<String, Value>,
     key: &str,
@@ -1348,14 +1877,14 @@ fn data_or_meta_column_display_value(
     data_column_display_value(data, key).or_else(|| {
         get_config()
             .output
-            .object_list_class_meta
+            .object_list_class_aliases
             .get(class_name)
-            .and_then(|meta| meta.get(key))
-            .and_then(|selectors| meta_column_display_value(data, selectors))
+            .and_then(|aliases| aliases.get(key))
+            .and_then(|selectors| display_alias_value(data, selectors))
     })
 }
 
-fn meta_column_display_value(data: &Map<String, Value>, selectors: &[String]) -> Option<String> {
+fn display_alias_value(data: &Map<String, Value>, selectors: &[String]) -> Option<String> {
     selectors
         .iter()
         .find_map(|selector| data_column_display_value(data, selector))

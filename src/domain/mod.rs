@@ -18,13 +18,16 @@ macro_rules! transparent_record {
     };
 }
 
+mod backups;
 mod classes;
 mod collections;
+mod computed;
 mod events;
 mod exports;
 mod groups;
 mod identity;
 mod imports;
+mod object_fields;
 mod objects;
 mod relations;
 mod remote_targets;
@@ -33,10 +36,16 @@ mod task_output;
 mod tasks;
 mod users;
 
+pub use backups::{BackupArtifact, RestoreReceipt, RestoreRecord};
 pub use classes::{ClassRecord, ClassShowRecord};
 pub use collections::{
     CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
     GroupPermissionsSummary,
+};
+pub use computed::{
+    ClassComputationStateRecord, ComputedFieldDeleteRecord, ComputedFieldMutationRecord,
+    ComputedFieldPreviewRecord, ComputedFieldRecord, ComputedFieldSelector, ComputedFieldSet,
+    SharedComputedFieldListRecord,
 };
 pub use events::JsonRecord;
 pub use exports::{ExportOutput, ExportTemplateRecord};
@@ -45,6 +54,10 @@ pub use identity::{
     MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,
 };
 pub use imports::ImportResultRecord;
+pub use object_fields::{
+    observed_json_pointers, visit_observed_data_fields, DEFAULT_OBJECT_FIELD_DEPTH,
+    DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+};
 pub use objects::{ObjectRecord, ObjectShowRecord, ResolvedObjectRecord};
 pub use relations::{
     build_related_class_tree, build_related_object_tree, RelatedClassTreeNode,

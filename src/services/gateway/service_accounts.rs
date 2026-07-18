@@ -66,11 +66,7 @@ impl HubuumGateway {
         }
 
         let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
-        Ok(PagedResult::from_page(
-            page,
-            query.limit,
-            ServiceAccountRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, ServiceAccountRecord::from))
     }
 
     pub fn service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {

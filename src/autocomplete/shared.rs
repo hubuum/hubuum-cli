@@ -26,7 +26,42 @@ pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
 }
 
 pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_values(&["import", "export", "reindex", "remotecall"], prefix)
+    complete_values(
+        &["import", "export", "backup", "reindex", "remotecall"],
+        prefix,
+    )
+}
+
+pub fn computed_operations(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(
+        &[
+            "first_non_null",
+            "sum",
+            "average",
+            "min",
+            "max",
+            "all_present",
+            "any_present",
+            "count_present",
+            "all_present_and_equal",
+        ],
+        prefix,
+    )
+}
+
+pub fn computed_result_types(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(
+        &["string", "number", "integer", "boolean", "object", "array"],
+        prefix,
+    )
 }
 
 pub fn task_statuses(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -114,7 +149,9 @@ pub fn file_paths(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
 }
 
 const OBJECT_LIST_CLASS_COLUMNS_PREFIX: &str = "output.object_list_class_columns.";
-const OBJECT_LIST_CLASS_META_PREFIX: &str = "output.object_list_class_meta.";
+const OBJECT_LIST_CLASS_ALIASES_PREFIX: &str = "output.object_list_class_aliases.";
+const LEGACY_OBJECT_LIST_CLASS_META_PREFIX: &str = "output.object_list_class_meta.";
+const OBJECT_CLASS_COMPUTED_FIELDS_PREFIX: &str = "output.object_class_computed_fields.";
 
 pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     let mut keys = config_key_names()
@@ -130,16 +167,23 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
                 .map(|class| format!("{OBJECT_LIST_CLASS_COLUMNS_PREFIX}{class}")),
         );
     }
-    if let Some(rest) = prefix.strip_prefix(OBJECT_LIST_CLASS_META_PREFIX) {
+    if let Some(class_prefix) = prefix.strip_prefix(OBJECT_CLASS_COMPUTED_FIELDS_PREFIX) {
+        keys.extend(
+            ctx.classes(class_prefix)
+                .into_iter()
+                .map(|class| format!("{OBJECT_CLASS_COMPUTED_FIELDS_PREFIX}{class}")),
+        );
+    }
+    if let Some(rest) = prefix.strip_prefix(OBJECT_LIST_CLASS_ALIASES_PREFIX) {
         if let Some((class_name, alias_prefix)) = rest.split_once('.') {
             let config = get_config();
-            if let Some(aliases) = config.output.object_list_class_meta.get(class_name) {
+            if let Some(aliases) = config.output.object_list_class_aliases.get(class_name) {
                 keys.extend(
                     aliases
                         .keys()
                         .filter(|alias| alias.starts_with(alias_prefix))
                         .map(|alias| {
-                            format!("{OBJECT_LIST_CLASS_META_PREFIX}{class_name}.{alias}")
+                            format!("{OBJECT_LIST_CLASS_ALIASES_PREFIX}{class_name}.{alias}")
                         }),
                 );
             }
@@ -147,7 +191,7 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
             keys.extend(
                 ctx.classes(rest)
                     .into_iter()
-                    .map(|class| format!("{OBJECT_LIST_CLASS_META_PREFIX}{class}.")),
+                    .map(|class| format!("{OBJECT_LIST_CLASS_ALIASES_PREFIX}{class}.")),
             );
         }
     }
@@ -159,12 +203,20 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
 
 pub fn config_values(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
     if let Some(class_name) = config_key_from_parts(parts)
+        .and_then(|key| key.strip_prefix(OBJECT_CLASS_COMPUTED_FIELDS_PREFIX))
+    {
+        return object_class_computed_field_values(ctx, class_name, prefix);
+    }
+    if let Some(class_name) = config_key_from_parts(parts)
         .and_then(|key| key.strip_prefix(OBJECT_LIST_CLASS_COLUMNS_PREFIX))
     {
         return object_list_class_column_values(ctx, class_name, prefix);
     }
     if let Some(class_name) = config_key_from_parts(parts)
-        .and_then(|key| key.strip_prefix(OBJECT_LIST_CLASS_META_PREFIX))
+        .and_then(|key| {
+            key.strip_prefix(OBJECT_LIST_CLASS_ALIASES_PREFIX)
+                .or_else(|| key.strip_prefix(LEGACY_OBJECT_LIST_CLASS_META_PREFIX))
+        })
         .and_then(|rest| rest.split_once('.').map(|(class_name, _)| class_name))
     {
         return object_list_class_column_values(ctx, class_name, prefix);
@@ -363,6 +415,32 @@ fn object_list_class_column_values(
         .collect()
 }
 
+fn object_class_computed_field_values(
+    ctx: &CompletionContext,
+    class_name: &str,
+    prefix: &str,
+) -> Vec<String> {
+    let fields = ctx.computed_sort_fields(&["--class".to_string(), class_name.to_string()]);
+    object_class_computed_field_candidates(&fields, prefix)
+}
+
+fn object_class_computed_field_candidates(fields: &[String], prefix: &str) -> Vec<String> {
+    let (base, segment_prefix) = comma_completion_prefix(prefix);
+    if base
+        .trim_end_matches(',')
+        .split(',')
+        .any(|field| field == "all" || field == "none")
+    {
+        return Vec::new();
+    }
+    ["all".to_string(), "none".to_string()]
+        .into_iter()
+        .chain(fields.iter().cloned())
+        .filter(|field| field.starts_with(segment_prefix))
+        .map(|field| format!("{base}{field}"))
+        .collect()
+}
+
 fn comma_completion_prefix(prefix: &str) -> (&str, &str) {
     prefix
         .rfind(',')
@@ -402,7 +480,7 @@ mod tests {
 
     use super::{
         comma_completion_prefix, config_key_from_parts, config_value_candidates_for_parts,
-        file_path_candidates,
+        file_path_candidates, object_class_computed_field_candidates,
     };
     use crate::json_schema::schema_paths;
 
@@ -454,6 +532,25 @@ mod tests {
         assert_eq!(comma_completion_prefix("Name,co"), ("Name,", "co"));
         assert_eq!(comma_completion_prefix("co"), ("", "co"));
         assert_eq!(comma_completion_prefix("Name,"), ("Name,", ""));
+    }
+
+    #[test]
+    fn computed_config_values_complete_scoped_fields_and_overrides() {
+        let fields = vec!["P:note".to_string(), "S:load".to_string()];
+
+        assert_eq!(
+            object_class_computed_field_candidates(&fields, ""),
+            vec!["all", "none", "P:note", "S:load"]
+        );
+        assert_eq!(
+            object_class_computed_field_candidates(&fields, "S:"),
+            vec!["S:load"]
+        );
+        assert_eq!(
+            object_class_computed_field_candidates(&fields, "P:note,S:"),
+            vec!["P:note,S:load"]
+        );
+        assert!(object_class_computed_field_candidates(&fields, "all,").is_empty());
     }
 
     #[test]

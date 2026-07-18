@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{render_list_page, CliCommand};
+use super::{normalize_server_page_size, render_list_page, CliCommand};
 use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -41,7 +41,7 @@ pub struct ClassHistory {
     pub class: Option<String>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
-    #[option(long = "limit", help = "Maximum number of results")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -history_id")]
     pub sort: Option<String>,
@@ -68,7 +68,7 @@ impl CliCommand for ClassHistory {
         let history = services.gateway().history(
             HistoryScope::ClassName(class_name.to_string()),
             HistoryInput {
-                limit: query.limit,
+                limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,
@@ -91,7 +91,7 @@ pub struct ObjectHistory {
     pub name: Option<String>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
-    #[option(long = "limit", help = "Maximum number of results")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -history_id")]
     pub sort: Option<String>,
@@ -125,7 +125,7 @@ impl CliCommand for ObjectHistory {
                 object_name: object_name.to_string(),
             },
             HistoryInput {
-                limit: query.limit,
+                limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,

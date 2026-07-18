@@ -67,7 +67,7 @@ impl HubuumGateway {
         )
         .page()?;
 
-        self.resolve_related_class_page(page, query.limit, class.resource())
+        self.resolve_related_class_page(page, class.resource())
     }
 
     pub fn list_related_class_relations(
@@ -92,14 +92,13 @@ impl HubuumGateway {
             return Ok(PagedResult {
                 items: Vec::new(),
                 next_cursor: page.next_cursor,
-                limit: query.limit,
                 returned_count: 0,
                 total_count: page.total_count,
             });
         }
 
         let class_map = self.class_map_from_relation_ids(&page.items)?;
-        Ok(PagedResult::from_page(page, query.limit, |relation| {
+        Ok(PagedResult::from_page(page, |relation| {
             ResolvedClassRelationRecord::new(&relation, &class_map)
         }))
     }
@@ -204,7 +203,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        self.resolve_object_relation_page(page, query.limit)
+        self.resolve_object_relation_page(page)
     }
 
     pub fn get_object_relation_v2(
@@ -283,7 +282,7 @@ impl HubuumGateway {
             request.ignore_classes(ignore_classes)
         };
         let page = apply_cursor_request_paging(request, query, &validated_sorts).page()?;
-        self.resolve_related_object_page(page, query.limit, object.resource())
+        self.resolve_related_object_page(page, object.resource())
     }
 
     pub fn related_object_graph(
@@ -390,13 +389,11 @@ impl HubuumGateway {
     fn resolve_object_relation_page(
         &self,
         page: Page<ObjectRelation>,
-        limit: Option<usize>,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
                 next_cursor: page.next_cursor,
-                limit,
                 returned_count: 0,
                 total_count: page.total_count,
             });
@@ -416,7 +413,7 @@ impl HubuumGateway {
         let object_map =
             self.resolve_object_map_from_relations(&page.items, &class_relation_map)?;
 
-        Ok(PagedResult::from_page(page, limit, |relation| {
+        Ok(PagedResult::from_page(page, |relation| {
             let class_relation = class_relation_map
                 .get(&relation.class_relation_id.into())
                 .expect("class relation should be loaded");
@@ -472,14 +469,12 @@ impl HubuumGateway {
     fn resolve_related_object_page(
         &self,
         page: Page<ObjectWithPath>,
-        limit: Option<usize>,
         root_object: &Object,
     ) -> Result<PagedResult<ResolvedRelatedObjectRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
                 next_cursor: page.next_cursor,
-                limit,
                 returned_count: 0,
                 total_count: page.total_count,
             });
@@ -506,7 +501,7 @@ impl HubuumGateway {
             .chain(once((root_object.id.into(), root_object.clone())))
             .collect::<HashMap<_, _>>();
 
-        Ok(PagedResult::from_page(page, limit, |object| {
+        Ok(PagedResult::from_page(page, |object| {
             ResolvedRelatedObjectRecord::new(
                 &object,
                 &class_map,
@@ -523,14 +518,12 @@ impl HubuumGateway {
     fn resolve_related_class_page(
         &self,
         page: Page<ClassWithPath>,
-        limit: Option<usize>,
         root_class: &Class,
     ) -> Result<PagedResult<ResolvedRelatedClassRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
                 next_cursor: page.next_cursor,
-                limit,
                 returned_count: 0,
                 total_count: page.total_count,
             });
@@ -551,7 +544,7 @@ impl HubuumGateway {
                 .collect::<Vec<_>>(),
         )?;
 
-        Ok(PagedResult::from_page(page, limit, |class| {
+        Ok(PagedResult::from_page(page, |class| {
             ResolvedRelatedClassRecord::new(
                 &class,
                 &collection_map,

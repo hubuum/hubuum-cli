@@ -10,6 +10,7 @@ use crate::catalog::{
 };
 use crate::commands::auth::render_auth_providers;
 use crate::commands::config::{render_config_paths, render_config_show};
+use crate::commands::metrics::render_metrics;
 use crate::commands::render_format;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
 use crate::commands::version::render_version;
@@ -158,6 +159,7 @@ pub fn can_execute_offline(line: &str) -> bool {
         || command_path_is(&parts, &["theme", "show"])
         || command_path_is(&parts, &["theme", "preview"])
         || command_path_is(&parts, &["auth", "providers"])
+        || command_path_is(&parts, &["metrics"])
         || command_path_is(&parts, &["version"])
 }
 
@@ -205,6 +207,18 @@ fn execute_offline_line_inner(
         return render_help_from_catalog(catalog, Vec::new(), &parts[1..]);
     }
 
+    if let Ok(resolved) = catalog.resolve_command(&[], &parts) {
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        let options = tokens.get_options();
+        if options.contains_key("help") || options.contains_key("h") {
+            return render_help_from_catalog(
+                catalog,
+                resolved.scope_path.clone(),
+                &resolved.command_path[resolved.scope_path.len()..],
+            );
+        }
+    }
+
     if command_path_is(&parts, &["config", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -235,6 +249,11 @@ fn execute_offline_line_inner(
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
         render_auth_providers(&tokens)?;
+    } else if command_path_is(&parts, &["metrics"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        render_metrics(&tokens)?;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -529,6 +548,8 @@ mod tests {
         assert!(can_execute_offline("theme list"));
         assert!(can_execute_offline("theme preview hubuum-dark"));
         assert!(can_execute_offline("auth providers"));
+        assert!(can_execute_offline("metrics"));
+        assert!(can_execute_offline("metrics --path /internal/metrics"));
         assert!(can_execute_offline("version"));
         assert!(can_execute_offline("version --server"));
         assert!(!can_execute_offline("theme use hubuum-dark"));
@@ -545,6 +566,19 @@ mod tests {
             .expect_err("mistyped offline command should fail");
 
         assert!(err.to_string().contains("Did you mean 'class'?"));
+    }
+
+    #[test]
+    fn offline_command_help_does_not_execute_the_command() {
+        let catalog = build_command_catalog();
+        let outcome = execute_offline_line(&catalog, "metrics --help")
+            .expect("offline command help should render without a server");
+
+        assert!(outcome
+            .output
+            .lines
+            .iter()
+            .any(|line| line.contains("Fetch Prometheus server metrics")));
     }
 
     #[test]

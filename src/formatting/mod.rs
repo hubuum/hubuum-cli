@@ -1,6 +1,7 @@
 mod background;
 mod classes;
 mod collections;
+mod computed;
 mod core;
 mod exports;
 mod groups;

@@ -16,6 +16,8 @@ pub struct ResolvedObjectRecord {
     pub collection: String,
     pub class: String,
     pub data: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computed: Option<Value>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -43,9 +45,15 @@ impl ResolvedObjectRecord {
             collection,
             class,
             data: object.data.clone(),
+            computed: None,
             created_at: object.created_at.to_string(),
             updated_at: object.updated_at.to_string(),
         }
+    }
+
+    pub fn with_computed(mut self, computed: Value) -> Self {
+        self.computed = Some(computed);
+        self
     }
 }
 

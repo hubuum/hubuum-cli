@@ -61,14 +61,22 @@ fn decode_preferences(value: serde_json::Value) -> Result<UserPreferences, AppEr
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
 
     use super::{decode_preferences, SETTINGS_VERSION};
     use crate::config::{AppConfig, UserPreferences};
+    use crate::domain::ComputedFieldSet;
 
     #[test]
     fn stored_preferences_round_trip_without_server_credentials() {
-        let config = AppConfig::default();
+        let mut config = AppConfig::default();
+        config.output.object_class_computed_fields.insert(
+            "Hosts".to_string(),
+            ComputedFieldSet::from_values(&["S:load".to_string()])
+                .expect("computed fields should parse"),
+        );
         let preferences = UserPreferences::from_config(&config);
         let encoded = json!({
             "version": SETTINGS_VERSION,
@@ -77,6 +85,58 @@ mod tests {
         let decoded = decode_preferences(encoded).expect("preferences should decode");
         assert_eq!(decoded.output.theme, config.output.theme);
         assert_eq!(decoded.relations.max_depth, config.relations.max_depth);
+        assert_eq!(
+            decoded.output.object_class_computed_fields["Hosts"],
+            config.output.object_class_computed_fields["Hosts"]
+        );
+    }
+
+    #[test]
+    fn stored_preferences_without_computed_defaults_remain_compatible() {
+        let mut encoded = json!({
+            "version": SETTINGS_VERSION,
+            "preferences": UserPreferences::from_config(&AppConfig::default()),
+        });
+        encoded["preferences"]["output"]
+            .as_object_mut()
+            .expect("output preferences should be an object")
+            .remove("object_class_computed_fields");
+
+        let decoded = decode_preferences(encoded).expect("older preferences should decode");
+
+        assert!(decoded.output.object_class_computed_fields.is_empty());
+    }
+
+    #[test]
+    fn stored_preferences_accept_legacy_meta_column_name() {
+        let mut config = AppConfig::default();
+        config.output.object_list_class_aliases.insert(
+            "Hosts".to_string(),
+            HashMap::from([(
+                "os_version".to_string(),
+                vec!["data.os.version".to_string()],
+            )]),
+        );
+        let preferences = UserPreferences::from_config(&config);
+        let mut encoded = json!({
+            "version": SETTINGS_VERSION,
+            "preferences": preferences,
+        });
+        let output = encoded["preferences"]["output"]
+            .as_object_mut()
+            .expect("output preferences should be an object");
+        let aliases = output
+            .remove("object_list_class_aliases")
+            .expect("new display alias key should exist");
+        output.insert("object_list_class_meta".to_string(), aliases);
+
+        let decoded = decode_preferences(encoded).expect("legacy preferences should decode");
+
+        assert!(decoded
+            .output
+            .object_list_class_aliases
+            .get("Hosts")
+            .is_some_and(|aliases| aliases.contains_key("os_version")));
     }
 
     #[test]

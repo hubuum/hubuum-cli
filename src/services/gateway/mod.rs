@@ -1,6 +1,8 @@
 mod admin;
+mod backups;
 mod classes;
 mod collections;
+mod computed;
 mod events;
 mod exports;
 mod groups;
@@ -22,8 +24,13 @@ use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 
 use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
+pub use backups::{BackupInput, RunBackupInput};
 pub use classes::{ClassUpdateInput, CreateClassInput};
 pub use collections::{CollectionUpdateInput, CreateCollectionInput};
+pub use computed::{
+    ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
+    ComputedPreviewTarget, ComputedResultKind,
+};
 pub use events::{AuditListInput, AuditScope, HistoryInput, HistoryScope};
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
