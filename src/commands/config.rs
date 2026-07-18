@@ -64,7 +64,8 @@ show --key server.hostname"#,
                     ),
                     examples: Some(
                         r#"--key server.hostname --value api.example.com
---key repl.enter_fetches_next_page --value true"#,
+--key repl.enter_fetches_next_page --value true
+--key output.object_class_computed_fields.Hosts --value S:load,P:note"#,
                     ),
                 },
             ),

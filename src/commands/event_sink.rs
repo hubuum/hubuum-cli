@@ -68,7 +68,7 @@ pub struct EventSinkList {
     pub where_clauses: Vec<String>,
     #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
     pub sort_clauses: Vec<String>,
-    #[option(long = "limit", help = "Maximum number of results")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,

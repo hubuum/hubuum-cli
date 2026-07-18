@@ -802,11 +802,11 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
     }
 
     let mut help = String::new();
-    help.push_str(&paint(ThemeRole::Heading, "Result Limits:"));
+    help.push_str(&paint(ThemeRole::Heading, "Pagination:"));
     help.push('\n');
     if option_names.contains(&"limit") {
         help.push_str(&format!(
-            "  Use {} to cap the number of returned results.",
+            "  Use {} to request a page size (server maximum: 250); larger values are truncated with a warning.",
             paint_command("--limit <n>")
         ));
         help.push('\n');
@@ -1287,8 +1287,10 @@ mod tests {
         assert!(plain.contains("json_data.<path>"));
         assert!(plain.contains("data.<path>"));
         assert!(plain.contains("json_data.contact equals Entry"));
-        assert!(plain.contains("Result Limits:"));
-        assert!(plain.contains("Use --limit <n> to cap the number of returned results."));
+        assert!(plain.contains("Pagination:"));
+        assert!(plain.contains(
+            "Use --limit <n> to request a page size (server maximum: 250); larger values are truncated with a warning."
+        ));
         assert!(plain.contains("Use --cursor <token> to continue from a previous page."));
         assert!(plain.contains("type next"));
         assert!(plain.contains("repl.enter_fetches_next_page"));
@@ -1373,7 +1375,14 @@ mod tests {
     fn client_capability_commands_are_registered() {
         let catalog = build_command_catalog();
 
-        for path in [["auth", "providers"], ["admin", "config"]] {
+        for path in [
+            &["auth", "providers"][..],
+            &["admin", "config"][..],
+            &["backup", "create"][..],
+            &["restore", "stage"][..],
+            &["computed", "shared", "list"][..],
+            &["computed", "personal", "list"][..],
+        ] {
             assert!(catalog
                 .resolve_command(
                     &[],
@@ -1391,6 +1400,8 @@ mod tests {
 
         let allowed = [
             "audit show --id",
+            "backup download --task",
+            "backup show --task",
             "bg forget --id",
             "bg output --id",
             "bg show --id",
@@ -1429,6 +1440,55 @@ mod tests {
             .expect("audit show should expose --id");
 
         assert!(matches!(id.completion, CompletionSpec::Dynamic(_)));
+    }
+
+    #[test]
+    fn computed_path_options_have_dynamic_completion() {
+        let catalog = build_command_catalog();
+
+        for path in [
+            ["computed", "shared", "create"],
+            ["computed", "shared", "update"],
+            ["computed", "shared", "preview"],
+            ["computed", "personal", "create"],
+            ["computed", "personal", "update"],
+            ["computed", "personal", "preview"],
+        ] {
+            let command_path = path.map(str::to_string);
+            let resolved = catalog
+                .resolve_command(&[], &command_path)
+                .unwrap_or_else(|_| panic!("{command_path:?} should resolve"));
+            let option = resolved
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some("--path"))
+                .unwrap_or_else(|| panic!("{command_path:?} should expose --path"));
+
+            assert!(matches!(option.completion, CompletionSpec::Dynamic(_)));
+        }
+    }
+
+    #[test]
+    fn object_computed_options_are_repeatable_and_have_dynamic_completion() {
+        let catalog = build_command_catalog();
+
+        for path in [["object", "list"], ["object", "show"]] {
+            let command_path = path.map(str::to_string);
+            let resolved = catalog
+                .resolve_command(&[], &command_path)
+                .unwrap_or_else(|_| panic!("{command_path:?} should resolve"));
+            let option = resolved
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some("--computed"))
+                .unwrap_or_else(|| panic!("{command_path:?} should expose --computed"));
+
+            assert!(option.repeatable);
+            assert_eq!(option.nargs, Some(1));
+            assert!(matches!(option.completion, CompletionSpec::Dynamic(_)));
+        }
     }
 
     #[test]

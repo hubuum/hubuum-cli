@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
-This checklist targets the current Hubuum CLI command surface and a current
-Hubuum server using `hubuum_client` 0.2.x. It intentionally uses the current
+This checklist targets the current Hubuum CLI command surface and Hubuum server
+v0.0.2 using `hubuum_client` 0.5.x. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -30,7 +30,14 @@ help shell
 config paths
 config show
 theme list
+metrics
+metrics --path /internal/metrics
 ```
+
+The metrics commands make unauthenticated requests. The default command should
+return Prometheus exposition text from `/metrics`; test `--path` only when that
+alternate route is configured on the server. The server's client allowlist still
+applies.
 
 ## Collections, Classes, And Objects
 
@@ -57,16 +64,84 @@ Create, inspect, and update an object:
 ```text
 object create --name smoke-1 --class SmokeHost --collection cli-smoke --description "Smoke object" --data '{"os_version":"15.7.7","owner":"ops","network":{"interfaces":[{"ipv4":"129.240.1.10"}]}}'
 object list --class SmokeHost --limit 10
+object list --class SmokeHost --limit 500
 object show --class SmokeHost smoke-1
 object modify --class SmokeHost smoke-1 --description "Smoke object updated" --data owner=platform
 object fields --class SmokeHost
 ```
 
+Create shared and personal computed definitions, preview them, and verify
+computed object reads are selected explicitly:
+
+```text
+computed shared create --class SmokeHost --key owner_copy --label "Owner copy" --operation first_non_null --path /owner --result-type string
+computed shared list --class SmokeHost
+computed shared preview --class SmokeHost --key owner_copy --label "Owner copy" --operation first_non_null --path /owner --result-type string --object smoke-1
+computed shared rebuild --class SmokeHost
+computed personal create --class SmokeHost --key owner_personal --label "Personal owner" --operation first_non_null --path /owner --result-type string
+computed personal list --class SmokeHost
+object show --class SmokeHost smoke-1 --computed S:owner_copy
+object list --class SmokeHost --computed all --output json
+object list --class SmokeHost
+object list --class SmokeHost --computed S:owner_copy --computed P:owner_personal
+object list --class SmokeHost --sort S:owner_copy asc --limit 10
+object list --class SmokeHost --sort P:owner_personal desc --limit 10
+object list --class SmokeHost --computed S:owner_copy --computed P:owner_personal | F S:owner_copy ops | P Name S:owner_copy P:owner_personal
+object show --class SmokeHost smoke-1 --computed S:owner_copy --computed P:owner_personal | P Name S:owner_copy P:owner_personal
+```
+
+In the REPL, type `computed shared create --class SmokeHost --path /` and press
+Tab. Verify that schema paths are offered when `SmokeHost` has a JSON Schema.
+Repeat with a schema-less class containing objects and verify that observed data
+paths from the first 100 sampled objects are offered as JSON Pointers.
+
+Type `object list --class SmokeHost --sort S:` and press Tab. Verify enabled
+shared definitions are offered; repeat with `P:` for personal definitions.
+Repeat after `--computed` and verify `all`, `none`, `S:<key>`, and `P:<key>` are
+offered.
+Configure defaults for the smoke class and verify they apply to both list and
+show, then verify an explicit selection replaces them:
+
+```text
+config set --key output.object_class_computed_fields.SmokeHost --value S:owner_copy,P:owner_personal
+object list --class SmokeHost
+object show --class SmokeHost smoke-1
+object list --class SmokeHost --computed none
+object show --class SmokeHost smoke-1 --computed S:owner_copy
+config unset --key output.object_class_computed_fields.SmokeHost
+```
+
+Configure a local display alias and verify both the canonical and legacy names
+load it:
+
+```toml
+[output.object_list_class_aliases.SmokeHost]
+owner_display = ["data.owner", "data.contact.owner"]
+```
+
 Expected results:
 
 - Commands render tables or details with collection names, not namespace names.
-- `--limit 10` returns at most ten hits and does not by itself imply a follow-up page.
-- A pagination prompt appears only when the server returns a cursor.
+- `--limit 10` requests a page size and is sent unchanged.
+- A value above the server v0.0.2 maximum, such as `--limit 500`, produces a
+  warning, sends 250, and preserves `--limit 250` in the generated next-page command.
+- Object reads omit computed values unless selected by a per-class default or by
+  `--computed S:<key>`, `--computed P:<key>`, or `--computed all`.
+- Individual computed selections exclude unselected values; `--computed all`
+  retains every available computed value.
+- `output.object_class_computed_fields.<class>` defaults apply to list and show;
+  explicit `--computed` values replace them and `--computed none` suppresses them.
+- Computed list text uses `S:<key>` and `P:<key>` columns rather than a single
+  truncated computed-data preview.
+- `S:<key>` and `P:<key>` sorts order the full matching set before `--limit`;
+  combining either with `--cursor` returns an actionable error.
+- Display aliases use the first selector that exists and can be selected like
+  ordinary data columns.
+- `S:<key>` and `P:<key>` selectors work in semantic pipe filtering,
+  projection, sorting, grouping, aggregation, and value extraction when selected
+  explicitly or by a per-class default.
+- Computed path completion prefers the class schema and only samples object data
+  when the class has no schema.
 
 ## Pipe DSL And Redirects
 
@@ -332,6 +407,36 @@ Expected results:
 - Help text colors only command fragments when color is enabled.
 - Dense table bands are subtle on dark backgrounds.
 - Theme selection works at runtime and persists through config when requested.
+
+## Administrative Configuration, Backups, And Restore
+
+With an administrator account, inspect the redacted server v0.0.2 configuration and
+exercise backup handling:
+
+```text
+admin config
+admin config --output json
+backup submit
+backup show <task-id>
+backup download <task-id> --file /tmp/hubuum-smoke-backup.json
+backup create --file /tmp/hubuum-smoke-backup-direct.json
+```
+
+Only on a disposable server, test the destructive two-step restore flow:
+
+```text
+restore stage --file /tmp/hubuum-smoke-backup.json --receipt /tmp/hubuum-smoke-restore.json
+restore status --receipt /tmp/hubuum-smoke-restore.json
+restore confirm --receipt /tmp/hubuum-smoke-restore.json --yes
+```
+
+Expected results:
+
+- Configuration secrets remain redacted.
+- Backup and receipt files have mode `0600` on Unix and are not overwritten without
+  `--force`.
+- Staging validates without replacing data; confirmation replaces all data and
+  invalidates the current bearer token.
 
 ## Cleanup
 

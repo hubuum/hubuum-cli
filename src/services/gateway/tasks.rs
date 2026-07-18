@@ -48,11 +48,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        Ok(PagedResult::from_page(
-            page,
-            query.limit,
-            TaskEventRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, TaskEventRecord::from))
     }
 
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
@@ -100,7 +96,7 @@ impl HubuumGateway {
         }
         q = q.include_total(input.include_total);
         let page = q.page()?;
-        Ok(PagedResult::from_page(page, input.limit, TaskRecord::from))
+        Ok(PagedResult::from_page(page, TaskRecord::from))
     }
 }
 
@@ -108,10 +104,11 @@ fn parse_task_kind(s: &str) -> Result<TaskKind, AppError> {
     match s.to_lowercase().as_str() {
         "import" => Ok(TaskKind::Import),
         "export" => Ok(TaskKind::Export),
+        "backup" => Ok(TaskKind::Backup),
         "reindex" => Ok(TaskKind::Reindex),
         "remotecall" => Ok(TaskKind::RemoteCall),
         _ => Err(AppError::InvalidOption(format!(
-            "Invalid task kind '{}'. Valid values: import, export, reindex, remotecall",
+            "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall",
             s
         ))),
     }
@@ -149,6 +146,7 @@ mod tests {
     fn parse_task_kind_accepts_valid_lowercase() {
         assert!(matches!(parse_task_kind("import"), Ok(TaskKind::Import)));
         assert!(matches!(parse_task_kind("export"), Ok(TaskKind::Export)));
+        assert!(matches!(parse_task_kind("backup"), Ok(TaskKind::Backup)));
         assert!(matches!(parse_task_kind("reindex"), Ok(TaskKind::Reindex)));
         assert!(matches!(
             parse_task_kind("remotecall"),

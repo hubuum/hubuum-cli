@@ -4,8 +4,8 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, desired_format, option_or_pos, render_list_page, render_task_record,
-    CliCommand,
+    build_list_query, desired_format, normalize_server_page_size, option_or_pos, render_list_page,
+    render_task_record, CliCommand,
 };
 use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
 use crate::catalog::CommandCatalogBuilder;
@@ -106,7 +106,7 @@ pub struct TaskEvents {
         autocomplete = "task_event_sort"
     )]
     pub sort_clauses: Vec<String>,
-    #[option(long = "limit", help = "Maximum number of results to return")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
@@ -172,7 +172,7 @@ pub struct TaskList {
         autocomplete = "task_statuses"
     )]
     pub status: Option<String>,
-    #[option(long = "limit", help = "Maximum number of results to return")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "cursor", help = "Cursor for the next result page")]
     pub cursor: Option<String>,
@@ -190,7 +190,7 @@ impl CliCommand for TaskList {
         let tasks = services.gateway().list_tasks(ListTasksInput {
             kind: query.kind,
             status: query.status,
-            limit: query.limit,
+            limit: normalize_server_page_size(query.limit)?,
             cursor: query.cursor,
             include_total: query.include_total.unwrap_or(false),
         })?;

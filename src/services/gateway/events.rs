@@ -168,7 +168,7 @@ impl HubuumGateway {
         };
 
         let request = apply_audit_input(request, &input)?;
-        page_to_json(request.page()?, input.limit)
+        page_to_json(request.page()?)
     }
 
     pub fn audit_event_by_id(&self, id: i64) -> Result<JsonRecord, AppError> {
@@ -232,7 +232,6 @@ impl HubuumGateway {
             return Ok(PagedResult {
                 items: vec![record],
                 next_cursor: None,
-                limit: Some(1),
                 returned_count: 1,
                 total_count: input.include_total.then_some(1),
             });
@@ -241,7 +240,7 @@ impl HubuumGateway {
         match scope {
             HistoryScope::Class(id) => {
                 let request = apply_history_input(self.client.class_history(id), &input)?;
-                page_to_json(request.page()?, input.limit)
+                page_to_json(request.page()?)
             }
             HistoryScope::Object {
                 class_id,
@@ -249,7 +248,7 @@ impl HubuumGateway {
             } => {
                 let request =
                     apply_history_input(self.client.object_history(class_id, object_id), &input)?;
-                page_to_json(request.page()?, input.limit)
+                page_to_json(request.page()?)
             }
             HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
                 unreachable!("history name scopes are resolved before request execution")
@@ -289,7 +288,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        page_to_json(page, query.limit)
+        page_to_json(page)
     }
 
     pub fn event_sink_by_name(&self, name: &str) -> Result<JsonRecord, AppError> {
@@ -341,7 +340,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        page_to_json(page, query.limit)
+        page_to_json(page)
     }
 
     pub fn event_subscription(
@@ -449,7 +448,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        page_to_json(page, query.limit)
+        page_to_json(page)
     }
 
     pub fn event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
@@ -567,10 +566,7 @@ fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
     from_value(Value::String(value.to_string())).map_err(AppError::from)
 }
 
-fn page_to_json<T: Serialize>(
-    page: Page<T>,
-    limit: Option<usize>,
-) -> Result<PagedResult<JsonRecord>, AppError> {
+fn page_to_json<T: Serialize>(page: Page<T>) -> Result<PagedResult<JsonRecord>, AppError> {
     let total_count = page.total_count;
     let items = page
         .items
@@ -581,7 +577,6 @@ fn page_to_json<T: Serialize>(
     Ok(PagedResult {
         items,
         next_cursor: page.next_cursor,
-        limit,
         returned_count,
         total_count,
     })

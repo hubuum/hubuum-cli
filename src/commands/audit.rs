@@ -4,7 +4,8 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    desired_format, option_or_pos, render_json_record, render_list_page, required_i64, CliCommand,
+    desired_format, normalize_server_page_size, option_or_pos, render_json_record,
+    render_list_page, required_i64, CliCommand,
 };
 use crate::autocomplete::{
     audit_event_ids, audit_resource_names, audit_resources, classes, collections, event_actions,
@@ -82,7 +83,7 @@ pub struct AuditList {
     pub occurred_after: Option<String>,
     #[option(long = "occurred-before", help = "Upper occurred_at bound")]
     pub occurred_before: Option<String>,
-    #[option(long = "limit", help = "Maximum number of results")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -occurred_at")]
     pub sort: Option<String>,
@@ -108,7 +109,7 @@ impl CliCommand for AuditList {
                 .transpose()?,
             occurred_after: query.occurred_after,
             occurred_before: query.occurred_before,
-            limit: query.limit,
+            limit: normalize_server_page_size(query.limit)?,
             sort: query.sort,
             cursor: query.cursor,
         };
@@ -166,7 +167,7 @@ pub struct AuditResource {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
-    #[option(long = "limit", help = "Maximum number of results")]
+    #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
     #[option(long = "sort", help = "Sort expression, e.g. -occurred_at")]
     pub sort: Option<String>,
@@ -191,7 +192,7 @@ impl CliCommand for AuditResource {
                     .as_deref()
                     .map(|name| services.gateway().collection_id_by_name(name))
                     .transpose()?,
-                limit: query.limit,
+                limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
                 ..AuditListInput::default()

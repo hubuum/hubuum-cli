@@ -29,12 +29,14 @@ Show a few Host fields:
 
 ```text
 object list --class Hosts | P Name os_version data.network.interfaces[*].ipv4
+object list --class Hosts --computed S:average_load --computed P:note | P Name S:average_load P:note
 ```
 
 Sort by a numeric data field:
 
 ```text
 object list --class Hosts | S data.cpu.cores AS num
+object list --class Hosts --computed S:average_load | S S:average_load desc AS num
 ```
 
 Group Hosts by OS version and count them:
@@ -81,6 +83,8 @@ object list --class Hosts | F 129.240
 object list --class Hosts | F os_version 26
 object list --class Hosts | F data.cpu.cores>=8
 object list --class Hosts | F data.network.interfaces[*].ipv4 '^129\.240\.'
+object list --class Hosts --computed S:average_load | F S:average_load>=1
+object list --class Hosts --computed P:note | F P:note '^mine$'
 ```
 
 `V` searches values only:
@@ -116,7 +120,18 @@ object list --class Hosts | ? data.network.interfaces[]
 object list --class Hosts | P Name os_version
 object list --class Hosts | P Name,data.cpu.cores
 object list --class Hosts | P Name data !data.secrets
+object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
 ```
+
+Shared and personal computed fields use the ordinary top-level selectors
+`S:<key>` and `P:<key>` after they are selected with the repeatable
+`--computed` option (or `--computed all`). Their underlying JSON types are
+retained for semantic pipe operations. Computation errors are represented as
+`ERROR: ...` strings.
+
+Selections configured in `output.object_class_computed_fields.<class>` are
+available to the pipeline automatically. Explicit `--computed` values replace
+the class default; `--computed none` disables it for one command.
 
 `VALUE` and `VAL` extract selected leaves as a value list:
 

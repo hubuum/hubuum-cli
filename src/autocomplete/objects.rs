@@ -27,3 +27,19 @@ pub fn objects_from_root_class(
 ) -> Vec<String> {
     ctx.objects_from_class(prefix, parts, "--root-class")
 }
+
+pub fn computed_field_paths(
+    ctx: &CompletionContext,
+    prefix: &str,
+    parts: &[String],
+) -> Vec<String> {
+    ctx.computed_field_paths(prefix, parts)
+}
+
+pub fn computed_fields(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
+    ["all".to_string(), "none".to_string()]
+        .into_iter()
+        .chain(ctx.computed_sort_fields(parts))
+        .filter(|field| field.starts_with(prefix))
+        .collect()
+}

@@ -7,12 +7,14 @@ use serde_json::to_string as to_json_string;
 use std::collections::{HashMap, HashSet};
 use std::env::var_os;
 use std::fs::{create_dir_all, read_to_string, write};
+use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use toml::map::Map as TomlMap;
 use toml::{from_str as parse_toml, to_string_pretty as format_toml, Value as TomlValue};
 
 use crate::defaults::Defaults;
+use crate::domain::ComputedFieldSet;
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
@@ -128,7 +130,10 @@ pub struct UserOutputPreferences {
     pub object_show_data: bool,
     pub object_list_data_columns: ObjectListDataColumns,
     pub object_list_class_columns: HashMap<String, Vec<String>>,
-    pub object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(default, alias = "object_list_class_meta")]
+    pub object_list_class_aliases: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(default)]
+    pub object_class_computed_fields: HashMap<String, ComputedFieldSet>,
 }
 
 impl UserPreferences {
@@ -151,7 +156,8 @@ impl UserPreferences {
                 object_show_data: config.output.object_show_data,
                 object_list_data_columns: config.output.object_list_data_columns,
                 object_list_class_columns: config.output.object_list_class_columns.clone(),
-                object_list_class_meta: config.output.object_list_class_meta.clone(),
+                object_list_class_aliases: config.output.object_list_class_aliases.clone(),
+                object_class_computed_fields: config.output.object_class_computed_fields.clone(),
             },
         }
     }
@@ -216,7 +222,11 @@ pub struct OutputConfig {
     #[serde(default)]
     pub object_list_class_columns: HashMap<String, Vec<String>>,
     #[serde(default)]
-    pub object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
+    pub object_list_class_aliases: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(default)]
+    pub object_class_computed_fields: HashMap<String, ComputedFieldSet>,
+    #[serde(default, rename = "object_list_class_meta", skip_serializing)]
+    legacy_object_list_class_meta: HashMap<String, HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -239,6 +249,7 @@ enum ConfigValueKind {
     ObjectListDataColumns,
     StringListMap,
     StringNestedListMap,
+    ComputedFieldSetMap,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -462,10 +473,17 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
-        key: "output.object_list_class_meta",
+        key: "output.object_list_class_aliases",
         cli_arg: None,
-        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META",
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_ALIASES",
         value_kind: ConfigValueKind::StringNestedListMap,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.object_class_computed_fields",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__OBJECT_CLASS_COMPUTED_FIELDS",
+        value_kind: ConfigValueKind::ComputedFieldSetMap,
         sensitive: false,
     },
 ];
@@ -516,7 +534,9 @@ impl Default for AppConfig {
                 object_show_data: Defaults::OUTPUT_OBJECT_SHOW_DATA,
                 object_list_data_columns: Defaults::OUTPUT_OBJECT_LIST_DATA_COLUMNS,
                 object_list_class_columns: HashMap::new(),
-                object_list_class_meta: HashMap::new(),
+                object_list_class_aliases: HashMap::new(),
+                object_class_computed_fields: HashMap::new(),
+                legacy_object_list_class_meta: HashMap::new(),
             },
         }
     }
@@ -563,7 +583,9 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         ConfigValueKind::TableBands => strings(&["auto", "always", "never"]),
         ConfigValueKind::EmptyResult => strings(&["message", "silent"]),
         ConfigValueKind::ObjectListDataColumns => strings(&["auto", "preview", "all"]),
-        ConfigValueKind::StringListMap | ConfigValueKind::StringNestedListMap => Vec::new(),
+        ConfigValueKind::StringListMap
+        | ConfigValueKind::StringNestedListMap
+        | ConfigValueKind::ComputedFieldSetMap => Vec::new(),
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
@@ -650,23 +672,43 @@ pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> 
     if let Some(class_name) = object_list_class_columns_key(key) {
         return set_persisted_object_list_class_columns(class_name, value);
     }
-    if let Some((class_name, alias)) = object_list_class_meta_key(key) {
-        return set_persisted_object_list_class_meta(class_name, alias, value);
+    if let Some(class_name) = object_class_computed_fields_key(key) {
+        return set_persisted_object_class_computed_fields(class_name, value);
+    }
+    if let Some((class_name, alias)) = object_list_class_alias_key(key) {
+        return set_persisted_object_list_class_alias(class_name, alias, value);
     }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
     let parsed = parse_config_value(descriptor, value)?;
     set_toml_path(&mut root, descriptor.key, parsed)?;
+    if descriptor.key == "output.object_list_class_aliases" {
+        remove_toml_path(&mut root, "output.object_list_class_meta");
+    }
     write_toml_file(&path, &root)?;
     Ok(path)
 }
 
 pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
-    if object_list_class_columns_key(key).is_some() || object_list_class_meta_key(key).is_some() {
+    if object_list_class_columns_key(key).is_some()
+        || object_class_computed_fields_key(key).is_some()
+        || object_list_class_alias_key(key).is_some()
+    {
         let path = get_config_state().paths.write_target.clone();
         let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
-        remove_toml_path(&mut root, key);
+        if let Some((class_name, alias)) = object_list_class_alias_key(key) {
+            remove_toml_path(
+                &mut root,
+                &format!("output.object_list_class_aliases.{class_name}.{alias}"),
+            );
+            remove_toml_path(
+                &mut root,
+                &format!("output.object_list_class_meta.{class_name}.{alias}"),
+            );
+        } else {
+            remove_toml_path(&mut root, key);
+        }
         write_toml_file(&path, &root)?;
         return Ok(path);
     }
@@ -674,6 +716,9 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
     remove_toml_path(&mut root, descriptor.key);
+    if descriptor.key == "output.object_list_class_aliases" {
+        remove_toml_path(&mut root, "output.object_list_class_meta");
+    }
     write_toml_file(&path, &root)?;
     Ok(path)
 }
@@ -718,6 +763,7 @@ fn merge_user_preferences(
     for (key, value) in output {
         target_output.insert(key.clone(), value.clone());
     }
+    target_output.remove("object_list_class_meta");
     Ok(())
 }
 
@@ -792,8 +838,13 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
                 target.output.object_list_class_columns =
                     source.output.object_list_class_columns.clone();
             }
-            "output.object_list_class_meta" => {
-                target.output.object_list_class_meta = source.output.object_list_class_meta.clone();
+            "output.object_list_class_aliases" => {
+                target.output.object_list_class_aliases =
+                    source.output.object_list_class_aliases.clone();
+            }
+            "output.object_class_computed_fields" => {
+                target.output.object_class_computed_fields =
+                    source.output.object_class_computed_fields.clone();
             }
             "output.color" => target.output.color = source.output.color,
             "output.theme" => target.output.theme = source.output.theme.clone(),
@@ -845,8 +896,12 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
             HashMap::<String, Vec<String>>::new(),
         )?
         .set_default(
-            "output.object_list_class_meta",
+            "output.object_list_class_aliases",
             HashMap::<String, HashMap<String, Vec<String>>>::new(),
+        )?
+        .set_default(
+            "output.object_class_computed_fields",
+            HashMap::<String, Vec<String>>::new(),
         )?
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
@@ -889,8 +944,21 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
     }
 
     let config = builder.build()?;
+    let mut config: AppConfig = config.try_deserialize()?;
+    merge_legacy_object_list_class_aliases(&mut config.output);
+    Ok(config)
+}
 
-    config.try_deserialize()
+fn merge_legacy_object_list_class_aliases(output: &mut OutputConfig) {
+    for (class_name, aliases) in take(&mut output.legacy_object_list_class_meta) {
+        let target = output
+            .object_list_class_aliases
+            .entry(class_name)
+            .or_default();
+        for (alias, selectors) in aliases {
+            target.entry(alias).or_insert(selectors);
+        }
+    }
 }
 
 pub fn inspect_config_state_without_cli(
@@ -909,6 +977,10 @@ fn inspect_config_state_with_runtime_cli(
 }
 
 fn descriptor_for_key(key: &str) -> Result<&'static ConfigKeyDescriptor, AppError> {
+    let key = match key {
+        "output.object_list_class_meta" => "output.object_list_class_aliases",
+        _ => key,
+    };
     CONFIG_KEYS
         .iter()
         .find(|descriptor| descriptor.key == key)
@@ -937,27 +1009,24 @@ fn resolve_config_source(
 ) -> (ConfigSource, Option<String>) {
     let mut source = (ConfigSource::Default, None);
 
-    if toml_has_key(context.system_toml, descriptor.key) {
+    if toml_has_descriptor_key(context.system_toml, descriptor.key) {
         source = (
             ConfigSource::SystemFile,
             Some(context.system_path.display().to_string()),
         );
     }
-    if toml_has_key(context.user_toml, descriptor.key) {
+    if toml_has_descriptor_key(context.user_toml, descriptor.key) {
         source = (
             ConfigSource::UserFile,
             Some(context.user_path.display().to_string()),
         );
     }
-    if var_os(descriptor.env_var).is_some() {
-        source = (
-            ConfigSource::Environment,
-            Some(descriptor.env_var.to_string()),
-        );
+    if let Some(env_var) = configured_descriptor_env_var(descriptor) {
+        source = (ConfigSource::Environment, Some(env_var.to_string()));
     }
     if let (Some(path), true) = (
         context.custom_path,
-        toml_has_key(context.custom_toml, descriptor.key),
+        toml_has_descriptor_key(context.custom_toml, descriptor.key),
     ) {
         source = (ConfigSource::CustomFile, Some(path.display().to_string()));
     }
@@ -984,6 +1053,21 @@ fn resolve_config_source(
     }
 
     source
+}
+
+fn toml_has_descriptor_key(root: Option<&TomlValue>, key: &str) -> bool {
+    toml_has_key(root, key)
+        || (key == "output.object_list_class_aliases"
+            && toml_has_key(root, "output.object_list_class_meta"))
+}
+
+fn configured_descriptor_env_var(descriptor: &ConfigKeyDescriptor) -> Option<&'static str> {
+    if var_os(descriptor.env_var).is_some() {
+        return Some(descriptor.env_var);
+    }
+    (descriptor.key == "output.object_list_class_aliases"
+        && var_os("HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META").is_some())
+    .then_some("HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META")
 }
 
 fn cli_flag_name(arg: &str) -> Option<&'static str> {
@@ -1057,8 +1141,11 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.object_list_class_columns" => {
             ConfigValueRef::StringListMap(&config.output.object_list_class_columns)
         }
-        "output.object_list_class_meta" => {
-            ConfigValueRef::StringNestedListMap(&config.output.object_list_class_meta)
+        "output.object_list_class_aliases" => {
+            ConfigValueRef::StringNestedListMap(&config.output.object_list_class_aliases)
+        }
+        "output.object_class_computed_fields" => {
+            ConfigValueRef::ComputedFieldSetMap(&config.output.object_class_computed_fields)
         }
         _ => ConfigValueRef::String(""),
     }
@@ -1083,6 +1170,7 @@ enum ConfigValueRef<'a> {
     ObjectListDataColumns(&'a ObjectListDataColumns),
     StringListMap(&'a HashMap<String, Vec<String>>),
     StringNestedListMap(&'a HashMap<String, HashMap<String, Vec<String>>>),
+    ComputedFieldSetMap(&'a HashMap<String, ComputedFieldSet>),
 }
 
 fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
@@ -1118,6 +1206,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
         ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
+        ConfigValueRef::ComputedFieldSetMap(value) => to_json_string(value).unwrap_or_default(),
     }
 }
 
@@ -1213,6 +1302,9 @@ fn parse_config_value(
         ConfigValueKind::StringNestedListMap => {
             parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
         }
+        ConfigValueKind::ComputedFieldSetMap => {
+            parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
     };
     Ok(value)
 }
@@ -1238,8 +1330,15 @@ fn object_list_class_columns_key(key: &str) -> Option<&str> {
         .filter(|class_name| !class_name.is_empty())
 }
 
-fn object_list_class_meta_key(key: &str) -> Option<(&str, &str)> {
-    let rest = key.strip_prefix("output.object_list_class_meta.")?;
+fn object_class_computed_fields_key(key: &str) -> Option<&str> {
+    key.strip_prefix("output.object_class_computed_fields.")
+        .filter(|class_name| !class_name.is_empty())
+}
+
+fn object_list_class_alias_key(key: &str) -> Option<(&str, &str)> {
+    let rest = key
+        .strip_prefix("output.object_list_class_aliases.")
+        .or_else(|| key.strip_prefix("output.object_list_class_meta."))?;
     let (class_name, alias) = rest.split_once('.')?;
     (!class_name.is_empty() && !alias.is_empty()).then_some((class_name, alias))
 }
@@ -1265,13 +1364,39 @@ fn set_persisted_object_list_class_columns(
     Ok(path)
 }
 
-fn set_persisted_object_list_class_meta(
+fn set_persisted_object_class_computed_fields(
+    class_name: &str,
+    value: &str,
+) -> Result<PathBuf, AppError> {
+    let fields =
+        ComputedFieldSet::from_values(&[value.to_string()]).map_err(AppError::ConfigError)?;
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let fields = fields
+        .selectors()
+        .iter()
+        .map(|field| TomlValue::String(field.to_string()))
+        .collect();
+    set_toml_path(
+        &mut root,
+        &format!("output.object_class_computed_fields.{class_name}"),
+        TomlValue::Array(fields),
+    )?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
+}
+
+fn set_persisted_object_list_class_alias(
     class_name: &str,
     alias: &str,
     value: &str,
 ) -> Result<PathBuf, AppError> {
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    remove_toml_path(
+        &mut root,
+        &format!("output.object_list_class_meta.{class_name}.{alias}"),
+    );
     let selectors = value
         .split(',')
         .map(str::trim)
@@ -1280,7 +1405,7 @@ fn set_persisted_object_list_class_meta(
         .collect::<Vec<_>>();
     set_toml_path(
         &mut root,
-        &format!("output.object_list_class_meta.{class_name}.{alias}"),
+        &format!("output.object_list_class_aliases.{class_name}.{alias}"),
         TomlValue::Array(selectors),
     )?;
     write_toml_file(&path, &root)?;
@@ -1404,7 +1529,9 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__OBJECT_SHOW_DATA",
             "HUBUUM_CLI__OUTPUT__OBJECT_LIST_DATA_COLUMNS",
             "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_COLUMNS",
+            "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_ALIASES",
             "HUBUUM_CLI__OUTPUT__OBJECT_LIST_CLASS_META",
+            "HUBUUM_CLI__OUTPUT__OBJECT_CLASS_COMPUTED_FIELDS",
         ] {
             remove_var(var);
         }
@@ -1508,7 +1635,124 @@ Hosts = ["contact", "jack", "data.name"]
 
     #[test]
     #[serial]
-    fn object_list_class_meta_load_from_toml() {
+    fn object_list_class_aliases_load_from_toml() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[output.object_list_class_aliases.Hosts]
+os_version = ["data.os.macos.version", "data.os.redhat.version"]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.output
+                .object_list_class_aliases
+                .get("Hosts")
+                .and_then(|aliases| aliases.get("os_version")),
+            Some(&vec![
+                "data.os.macos.version".to_string(),
+                "data.os.redhat.version".to_string()
+            ])
+        );
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn object_class_computed_fields_load_from_toml() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[output.object_class_computed_fields]
+Hosts = ["S:os_version", "P:note"]
+Everything = ["all"]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.output.object_class_computed_fields["Hosts"]
+                .selectors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["S:os_version", "P:note"]
+        );
+        assert!(cfg.output.object_class_computed_fields["Everything"].is_all());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn object_class_computed_fields_reject_invalid_combinations() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[output.object_class_computed_fields]
+Hosts = ["all", "S:os_version"]
+"#,
+        )
+        .expect("write config");
+
+        let error = load_config(Some(path)).expect_err("invalid defaults should fail");
+
+        assert!(error.to_string().contains("cannot be combined"));
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn config_set_and_unset_persist_class_computed_fields() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        set_persisted_value("output.object_class_computed_fields.Hosts", "S:load,P:note")
+            .expect("computed defaults should persist");
+        let configured = load_config(Some(path.clone())).expect("persisted config should load");
+        assert_eq!(
+            configured.output.object_class_computed_fields["Hosts"]
+                .selectors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["S:load", "P:note"]
+        );
+
+        unset_persisted_value("output.object_class_computed_fields.Hosts")
+            .expect("computed defaults should be removed");
+        let configured = load_config(Some(path)).expect("updated config should load");
+        assert!(configured.output.object_class_computed_fields.is_empty());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn legacy_object_list_class_meta_loads_as_display_aliases() {
         clear_env();
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("config.toml");
@@ -1521,13 +1765,13 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
         )
         .expect("write config");
 
-        let cfg = load_config(Some(path)).expect("load config");
+        let cfg = load_config(Some(path)).expect("load legacy config");
 
         assert_eq!(
             cfg.output
-                .object_list_class_meta
+                .object_list_class_aliases
                 .get("Hosts")
-                .and_then(|meta| meta.get("os_version")),
+                .and_then(|aliases| aliases.get("os_version")),
             Some(&vec![
                 "data.os.macos.version".to_string(),
                 "data.os.redhat.version".to_string()
@@ -1610,10 +1854,35 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
         assert!(is_user_preference_key(
             "output.object_list_class_columns.Hosts"
         ));
+        assert!(is_user_preference_key(
+            "output.object_list_class_aliases.Hosts.os_version"
+        ));
+        assert!(is_user_preference_key(
+            "output.object_class_computed_fields.Hosts"
+        ));
         assert!(is_user_preference_key("repl.enter_fetches_next_page"));
         assert!(!is_user_preference_key("output.theme_file"));
         assert!(!is_user_preference_key("server.hostname"));
         assert!(!is_user_preference_key("settings.store_on_server"));
+    }
+
+    #[test]
+    fn display_alias_config_keys_accept_legacy_spelling() {
+        assert_eq!(
+            object_list_class_alias_key("output.object_list_class_aliases.Hosts.os_version"),
+            Some(("Hosts", "os_version"))
+        );
+        assert_eq!(
+            object_list_class_alias_key("output.object_list_class_meta.Hosts.os_version"),
+            Some(("Hosts", "os_version"))
+        );
+        assert!(config_key_names().contains(&"output.object_list_class_aliases"));
+        assert!(config_key_names().contains(&"output.object_class_computed_fields"));
+        assert!(!config_key_names().contains(&"output.object_list_class_meta"));
+        assert_eq!(
+            object_class_computed_fields_key("output.object_class_computed_fields.Hosts"),
+            Some("Hosts")
+        );
     }
 
     #[test]

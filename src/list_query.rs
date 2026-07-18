@@ -21,6 +21,39 @@ use crate::suggestions::did_you_mean_message;
 use crate::tokenizer::CommandTokenizer;
 use hubuum_filter::OutputEnvelope;
 
+pub const SERVER_MAX_PAGE_SIZE: usize = 250;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServerPageSize {
+    requested: usize,
+    effective: usize,
+}
+
+impl ServerPageSize {
+    pub const fn from_requested(requested: usize) -> Self {
+        Self {
+            requested,
+            effective: if requested > SERVER_MAX_PAGE_SIZE {
+                SERVER_MAX_PAGE_SIZE
+            } else {
+                requested
+            },
+        }
+    }
+
+    pub const fn requested(self) -> usize {
+        self.requested
+    }
+
+    pub const fn effective(self) -> usize {
+        self.effective
+    }
+
+    pub const fn was_truncated(self) -> bool {
+        self.requested != self.effective
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListQuery {
     pub filters: Vec<FilterClause>,
@@ -47,7 +80,6 @@ pub struct SortClause {
 pub struct PagedResult<T> {
     pub items: Vec<T>,
     pub next_cursor: Option<String>,
-    pub limit: Option<usize>,
     pub returned_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_count: Option<u64>,
@@ -161,7 +193,7 @@ impl SortDirectionArg {
 }
 
 impl<T> PagedResult<T> {
-    pub fn from_page<U, F>(page: Page<U>, limit: Option<usize>, map: F) -> Self
+    pub fn from_page<U, F>(page: Page<U>, map: F) -> Self
     where
         F: Fn(U) -> T,
     {
@@ -171,7 +203,6 @@ impl<T> PagedResult<T> {
         Self {
             items,
             next_cursor: page.next_cursor,
-            limit,
             returned_count,
             total_count,
         }
@@ -195,7 +226,7 @@ pub fn list_query_from_raw(
     Ok(ListQuery {
         filters,
         sorts,
-        limit,
+        limit: limit.map(|requested| ServerPageSize::from_requested(requested).effective()),
         cursor,
         include_total: false,
     })
@@ -756,17 +787,17 @@ pub(crate) fn append_paging_footer<T>(
         return Ok(());
     }
 
-    if paged.limit.is_none() && paged.next_cursor.is_none() && paged.total_count.is_none() {
+    if !tokens.get_options().contains_key("limit")
+        && paged.next_cursor.is_none()
+        && paged.total_count.is_none()
+    {
         return Ok(());
     }
 
-    let qualifiers = [
-        paged.limit.map(|limit| format!("limit: {limit}")),
-        paged.total_count.map(|total| format!("total: {total}")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
+    let qualifiers = [paged.total_count.map(|total| format!("total: {total}"))]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     append_line(format!(
         "Returned {} item(s){}",
         paged.returned_count,
@@ -776,7 +807,7 @@ pub(crate) fn append_paging_footer<T>(
             format!(" ({})", qualifiers.join(", "))
         }
     ))?;
-    if should_offer_next_page(tokens, paged) {
+    if should_offer_next_page(paged) {
         let next_cursor = paged.next_cursor.as_deref().expect("checked above");
         let next_command = next_cursor_command(tokens, next_cursor)?;
         set_next_page_command(next_command)?;
@@ -796,21 +827,36 @@ pub(crate) fn append_paging_footer<T>(
 fn should_wrap_paged_json<T>(tokens: &CommandTokenizer, paged: &PagedResult<T>) -> bool {
     paged.total_count.is_some()
         || tokens.get_options().contains_key("cursor")
-        || (!tokens.get_options().contains_key("limit") && paged.next_cursor.is_some())
+        || paged.next_cursor.is_some()
 }
 
-fn should_offer_next_page<T>(tokens: &CommandTokenizer, paged: &PagedResult<T>) -> bool {
+fn should_offer_next_page<T>(paged: &PagedResult<T>) -> bool {
     paged.next_cursor.is_some()
-        && (!tokens.get_options().contains_key("limit")
-            || tokens.get_options().contains_key("cursor"))
 }
 
 fn next_cursor_command(tokens: &CommandTokenizer, cursor: &str) -> Result<String, AppError> {
-    append_pipeline_suffix(rebuild_with_replaced_options(
-        tokens,
-        &["--cursor"],
-        [("--cursor", Some(cursor))],
-    ))
+    let requested_page_size = tokens
+        .get_options()
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(ServerPageSize::from_requested);
+
+    let command = match requested_page_size.filter(|page_size| page_size.was_truncated()) {
+        Some(page_size) => {
+            let effective = page_size.effective().to_string();
+            rebuild_with_replaced_options(
+                tokens,
+                &["--limit", "--cursor"],
+                [
+                    ("--limit", Some(effective.as_str())),
+                    ("--cursor", Some(cursor)),
+                ],
+            )
+        }
+        None => rebuild_with_replaced_options(tokens, &["--cursor"], [("--cursor", Some(cursor))]),
+    };
+
+    append_pipeline_suffix(command)
 }
 
 #[cfg(test)]
@@ -826,7 +872,7 @@ mod tests {
         parse_sort_clause, parse_where_clause, render_paged_result, resolve_filter_field_spec,
         should_wrap_paged_json, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
         FilterOperatorProfile, FilterValueProfile, PagedResult, SortClause, SortDirectionArg,
-        SortFieldSpec,
+        SortFieldSpec, SERVER_MAX_PAGE_SIZE,
     };
     use crate::commands::render_format;
     use crate::config::{init_config, AppConfig};
@@ -855,6 +901,14 @@ mod tests {
         assert_eq!(query.filters.len(), 2);
         assert_eq!(query.sorts.len(), 1);
         assert_eq!(query.limit, Some(10));
+    }
+
+    #[test]
+    fn truncates_page_size_requests_above_the_server_maximum() {
+        let query = list_query_from_raw(&[], &[], Some(251), None)
+            .expect("oversized page size should parse");
+
+        assert_eq!(query.limit, Some(SERVER_MAX_PAGE_SIZE));
     }
 
     #[test]
@@ -997,18 +1051,17 @@ mod tests {
     }
 
     #[test]
-    fn paged_json_does_not_wrap_for_limit_only_cap() {
+    fn paged_json_wraps_when_explicit_page_size_has_next_cursor() {
         let tokens = CommandTokenizer::new("class list --limit 10", "list", &[])
             .expect("tokenization should succeed");
         let paged = PagedResult {
             items: vec![1, 2],
             next_cursor: Some("abc123".to_string()),
-            limit: Some(10),
             returned_count: 2,
             total_count: None,
         };
 
-        assert!(!should_wrap_paged_json(&tokens, &paged));
+        assert!(should_wrap_paged_json(&tokens, &paged));
     }
 
     #[test]
@@ -1018,7 +1071,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![1, 2],
             next_cursor: None,
-            limit: Some(10),
             returned_count: 2,
             total_count: None,
         };
@@ -1027,13 +1079,12 @@ mod tests {
     }
 
     #[test]
-    fn paged_json_wraps_when_uncapped_page_has_next_cursor() {
+    fn paged_json_wraps_when_page_has_next_cursor() {
         let tokens =
             CommandTokenizer::new("class list", "list", &[]).expect("tokenization should succeed");
         let paged = PagedResult {
             items: vec![1, 2],
             next_cursor: Some("abc123".to_string()),
-            limit: None,
             returned_count: 2,
             total_count: None,
         };
@@ -1048,7 +1099,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![1, 2],
             next_cursor: None,
-            limit: None,
             returned_count: 2,
             total_count: Some(42),
         };
@@ -1083,7 +1133,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }],
             next_cursor: Some("abc123".to_string()),
-            limit: None,
             returned_count: 1,
             total_count: None,
         };
@@ -1126,7 +1175,6 @@ mod tests {
             let paged = PagedResult {
                 items: vec![DummyRow { id: 1 }],
                 next_cursor: Some("abc123".to_string()),
-                limit: Some(1),
                 returned_count: 1,
                 total_count: None,
             };
@@ -1165,7 +1213,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }],
             next_cursor: None,
-            limit: None,
             returned_count: 1,
             total_count: None,
         };
@@ -1194,17 +1241,16 @@ mod tests {
 
     #[test]
     #[serial]
-    fn text_output_does_not_offer_next_for_limit_only_cap() {
+    fn text_output_uses_effective_page_size_for_next_command() {
         CONFIG_INIT.call_once(|| {
             let _ = init_config(AppConfig::default());
         });
         reset_output().expect("output should reset");
-        let tokens = CommandTokenizer::new("class list --limit 1", "list", &[])
+        let tokens = CommandTokenizer::new("class list --limit 500", "list", &[])
             .expect("tokenization should succeed");
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }],
             next_cursor: Some("abc123".to_string()),
-            limit: Some(1),
             returned_count: 1,
             total_count: None,
         };
@@ -1216,12 +1262,15 @@ mod tests {
         assert!(snapshot
             .lines
             .iter()
-            .any(|line| line.contains("Returned 1 item(s) (limit: 1)")));
-        assert!(!snapshot
+            .any(|line| line == "Returned 1 item(s)"));
+        assert!(snapshot
             .lines
             .iter()
             .any(|line| line.contains("Paginated results available.")));
-        assert!(snapshot.next_page_command.is_none());
+        assert_eq!(
+            snapshot.next_page_command.as_deref(),
+            Some("class list --limit 250 --cursor abc123")
+        );
     }
 
     #[test]
@@ -1236,7 +1285,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }],
             next_cursor: None,
-            limit: None,
             returned_count: 1,
             total_count: Some(42),
         };
@@ -1263,7 +1311,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }],
             next_cursor: Some("abc123".to_string()),
-            limit: Some(1),
             returned_count: 1,
             total_count: None,
         };
@@ -1299,7 +1346,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }, DummyRow { id: 2 }],
             next_cursor: Some("abc123".to_string()),
-            limit: Some(100),
             returned_count: 100,
             total_count: None,
         };
@@ -1342,7 +1388,6 @@ mod tests {
         let paged = PagedResult {
             items: vec![DummyRow { id: 1 }, DummyRow { id: 2 }],
             next_cursor: Some("abc123".to_string()),
-            limit: None,
             returned_count: 100,
             total_count: None,
         };

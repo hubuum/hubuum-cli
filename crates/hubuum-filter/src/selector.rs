@@ -240,4 +240,24 @@ mod tests {
             vec![json!("one"), json!("two")]
         );
     }
+
+    #[test]
+    fn selectors_treat_computed_scope_colons_as_field_characters() {
+        let value = json!({"S:load": 1.5, "P:label": "mine"});
+
+        assert_eq!(
+            select_values(&value, "S:load")
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![json!(1.5)]
+        );
+        assert_eq!(
+            select_values(&value, "P:label")
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![json!("mine")]
+        );
+    }
 }

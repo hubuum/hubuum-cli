@@ -472,6 +472,7 @@ impl ReplCompleter {
             complete_sort_clause(
                 &self.completion,
                 command_path,
+                parts,
                 &context.clause_prefix,
                 context.clause_ends_with_space,
             )
@@ -1143,7 +1144,7 @@ fn suggestion(value: String, start: usize, end: usize, description: Option<Strin
 }
 
 fn dynamic_value_suggestion(value: String, start: usize, end: usize) -> Suggestion {
-    let append_whitespace = !value.ends_with(MAIN_SEPARATOR);
+    let append_whitespace = !value.ends_with(MAIN_SEPARATOR) && !value.ends_with('/');
     suggestion_with_whitespace(value, start, end, None, append_whitespace)
 }
 
@@ -1344,9 +1345,10 @@ mod tests {
 
     use super::{
         clause_active_token_offset, clause_option_context, completion_context_parts,
-        id_completion_context, is_completing_option_value, option_suggestion, option_value_context,
-        pipe_completion_context, quoted_where_context, safe_prefix_end, where_suggestion,
-        IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
+        dynamic_value_suggestion, id_completion_context, is_completing_option_value,
+        option_suggestion, option_value_context, pipe_completion_context, quoted_where_context,
+        safe_prefix_end, where_suggestion, IdCompletionKind, PaginationEditMode,
+        PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
     };
     use crate::json_schema::schema_paths;
 
@@ -1401,6 +1403,13 @@ mod tests {
             "Ui".to_string(),
         ];
         assert!(is_completing_option_value(&parts, false));
+    }
+
+    #[test]
+    fn nested_json_pointer_completion_does_not_append_whitespace() {
+        let suggestion = dynamic_value_suggestion("/load/".to_string(), 0, 0);
+
+        assert!(!suggestion.append_whitespace);
     }
 
     #[test]

@@ -69,11 +69,7 @@ impl HubuumGateway {
             &validated_sorts,
         )
         .page()?;
-        Ok(PagedResult::from_page(
-            page,
-            query.limit,
-            CollectionRecord::from,
-        ))
+        Ok(PagedResult::from_page(page, CollectionRecord::from))
     }
 
     pub fn get_collection(&self, name: &str) -> Result<CollectionRecord, AppError> {

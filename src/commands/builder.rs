@@ -25,12 +25,14 @@ pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
 
     commands::admin::register_commands(&mut builder);
+    commands::backup::register_commands(&mut builder);
     commands::audit::register_commands(&mut builder);
     commands::auth::register_commands(&mut builder);
     commands::jobs::register_commands(&mut builder);
     commands::class::register_commands(&mut builder);
     commands::config::register_commands(&mut builder);
     commands::collection::register_commands(&mut builder);
+    commands::computed::register_commands(&mut builder);
     commands::user::register_commands(&mut builder);
     commands::group::register_commands(&mut builder);
     commands::export::register_commands(&mut builder);
@@ -46,6 +48,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::search::register_commands(&mut builder);
     commands::service_account::register_commands(&mut builder);
     commands::me::register_commands(&mut builder);
+    commands::metrics::register_commands(&mut builder);
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);

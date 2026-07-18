@@ -16,12 +16,14 @@ use completion::CompletionStore;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
-    AuditListInput, AuditScope, ClassUpdateInput, CollectionUpdateInput, CreateClassInput,
-    CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
-    CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
-    HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
-    NewTokenInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RelationTraversalOptions, RemoteAuthConfigInput, RunExportInput, SearchInput, SearchKind,
+    AuditListInput, AuditScope, BackupInput, ClassUpdateInput, CollectionUpdateInput,
+    ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
+    ComputedPreviewTarget, ComputedResultKind, CreateClassInput, CreateCollectionInput,
+    CreateExportTemplateInput, CreateGroupInput, CreateObjectInput, CreateRemoteTargetInput,
+    CreateServiceAccountInput, CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope,
+    HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NewTokenInput, ObjectUpdateInput,
+    RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions,
+    RemoteAuthConfigInput, RunBackupInput, RunExportInput, SearchInput, SearchKind,
     SubmitImportInput, TaskLookupInput, UpdateExportTemplateInput, UpdateRemoteTargetInput,
     UserFilter, UserUpdateInput,
 };

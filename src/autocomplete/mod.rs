@@ -24,12 +24,14 @@ pub use filters::{
 };
 pub use groups::groups;
 pub use objects::{
-    objects_from_class, objects_from_class_a, objects_from_class_b, objects_from_root_class,
+    computed_field_paths, computed_fields, objects_from_class, objects_from_class_a,
+    objects_from_class_b, objects_from_root_class,
 };
 pub use shared::{
-    bool, config_keys, config_values, export_content_types, file_paths, object_data_columns,
-    output_formats, principal_kinds, remote_auth_types, remote_http_methods, remote_subject_kinds,
-    remote_subject_types, search_kinds, task_kinds, task_statuses, theme_names,
+    bool, computed_operations, computed_result_types, config_keys, config_values,
+    export_content_types, file_paths, object_data_columns, output_formats, principal_kinds,
+    remote_auth_types, remote_http_methods, remote_subject_kinds, remote_subject_types,
+    search_kinds, task_kinds, task_statuses, theme_names,
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{

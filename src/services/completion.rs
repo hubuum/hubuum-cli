@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
@@ -6,8 +6,11 @@ use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 
 use crate::config::get_config;
-use crate::domain::{JsonRecord, TaskRecord};
+use crate::domain::{
+    JsonRecord, TaskRecord, DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+};
 use crate::errors::AppError;
+use crate::json_schema::schema_json_pointers;
 use crate::list_query::{ListQuery, SortClause, SortDirectionArg};
 use crate::services::{AuditListInput, AuditScope, ListTasksInput};
 
@@ -32,6 +35,8 @@ struct CompletionSnapshot {
     objects_by_class: HashMap<String, Vec<String>>,
     event_subscriptions_by_collection: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<Value>>,
+    observed_paths_by_class: HashMap<String, Vec<String>>,
+    computed_sort_fields_by_class: HashMap<String, Vec<String>>,
     task_ids: Option<Vec<CompletionItem>>,
     audit_event_ids: Option<Vec<String>>,
     event_delivery_ids: Option<Vec<String>>,
@@ -218,6 +223,47 @@ impl CompletionContext {
             .ok()
     }
 
+    pub fn computed_field_paths(&self, prefix: &str, parts: &[String]) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        let Some(class_name) = class_name_from_parts(parts) else {
+            return Vec::new();
+        };
+
+        let Some(schema) = self.class_schema(&class_name) else {
+            return Vec::new();
+        };
+        let pointers = pointers_from_schema_or_else(schema.as_ref(), || {
+            self.runtime
+                .block_on(
+                    self.services
+                        .completion_store()
+                        .load_observed_paths_for_class(self.services.gateway(), class_name),
+                )
+                .unwrap_or_default()
+        });
+
+        json_pointer_completion_candidates(&pointers, prefix)
+    }
+
+    pub fn computed_sort_fields(&self, parts: &[String]) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+        let Some(class_name) = class_name_from_parts(parts) else {
+            return Vec::new();
+        };
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_computed_sort_fields(self.services.gateway(), class_name),
+            )
+            .unwrap_or_default()
+    }
+
     fn complete(&self, prefix: &str, kind: CompletionKind) -> Vec<String> {
         if get_config().completion.disable_api_related {
             return Vec::new();
@@ -357,6 +403,37 @@ impl CompletionStore {
         Ok(fetched)
     }
 
+    async fn load_observed_paths_for_class(
+        &self,
+        gateway: Arc<HubuumGateway>,
+        class_name: String,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.observed_paths_by_class.get(&class_name) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let cache_key = class_name.clone();
+        let fetched = spawn_blocking(move || {
+            gateway.observed_object_data_pointers(
+                &class_name,
+                DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+                DEFAULT_OBJECT_FIELD_DEPTH,
+            )
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot
+                .observed_paths_by_class
+                .insert(cache_key, fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
     async fn load_task_id_items(
         &self,
         gateway: Arc<HubuumGateway>,
@@ -467,6 +544,58 @@ impl CompletionStore {
         Ok(fetched)
     }
 
+    async fn load_computed_sort_fields(
+        &self,
+        gateway: Arc<HubuumGateway>,
+        class_name: String,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.computed_sort_fields_by_class.get(&class_name) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let lookup_class = class_name.clone();
+        let fetched = spawn_blocking(move || {
+            let shared = gateway.list_shared_computed_fields(&lookup_class)?;
+            let personal = gateway.list_personal_computed_fields(
+                Some(&lookup_class),
+                &ListQuery {
+                    limit: Some(100),
+                    ..ListQuery::default()
+                },
+            );
+            let mut fields = BTreeSet::new();
+            fields.extend(
+                shared
+                    .definitions
+                    .into_iter()
+                    .filter(|field| field.enabled)
+                    .map(|field| format!("S:{}", field.key)),
+            );
+            if let Ok(personal) = personal {
+                fields.extend(
+                    personal
+                        .items
+                        .into_iter()
+                        .filter(|field| field.enabled)
+                        .map(|field| format!("P:{}", field.key)),
+                );
+            }
+            Ok::<_, AppError>(fields.into_iter().collect::<Vec<_>>())
+        })
+        .await
+        .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot
+                .computed_sort_fields_by_class
+                .insert(class_name, fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
     fn cached(&self, kind: CompletionKind) -> Option<Vec<String>> {
         let Ok(snapshot) = self.snapshot.read() else {
             return None;
@@ -502,6 +631,45 @@ fn option_value(parts: &[String], long: &str) -> Option<String> {
     })
 }
 
+fn class_name_from_parts(parts: &[String]) -> Option<String> {
+    parts.iter().enumerate().find_map(|(index, part)| {
+        if part == "--class" || part == "-c" {
+            parts.get(index + 1).cloned()
+        } else {
+            part.strip_prefix("--class=")
+                .or_else(|| part.strip_prefix("-c="))
+                .map(str::to_string)
+        }
+    })
+}
+
+fn json_pointer_completion_candidates(pointers: &[String], prefix: &str) -> Vec<String> {
+    let mut candidates = BTreeSet::new();
+    for pointer in pointers {
+        candidates.insert(pointer.clone());
+        let child_prefix = format!("{pointer}/");
+        if pointers
+            .iter()
+            .any(|other| other.starts_with(&child_prefix))
+        {
+            candidates.insert(child_prefix);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .filter(|candidate| candidate.starts_with(prefix))
+        .filter(|candidate| !(prefix.ends_with('/') && candidate == prefix))
+        .collect()
+}
+
+fn pointers_from_schema_or_else(
+    schema: Option<&Value>,
+    observed: impl FnOnce() -> Vec<String>,
+) -> Vec<String> {
+    schema.map(schema_json_pointers).unwrap_or_else(observed)
+}
+
 fn task_description(task: &TaskRecord) -> String {
     let mut parts = vec![task.0.kind.to_string(), task.0.status.to_string()];
     if let Some(summary) = task
@@ -523,7 +691,11 @@ fn json_record_i64(record: &JsonRecord, keys: &[&str]) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::filter_prefix;
+    use std::cell::Cell;
+
+    use serde_json::json;
+
+    use super::{filter_prefix, json_pointer_completion_candidates, pointers_from_schema_or_else};
 
     #[test]
     fn filter_prefix_matches_start_of_value() {
@@ -537,5 +709,54 @@ mod tests {
             filter_prefix(&values, "al"),
             vec!["alpha".to_string(), "alpine".to_string()]
         );
+    }
+
+    #[test]
+    fn pointer_completion_supports_nested_expansion() {
+        let pointers = vec![
+            "/load".to_string(),
+            "/load/five".to_string(),
+            "/load/one".to_string(),
+            "/owner".to_string(),
+        ];
+
+        assert_eq!(
+            json_pointer_completion_candidates(&pointers, "/lo"),
+            vec![
+                "/load".to_string(),
+                "/load/".to_string(),
+                "/load/five".to_string(),
+                "/load/one".to_string(),
+            ]
+        );
+        assert_eq!(
+            json_pointer_completion_candidates(&pointers, "/load/"),
+            vec!["/load/five".to_string(), "/load/one".to_string()]
+        );
+    }
+
+    #[test]
+    fn schema_paths_take_precedence_over_observed_data() {
+        let fallback_called = Cell::new(false);
+        let schema = json!({
+            "properties": {
+                "schema_only": {"type": "string"}
+            }
+        });
+
+        let pointers = pointers_from_schema_or_else(Some(&schema), || {
+            fallback_called.set(true);
+            vec!["/observed_only".to_string()]
+        });
+
+        assert_eq!(pointers, vec!["/schema_only".to_string()]);
+        assert!(!fallback_called.get());
+    }
+
+    #[test]
+    fn observed_data_is_used_without_a_schema() {
+        let pointers = pointers_from_schema_or_else(None, || vec!["/observed".to_string()]);
+
+        assert_eq!(pointers, vec!["/observed".to_string()]);
     }
 }

@@ -11,9 +11,11 @@ use hubuum_client::FilterOperator;
 mod admin;
 mod audit;
 pub(crate) mod auth;
+mod backup;
 mod builder;
 mod class;
 mod collection;
+mod computed;
 pub(crate) mod config;
 mod event_delivery;
 mod event_sink;
@@ -25,6 +27,7 @@ mod history;
 mod imports;
 mod jobs;
 mod me;
+pub(crate) mod metrics;
 mod object;
 mod relations;
 mod remote_target;
@@ -48,10 +51,10 @@ use crate::{
     formatting::{OutputFormatter, TableRenderable},
     list_query::{
         filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
-        PagedResult,
+        PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
     },
     models::OutputFormat,
-    output::append_line,
+    output::{add_warning, append_line},
 };
 
 pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
@@ -304,10 +307,28 @@ pub fn build_list_query(
     include_total: bool,
     compatibility_filters: impl IntoIterator<Item = FilterClause>,
 ) -> Result<ListQuery, AppError> {
+    let limit = normalize_server_page_size(limit)?;
     let mut query = list_query_from_raw(where_clauses, sort_clauses, limit, cursor)?;
     query.include_total = include_total;
     query.filters.extend(compatibility_filters);
     Ok(query)
+}
+
+pub fn normalize_server_page_size(limit: Option<usize>) -> Result<Option<usize>, AppError> {
+    let Some(page_size) = limit.map(ServerPageSize::from_requested) else {
+        return Ok(None);
+    };
+
+    if page_size.was_truncated() {
+        add_warning(format!(
+            "Requested page size {} exceeds the Hubuum server v0.0.2 maximum of {}; using {}.",
+            page_size.requested(),
+            SERVER_MAX_PAGE_SIZE,
+            page_size.effective()
+        ))?;
+    }
+
+    Ok(Some(page_size.effective()))
 }
 
 pub fn render_list_page<T>(
@@ -477,10 +498,14 @@ pub fn want_help(tokens: &CommandTokenizer) -> bool {
 mod tests {
     use std::any::TypeId;
 
+    use serial_test::serial;
+
     use super::{
-        option_or_pos, required_option_or_pos, validate_unknown_options, CliOption, CommandArgs,
+        normalize_server_page_size, option_or_pos, required_option_or_pos,
+        validate_unknown_options, CliOption, CommandArgs,
     };
     use crate::errors::AppError;
+    use crate::output::{reset_output, take_output};
     use crate::tokenizer::CommandTokenizer;
 
     #[derive(Default)]
@@ -518,6 +543,24 @@ mod tests {
             .expect_err("unknown option should fail validation");
 
         assert!(err.to_string().contains("Did you mean '--limit'?"));
+    }
+
+    #[test]
+    #[serial]
+    fn oversized_page_sizes_are_truncated_with_a_warning() {
+        reset_output().expect("output should reset");
+
+        let effective =
+            normalize_server_page_size(Some(500)).expect("oversized page size should normalize");
+        let snapshot = take_output().expect("output should be captured");
+
+        assert_eq!(effective, Some(250));
+        assert_eq!(
+            snapshot.warnings,
+            vec![
+                "Requested page size 500 exceeds the Hubuum server v0.0.2 maximum of 250; using 250."
+            ]
+        );
     }
 
     #[test]
