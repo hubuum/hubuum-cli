@@ -10,6 +10,9 @@
   Hubuum server targets.
 - Expanded user list and detail output with proper names, identity scopes,
   provider ownership, management state, and synchronization timestamps.
+- Expanded group list and detail output with identity scopes, provider ownership,
+  external keys, and synchronization timestamps. Detail labels now expand their
+  alignment width when fields exceed the configured minimum padding.
 - Added unauthenticated Prometheus metrics retrieval from the default `/metrics`
   route or a runtime-configured path.
 - Added shared and personal computed-field list, create, update, delete, preview,

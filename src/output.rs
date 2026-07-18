@@ -486,7 +486,13 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
     } else {
         envelope.columns.clone()
     };
-    let padding = get_config().output.padding as usize;
+    let configured_padding = usize::try_from(get_config().output.padding).unwrap_or_default();
+    let padding = columns
+        .iter()
+        .map(String::len)
+        .max()
+        .unwrap_or_default()
+        .max(configured_padding);
     Ok(columns
         .iter()
         .map(|column| {
@@ -805,6 +811,29 @@ mod tests {
         };
 
         assert_eq!(snapshot.render(), "Warning: careful\nError: failed\n");
+    }
+
+    #[test]
+    #[serial]
+    fn detail_rendering_expands_padding_for_long_labels() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Never;
+        config.output.padding = 4;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+        set_semantic_output(OutputEnvelope::detail(
+            json!({"Name": "alice", "Last Sync Succeeded": "now"}),
+            vec!["Name".to_string(), "Last Sync Succeeded".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+        let colon_offsets = rendered
+            .lines()
+            .map(|line| line.find(':').expect("detail line should contain a colon"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(colon_offsets, vec![19, 19]);
     }
 
     #[test]
