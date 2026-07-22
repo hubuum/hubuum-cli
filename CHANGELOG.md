@@ -12,6 +12,8 @@
   available. Full `before` and `after` values are available with `--complete`.
   The referenced user and collection names are resolved when still available,
   and the diff is rendered after the event metadata.
+- Added `history show` for detailed class or object versions selected by history
+  ID or an RFC 3339 as-of timestamp.
 
 ## [0.0.2] - 2026-07-18
 

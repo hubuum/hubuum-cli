@@ -1410,6 +1410,7 @@ mod tests {
             "event delivery dead --id",
             "event delivery retry --id",
             "event delivery show --id",
+            "history show --id",
             "import results --id",
             "import show --id",
             "jobs forget --id",
@@ -1553,6 +1554,9 @@ mod tests {
         let object_history = catalog
             .resolve_command(&[], &["history".to_string(), "object".to_string()])
             .expect("history object should resolve");
+        let history_show = catalog
+            .resolve_command(&[], &["history".to_string(), "show".to_string()])
+            .expect("history show should resolve");
 
         let class_option = class_history
             .command
@@ -1590,6 +1594,14 @@ mod tests {
                 Some("--class-id") | Some("--object-id")
             )
         }));
+
+        for long in ["--class", "--name", "--id", "--at"] {
+            assert!(history_show
+                .command
+                .options
+                .iter()
+                .any(|option| option.long.as_deref() == Some(long)));
+        }
     }
 
     #[test]

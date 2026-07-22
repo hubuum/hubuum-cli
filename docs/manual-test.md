@@ -364,6 +364,8 @@ audit show --id <audit-event-id>
 audit show --id <audit-event-id> --complete
 history class SmokeHost
 history object --class SmokeHost smoke-1
+history show --class SmokeHost --name smoke-1 --id <history-id>
+history show --class SmokeHost --name smoke-1 --at <RFC3339-timestamp>
 ```
 
 Smoke remote targets if a safe endpoint is available:
@@ -384,6 +386,8 @@ Expected results:
   renders the diff after the event metadata.
 - Existing actor users and collections are resolved to `actor_user` and
   `collection` without removing their immutable ID fields.
+- `history show` renders the complete selected class or object version by either
+  history ID or RFC 3339 timestamp, with structured data expanded for reading.
 - Remote-target subject options use `collection`, `class`, `object`, `class_relation`, and `object_relation`.
 
 ## Themes, Tables, And Help

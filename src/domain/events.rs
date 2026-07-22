@@ -168,7 +168,9 @@ fn json_summary(value: &Value) -> String {
 }
 
 fn detail_json_summary(key: &str, value: &Value) -> String {
-    if key == "diff" && matches!(value, Value::Array(_) | Value::Object(_)) {
+    if matches!(key, "data" | "diff" | "json_schema")
+        && matches!(value, Value::Array(_) | Value::Object(_))
+    {
         pretty_json(value)
     } else {
         json_summary(value)
@@ -461,5 +463,16 @@ mod tests {
         );
 
         assert_eq!(fields.last().map(|(key, _)| key.as_str()), Some("diff"));
+    }
+
+    #[test]
+    fn history_data_is_pretty_printed_in_detail_output() {
+        let formatted = detail_json_summary(
+            "data",
+            &json!({"hardware": {"memory": {"total": "581 GB"}}}),
+        );
+
+        assert!(formatted.contains('\n'));
+        assert!(formatted.contains(r#""total": "581 GB""#));
     }
 }
