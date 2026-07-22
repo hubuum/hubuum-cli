@@ -26,10 +26,11 @@ regex = "1"
 dirs = "6"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.5.1", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.6.0", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.0.3"
+json-patch = "4"
 jsonpath-rust = "1"
 smooth-json = "0"
 serial_test = "3.4"

@@ -1,4 +1,6 @@
+use std::fs::read_to_string;
 use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -127,6 +129,7 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenti
             config.server.identity_scope.as_deref(),
             config.server.username.as_str(),
             config.server.password.clone(),
+            config.server.token_file.as_deref(),
         )
         .map(Arc::new)
     })
@@ -140,7 +143,13 @@ fn authenticate(
     identity_scope: Option<&str>,
     username: &str,
     password: Option<String>,
+    token_file: Option<&str>,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
+    if let Some(token_file) = token_file {
+        let token = BearerTokenFile::new(token_file)?.read()?;
+        return client.login_with_token(token).map_err(AppError::from);
+    }
+
     let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
     if let Some(token) = token {
         debug!("Found existing token, testing validity...");
@@ -175,6 +184,33 @@ fn authenticate(
     })?;
 
     Ok(client)
+}
+
+#[derive(Debug, Clone)]
+struct BearerTokenFile(PathBuf);
+
+impl BearerTokenFile {
+    fn new(path: impl AsRef<Path>) -> Result<Self, AppError> {
+        let path = path.as_ref();
+        if path.as_os_str().is_empty() {
+            return Err(AppError::GeneralConfigError(
+                "Bearer token file path cannot be empty".to_string(),
+            ));
+        }
+        Ok(Self(path.to_path_buf()))
+    }
+
+    fn read(&self) -> Result<Token, AppError> {
+        let contents = read_to_string(&self.0)?;
+        let token = contents.trim();
+        if token.is_empty() {
+            return Err(AppError::GeneralConfigError(format!(
+                "Bearer token file '{}' is empty",
+                self.0.display()
+            )));
+        }
+        Ok(Token::new(token))
+    }
 }
 
 impl AppRuntime {
@@ -232,5 +268,42 @@ impl AppRuntime {
                 scope.join(" ")
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::write;
+
+    use tempfile::tempdir;
+
+    use super::BearerTokenFile;
+
+    #[test]
+    fn bearer_token_file_trims_surrounding_whitespace() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("token");
+        write(&path, "  service-account-token\n").expect("token file should be written");
+
+        let token = BearerTokenFile::new(&path)
+            .expect("path should be accepted")
+            .read()
+            .expect("token should be read");
+
+        assert_eq!(token.as_str(), "service-account-token");
+    }
+
+    #[test]
+    fn bearer_token_file_rejects_empty_tokens() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("token");
+        write(&path, " \n").expect("token file should be written");
+
+        let error = BearerTokenFile::new(&path)
+            .expect("path should be accepted")
+            .read()
+            .expect_err("empty token should be rejected");
+
+        assert!(error.to_string().contains("is empty"));
     }
 }

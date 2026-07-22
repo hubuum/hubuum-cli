@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
 This checklist targets the current Hubuum CLI command surface and Hubuum server
-v0.0.2 using `hubuum_client` 0.5.x. It intentionally uses the current
+v0.0.3 using `hubuum_client` 0.6.x. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -67,6 +67,9 @@ object list --class SmokeHost --limit 10
 object list --class SmokeHost --limit 500
 object show --class SmokeHost smoke-1
 object modify --class SmokeHost smoke-1 --description "Smoke object updated" --data owner=platform
+object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"RHEL","rhel_subscription":"active"}}]'
+object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]'
+object data patch --class SmokeHost --name smoke-created --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]' --create --description "Created by CLI smoke test"
 object fields --class SmokeHost
 ```
 
@@ -122,8 +125,13 @@ owner_display = ["data.owner", "data.contact.owner"]
 Expected results:
 
 - Commands render tables or details with collection names, not namespace names.
+- The second `/facts` patch completely replaces the first facts snapshot: the
+  Fedora value remains and `rhel_subscription` is absent, while top-level
+  `owner` is unchanged.
+- Patching `smoke-created` reports a `Created` outcome. Repeating it reports a
+  `Patched` outcome and does not create a duplicate object.
 - `--limit 10` requests a page size and is sent unchanged.
-- A value above the server v0.0.2 maximum, such as `--limit 500`, produces a
+- A value above the supported maximum, such as `--limit 500`, produces a
   warning, sends 250, and preserves `--limit 250` in the generated next-page command.
 - Object reads omit computed values unless selected by a per-class default or by
   `--computed S:<key>`, `--computed P:<key>`, or `--computed all`.
@@ -410,7 +418,7 @@ Expected results:
 
 ## Administrative Configuration, Backups, And Restore
 
-With an administrator account, inspect the redacted server v0.0.2 configuration and
+With an administrator account, inspect the redacted server configuration and
 exercise backup handling:
 
 ```text

@@ -1,11 +1,14 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use hubuum_client::{FilterOperator, ObjectPatch, ObjectPost};
+use hubuum_client::{FilterOperator, ObjectDataPatchDocument, ObjectPatch, ObjectPost};
+use json_patch::{patch as apply_json_patch, Patch};
+use reqwest::StatusCode;
 use serde_json::Value;
 
 use crate::domain::{
-    build_related_object_tree, observed_json_pointers, ObjectShowRecord, ResolvedObjectRecord,
+    build_related_object_tree, observed_json_pointers, ObjectDataMutationOutcome,
+    ObjectDataMutationRecord, ObjectShowRecord, ResolvedObjectRecord,
 };
 use crate::errors::AppError;
 use crate::list_query::{
@@ -37,7 +40,98 @@ pub struct ObjectUpdateInput {
     pub data: Option<Value>,
 }
 
+#[derive(Debug, Clone)]
+enum MissingObjectPolicy {
+    Error,
+    Create { description: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectDataPatchInput {
+    class_name: String,
+    object_name: String,
+    patch: ObjectDataPatchDocument,
+    missing: MissingObjectPolicy,
+}
+
+impl ObjectDataPatchInput {
+    pub fn new(
+        class_name: impl Into<String>,
+        object_name: impl Into<String>,
+        patch: ObjectDataPatchDocument,
+    ) -> Result<Self, AppError> {
+        let class_name = class_name.into();
+        let object_name = object_name.into();
+        if class_name.trim().is_empty() {
+            return Err(AppError::ParseError(
+                "Object data patch class name cannot be empty".to_string(),
+            ));
+        }
+        if object_name.trim().is_empty() {
+            return Err(AppError::ParseError(
+                "Object data patch object name cannot be empty".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            class_name,
+            object_name,
+            patch,
+            missing: MissingObjectPolicy::Error,
+        })
+    }
+
+    pub fn create_if_missing(mut self, description: impl Into<String>) -> Self {
+        self.missing = MissingObjectPolicy::Create {
+            description: description.into(),
+        };
+        self
+    }
+}
+
 impl HubuumGateway {
+    pub fn patch_object_data(
+        &self,
+        input: ObjectDataPatchInput,
+    ) -> Result<ObjectDataMutationRecord, AppError> {
+        let objects = self
+            .client
+            .class_by_name(input.class_name.clone())
+            .objects();
+        let object = objects.by_name(input.object_name.clone());
+
+        match object.patch_data(&input.patch) {
+            Ok(patched) => Ok(ObjectDataMutationRecord::new(
+                ObjectDataMutationOutcome::Patched,
+                input.class_name,
+                patched,
+            )),
+            Err(error) if error.is_status(StatusCode::NOT_FOUND) => {
+                let MissingObjectPolicy::Create { description } = input.missing else {
+                    return Err(error.into());
+                };
+                let initial_data = initial_data_from_patch(&input.patch)?;
+                match objects.create(input.object_name.clone(), description, initial_data) {
+                    Ok(created) => Ok(ObjectDataMutationRecord::new(
+                        ObjectDataMutationOutcome::Created,
+                        input.class_name,
+                        created,
+                    )),
+                    Err(error) if error.is_status(StatusCode::CONFLICT) => {
+                        let patched = object.patch_data(&input.patch)?;
+                        Ok(ObjectDataMutationRecord::new(
+                            ObjectDataMutationOutcome::Patched,
+                            input.class_name,
+                            patched,
+                        ))
+                    }
+                    Err(error) => Err(error.into()),
+                }
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub fn observed_object_data_pointers(
         &self,
         class_name: &str,
@@ -100,8 +194,8 @@ impl HubuumGateway {
 
         let object = self.client.objects(class.id()).create_raw(ObjectPost {
             name: input.name,
-            hubuum_class_id: class.id(),
-            collection_id: collection.id(),
+            hubuum_class_id: Some(class.id()),
+            collection_id: Some(collection.id()),
             description: input.description,
             data: input.data,
         })?;
@@ -223,7 +317,7 @@ impl HubuumGateway {
         }
         if has_computed_sort && query.cursor.is_some() {
             return Err(AppError::ParseError(
-                "--cursor cannot be combined with S:/P: computed sorting because server v0.0.2 does not provide cursors for computed orderings"
+                "--cursor cannot be combined with S:/P: computed sorting because locally sorted results do not have server cursors"
                     .to_string(),
             ));
         }
@@ -397,6 +491,17 @@ impl HubuumGateway {
             &collectionmap,
         ))
     }
+}
+
+fn initial_data_from_patch(patch: &ObjectDataPatchDocument) -> Result<Value, AppError> {
+    let patch = serde_json::from_value::<Patch>(serde_json::to_value(patch)?)?;
+    let mut data = serde_json::json!({});
+    apply_json_patch(&mut data, &patch.0).map_err(|error| {
+        AppError::ParseError(format!(
+            "Cannot create the missing object because the patch does not apply to an empty JSON object: {error}"
+        ))
+    })?;
+    Ok(data)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -637,14 +742,144 @@ pub(crate) const OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use std::thread;
+
+    use hubuum_client::{
+        blocking::Client as BlockingClient, BaseUrl, ObjectDataPatchDocument,
+        ObjectDataPatchOperation, Token,
+    };
     use serde_json::json;
 
-    use crate::domain::ResolvedObjectRecord;
+    use crate::domain::{ObjectDataMutationOutcome, ResolvedObjectRecord};
     use crate::list_query::{resolve_filter_field_spec, ListQuery, SortClause, SortDirectionArg};
 
     use super::{
-        sort_objects_locally, validate_object_sort_clauses, ObjectSortClause, OBJECT_FILTER_SPECS,
+        initial_data_from_patch, sort_objects_locally, validate_object_sort_clauses, HubuumGateway,
+        ObjectDataPatchInput, ObjectSortClause, OBJECT_FILTER_SPECS,
     };
+
+    #[test]
+    fn create_conflict_retries_exact_name_patch_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("listener should have an address");
+        let object = json!({
+            "id": 42,
+            "name": "srv-01",
+            "collection_id": 7,
+            "hubuum_class_id": 9,
+            "description": "Managed by Ansible",
+            "data": {"facts": {"os": "Fedora"}},
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:01Z"
+        })
+        .to_string();
+        let responses = vec![
+            http_response(
+                "404 Not Found",
+                r#"{"error":"not_found","message":"missing"}"#,
+            ),
+            http_response("409 Conflict", r#"{"error":"conflict","message":"exists"}"#),
+            http_response("200 OK", &object),
+        ];
+        let server = thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|response| {
+                    let (mut stream, _) = listener.accept().expect("request should connect");
+                    let request = read_http_request(&mut stream);
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("response should be written");
+                    request
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let base_url =
+            BaseUrl::from_str(&format!("http://{address}")).expect("test base URL should parse");
+        let client = BlockingClient::builder(base_url)
+            .build()
+            .expect("test client should build")
+            .authenticate(Token::new("test-token"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+        let patch = ObjectDataPatchDocument::new([ObjectDataPatchOperation::Add {
+            path: "/facts".to_string(),
+            value: json!({"os": "Fedora"}),
+        }]);
+        let input = ObjectDataPatchInput::new("Hosts", "srv-01", patch)
+            .expect("input should be valid")
+            .create_if_missing("Managed by Ansible");
+
+        let result = gateway
+            .patch_object_data(input)
+            .expect("conflicting create should retry the patch");
+        let requests = server.join().expect("test server should finish");
+
+        assert_eq!(result.outcome, ObjectDataMutationOutcome::Patched);
+        assert_eq!(result.object.id, 42);
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].starts_with(
+            "PATCH /api/v1/classes/by-name/Hosts/objects/by-name/srv-01/data HTTP/1.1"
+        ));
+        assert!(requests[1].starts_with("POST /api/v1/classes/by-name/Hosts/objects HTTP/1.1"));
+        assert!(requests[2].starts_with(
+            "PATCH /api/v1/classes/by-name/Hosts/objects/by-name/srv-01/data HTTP/1.1"
+        ));
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("content-type: application/json-patch+json"));
+        assert!(requests[1].contains(r#""data":{"facts":{"os":"Fedora"}}"#));
+    }
+
+    #[test]
+    fn create_data_applies_patch_to_an_empty_object() {
+        let patch = ObjectDataPatchDocument::new([
+            ObjectDataPatchOperation::Add {
+                path: "/facts".to_string(),
+                value: json!({"os": "Fedora"}),
+            },
+            ObjectDataPatchOperation::Add {
+                path: "/publisher".to_string(),
+                value: json!("ansible"),
+            },
+        ]);
+
+        let data = initial_data_from_patch(&patch).expect("patch should initialize object data");
+
+        assert_eq!(
+            data,
+            json!({"facts": {"os": "Fedora"}, "publisher": "ansible"})
+        );
+    }
+
+    #[test]
+    fn create_data_rejects_patches_with_missing_parents() {
+        let patch = ObjectDataPatchDocument::new([ObjectDataPatchOperation::Add {
+            path: "/facts/os".to_string(),
+            value: json!("Fedora"),
+        }]);
+
+        let error = initial_data_from_patch(&patch)
+            .expect_err("patch with a missing parent should not initialize data");
+
+        assert!(error
+            .to_string()
+            .contains("does not apply to an empty JSON object"));
+    }
+
+    #[test]
+    fn object_data_patch_input_rejects_empty_names() {
+        let patch = ObjectDataPatchDocument::default();
+
+        assert!(ObjectDataPatchInput::new("", "host", patch.clone()).is_err());
+        assert!(ObjectDataPatchInput::new("Hosts", " ", patch).is_err());
+    }
 
     #[test]
     fn object_filters_accept_json_data_paths() {
@@ -739,6 +974,40 @@ mod tests {
             computed: Some(computed),
             created_at: String::new(),
             updated_at: String::new(),
+        }
+    }
+
+    fn http_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let read = stream.read(&mut buffer).expect("request should be read");
+            assert!(read > 0, "request ended before its body was complete");
+            request.extend_from_slice(&buffer[..read]);
+
+            let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+            else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().expect("valid content length"))
+                })
+                .unwrap_or(0);
+            if request.len() >= header_end + 4 + content_length {
+                return String::from_utf8(request).expect("request should be UTF-8");
+            }
         }
     }
 }

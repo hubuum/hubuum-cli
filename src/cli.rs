@@ -73,7 +73,16 @@ pub fn build_cli() -> Command {
                 .long("password")
                 .value_name("PASSWORD")
                 .env("HUBUUM_CLI__SERVER__PASSWORD")
+                .conflicts_with("token_file")
                 .help("Set the password (ideally use ENV)"),
+        )
+        .arg(
+            Arg::new("token_file")
+                .long("token-file")
+                .value_name("FILE")
+                .env("HUBUUM_CLI__SERVER__TOKEN_FILE")
+                .conflicts_with("password")
+                .help("Read a bearer token from a file instead of using password login"),
         )
         .arg(
             Arg::new("cache_time")
@@ -348,6 +357,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--identity-scope"
             | "--username"
             | "--password"
+            | "--token-file"
             | "--cache-time"
             | "--cache-size"
             | "--background-poll-interval"
@@ -435,6 +445,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(password) = get_command_line_value::<String>(matches, "password") {
         config.server.password = Some(password.to_string());
+    }
+    if let Some(token_file) = get_command_line_value::<String>(matches, "token_file") {
+        config.server.token_file = Some(token_file.to_string());
     }
     if let Some(cache_time) = get_command_line_value::<u64>(matches, "cache_time") {
         config.cache.time = *cache_time;
@@ -542,6 +555,33 @@ mod tests {
     }
 
     #[test]
+    fn update_config_from_cli_applies_token_file() {
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--token-file", "/run/secrets/hubuum"])
+            .expect("cli should parse");
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+
+        assert_eq!(
+            config.server.token_file.as_deref(),
+            Some("/run/secrets/hubuum")
+        );
+    }
+
+    #[test]
+    fn password_and_token_file_are_mutually_exclusive() {
+        let result = build_cli().try_get_matches_from([
+            "hubuum-cli",
+            "--password",
+            "secret",
+            "--token-file",
+            "/run/secrets/hubuum",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn update_config_from_cli_applies_relation_and_output_flags() {
         let matches = build_cli()
             .try_get_matches_from([
@@ -618,6 +658,8 @@ mod tests {
             "api.example.com",
             "--identity-scope",
             "corp-directory",
+            "--token-file",
+            "/run/secrets/hubuum",
             "--table-style",
             "plain",
             "object",
@@ -634,6 +676,8 @@ mod tests {
                 "api.example.com",
                 "--identity-scope",
                 "corp-directory",
+                "--token-file",
+                "/run/secrets/hubuum",
                 "--table-style",
                 "plain"
             ]

@@ -58,7 +58,10 @@ pub use object_fields::{
     observed_json_pointers, visit_observed_data_fields, DEFAULT_OBJECT_FIELD_DEPTH,
     DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
-pub use objects::{ObjectRecord, ObjectShowRecord, ResolvedObjectRecord};
+pub use objects::{
+    ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectRecord, ObjectShowRecord,
+    ResolvedObjectRecord,
+};
 pub use relations::{
     build_related_class_tree, build_related_object_tree, RelatedClassTreeNode,
     RelatedObjectTreeNode, ResolvedClassRelationRecord, ResolvedObjectRelationRecord,

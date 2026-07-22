@@ -8,6 +8,43 @@ use super::RelatedObjectTreeNode;
 
 transparent_record!(ObjectRecord, Object);
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectDataMutationOutcome {
+    Patched,
+    Created,
+}
+
+impl ObjectDataMutationOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Patched => "Patched",
+            Self::Created => "Created",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectDataMutationRecord {
+    pub outcome: ObjectDataMutationOutcome,
+    pub class: String,
+    pub object: Object,
+}
+
+impl ObjectDataMutationRecord {
+    pub fn new(
+        outcome: ObjectDataMutationOutcome,
+        class: impl Into<String>,
+        object: Object,
+    ) -> Self {
+        Self {
+            outcome,
+            class: class.into(),
+            object,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedObjectRecord {
     pub id: i32,
