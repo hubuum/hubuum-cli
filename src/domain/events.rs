@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string, to_value, Error as JsonError, Map, Value};
 
 use hubuum_filter::OutputEnvelope;
+use json_patch::diff;
 
 use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, TableRenderable};
@@ -24,6 +25,24 @@ impl JsonRecord {
         Ok(Self {
             value: to_value(value)?,
         })
+    }
+
+    pub(crate) fn with_before_after_diff(mut self) -> Result<Self, JsonError> {
+        let generated_diff = match &self.value {
+            Value::Object(object) if !object.contains_key("diff") => {
+                match (object.get("before"), object.get("after")) {
+                    (Some(before), Some(after)) => Some(to_value(diff(before, after))?),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        if let (Some(object), Some(generated_diff)) = (self.value.as_object_mut(), generated_diff) {
+            object.insert("diff".to_string(), generated_diff);
+        }
+
+        Ok(self)
     }
 
     fn get_string(&self, key: &str) -> String {
@@ -173,5 +192,67 @@ mod tests {
                 "2026-07-05T23:31:49.388144+00:00".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn before_after_diff_is_an_rfc_6902_patch() {
+        let record = JsonRecord::from(json!({
+            "before": {
+                "data": {
+                    "hardware": {
+                        "memory": {"total": "580 GB"}
+                    }
+                },
+                "updated_at": "2026-07-11T08:48:45.312920"
+            },
+            "after": {
+                "data": {
+                    "hardware": {
+                        "memory": {"total": "581 GB"}
+                    }
+                },
+                "updated_at": "2026-07-21T20:17:03.617598"
+            }
+        }))
+        .with_before_after_diff()
+        .expect("diff should serialize");
+
+        assert_eq!(
+            record.value["diff"],
+            json!([
+                {
+                    "op": "replace",
+                    "path": "/data/hardware/memory/total",
+                    "value": "581 GB"
+                },
+                {
+                    "op": "replace",
+                    "path": "/updated_at",
+                    "value": "2026-07-21T20:17:03.617598"
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn before_after_diff_requires_both_snapshots() {
+        let record = JsonRecord::from(json!({"before": {"name": "host.example.org"}}))
+            .with_before_after_diff()
+            .expect("record should remain serializable");
+
+        assert!(record.value.get("diff").is_none());
+    }
+
+    #[test]
+    fn before_after_diff_preserves_server_value() {
+        let record = JsonRecord::from(json!({
+            "before": {"name": "before.example.org"},
+            "after": {"name": "after.example.org"},
+            "diff": {"provided_by": "server"}
+        }))
+        .with_before_after_diff()
+        .expect("record should remain serializable");
+
+        assert_eq!(record.value["diff"], json!({"provided_by": "server"}));
     }
 }

@@ -39,7 +39,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Show a single audit event by id"),
                     long_about: Some(
-                        "Looks for a visible audit event by id. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
+                        "Looks for a visible audit event by id. When before and after snapshots are available, the result includes their RFC 6902 JSON Patch diff. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
                     ),
                     examples: Some("12345\n--id 12345"),
                 },
@@ -130,7 +130,8 @@ impl CliCommand for AuditShow {
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
         let event = services
             .gateway()
-            .audit_event_by_id(required_i64(query.id, "id")?)?;
+            .audit_event_by_id(required_i64(query.id, "id")?)?
+            .with_before_after_diff()?;
         render_json_record(tokens, &event)
     }
 }

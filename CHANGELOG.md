@@ -8,6 +8,8 @@
   behavior and a bounded retry when concurrent creation returns a conflict.
 - Added `--token-file` and `HUBUUM_CLI__SERVER__TOKEN_FILE` authentication for
   non-interactive service-account workflows.
+- Added a derived RFC 6902 `diff` to `audit show` output when both `before` and
+  `after` snapshots are available.
 
 ## [0.0.2] - 2026-07-18
 

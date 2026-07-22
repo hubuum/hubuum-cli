@@ -378,6 +378,8 @@ remote-target delete cli-smoke-target
 Expected results:
 
 - Event and audit commands render current resource names.
+- `audit show` includes an RFC 6902 `diff` when the event contains both `before`
+  and `after` snapshots.
 - Remote-target subject options use `collection`, `class`, `object`, `class_relation`, and `object_relation`.
 
 ## Themes, Tables, And Help
