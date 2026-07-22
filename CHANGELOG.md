@@ -10,6 +10,8 @@
   non-interactive service-account workflows.
 - Added a readable nested `diff` to `audit show` output when both snapshots are
   available. Full `before` and `after` values are available with `--complete`.
+  The referenced user and collection names are resolved when still available,
+  and the diff is rendered after the event metadata.
 
 ## [0.0.2] - 2026-07-18
 

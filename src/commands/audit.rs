@@ -39,7 +39,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Show a single audit event by id"),
                     long_about: Some(
-                        "Looks for a visible audit event by id. When before and after snapshots are available, the result includes a nested JSON diff. Pass --complete to include the full snapshots. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
+                        "Looks for a visible audit event by id. When before and after snapshots are available, the result includes a nested JSON diff. Pass --complete to include the full snapshots. User and collection names are resolved when the referenced resources are still available. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
                     ),
                     examples: Some("12345\n--id 12345"),
                 },

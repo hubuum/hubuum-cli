@@ -4,6 +4,7 @@ use hubuum_client::{
     FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, Page, QueryFilter,
     UpdateEventSink, UpdateEventSubscription,
 };
+use log::debug;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{from_value, Value};
@@ -192,7 +193,7 @@ impl HubuumGateway {
                 .into_iter()
                 .find(|record| json_record_event_id(record) == Some(id))
             {
-                return Ok(record);
+                return Ok(self.resolve_audit_resource_names(record));
             }
 
             let Some(next_cursor) = page.next_cursor else {
@@ -205,6 +206,31 @@ impl HubuumGateway {
             "audit event {id} not found in the first {} visible events",
             PAGE_LIMIT * MAX_PAGES
         )))
+    }
+
+    fn resolve_audit_resource_names(&self, record: JsonRecord) -> JsonRecord {
+        let actor_user = record.audit_actor_user_id().and_then(|id| {
+            self.client
+                .users()
+                .get(id)
+                .map(|user| user.resource().name.clone())
+                .map_err(|error| {
+                    debug!("Unable to resolve audit actor user {id}: {error}");
+                })
+                .ok()
+        });
+        let collection = record.audit_collection_id().and_then(|id| {
+            self.client
+                .collections()
+                .get(id)
+                .map(|collection| collection.resource().name.clone())
+                .map_err(|error| {
+                    debug!("Unable to resolve audit collection {id}: {error}");
+                })
+                .ok()
+        });
+
+        record.with_audit_resource_names(actor_user, collection)
     }
 
     pub fn history(

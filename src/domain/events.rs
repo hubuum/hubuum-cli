@@ -52,6 +52,41 @@ impl JsonRecord {
         self
     }
 
+    pub(crate) fn audit_actor_user_id(&self) -> Option<i32> {
+        self.audit_id("actor_user_id")
+    }
+
+    pub(crate) fn audit_collection_id(&self) -> Option<i32> {
+        self.audit_id("collection_id")
+    }
+
+    pub(crate) fn with_audit_resource_names(
+        mut self,
+        actor_user: Option<String>,
+        collection: Option<String>,
+    ) -> Self {
+        if let Some(object) = self.value.as_object_mut() {
+            if let Some(actor_user) = actor_user {
+                object
+                    .entry("actor_user")
+                    .or_insert_with(|| Value::String(actor_user));
+            }
+            if let Some(collection) = collection {
+                object
+                    .entry("collection")
+                    .or_insert_with(|| Value::String(collection));
+            }
+        }
+        self
+    }
+
+    fn audit_id(&self, key: &str) -> Option<i32> {
+        self.value
+            .get(key)
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok())
+    }
+
     fn get_string(&self, key: &str) -> String {
         self.value
             .get(key)
@@ -138,6 +173,15 @@ fn detail_json_summary(key: &str, value: &Value) -> String {
     } else {
         json_summary(value)
     }
+}
+
+fn detail_fields(map: &Map<String, Value>) -> Vec<(&String, &Value)> {
+    let mut fields = map.iter().collect::<Vec<_>>();
+    if let Some(index) = fields.iter().position(|(key, _)| key.as_str() == "diff") {
+        let diff = fields.remove(index);
+        fields.push(diff);
+    }
+    fields
 }
 
 fn nested_json_diff(before: &Value, after: &Value) -> Option<Value> {
@@ -230,7 +274,7 @@ impl OutputFormatter for JsonRecord {
             Value::Object(map) => {
                 let mut object = Map::new();
                 let mut columns = Vec::with_capacity(map.len());
-                for (key, value) in map {
+                for (key, value) in detail_fields(map) {
                     columns.push(key.clone());
                     object.insert(key.clone(), Value::String(detail_json_summary(key, value)));
                 }
@@ -265,7 +309,7 @@ impl DashFallback for String {
 mod tests {
     use serde_json::json;
 
-    use super::{detail_json_summary, JsonRecord};
+    use super::{detail_fields, detail_json_summary, JsonRecord};
     use crate::formatting::TableRenderable;
 
     #[test]
@@ -381,5 +425,41 @@ mod tests {
         assert_eq!(record.value["diff"], json!({"provided_by": "server"}));
         assert!(record.value.get("before").is_none());
         assert!(record.value.get("after").is_none());
+    }
+
+    #[test]
+    fn audit_resource_names_are_added_without_replacing_ids() {
+        let record = JsonRecord::from(json!({
+            "actor_user_id": 1,
+            "collection_id": 2
+        }));
+
+        assert_eq!(record.audit_actor_user_id(), Some(1));
+        assert_eq!(record.audit_collection_id(), Some(2));
+
+        let record =
+            record.with_audit_resource_names(Some("admin".to_string()), Some("Hosts".to_string()));
+
+        assert_eq!(record.value["actor_user"], "admin");
+        assert_eq!(record.value["actor_user_id"], 1);
+        assert_eq!(record.value["collection"], "Hosts");
+        assert_eq!(record.value["collection_id"], 2);
+    }
+
+    #[test]
+    fn audit_diff_is_the_last_detail_field() {
+        let record = JsonRecord::from(json!({
+            "action": "updated",
+            "diff": {"name": {"before": "old", "after": "new"}},
+            "summary": "Object updated"
+        }));
+        let fields = detail_fields(
+            record
+                .value
+                .as_object()
+                .expect("audit event should be an object"),
+        );
+
+        assert_eq!(fields.last().map(|(key, _)| key.as_str()), Some("diff"));
     }
 }

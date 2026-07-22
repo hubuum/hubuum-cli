@@ -380,7 +380,10 @@ Expected results:
 
 - Event and audit commands render current resource names.
 - `audit show` includes a readable nested `diff` when both snapshots exist,
-  hides the complete snapshots by default, and restores them with `--complete`.
+  hides the complete snapshots by default, restores them with `--complete`, and
+  renders the diff after the event metadata.
+- Existing actor users and collections are resolved to `actor_user` and
+  `collection` without removing their immutable ID fields.
 - Remote-target subject options use `collection`, `class`, `object`, `class_relation`, and `object_relation`.
 
 ## Themes, Tables, And Help
