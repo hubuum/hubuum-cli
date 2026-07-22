@@ -1167,6 +1167,7 @@ mod tests {
         assert!(!list_help.contains("--entity-id"));
         assert!(show_help.contains("Show a single audit event by id"));
         assert!(show_help.contains("--id"));
+        assert!(show_help.contains("--complete"));
     }
 
     #[test]

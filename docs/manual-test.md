@@ -361,6 +361,7 @@ event delivery health
 event delivery list --limit 5
 audit list --limit 5
 audit show --id <audit-event-id>
+audit show --id <audit-event-id> --complete
 history class SmokeHost
 history object --class SmokeHost smoke-1
 ```
@@ -378,8 +379,8 @@ remote-target delete cli-smoke-target
 Expected results:
 
 - Event and audit commands render current resource names.
-- `audit show` includes an RFC 6902 `diff` when the event contains both `before`
-  and `after` snapshots.
+- `audit show` includes a readable nested `diff` when both snapshots exist,
+  hides the complete snapshots by default, and restores them with `--complete`.
 - Remote-target subject options use `collection`, `class`, `object`, `class_relation`, and `object_relation`.
 
 ## Themes, Tables, And Help

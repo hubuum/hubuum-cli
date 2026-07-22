@@ -495,13 +495,21 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
         .max(configured_padding);
     Ok(columns
         .iter()
-        .map(|column| {
-            format!(
-                "{column:<padding$}: {}",
-                cell_text(envelope.value.get(column))
-            )
-        })
+        .map(|column| render_detail_field(column, &cell_text(envelope.value.get(column)), padding))
         .collect())
+}
+
+fn render_detail_field(column: &str, value: &str, padding: usize) -> String {
+    let mut lines = value.split('\n');
+    let first = lines.next().unwrap_or_default();
+    let mut rendered = format!("{column:<padding$}: {first}");
+    let continuation_indent = " ".repeat(padding + 2);
+    for line in lines {
+        rendered.push('\n');
+        rendered.push_str(&continuation_indent);
+        rendered.push_str(line);
+    }
+    rendered
 }
 
 fn render_jsonl(value: &Value) -> Result<Vec<String>, AppError> {
@@ -834,6 +842,28 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(colon_offsets, vec![19, 19]);
+    }
+
+    #[test]
+    #[serial]
+    fn detail_rendering_aligns_multiline_values() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Never;
+        config.output.padding = 4;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("output should reset");
+        set_semantic_output(OutputEnvelope::detail(
+            json!({"diff": "{\n  \"before\": \"580 GB\",\n  \"after\": \"581 GB\"\n}"}),
+            vec!["diff".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert_eq!(
+            rendered,
+            "diff: {\n        \"before\": \"580 GB\",\n        \"after\": \"581 GB\"\n      }\n"
+        );
     }
 
     #[test]
