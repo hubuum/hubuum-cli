@@ -17,11 +17,18 @@ Keep values with different owners in separate top-level members:
   "facts": {
     "schema_version": 1,
     "source": "ansible",
-    "collected_at": "2026-07-21T12:00:00Z",
+    "collected_at": "2026-07-22T02:15:00Z",
     "os": {
-      "family": "RedHat",
-      "distribution": "Fedora",
-      "version": "42"
+      "kernel": {
+        "name": "Linux",
+        "release": "6.14.11-300.fc42.x86_64"
+      },
+      "fedora": {
+        "client": true,
+        "major": "42",
+        "type": "Client",
+        "version": "42"
+      }
     }
   }
 }
@@ -36,9 +43,16 @@ Prefer a normalized, reviewed subset of Ansible facts over publishing the entire
 `ansible_facts` object. This keeps the data contract stable and avoids collecting
 unexpected sensitive or high-volume values.
 
-## Patch Document
+## Expected Patch Format
 
-Build one RFC 6902 document after fact gathering has completed successfully:
+The value supplied with `--patch` must be an RFC 6902 JSON Patch document. The
+file is UTF-8 JSON whose top-level value is an array of patch operations. It is
+the request body only: do not wrap it in an object containing a URL, HTTP method,
+headers, or `body` member. Hubuum CLI selects the PATCH endpoint and sends the
+`application/json-patch+json` content type.
+
+For normal Ansible publication, use exactly one operation: `add` the complete
+normalized snapshot at `/facts`. The following is a representative patch file:
 
 ```json
 [
@@ -48,21 +62,80 @@ Build one RFC 6902 document after fact gathering has completed successfully:
     "value": {
       "schema_version": 1,
       "source": "ansible",
-      "collected_at": "2026-07-21T12:00:00Z",
+      "collected_at": "2026-07-22T02:15:00Z",
+      "network": {
+        "interfaces": [
+          {
+            "name": "ens192",
+            "ipv4": "129.240.1.10",
+            "ipv6": "2001:db8::10",
+            "mac": "00:11:22:33:44:55"
+          }
+        ]
+      },
       "os": {
-        "family": "RedHat",
-        "distribution": "Fedora",
-        "version": "42"
+        "kernel": {
+          "name": "Linux",
+          "release": "6.14.11-300.fc42.x86_64"
+        },
+        "fedora": {
+          "client": true,
+          "major": "42",
+          "type": "Client",
+          "version": "42"
+        }
+      },
+      "hardware": {
+        "serial": "HOST-1",
+        "model": "PowerEdge R650",
+        "cpu": {
+          "summary": "8 x AMD EPYC 7262"
+        },
+        "memory": {
+          "total": "16 GB"
+        }
+      },
+      "observed": {
+        "uptime": 123456,
+        "last_topuser": "alice"
       }
     }
   }
 ]
 ```
 
+The normalized `/facts` value has this version 1 contract:
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | integer | Required; currently `1` |
+| `source` | string | Required; `ansible` for this publisher |
+| `collected_at` | string | Required RFC 3339 UTC timestamp |
+| `network.interfaces` | array | Observed interfaces with a required `name` and optional string `ipv4`, `ipv6`, and `mac` members |
+| `os.kernel` | object | Optional `name` and `release` strings |
+| `os.redhat` | object | RHEL `version`, `major`, and `type` strings plus `client` and `server` booleans when known |
+| `os.fedora` | object | Fedora `version`, `major`, and `type` strings plus a `client` boolean when known |
+| `os.macos` | object | macOS `version` string |
+| `hardware` | object | Optional `serial` and `model` strings, `cpu.summary` string, and `memory.total` string |
+| `observed` | object | Volatile observations such as integer `uptime` seconds and string `last_topuser` |
+
+Include at most one of `os.redhat`, `os.fedora`, or `os.macos` in a snapshot.
+Omit values that Ansible did not observe; do not encode missing values as empty
+strings or the strings `null`, `true`, or `false`. Version and major-release
+values are strings because they are identifiers, while flags are JSON booleans.
+Additional version 1 members require a reviewed contract change rather than
+copying arbitrary keys from `ansible_facts`.
+
 RFC 6902 `add /facts` creates the member when absent and replaces its complete
 value when present. It is not a recursive merge. Replacing the complete snapshot
 therefore removes RHEL-only values after a machine changes to Fedora while
 preserving unrelated top-level data.
+
+An existing object may instead be updated with a compare-and-set patch containing
+`test /facts` with the exact previously read snapshot followed by `add /facts`
+with the new snapshot. A failed `test` rejects the whole patch. This form requires
+a prior read and must not be used with `--create`, because `/facts` cannot be
+tested on a new empty object.
 
 Publish the document with one command delegated to the Ansible controller:
 
