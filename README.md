@@ -111,10 +111,11 @@ hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token \
 
 With `--create`, Hubuum CLI initializes a missing object by applying the patch to
 an empty JSON object. A concurrent create conflict causes one exact-name PATCH
-retry. In particular, RFC 6902 `add` at `/facts` creates or completely replaces
-that member, clearing stale facts without changing other object data. See the
-[Ansible fact publication guide](docs/ansible-facts.md) for the recommended data
-ownership and service-account model.
+retry. In this example, RFC 6902 `add` at `/facts` creates or completely replaces
+that member without changing other object data. The path and its contents are
+chosen by the consumer. See the
+[Ansible fact publication guide](docs/ansible-facts.md) for the accepted JSON
+Patch format, create-if-missing behavior, and service-account permissions.
 
 Administrators can inspect the server's redacted effective process configuration:
 
