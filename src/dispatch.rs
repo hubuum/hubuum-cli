@@ -560,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn offline_unknown_commands_include_catalog_suggestion() {
         let catalog = build_command_catalog();
         let err = execute_offline_line(&catalog, "clas list")
@@ -569,6 +570,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn offline_command_help_does_not_execute_the_command() {
         let catalog = build_command_catalog();
         let outcome = execute_offline_line(&catalog, "metrics --help")
@@ -582,6 +584,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn offline_redirect_is_attached_and_removed_from_command() {
         let catalog = build_command_catalog();
         let outcome = execute_offline_line(&catalog, "help > help.txt")
