@@ -7,6 +7,7 @@ use serde_json::to_string as to_json_string;
 use std::collections::{HashMap, HashSet};
 use std::env::var_os;
 use std::fs::{create_dir_all, read_to_string, write};
+use std::io::ErrorKind;
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -690,7 +691,7 @@ pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> 
     }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     let parsed = parse_config_value(descriptor, value)?;
     set_toml_path(&mut root, descriptor.key, parsed)?;
     if descriptor.key == "output.object_list_class_aliases" {
@@ -706,7 +707,7 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
         || object_list_class_alias_key(key).is_some()
     {
         let path = get_config_state().paths.write_target.clone();
-        let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+        let mut root = read_toml_file_for_update(&path)?;
         if let Some((class_name, alias)) = object_list_class_alias_key(key) {
             remove_toml_path(
                 &mut root,
@@ -724,7 +725,7 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
     }
     let descriptor = descriptor_for_key(key)?;
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     remove_toml_path(&mut root, descriptor.key);
     if descriptor.key == "output.object_list_class_aliases" {
         remove_toml_path(&mut root, "output.object_list_class_meta");
@@ -735,7 +736,7 @@ pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
 
 pub fn persist_user_preferences(preferences: &UserPreferences) -> Result<PathBuf, AppError> {
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     merge_user_preferences(&mut root, preferences)?;
     write_toml_file(&path, &root)?;
     Ok(path)
@@ -1231,6 +1232,30 @@ fn read_toml_file(path: &Path) -> Option<TomlValue> {
     parse_toml(&contents).ok()
 }
 
+fn read_toml_file_for_update(path: &Path) -> Result<TomlValue, AppError> {
+    let contents = match read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(TomlValue::Table(TomlMap::new()));
+        }
+        Err(error) => {
+            return Err(AppError::ConfigError(format!(
+                "Could not read config file '{}': {error}",
+                path.display()
+            )));
+        }
+    };
+    if contents.trim().is_empty() {
+        return Ok(TomlValue::Table(TomlMap::new()));
+    }
+    parse_toml(&contents).map_err(|error| {
+        AppError::ConfigError(format!(
+            "Could not parse config file '{}': {error}",
+            path.display()
+        ))
+    })
+}
+
 fn toml_has_key(root: Option<&TomlValue>, key: &str) -> bool {
     root.and_then(|value| toml_get(value, key)).is_some()
 }
@@ -1361,7 +1386,7 @@ fn set_persisted_object_list_class_columns(
     value: &str,
 ) -> Result<PathBuf, AppError> {
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     let columns = value
         .split(',')
         .map(str::trim)
@@ -1384,7 +1409,7 @@ fn set_persisted_object_class_computed_fields(
     let fields =
         ComputedFieldSet::from_values(&[value.to_string()]).map_err(AppError::ConfigError)?;
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     let fields = fields
         .selectors()
         .iter()
@@ -1405,7 +1430,7 @@ fn set_persisted_object_list_class_alias(
     value: &str,
 ) -> Result<PathBuf, AppError> {
     let path = get_config_state().paths.write_target.clone();
-    let mut root = read_toml_file(&path).unwrap_or(TomlValue::Table(TomlMap::new()));
+    let mut root = read_toml_file_for_update(&path)?;
     remove_toml_path(
         &mut root,
         &format!("output.object_list_class_meta.{class_name}.{alias}"),
@@ -1507,7 +1532,7 @@ mod tests {
     };
     use serial_test::serial;
     use std::env::{remove_var, set_var, temp_dir};
-    use std::fs::{remove_file, write};
+    use std::fs::{read_to_string, remove_file, write};
     use std::process::id;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::tempdir;
@@ -1769,6 +1794,58 @@ Hosts = ["all", "S:os_version"]
             .expect("computed defaults should be removed");
         let configured = load_config(Some(path)).expect("updated config should load");
         assert!(configured.output.object_class_computed_fields.is_empty());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn config_mutations_preserve_malformed_files() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        let malformed = "[output\nunknown = true\n";
+        write(&path, malformed).expect("malformed config should be written");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        let set_error = set_persisted_value("server.port", "8443")
+            .expect_err("set should reject malformed config");
+        assert!(set_error
+            .to_string()
+            .contains(path.to_string_lossy().as_ref()));
+        assert_eq!(
+            read_to_string(&path).expect("config should remain readable"),
+            malformed
+        );
+
+        let unset_error =
+            unset_persisted_value("server.port").expect_err("unset should reject malformed config");
+        assert!(unset_error
+            .to_string()
+            .contains(path.to_string_lossy().as_ref()));
+        assert_eq!(
+            read_to_string(&path).expect("config should remain readable"),
+            malformed
+        );
+
+        let preferences = UserPreferences::from_config(&AppConfig::default());
+        let import_error = persist_user_preferences(&preferences)
+            .expect_err("preference import should reject malformed config");
+        assert!(import_error
+            .to_string()
+            .contains(path.to_string_lossy().as_ref()));
+        assert_eq!(
+            read_to_string(path).expect("config should remain readable"),
+            malformed
+        );
         clear_env();
     }
 
