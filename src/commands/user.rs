@@ -3,12 +3,15 @@ use cli_command_derive::CommandArgs;
 use hubuum_client::FilterOperator;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string_pretty};
+use std::fs::read_to_string;
 use std::iter::repeat;
+use std::path::Path;
 
 use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
+use rpassword::prompt_password;
 
-use crate::autocomplete::{user_sort, user_where, users};
+use crate::autocomplete::{file_paths, user_sort, user_where, users};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
@@ -93,7 +96,13 @@ modify --username alice --email alice@example.com"#,
                 UserSetPassword::default(),
                 CommandDocs {
                     about: Some("Set a user's password"),
-                    ..CommandDocs::default()
+                    long_about: Some(
+                        "Prompt and confirm a new password, or read one from a file for automation.",
+                    ),
+                    examples: Some(
+                        r#"set-password alice
+set-password alice --password-file /run/secrets/alice-password"#,
+                    ),
                 },
             ),
         )
@@ -360,18 +369,26 @@ pub struct UserSetPassword {
         autocomplete = "users"
     )]
     pub username: Option<String>,
-    #[option(short = "p", long = "password", help = "New password")]
-    pub password: String,
+    #[option(
+        long = "password-file",
+        help = "Read the new password from a file instead of prompting",
+        autocomplete = "file_paths"
+    )]
+    pub password_file: Option<String>,
 }
 
 impl CliCommand for UserSetPassword {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let username = required_option_or_pos(query.username, tokens, 0, "username")?;
+        let password = match query.password_file {
+            Some(path) => NewPassword::from_file(&path)?,
+            None => NewPassword::prompt(&username)?,
+        };
 
         services
             .gateway()
-            .set_user_password(&username, &query.password)?;
+            .set_user_password(&username, password.as_str())?;
 
         let message = format!("Password updated for user '{}'", username);
         match desired_format(tokens) {
@@ -380,6 +397,46 @@ impl CliCommand for UserSetPassword {
         }
 
         Ok(())
+    }
+}
+
+struct NewPassword(String);
+
+impl NewPassword {
+    fn new(password: String) -> Result<Self, AppError> {
+        if password.is_empty() {
+            return Err(AppError::InvalidOption(
+                "New password cannot be empty".to_string(),
+            ));
+        }
+        Ok(Self(password))
+    }
+
+    fn prompt(username: &str) -> Result<Self, AppError> {
+        let password = prompt_password(format!("New password for {username}: "))?;
+        let confirmation = prompt_password("Confirm new password: ")?;
+        if password != confirmation {
+            return Err(AppError::InvalidOption(
+                "Password confirmation does not match".to_string(),
+            ));
+        }
+        Self::new(password)
+    }
+
+    fn from_file(path: impl AsRef<Path>) -> Result<Self, AppError> {
+        let path = path.as_ref();
+        if path.as_os_str().is_empty() {
+            return Err(AppError::InvalidOption(
+                "Password file path cannot be empty".to_string(),
+            ));
+        }
+        let contents = read_to_string(path)?;
+        let password = contents.trim_end_matches(['\r', '\n']).to_string();
+        Self::new(password)
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -503,5 +560,53 @@ impl CliCommand for UserTokenRevoke {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::write;
+
+    use tempfile::tempdir;
+
+    use super::{NewPassword, UserSetPassword};
+    use crate::commands::CommandArgs;
+
+    #[test]
+    fn password_file_removes_only_line_endings() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("password");
+        write(&path, " leading and trailing spaces \r\n")
+            .expect("password fixture should be written");
+
+        let password = NewPassword::from_file(path).expect("password should be loaded");
+
+        assert_eq!(password.as_str(), " leading and trailing spaces ");
+    }
+
+    #[test]
+    fn password_file_rejects_empty_passwords() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("password");
+        write(&path, "\n").expect("password fixture should be written");
+
+        let error = match NewPassword::from_file(path) {
+            Ok(_) => panic!("empty password should be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn set_password_accepts_only_prompt_or_file_input() {
+        let options = UserSetPassword::options();
+
+        assert!(options
+            .iter()
+            .any(|option| option.long.as_deref() == Some("--password-file")));
+        assert!(!options
+            .iter()
+            .any(|option| option.long.as_deref() == Some("--password")));
     }
 }
