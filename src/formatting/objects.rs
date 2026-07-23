@@ -1,10 +1,23 @@
 use serde_json::Value;
 
-use crate::domain::ResolvedObjectRecord;
+use crate::domain::{ObjectDataMutationRecord, ResolvedObjectRecord};
 
 use super::{DetailRenderable, TableRenderable};
 
 const DATA_PREVIEW_WIDTH: usize = 72;
+
+impl DetailRenderable for ObjectDataMutationRecord {
+    fn detail_rows(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("Outcome", self.outcome.label().to_string()),
+            ("Name", self.object.name.clone()),
+            ("Class", self.class.clone()),
+            ("ID", self.object.id.to_string()),
+            ("Data", data_preview(self.object.data.as_ref())),
+            ("Updated", self.object.updated_at.to_string()),
+        ]
+    }
+}
 
 impl DetailRenderable for ResolvedObjectRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {

@@ -321,7 +321,7 @@ pub fn normalize_server_page_size(limit: Option<usize>) -> Result<Option<usize>,
 
     if page_size.was_truncated() {
         add_warning(format!(
-            "Requested page size {} exceeds the Hubuum server v0.0.2 maximum of {}; using {}.",
+            "Requested page size {} exceeds the supported maximum of {}; using {}.",
             page_size.requested(),
             SERVER_MAX_PAGE_SIZE,
             page_size.effective()
@@ -557,9 +557,7 @@ mod tests {
         assert_eq!(effective, Some(250));
         assert_eq!(
             snapshot.warnings,
-            vec![
-                "Requested page size 500 exceeds the Hubuum server v0.0.2 maximum of 250; using 250."
-            ]
+            vec!["Requested page size 500 exceeds the supported maximum of 250; using 250."]
         );
     }
 

@@ -174,6 +174,8 @@ pub struct ServerConfig {
     pub username: String,
     #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
+    pub token_file: Option<String>,
     pub protocol: Protocol,
 }
 
@@ -317,6 +319,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         env_var: "HUBUUM_CLI__SERVER__PASSWORD",
         value_kind: ConfigValueKind::String,
         sensitive: true,
+    },
+    ConfigKeyDescriptor {
+        key: "server.token_file",
+        cli_arg: Some("token_file"),
+        env_var: "HUBUUM_CLI__SERVER__TOKEN_FILE",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
     },
     ConfigKeyDescriptor {
         key: "server.protocol",
@@ -499,6 +508,7 @@ impl Default for AppConfig {
                 identity_scope: None,
                 username: Defaults::USER_USERNAME.to_string(),
                 password: None,
+                token_file: None,
                 protocol: Defaults::PROTOCOL,
             },
             cache: CacheConfig {
@@ -814,6 +824,7 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             }
             "server.username" => target.server.username = source.server.username.clone(),
             "server.password" => target.server.password = source.server.password.clone(),
+            "server.token_file" => target.server.token_file = source.server.token_file.clone(),
             "server.protocol" => target.server.protocol = source.server.protocol.clone(),
             "cache.time" => target.cache.time = source.cache.time,
             "cache.size" => target.cache.size = source.cache.size,
@@ -1079,6 +1090,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "identity_scope" => Some("--identity-scope"),
         "username" => Some("--username"),
         "password" => Some("--password"),
+        "token_file" => Some("--token-file"),
         "cache_time" => Some("--cache-time"),
         "cache_size" => Some("--cache-size"),
         "cache_disable" => Some("--cache-disable"),
@@ -1110,6 +1122,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         }
         "server.username" => ConfigValueRef::String(&config.server.username),
         "server.password" => ConfigValueRef::OptionalString(config.server.password.as_deref()),
+        "server.token_file" => ConfigValueRef::OptionalString(config.server.token_file.as_deref()),
         "server.protocol" => ConfigValueRef::Protocol(&config.server.protocol),
         "cache.time" => ConfigValueRef::U64(config.cache.time),
         "cache.size" => ConfigValueRef::I32(config.cache.size),
@@ -1509,6 +1522,7 @@ mod tests {
             "HUBUUM_CLI__SERVER__API_VERSION",
             "HUBUUM_CLI__SERVER__USERNAME",
             "HUBUUM_CLI__SERVER__PASSWORD",
+            "HUBUUM_CLI__SERVER__TOKEN_FILE",
             "HUBUUM_CLI__SERVER__PROTOCOL",
             "HUBUUM_CLI__CACHE__TIME",
             "HUBUUM_CLI__CACHE__SIZE",
@@ -1547,6 +1561,10 @@ mod tests {
         set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
         set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
         set_var("HUBUUM_CLI__SERVER__PASSWORD", "hunter2");
+        set_var(
+            "HUBUUM_CLI__SERVER__TOKEN_FILE",
+            "/run/secrets/hubuum-token",
+        );
         set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
 
         set_var("HUBUUM_CLI__CACHE__TIME", "99");
@@ -1578,6 +1596,10 @@ mod tests {
         assert_eq!(cfg.server.api_version, "v9");
         assert_eq!(cfg.server.username, "env_user");
         assert_eq!(cfg.server.password, Some("hunter2".into()));
+        assert_eq!(
+            cfg.server.token_file.as_deref(),
+            Some("/run/secrets/hubuum-token")
+        );
         assert_eq!(cfg.server.protocol, Protocol::Http);
 
         assert_eq!(cfg.cache.time, 99);
@@ -1823,6 +1845,7 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
             baseline.output.object_list_data_columns
         );
         assert_eq!(cfg.server.password, baseline.server.password);
+        assert_eq!(cfg.server.token_file, baseline.server.token_file);
 
         clear_env();
     }

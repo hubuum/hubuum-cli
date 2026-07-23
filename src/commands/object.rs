@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fs::read_to_string;
 use std::iter::once;
 
 use cli_command_derive::CommandArgs;
+use hubuum_client::ObjectDataPatchDocument;
 use jqesque::Jqesque;
 use jsonpath_rust::JsonPath;
 use smooth_json::Flattener;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string_pretty, to_value, Map, Value};
+use serde_json::{from_str, json, to_string_pretty, to_value, Map, Value};
 
 use hubuum_filter::{scalar_text, select_values, OutputEnvelope};
 
@@ -36,7 +38,8 @@ use crate::output::{
     add_warning, append_key_value, append_line, has_pipeline, set_semantic_output,
 };
 use crate::services::{
-    AppServices, CreateObjectInput, ObjectUpdateInput, RelationTraversalOptions,
+    AppServices, CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput,
+    RelationTraversalOptions,
 };
 use crate::terminal::terminal_width;
 
@@ -60,6 +63,23 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     examples: Some(
                         r#"-n MyObject -c MyClaass -N collection_1 -d "My object description"
 --name MyObject --class MyClass --collection collection_1 --description 'My object' --data '{"key": "val"}'"#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object", "data"],
+            catalog_command(
+                "patch",
+                ObjectDataPatch::default(),
+                CommandDocs {
+                    about: Some("Atomically patch an object's raw data"),
+                    long_about: Some(
+                        "Apply an RFC 6902 JSON Patch document through the exact class/object-name endpoint. With --create, a missing object is initialized by applying the patch to an empty JSON object. If a concurrent creator wins the race, the patch is retried once.",
+                    ),
+                    examples: Some(
+                        r#"--class Hosts --name srv-01 --patch '[{"op":"add","path":"/facts","value":{"os":"Fedora"}}]'
+--class Hosts --name srv-01 --patch @facts-patch.json --create --description "Managed by Ansible""#,
                     ),
                 },
             ),
@@ -177,6 +197,82 @@ impl CliCommand for ObjectNew {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectDataPatch {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Exact name of the object",
+        autocomplete = "objects_from_class"
+    )]
+    pub name: String,
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Exact name of the object's class",
+        autocomplete = "classes"
+    )]
+    pub class: String,
+    #[option(
+        short = "p",
+        long = "patch",
+        help = "RFC 6902 JSON Patch document; use @FILE, file://FILE, or inline JSON",
+        value_source = true
+    )]
+    pub patch: String,
+    #[option(
+        long = "create",
+        help = "Create the object when it does not exist",
+        flag = "true"
+    )]
+    pub create: bool,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Description to use when creating a missing object"
+    )]
+    pub description: Option<String>,
+}
+
+impl CliCommand for ObjectDataPatch {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        if query.description.is_some() && !query.create {
+            return Err(AppError::ParseError(
+                "--description requires --create".to_string(),
+            ));
+        }
+
+        let patch = parse_object_data_patch(&query.patch)?;
+        let mut input = ObjectDataPatchInput::new(query.class, query.name, patch)?;
+        if query.create {
+            input = input.create_if_missing(query.description.unwrap_or_default());
+        }
+        let result = services.gateway().patch_object_data(input)?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => result.format_json_noreturn()?,
+            OutputFormat::Text => result.format_noreturn()?,
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_object_data_patch(source: &str) -> Result<ObjectDataPatchDocument, AppError> {
+    let payload = if let Some(path) = source.strip_prefix('@') {
+        if path.is_empty() {
+            return Err(AppError::ParseError(
+                "--patch @FILE requires a file path".to_string(),
+            ));
+        }
+        read_to_string(path)?
+    } else {
+        source.to_string()
+    };
+    Ok(from_str(&payload)?)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
@@ -366,17 +462,21 @@ fn display_json_value(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs::write;
 
+    use hubuum_client::ObjectDataPatchOperation;
     use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage, ProjectTerm, SortCast};
     use serde_json::{json, Value};
     use serial_test::serial;
+    use tempfile::tempdir;
 
     use super::{
         all_computed_value_columns, bounded_auto_data_columns, data_column_display_value,
         data_column_value, display_json_value, explicit_data_columns, first_seen_data_keys,
         object_data_column_label, object_field_summaries, object_list_row,
-        object_show_pipeline_value, ComputedFieldSelection, ComputedValueColumn,
-        ComputedValueScope, ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
+        object_show_pipeline_value, parse_object_data_patch, ComputedFieldSelection,
+        ComputedValueColumn, ComputedValueScope, ObjectList, ObjectListColumns,
+        DEFAULT_OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::commands::command_options;
@@ -391,6 +491,34 @@ mod tests {
     #[test]
     fn display_json_value_unquotes_strings() {
         assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    fn object_data_patch_parses_inline_json() {
+        let patch =
+            parse_object_data_patch(r#"[{"op":"add","path":"/facts","value":{"os":"Fedora"}}]"#)
+                .expect("patch should parse");
+
+        assert!(matches!(
+            &patch[0],
+            ObjectDataPatchOperation::Add { path, value }
+                if path == "/facts" && value == &json!({"os": "Fedora"})
+        ));
+    }
+
+    #[test]
+    fn object_data_patch_reads_at_file_source() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("patch.json");
+        write(&path, r#"[{"op":"remove","path":"/stale"}]"#).expect("patch file should be written");
+
+        let patch = parse_object_data_patch(&format!("@{}", path.display()))
+            .expect("patch file should parse");
+
+        assert!(matches!(
+            &patch[0],
+            ObjectDataPatchOperation::Remove { path } if path == "/stale"
+        ));
     }
 
     #[test]

@@ -7,7 +7,7 @@ pre-release state and under heavy development.
 
 Successful pushes to `main` publish rolling binaries in the
 [`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
-Version tags such as `v0.0.2` publish immutable, versioned GitHub releases.
+Version tags such as `v0.0.3` publish immutable, versioned GitHub releases.
 
 Each release provides four small, stripped archives and matching SHA-256 files:
 
@@ -17,7 +17,7 @@ Each release provides four small, stripped archives and matching SHA-256 files:
   Windows system DLLs remain platform dependencies.
 
 Rolling builds identify their source commit using SemVer build metadata, for example
-`v0.0.2+main.g0123456789ab`. Tagged releases use the clean package version. Show the
+`v0.0.3+main.g0123456789ab`. Tagged releases use the clean package version. Show the
 current build identity without logging in, or also query the configured server:
 
 ```sh
@@ -33,8 +33,8 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.2 targets Hubuum server
-v0.0.2 through `hubuum_client` v0.5.1.
+[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.3 targets Hubuum server
+v0.0.3 through `hubuum_client` v0.6.1.
 
 ## Usage
 
@@ -90,6 +90,33 @@ hubuum-cli --hostname api.example.com --identity-scope corp-directory --username
 hubuum-cli config set --key server.identity_scope --value corp-directory
 ```
 
+For non-interactive automation, read a service-account bearer token from an
+owner-only file. The token is not placed in the process arguments or copied into
+the CLI token cache:
+
+```sh
+chmod 600 /run/secrets/hubuum.token
+hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token object list --class Hosts
+```
+
+Atomically patch an object's raw data through exact class and object names. The
+patch can be inline, loaded from `@FILE`, or loaded through the existing
+`file://FILE` value-source form:
+
+```sh
+hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token \
+  object data patch --class Hosts --name srv-01 \
+  --patch @facts-patch.json --create --description "Managed by Ansible"
+```
+
+With `--create`, Hubuum CLI initializes a missing object by applying the patch to
+an empty JSON object. A concurrent create conflict causes one exact-name PATCH
+retry. In this example, RFC 6902 `add` at `/facts` creates or completely replaces
+that member without changing other object data. The path and its contents are
+chosen by the consumer. See the
+[Ansible fact publication guide](docs/ansible-facts.md) for the accepted JSON
+Patch format, create-if-missing behavior, and service-account permissions.
+
 Administrators can inspect the server's redacted effective process configuration:
 
 ```sh
@@ -105,8 +132,8 @@ hubuum-cli metrics
 hubuum-cli metrics --path /internal/metrics
 ```
 
-Hubuum server v0.0.2 computed fields can be managed as shared class definitions or
-personal definitions. Paths are JSON Pointers into object `data`:
+Computed fields can be managed as shared class definitions or personal
+definitions. Paths are JSON Pointers into object `data`:
 
 ```sh
 hubuum-cli computed shared create --class Hosts --key average_load --label "Average load" --operation average --path /load/one --path /load/five --result-type number
@@ -159,8 +186,8 @@ hubuum-cli object list --class Hosts --sort S:average_load desc --limit 10
 hubuum-cli object list --class Hosts --sort P:preferred_name asc
 ```
 
-Server v0.0.2 does not sort computed data, so the CLI fetches all matching
-objects, sorts them locally, and then applies `--limit`. Computed sorting cannot
+The CLI fetches all matching objects for computed sorting, sorts them locally,
+and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
 
@@ -196,8 +223,8 @@ hubuum-cli restore confirm --receipt restore-receipt.json --yes
 
 Restore confirmation replaces all Hubuum data and invalidates existing bearer tokens.
 
-For paginated commands, `--limit` requests a page size. Hubuum server v0.0.2
-rejects values above 250, so the CLI truncates larger requests to 250 with a
+For paginated commands, `--limit` requests a page size. The CLI currently
+truncates values above 250 to the supported maximum with a
 warning. Generated next-page commands retain that effective value. Paginated
 commands also accept `--include-total` when an exact count is useful. Exact counts
 can require additional server work, so they remain opt-in:

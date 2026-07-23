@@ -35,7 +35,7 @@ pub use events::{AuditListInput, AuditScope, HistoryInput, HistoryScope};
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
-pub use objects::{CreateObjectInput, ObjectUpdateInput};
+pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,

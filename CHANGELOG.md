@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-07-23
+
+- Updated `hubuum_client` to 0.6.1 for Hubuum server v0.0.3 and refreshed all
+  compatible direct and transitive dependencies. This includes transport
+  confinement, redirect prevention, and sensitive diagnostic redaction from
+  the client's security-focused 0.6.1 release.
+- Added exact-name RFC 6902 object-data patching with optional create-if-missing
+  behavior and a bounded retry when concurrent creation returns a conflict.
+- Added `--token-file` and `HUBUUM_CLI__SERVER__TOKEN_FILE` authentication for
+  non-interactive service-account workflows.
+- Added a readable nested `diff` to `audit show` output when both snapshots are
+  available. Full `before` and `after` values are available with `--complete`.
+  The referenced user and collection names are resolved when still available,
+  and the diff is rendered after the event metadata.
+- Added `history show` for detailed class or object versions selected by history
+  ID or an RFC 3339 as-of timestamp.
+
 ## [0.0.2] - 2026-07-18
 
 - Updated `hubuum_client` to 0.5.1 for Hubuum server v0.0.2 and refreshed all

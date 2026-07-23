@@ -4,6 +4,7 @@ use hubuum_client::{
     FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, Page, QueryFilter,
     UpdateEventSink, UpdateEventSubscription,
 };
+use log::debug;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{from_value, Value};
@@ -192,7 +193,7 @@ impl HubuumGateway {
                 .into_iter()
                 .find(|record| json_record_event_id(record) == Some(id))
             {
-                return Ok(record);
+                return Ok(self.resolve_audit_resource_names(record));
             }
 
             let Some(next_cursor) = page.next_cursor else {
@@ -207,28 +208,39 @@ impl HubuumGateway {
         )))
     }
 
+    fn resolve_audit_resource_names(&self, record: JsonRecord) -> JsonRecord {
+        let actor_user = record.audit_actor_user_id().and_then(|id| {
+            self.client
+                .users()
+                .get(id)
+                .map(|user| user.resource().name.clone())
+                .map_err(|error| {
+                    debug!("Unable to resolve audit actor user {id}: {error}");
+                })
+                .ok()
+        });
+        let collection = record.audit_collection_id().and_then(|id| {
+            self.client
+                .collections()
+                .get(id)
+                .map(|collection| collection.resource().name.clone())
+                .map_err(|error| {
+                    debug!("Unable to resolve audit collection {id}: {error}");
+                })
+                .ok()
+        });
+
+        record.with_audit_resource_names(actor_user, collection)
+    }
+
     pub fn history(
         &self,
         scope: HistoryScope,
         input: HistoryInput,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
         let scope = self.resolve_history_scope(scope)?;
-        if let Some(at) = input.at {
-            let at = parse_hubuum_datetime(&at)?;
-            let record = match scope {
-                HistoryScope::Class(id) => {
-                    JsonRecord::from_serializable(self.client.class_history_as_of(id, at)?)?
-                }
-                HistoryScope::Object {
-                    class_id,
-                    object_id,
-                } => JsonRecord::from_serializable(
-                    self.client.object_history_as_of(class_id, object_id, at)?,
-                )?,
-                HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
-                    unreachable!("history name scopes are resolved before request execution")
-                }
-            };
+        if let Some(at) = input.at.as_deref() {
+            let record = self.history_record_at_resolved(scope, parse_hubuum_datetime(at)?)?;
             return Ok(PagedResult {
                 items: vec![record],
                 next_cursor: None,
@@ -250,6 +262,75 @@ impl HubuumGateway {
                     apply_history_input(self.client.object_history(class_id, object_id), &input)?;
                 page_to_json(request.page()?)
             }
+            HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
+                unreachable!("history name scopes are resolved before request execution")
+            }
+        }
+    }
+
+    pub fn history_record_at(&self, scope: HistoryScope, at: &str) -> Result<JsonRecord, AppError> {
+        let scope = self.resolve_history_scope(scope)?;
+        self.history_record_at_resolved(scope, parse_hubuum_datetime(at)?)
+    }
+
+    pub fn history_record_by_id(
+        &self,
+        scope: HistoryScope,
+        history_id: i64,
+    ) -> Result<JsonRecord, AppError> {
+        const PAGE_LIMIT: usize = 100;
+        const MAX_PAGES: usize = 100;
+
+        let scope = self.resolve_history_scope(scope)?;
+        let mut cursor = None;
+        for _ in 0..MAX_PAGES {
+            let page = self.history(
+                scope.clone(),
+                HistoryInput {
+                    limit: Some(PAGE_LIMIT),
+                    sort: Some("-history_id".to_string()),
+                    cursor: cursor.clone(),
+                    ..HistoryInput::default()
+                },
+            )?;
+
+            if let Some(record) = page
+                .items
+                .into_iter()
+                .find(|record| json_record_history_id(record) == Some(history_id))
+            {
+                return Ok(record);
+            }
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        Err(AppError::EntityNotFound(format!(
+            "history record {history_id} not found in the first {} versions of the selected resource",
+            PAGE_LIMIT * MAX_PAGES
+        )))
+    }
+
+    fn history_record_at_resolved(
+        &self,
+        scope: HistoryScope,
+        at: HubuumDateTime,
+    ) -> Result<JsonRecord, AppError> {
+        match scope {
+            HistoryScope::Class(id) => {
+                JsonRecord::from_serializable(self.client.class_history_as_of(id, at)?)
+                    .map_err(AppError::from)
+            }
+            HistoryScope::Object {
+                class_id,
+                object_id,
+            } => JsonRecord::from_serializable(
+                self.client.object_history_as_of(class_id, object_id, at)?,
+            )
+            .map_err(AppError::from),
             HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
                 unreachable!("history name scopes are resolved before request execution")
             }
@@ -488,6 +569,10 @@ fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
         .get("id")
         .or_else(|| record.value.get("event_id"))
         .and_then(Value::as_i64)
+}
+
+fn json_record_history_id(record: &JsonRecord) -> Option<i64> {
+    record.value.get("history_id").and_then(Value::as_i64)
 }
 
 fn apply_audit_input(
