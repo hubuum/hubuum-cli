@@ -10,7 +10,7 @@ use std::fs::{create_dir_all, read_to_string, write};
 use std::io::ErrorKind;
 use std::mem::take;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use toml::map::Map as TomlMap;
 use toml::{from_str as parse_toml, to_string_pretty as format_toml, Value as TomlValue};
 
@@ -23,21 +23,20 @@ use crate::models::{
     TableStyle, TableWidth, TableWrap,
 };
 
-static CONFIG: Lazy<RwLock<AppConfig>> = Lazy::new(|| RwLock::new(AppConfig::default()));
+static CONFIG: Lazy<RwLock<Arc<AppConfig>>> =
+    Lazy::new(|| RwLock::new(Arc::new(AppConfig::default())));
 static CONFIG_STATE: Lazy<RwLock<Option<ConfigState>>> = Lazy::new(|| RwLock::new(None));
 
-pub fn init_config(cfg: AppConfig) -> Result<(), AppError> {
+pub fn init_config(cfg: impl Into<Arc<AppConfig>>) -> Result<(), AppError> {
     *CONFIG
         .write()
-        .map_err(|_| AppError::GeneralConfigError("Failed to update config".to_string()))? = cfg;
+        .map_err(|_| AppError::GeneralConfigError("Failed to update config".to_string()))? =
+        cfg.into();
     Ok(())
 }
 
-pub fn get_config() -> AppConfig {
-    CONFIG
-        .read()
-        .expect("config lock should not be poisoned")
-        .clone()
+pub fn get_config() -> Arc<AppConfig> {
+    Arc::clone(&CONFIG.read().expect("config lock should not be poisoned"))
 }
 
 pub fn init_config_state(state: ConfigState) -> Result<(), AppError> {

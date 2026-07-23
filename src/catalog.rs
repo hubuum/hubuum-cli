@@ -994,7 +994,7 @@ mod tests {
     #[serial]
     fn render_command_help_colors_example_commands_when_enabled() {
         let previous = get_config();
-        let mut config = previous.clone();
+        let mut config = (*previous).clone();
         config.output.color = OutputColor::Always;
         init_config(config).expect("config update");
 
@@ -1017,7 +1017,7 @@ mod tests {
     #[serial]
     fn render_command_help_omits_command_color_when_disabled() {
         let previous = get_config();
-        let mut config = previous.clone();
+        let mut config = (*previous).clone();
         config.output.color = OutputColor::Never;
         init_config(config).expect("config update");
 
@@ -1119,7 +1119,7 @@ mod tests {
     #[serial]
     fn scope_help_colors_only_command_fragment_in_prose() {
         let previous = get_config();
-        let mut config = previous.clone();
+        let mut config = (*previous).clone();
         config.output.color = OutputColor::Always;
         init_config(config).expect("config update");
 

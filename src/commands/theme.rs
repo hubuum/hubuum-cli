@@ -131,7 +131,9 @@ impl CliCommand for ThemeShow {
 pub(crate) fn render_theme_show(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let mut query = ThemeShow::parse_tokens(tokens)?;
     query.name = option_or_pos(query.name, tokens, 0, "name")?;
-    let name = query.name.unwrap_or_else(|| get_config().output.theme);
+    let name = query
+        .name
+        .unwrap_or_else(|| get_config().output.theme.clone());
     render_theme_detail(&name)
 }
 
@@ -155,7 +157,9 @@ impl CliCommand for ThemePreview {
 pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let mut query = ThemePreview::parse_tokens(tokens)?;
     query.name = option_or_pos(query.name, tokens, 0, "name")?;
-    let name = query.name.unwrap_or_else(|| get_config().output.theme);
+    let name = query
+        .name
+        .unwrap_or_else(|| get_config().output.theme.clone());
     let theme = available_themes()
         .map_err(theme_error)?
         .get(&name)
