@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Changed `user set-password` to prompt for the new password by default and
+  added `--password-file` for automation, preventing inline passwords from
+  being stored in REPL history or trace logs.
+
 ## [0.0.3] - 2026-07-23
 
 - Updated `hubuum_client` to 0.6.1 for Hubuum server v0.0.3 and refreshed all
