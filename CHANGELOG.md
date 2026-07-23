@@ -2,8 +2,12 @@
 
 ## [Unreleased]
 
-- Updated `hubuum_client` to 0.6.0 for Hubuum server v0.0.3 and refreshed all
-  compatible direct and transitive dependencies.
+## [0.0.3] - 2026-07-23
+
+- Updated `hubuum_client` to 0.6.1 for Hubuum server v0.0.3 and refreshed all
+  compatible direct and transitive dependencies. This includes transport
+  confinement, redirect prevention, and sensitive diagnostic redaction from
+  the client's security-focused 0.6.1 release.
 - Added exact-name RFC 6902 object-data patching with optional create-if-missing
   behavior and a bounded retry when concurrent creation returns a conflict.
 - Added `--token-file` and `HUBUUM_CLI__SERVER__TOKEN_FILE` authentication for
