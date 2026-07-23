@@ -454,6 +454,7 @@ impl HubuumGateway {
     ) -> Result<ResolvedObjectRecord, AppError> {
         let class = self.client.classes().get_by_name(&input.class_name)?;
         let object = class.object_by_name(&input.name)?;
+        let mut result_class = class.resource().clone();
 
         let mut patch = ObjectPatch {
             data: input.data,
@@ -467,6 +468,7 @@ impl HubuumGateway {
         if let Some(reclass) = input.reclass {
             let reclass = self.client.classes().get_by_name(&reclass)?;
             patch.hubuum_class_id = Some(reclass.id());
+            result_class = reclass.resource().clone();
         }
         if let Some(rename) = input.rename {
             patch.name = Some(rename);
@@ -481,7 +483,7 @@ impl HubuumGateway {
             .update_raw(object.id(), patch)?;
         let collection = self.client.collections().get(result.collection_id)?;
 
-        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
+        let classmap = HashMap::from([(result_class.id.into(), result_class)]);
         let collectionmap =
             HashMap::from([(collection.id().into(), collection.resource().clone())]);
 
@@ -759,8 +761,114 @@ mod tests {
 
     use super::{
         initial_data_from_patch, sort_objects_locally, validate_object_sort_clauses, HubuumGateway,
-        ObjectDataPatchInput, ObjectSortClause, OBJECT_FILTER_SPECS,
+        ObjectDataPatchInput, ObjectSortClause, ObjectUpdateInput, OBJECT_FILTER_SPECS,
     };
+
+    #[test]
+    fn reclassified_object_resolves_the_returned_class() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("listener should have an address");
+        let collection = json!({
+            "id": 7,
+            "name": "Infrastructure",
+            "description": "",
+            "parent_collection_id": null,
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:00Z"
+        });
+        let old_class = json!({
+            "id": 9,
+            "name": "LegacyHosts",
+            "description": "",
+            "collection": collection.clone(),
+            "json_schema": null,
+            "validate_schema": null,
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:00Z"
+        });
+        let object = json!({
+            "id": 42,
+            "name": "srv-01",
+            "collection_id": 7,
+            "hubuum_class_id": 9,
+            "description": "",
+            "data": {},
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:00Z"
+        });
+        let new_class = json!({
+            "id": 10,
+            "name": "Hosts",
+            "description": "",
+            "collection": collection.clone(),
+            "json_schema": null,
+            "validate_schema": null,
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:00Z"
+        });
+        let updated_object = json!({
+            "id": 42,
+            "name": "srv-01",
+            "collection_id": 7,
+            "hubuum_class_id": 10,
+            "description": "",
+            "data": {},
+            "created_at": "2026-07-21T12:00:00Z",
+            "updated_at": "2026-07-21T12:00:01Z"
+        });
+        let responses = vec![
+            http_response("200 OK", &old_class.to_string()),
+            http_response("200 OK", &json!([object]).to_string()),
+            http_response("200 OK", &new_class.to_string()),
+            http_response("200 OK", &updated_object.to_string()),
+            http_response("200 OK", &collection.to_string()),
+        ];
+        let server = thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|response| {
+                    let (mut stream, _) = listener.accept().expect("request should connect");
+                    let request = read_http_request(&mut stream);
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("response should be written");
+                    request
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let base_url =
+            BaseUrl::from_str(&format!("http://{address}")).expect("test base URL should parse");
+        let client = BlockingClient::builder(base_url)
+            .build()
+            .expect("test client should build")
+            .authenticate(Token::new("test-token"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let result = gateway
+            .update_object(ObjectUpdateInput {
+                class_name: "LegacyHosts".to_string(),
+                name: "srv-01".to_string(),
+                rename: None,
+                description: None,
+                collection: None,
+                reclass: Some("Hosts".to_string()),
+                data: None,
+            })
+            .expect("object should be reclassified");
+        let requests = server.join().expect("test server should finish");
+
+        assert_eq!(result.class, "Hosts");
+        assert_eq!(requests.len(), 5);
+        assert!(requests[0].starts_with("GET /api/v1/classes/by-name/LegacyHosts HTTP/1.1"));
+        assert!(requests[1].starts_with("GET /api/v1/classes/9/?name__equals=srv-01 HTTP/1.1"));
+        assert!(requests[2].starts_with("GET /api/v1/classes/by-name/Hosts HTTP/1.1"));
+        assert!(requests[3].starts_with("PATCH /api/v1/classes/9/42 HTTP/1.1"));
+        assert!(requests[3].contains(r#""hubuum_class_id":10"#));
+        assert!(requests[4].starts_with("GET /api/v1/collections/7 HTTP/1.1"));
+    }
 
     #[test]
     fn create_conflict_retries_exact_name_patch_once() {
