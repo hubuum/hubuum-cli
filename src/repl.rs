@@ -99,13 +99,12 @@ fn run_thread(
             .read_line(&prompt)
             .map_err(|err| AppError::ReplError(err.to_string()))?;
 
+        if handle_host_signal(&signal, &session) {
+            continue;
+        }
+
         match signal {
             Signal::Success(line) => {
-                if line == CANCEL_PAGINATION_HOST_COMMAND {
-                    clear_pending_pagination(&session);
-                    continue;
-                }
-
                 let effective_line = if line.trim().is_empty()
                     && get_config().repl.enter_fetches_next_page
                     && session.next_page_command().is_some()
@@ -140,6 +139,17 @@ fn run_thread(
     }
 
     Ok(())
+}
+
+fn handle_host_signal(signal: &Signal, session: &SharedSession) -> bool {
+    if let Signal::HostCommand(command) = signal {
+        if command == CANCEL_PAGINATION_HOST_COMMAND {
+            clear_pending_pagination(session);
+        }
+        true
+    } else {
+        false
+    }
 }
 
 fn clear_pending_pagination(session: &SharedSession) {
@@ -1338,17 +1348,19 @@ mod tests {
         Event as CrosstermEvent, KeyCode as CrosstermKeyCode, KeyEvent as CrosstermKeyEvent,
         KeyModifiers as CrosstermKeyModifiers,
     };
-    use reedline::{default_emacs_keybindings, EditMode, Emacs, ReedlineEvent, ReedlineRawEvent};
+    use reedline::{
+        default_emacs_keybindings, EditMode, Emacs, ReedlineEvent, ReedlineRawEvent, Signal,
+    };
 
     use crate::app::SharedSession;
     use crate::catalog::{CompletionSpec, OptionSpec};
 
     use super::{
         clause_active_token_offset, clause_option_context, completion_context_parts,
-        dynamic_value_suggestion, id_completion_context, is_completing_option_value,
-        option_suggestion, option_value_context, pipe_completion_context, quoted_where_context,
-        safe_prefix_end, where_suggestion, IdCompletionKind, PaginationEditMode,
-        PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
+        dynamic_value_suggestion, handle_host_signal, id_completion_context,
+        is_completing_option_value, option_suggestion, option_value_context,
+        pipe_completion_context, quoted_where_context, safe_prefix_end, where_suggestion,
+        IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
     };
     use crate::json_schema::schema_paths;
 
@@ -1367,6 +1379,18 @@ mod tests {
             edit_mode.parse_event(esc_event()),
             ReedlineEvent::ExecuteHostCommand(CANCEL_PAGINATION_HOST_COMMAND.to_string())
         );
+    }
+
+    #[test]
+    fn pagination_host_command_clears_pending_state() {
+        let session = SharedSession::new();
+        session.set_next_page_command(Some("next --cursor abc".to_string()));
+
+        assert!(handle_host_signal(
+            &Signal::HostCommand(CANCEL_PAGINATION_HOST_COMMAND.to_string()),
+            &session,
+        ));
+        assert_eq!(session.next_page_command(), None);
     }
 
     #[test]
