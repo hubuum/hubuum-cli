@@ -7,7 +7,7 @@ use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
     CliCommand,
 };
-use crate::autocomplete::{group_sort, group_where, groups, users};
+use crate::autocomplete::{group_sort, group_where, groups, service_accounts, users};
 use crate::catalog::CommandCatalogBuilder;
 
 use crate::domain::GroupDetails;
@@ -60,6 +60,28 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 GroupRemoveUser::default(),
                 CommandDocs {
                     about: Some("Remove a user from a group"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["group"],
+            catalog_command(
+                "add_service_account",
+                GroupAddServiceAccount::default(),
+                CommandDocs {
+                    about: Some("Add a service account to a group"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["group"],
+            catalog_command(
+                "remove_service_account",
+                GroupRemoveServiceAccount::default(),
+                CommandDocs {
+                    about: Some("Remove a service account from a group"),
                     ..CommandDocs::default()
                 },
             ),
@@ -179,6 +201,84 @@ impl CliCommand for GroupRemoveUser {
         let message = format!(
             "User '{}' removed from group '{}'",
             new.username, new.groupname
+        );
+
+        match desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct GroupAddServiceAccount {
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
+    pub groupname: String,
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account to add to the group",
+        autocomplete = "service_accounts"
+    )]
+    pub name: String,
+}
+
+impl CliCommand for GroupAddServiceAccount {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        services
+            .gateway()
+            .add_service_account_to_group(&new.groupname, &new.name)?;
+
+        let message = format!(
+            "Service account '{}' added to group '{}'",
+            new.name, new.groupname
+        );
+
+        match desired_format(tokens) {
+            OutputFormat::Json => append_json_message(&message)?,
+            OutputFormat::Text => append_line(message)?,
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct GroupRemoveServiceAccount {
+    #[option(
+        short = "g",
+        long = "groupname",
+        help = "Name of the group",
+        autocomplete = "groups"
+    )]
+    pub groupname: String,
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account to remove from the group",
+        autocomplete = "service_accounts"
+    )]
+    pub name: String,
+}
+
+impl CliCommand for GroupRemoveServiceAccount {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let new = Self::parse_tokens(tokens)?;
+        services
+            .gateway()
+            .remove_service_account_from_group(&new.groupname, &new.name)?;
+
+        let message = format!(
+            "Service account '{}' removed from group '{}'",
+            new.name, new.groupname
         );
 
         match desired_format(tokens) {
@@ -313,7 +413,7 @@ mod tests {
     use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
 
-    use super::GroupList;
+    use super::{GroupAddServiceAccount, GroupList, GroupRemoveServiceAccount};
 
     #[test]
     fn simple_group_alias_still_parses() {
@@ -339,5 +439,32 @@ mod tests {
         let err = GroupList::parse_tokens(&tokens).expect_err("removed flag should be rejected");
 
         assert!(matches!(err, AppError::InvalidOption(_)));
+    }
+
+    #[test]
+    fn service_account_membership_commands_parse_explicit_names() {
+        let add_tokens = CommandTokenizer::new(
+            "group add_service_account --groupname automation --name ansible-facts",
+            "add_service_account",
+            &command_options::<GroupAddServiceAccount>(),
+        )
+        .expect("tokenization should succeed");
+        let add = GroupAddServiceAccount::parse_tokens(&add_tokens)
+            .expect("add_service_account should parse");
+
+        assert_eq!(add.groupname, "automation");
+        assert_eq!(add.name, "ansible-facts");
+
+        let remove_tokens = CommandTokenizer::new(
+            "group remove_service_account -g automation -n ansible-facts",
+            "remove_service_account",
+            &command_options::<GroupRemoveServiceAccount>(),
+        )
+        .expect("tokenization should succeed");
+        let remove = GroupRemoveServiceAccount::parse_tokens(&remove_tokens)
+            .expect("remove_service_account should parse");
+
+        assert_eq!(remove.groupname, "automation");
+        assert_eq!(remove.name, "ansible-facts");
     }
 }
