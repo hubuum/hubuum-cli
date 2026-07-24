@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Added explicit `group add_service_account` and
+  `group remove_service_account` commands for managing service-account group
+  membership by name.
 - Changed `user set-password` to prompt for the new password by default and
   added `--password-file` for automation, preventing inline passwords from
   being stored in REPL history or trace logs.

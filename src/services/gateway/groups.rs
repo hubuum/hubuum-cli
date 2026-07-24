@@ -61,6 +61,36 @@ impl HubuumGateway {
         Ok(())
     }
 
+    pub fn add_service_account_to_group(
+        &self,
+        group_name: &str,
+        service_account_name: &str,
+    ) -> Result<(), AppError> {
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self
+            .client
+            .service_accounts()
+            .get_by_name(service_account_name)?
+            .id();
+        group.add_member(principal_id)?;
+        Ok(())
+    }
+
+    pub fn remove_service_account_from_group(
+        &self,
+        group_name: &str,
+        service_account_name: &str,
+    ) -> Result<(), AppError> {
+        let group = self.client.groups().get_by_name(group_name)?;
+        let principal_id = self
+            .client
+            .service_accounts()
+            .get_by_name(service_account_name)?
+            .id();
+        group.remove_member(principal_id)?;
+        Ok(())
+    }
+
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
         let handle = self.client.groups().get_by_name(group_name)?;
         let members = handle
