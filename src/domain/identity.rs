@@ -18,7 +18,7 @@ pub struct PrincipalTokenDetailsRecord {
 }
 
 impl PrincipalTokenDetailsRecord {
-    pub fn new(
+    pub(crate) fn new(
         token: PrincipalTokenMetadata,
         resolved_resources: Vec<ResolvedTokenResource>,
     ) -> Self {
@@ -28,11 +28,11 @@ impl PrincipalTokenDetailsRecord {
         }
     }
 
-    pub const fn token(&self) -> &PrincipalTokenMetadata {
+    pub(crate) const fn token(&self) -> &PrincipalTokenMetadata {
         &self.token
     }
 
-    pub fn resolved_resources(&self) -> &[ResolvedTokenResource] {
+    pub(crate) fn resolved_resources(&self) -> &[ResolvedTokenResource] {
         &self.resolved_resources
     }
 }
@@ -82,7 +82,7 @@ impl Display for TokenResourceResolution {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ResolvedTokenResource {
+pub(crate) enum ResolvedTokenResource {
     Collection {
         id: CollectionId,
         name: Option<String>,
@@ -106,8 +106,20 @@ pub enum ResolvedTokenResource {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TokenResourceParent<Id> {
+    id: Id,
+    name: Option<String>,
+}
+
+impl<Id> TokenResourceParent<Id> {
+    pub(crate) fn new(id: Id, name: Option<String>) -> Self {
+        Self { id, name }
+    }
+}
+
 impl ResolvedTokenResource {
-    pub fn resolved_collection(id: CollectionId, name: impl Into<String>) -> Self {
+    pub(crate) fn resolved_collection(id: CollectionId, name: impl Into<String>) -> Self {
         Self::Collection {
             id,
             name: Some(name.into()),
@@ -115,7 +127,7 @@ impl ResolvedTokenResource {
         }
     }
 
-    pub const fn unresolved_collection(id: CollectionId) -> Self {
+    pub(crate) const fn unresolved_collection(id: CollectionId) -> Self {
         Self::Collection {
             id,
             name: None,
@@ -123,22 +135,21 @@ impl ResolvedTokenResource {
         }
     }
 
-    pub fn resolved_class(
+    pub(crate) fn resolved_class(
         id: ClassId,
         name: impl Into<String>,
-        collection_id: CollectionId,
-        collection_name: Option<String>,
+        collection: TokenResourceParent<CollectionId>,
     ) -> Self {
         Self::Class {
             id,
             name: Some(name.into()),
-            collection_id: Some(collection_id),
-            collection_name,
+            collection_id: Some(collection.id),
+            collection_name: collection.name,
             resolution: TokenResourceResolution::Resolved,
         }
     }
 
-    pub const fn unresolved_class(id: ClassId) -> Self {
+    pub(crate) const fn unresolved_class(id: ClassId) -> Self {
         Self::Class {
             id,
             name: None,
@@ -148,26 +159,24 @@ impl ResolvedTokenResource {
         }
     }
 
-    pub fn resolved_object(
+    pub(crate) fn resolved_object(
         id: ObjectId,
         name: impl Into<String>,
-        class_id: ClassId,
-        class_name: Option<String>,
-        collection_id: CollectionId,
-        collection_name: Option<String>,
+        class: TokenResourceParent<ClassId>,
+        collection: TokenResourceParent<CollectionId>,
     ) -> Self {
         Self::Object {
             id,
             name: Some(name.into()),
-            class_id: Some(class_id),
-            class_name,
-            collection_id: Some(collection_id),
-            collection_name,
+            class_id: Some(class.id),
+            class_name: class.name,
+            collection_id: Some(collection.id),
+            collection_name: collection.name,
             resolution: TokenResourceResolution::Resolved,
         }
     }
 
-    pub const fn unreachable_object(id: ObjectId) -> Self {
+    pub(crate) const fn unreachable_object(id: ObjectId) -> Self {
         Self::Object {
             id,
             name: None,

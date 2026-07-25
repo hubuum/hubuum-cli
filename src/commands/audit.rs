@@ -4,19 +4,20 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    desired_format, normalize_server_page_size, option_or_pos, render_json_record,
-    render_list_page, required_i64, CliCommand,
+    desired_format, normalize_server_page_size, render_json_record, render_list_page,
+    required_option, required_option_or_pos, CliCommand,
 };
 use crate::autocomplete::{
     actor_kinds, audit_event_ids, audit_resource_names, audit_resources, classes, collections,
     event_actions,
 };
 use crate::catalog::CommandCatalogBuilder;
+use crate::domain::AuditEventId;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, AuditListInput, AuditScope};
+use crate::services::{AppServices, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -78,7 +79,7 @@ pub struct AuditList {
         help = "Immediate actor kind: user, system, or worker",
         autocomplete = "actor_kinds"
     )]
-    pub actor_kind: Option<String>,
+    pub actor_kind: Option<AuditActorKind>,
     #[option(long = "actor-user", help = "Actor user name")]
     pub actor_user: Option<String>,
     #[option(
@@ -129,7 +130,7 @@ impl CliCommand for AuditList {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditShow {
     #[option(long = "id", help = "Audit event ID", autocomplete = "audit_event_ids")]
-    pub id: Option<i64>,
+    pub id: Option<AuditEventId>,
     #[option(
         long = "complete",
         help = "Include complete before and after snapshots",
@@ -140,11 +141,11 @@ pub struct AuditShow {
 
 impl CliCommand for AuditShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.id = option_or_pos(query.id, tokens, 0, "id")?;
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
         let event = services
             .gateway()
-            .audit_event_by_id(required_i64(query.id, "id")?)?
+            .audit_event_by_id(id)?
             .into_audit_detail(query.complete);
         render_json_record(tokens, &event)
     }
@@ -157,7 +158,7 @@ pub struct AuditResource {
         help = "Resource: collection,class,object,user,group,template,remote-target",
         autocomplete = "audit_resources"
     )]
-    pub resource: String,
+    pub resource: Option<AuditResourceKind>,
     #[option(
         long = "name",
         help = "Resource name",
@@ -193,8 +194,9 @@ pub struct AuditResource {
 impl CliCommand for AuditResource {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
+        let resource = required_option(query.resource, "resource")?;
         let scope = services.gateway().audit_scope_by_name(
-            &query.resource,
+            resource,
             query.name.as_deref(),
             query.class.as_deref(),
         )?;

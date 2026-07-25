@@ -248,7 +248,9 @@ mod tests {
     use serde_json::{json, to_value};
 
     use super::DetailRenderable;
-    use crate::domain::{MeRecord, PrincipalTokenDetailsRecord, ResolvedTokenResource};
+    use crate::domain::{
+        MeRecord, PrincipalTokenDetailsRecord, ResolvedTokenResource, TokenResourceParent,
+    };
 
     #[test]
     fn me_details_show_identity_scope() {
@@ -304,8 +306,7 @@ mod tests {
                 ResolvedTokenResource::resolved_class(
                     8.into(),
                     "Hosts",
-                    7.into(),
-                    Some("Infrastructure".to_string()),
+                    TokenResourceParent::new(7.into(), Some("Infrastructure".to_string())),
                 ),
                 ResolvedTokenResource::unreachable_object(42.into()),
             ],

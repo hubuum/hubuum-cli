@@ -396,18 +396,6 @@ where
     required_option(option_or_pos(value, tokens, pos, name)?, name)
 }
 
-pub fn first_positional_or<T>(
-    value: Option<T>,
-    tokens: &CommandTokenizer,
-    name: &str,
-) -> Result<Option<T>, AppError>
-where
-    T: FromStr,
-    T::Err: Display,
-{
-    option_or_pos(value, tokens, 0, name)
-}
-
 pub fn name_or_first_pos(name: Option<String>, tokens: &CommandTokenizer) -> Option<String> {
     name.or_else(|| tokens.get_positionals().first().cloned())
 }
@@ -418,10 +406,6 @@ pub fn required_option<T>(value: Option<T>, name: &str) -> Result<T, AppError> {
 
 pub fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, AppError> {
     value.ok_or_else(|| AppError::MissingOptions(vec![name.to_string()]))
-}
-
-pub fn required_i64(value: Option<i64>, name: &str) -> Result<i64, AppError> {
-    required_option(value, name)
 }
 
 pub fn render_json_record(tokens: &CommandTokenizer, record: &JsonRecord) -> Result<(), AppError> {

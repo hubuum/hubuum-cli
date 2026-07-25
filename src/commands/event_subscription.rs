@@ -1,5 +1,8 @@
 use cli_command_derive::CommandArgs;
-use hubuum_client::{EventSubscriptionFilter, NewEventSubscription, UpdateEventSubscription};
+use hubuum_client::{
+    CollectionId, EventSinkId, EventSubscriptionFilter, NewEventSubscription,
+    UpdateEventSubscription,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::from_value;
 
@@ -185,7 +188,7 @@ impl CliCommand for EventSubscriptionCreate {
         let record = services.gateway().create_event_subscription(
             collection_id,
             NewEventSubscription {
-                sink_id: sink_id.into(),
+                sink_id,
                 name: query.name,
                 entity_types: split_csv(&query.entity_types),
                 actions: split_csv(&query.actions),
@@ -252,7 +255,7 @@ impl CliCommand for EventSubscriptionUpdate {
             collection_id,
             required_str(query.subscription.as_deref(), "subscription")?,
             UpdateEventSubscription {
-                sink_id: resolve_optional_sink_id(services, query.sink)?.map(Into::into),
+                sink_id: resolve_optional_sink_id(services, query.sink)?,
                 name: query.name,
                 description: query.description,
                 entity_types: query.entity_types.map(|value| split_csv(&value)),
@@ -312,14 +315,14 @@ fn parse_subscription_filter(
 fn resolve_collection_id(
     services: &AppServices,
     collection: Option<String>,
-) -> Result<i32, AppError> {
+) -> Result<CollectionId, AppError> {
     collection
         .as_deref()
         .ok_or_else(|| AppError::MissingOptions(vec!["collection".to_string()]))
         .and_then(|name| services.gateway().collection_id_by_name(name))
 }
 
-fn resolve_sink_id(services: &AppServices, sink: Option<String>) -> Result<i32, AppError> {
+fn resolve_sink_id(services: &AppServices, sink: Option<String>) -> Result<EventSinkId, AppError> {
     resolve_optional_sink_id(services, sink)?
         .ok_or_else(|| AppError::MissingOptions(vec!["sink".to_string()]))
 }
@@ -327,7 +330,7 @@ fn resolve_sink_id(services: &AppServices, sink: Option<String>) -> Result<i32, 
 fn resolve_optional_sink_id(
     services: &AppServices,
     sink: Option<String>,
-) -> Result<Option<i32>, AppError> {
+) -> Result<Option<EventSinkId>, AppError> {
     sink.as_deref()
         .map(|name| services.gateway().event_sink_id_by_name(name).map(Some))
         .unwrap_or(Ok(None))

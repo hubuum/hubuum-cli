@@ -5,12 +5,44 @@ use hubuum_client::{
     TokenResourceScope,
 };
 
-use crate::domain::{PrincipalTokenDetailsRecord, ResolvedTokenResource};
+use crate::domain::{PrincipalTokenDetailsRecord, ResolvedTokenResource, TokenResourceParent};
 use crate::errors::AppError;
 
 use super::{shared::fetch_entities_for_ids, HubuumGateway};
 
 const MAX_FILTERED_OBJECT_IDS_PER_CLASS: usize = 50;
+
+#[derive(Debug, Default)]
+struct TokenScopeIds {
+    collections: Vec<CollectionId>,
+    classes: Vec<ClassId>,
+    objects: Vec<ObjectId>,
+}
+
+impl TokenScopeIds {
+    fn from_resources(resources: &[TokenResourceScope]) -> Self {
+        let mut ids = Self::default();
+        for resource in resources {
+            match resource {
+                TokenResourceScope::Collection(id) => ids.collections.push(*id),
+                TokenResourceScope::Class(id) => ids.classes.push(*id),
+                TokenResourceScope::Object(id) => ids.objects.push(*id),
+            }
+        }
+        ids
+    }
+
+    fn include_parent_collections<'a>(
+        &mut self,
+        classes: impl IntoIterator<Item = &'a Class>,
+        objects: impl IntoIterator<Item = &'a Object>,
+    ) {
+        self.collections
+            .extend(classes.into_iter().map(|class| class.collection.id));
+        self.collections
+            .extend(objects.into_iter().map(|object| object.collection_id));
+    }
+}
 
 impl HubuumGateway {
     pub(super) fn principal_token_details(
@@ -29,34 +61,12 @@ impl HubuumGateway {
             .unwrap_or_default()
             .to_vec();
 
-        let mut collection_ids = resources
-            .iter()
-            .filter_map(|resource| match resource {
-                TokenResourceScope::Collection(id) => Some(*id),
-                TokenResourceScope::Class(_) | TokenResourceScope::Object(_) => None,
-            })
-            .collect::<Vec<_>>();
-        let class_ids = resources
-            .iter()
-            .filter_map(|resource| match resource {
-                TokenResourceScope::Class(id) => Some(*id),
-                TokenResourceScope::Collection(_) | TokenResourceScope::Object(_) => None,
-            })
-            .collect::<Vec<_>>();
-        let object_ids = resources
-            .iter()
-            .filter_map(|resource| match resource {
-                TokenResourceScope::Object(id) => Some(*id),
-                TokenResourceScope::Collection(_) | TokenResourceScope::Class(_) => None,
-            })
-            .collect::<Vec<_>>();
-
-        let mut resolver = CommandIdResolutionCache::new(self);
-        resolver.resolve_classes(&class_ids)?;
-        resolver.resolve_objects_from_scoped_classes(&class_ids, &object_ids)?;
-        collection_ids.extend(resolver.classes.values().map(|class| class.collection.id));
-        collection_ids.extend(resolver.objects.values().map(|object| object.collection_id));
-        resolver.resolve_collections(&collection_ids)?;
+        let mut ids = TokenScopeIds::from_resources(&resources);
+        let mut resolver = TokenScopeResolver::new(self);
+        resolver.resolve_classes(&ids.classes)?;
+        resolver.resolve_objects_from_scoped_classes(&ids.classes, &ids.objects)?;
+        ids.include_parent_collections(resolver.classes.values(), resolver.objects.values());
+        resolver.resolve_collections(&ids.collections)?;
 
         let resolved_resources = resolve_token_resources(
             &resources,
@@ -68,18 +78,18 @@ impl HubuumGateway {
     }
 }
 
-struct CommandIdResolutionCache<'a> {
+struct TokenScopeResolver<'a> {
     gateway: &'a HubuumGateway,
-    collections: HashMap<i32, Collection>,
-    classes: HashMap<i32, Class>,
-    objects: HashMap<i32, Object>,
-    probed_collection_ids: HashSet<i32>,
-    probed_class_ids: HashSet<i32>,
-    probed_object_ids_by_class: HashMap<i32, HashSet<i32>>,
-    fully_scanned_object_classes: HashSet<i32>,
+    collections: HashMap<CollectionId, Collection>,
+    classes: HashMap<ClassId, Class>,
+    objects: HashMap<ObjectId, Object>,
+    probed_collection_ids: HashSet<CollectionId>,
+    probed_class_ids: HashSet<ClassId>,
+    probed_object_ids_by_class: HashMap<ClassId, HashSet<ObjectId>>,
+    fully_scanned_object_classes: HashSet<ClassId>,
 }
 
-impl<'a> CommandIdResolutionCache<'a> {
+impl<'a> TokenScopeResolver<'a> {
     fn new(gateway: &'a HubuumGateway) -> Self {
         Self {
             gateway,
@@ -96,7 +106,7 @@ impl<'a> CommandIdResolutionCache<'a> {
     fn resolve_collections(&mut self, collection_ids: &[CollectionId]) -> Result<(), AppError> {
         let unprobed_ids = collection_ids
             .iter()
-            .map(|id| id.get())
+            .copied()
             .filter(|id| !self.probed_collection_ids.contains(id))
             .collect::<HashSet<_>>();
         let found = fetch_entities_for_ids(
@@ -105,21 +115,26 @@ impl<'a> CommandIdResolutionCache<'a> {
         )?;
 
         self.probed_collection_ids.extend(unprobed_ids);
-        self.collections.extend(found);
+        self.collections.extend(
+            found
+                .into_values()
+                .map(|collection| (collection.id, collection)),
+        );
         Ok(())
     }
 
     fn resolve_classes(&mut self, class_ids: &[ClassId]) -> Result<(), AppError> {
         let unprobed_ids = class_ids
             .iter()
-            .map(|id| id.get())
+            .copied()
             .filter(|id| !self.probed_class_ids.contains(id))
             .collect::<HashSet<_>>();
         let found =
             fetch_entities_for_ids(&self.gateway.client.classes(), unprobed_ids.iter().copied())?;
 
         self.probed_class_ids.extend(unprobed_ids);
-        self.classes.extend(found);
+        self.classes
+            .extend(found.into_values().map(|class| (class.id, class)));
         Ok(())
     }
 
@@ -128,7 +143,7 @@ impl<'a> CommandIdResolutionCache<'a> {
         class_ids: &[ClassId],
         object_ids: &[ObjectId],
     ) -> Result<(), AppError> {
-        let requested_ids = object_ids.iter().map(|id| id.get()).collect::<HashSet<_>>();
+        let requested_ids = object_ids.iter().copied().collect::<HashSet<_>>();
 
         for class_id in class_ids {
             if requested_ids
@@ -137,13 +152,12 @@ impl<'a> CommandIdResolutionCache<'a> {
             {
                 break;
             }
-            let class_id_value = class_id.get();
-            if self.fully_scanned_object_classes.contains(&class_id_value) {
+            if self.fully_scanned_object_classes.contains(class_id) {
                 continue;
             }
             let previously_probed = self
                 .probed_object_ids_by_class
-                .get(&class_id_value)
+                .get(class_id)
                 .cloned()
                 .unwrap_or_default();
             let unprobed_ids = requested_ids
@@ -163,16 +177,17 @@ impl<'a> CommandIdResolutionCache<'a> {
                     unprobed_ids.iter().copied(),
                 )?;
                 self.probed_object_ids_by_class
-                    .entry(class_id_value)
+                    .entry(*class_id)
                     .or_default()
                     .extend(unprobed_ids);
-                self.objects.extend(found);
+                self.objects
+                    .extend(found.into_values().map(|object| (object.id, object)));
             } else {
                 let found = self.gateway.client.objects(*class_id).query().all()?;
-                self.fully_scanned_object_classes.insert(class_id_value);
-                self.probed_object_ids_by_class.remove(&class_id_value);
+                self.fully_scanned_object_classes.insert(*class_id);
+                self.probed_object_ids_by_class.remove(class_id);
                 self.objects
-                    .extend(found.into_iter().map(|object| (object.id.get(), object)));
+                    .extend(found.into_iter().map(|object| (object.id, object)));
             }
         }
 
@@ -182,46 +197,51 @@ impl<'a> CommandIdResolutionCache<'a> {
 
 fn resolve_token_resources(
     resources: &[TokenResourceScope],
-    collections: &HashMap<i32, Collection>,
-    classes: &HashMap<i32, Class>,
-    objects: &HashMap<i32, Object>,
+    collections: &HashMap<CollectionId, Collection>,
+    classes: &HashMap<ClassId, Class>,
+    objects: &HashMap<ObjectId, Object>,
 ) -> Vec<ResolvedTokenResource> {
     resources
         .iter()
         .map(|resource| match resource {
-            TokenResourceScope::Collection(id) => collections.get(&id.get()).map_or_else(
+            TokenResourceScope::Collection(id) => collections.get(id).map_or_else(
                 || ResolvedTokenResource::unresolved_collection(*id),
                 |collection| {
                     ResolvedTokenResource::resolved_collection(*id, collection.name.clone())
                 },
             ),
-            TokenResourceScope::Class(id) => classes.get(&id.get()).map_or_else(
+            TokenResourceScope::Class(id) => classes.get(id).map_or_else(
                 || ResolvedTokenResource::unresolved_class(*id),
                 |class| {
-                    ResolvedTokenResource::resolved_class(
-                        *id,
-                        class.name.clone(),
+                    let collection = TokenResourceParent::new(
                         class.collection.id,
                         collections
-                            .get(&class.collection.id.get())
+                            .get(&class.collection.id)
                             .map(|collection| collection.name.clone()),
-                    )
+                    );
+                    ResolvedTokenResource::resolved_class(*id, class.name.clone(), collection)
                 },
             ),
-            TokenResourceScope::Object(id) => objects.get(&id.get()).map_or_else(
+            TokenResourceScope::Object(id) => objects.get(id).map_or_else(
                 || ResolvedTokenResource::unreachable_object(*id),
                 |object| {
+                    let class = TokenResourceParent::new(
+                        object.hubuum_class_id,
+                        classes
+                            .get(&object.hubuum_class_id)
+                            .map(|class| class.name.clone()),
+                    );
+                    let collection = TokenResourceParent::new(
+                        object.collection_id,
+                        collections
+                            .get(&object.collection_id)
+                            .map(|collection| collection.name.clone()),
+                    );
                     ResolvedTokenResource::resolved_object(
                         *id,
                         object.name.clone(),
-                        object.hubuum_class_id,
-                        classes
-                            .get(&object.hubuum_class_id.get())
-                            .map(|class| class.name.clone()),
-                        object.collection_id,
-                        collections
-                            .get(&object.collection_id.get())
-                            .map(|collection| collection.name.clone()),
+                        class,
+                        collection,
                     )
                 },
             ),
@@ -240,7 +260,7 @@ mod tests {
     use reqwest::StatusCode;
     use serde_json::{from_value, json, to_value};
 
-    use super::{resolve_token_resources, CommandIdResolutionCache, HubuumGateway};
+    use super::{resolve_token_resources, HubuumGateway, TokenScopeResolver};
 
     fn collection(id: i32, name: &str) -> Collection {
         from_value(json!({
@@ -295,9 +315,9 @@ mod tests {
         ];
         let resolved = resolve_token_resources(
             &resources,
-            &HashMap::from([(7, collection)]),
-            &HashMap::from([(8, class)]),
-            &HashMap::from([(9, object)]),
+            &HashMap::from([(7.into(), collection)]),
+            &HashMap::from([(8.into(), class)]),
+            &HashMap::from([(9.into(), object)]),
         );
         let value = to_value(resolved).expect("resolved scopes should serialize");
 
@@ -326,7 +346,7 @@ mod tests {
             .expect("client should build")
             .authenticate(Token::new("secret"));
         let gateway = HubuumGateway::new(Arc::new(client));
-        let mut resolver = CommandIdResolutionCache::new(&gateway);
+        let mut resolver = TokenScopeResolver::new(&gateway);
         let class_ids = vec![1.into(), 2.into()];
         let object_ids = (1..=60).map(Into::into).collect::<Vec<_>>();
 
@@ -358,7 +378,7 @@ mod tests {
             .expect("client should build")
             .authenticate(Token::new("secret"));
         let gateway = HubuumGateway::new(Arc::new(client));
-        let mut resolver = CommandIdResolutionCache::new(&gateway);
+        let mut resolver = TokenScopeResolver::new(&gateway);
         let class_ids = vec![1.into()];
         let object_ids = vec![9.into(), 10.into()];
 
@@ -370,7 +390,10 @@ mod tests {
             .expect("cached resolution should succeed");
 
         assert_eq!(
-            resolver.objects.get(&9).map(|object| object.name.as_str()),
+            resolver
+                .objects
+                .get(&9.into())
+                .map(|object| object.name.as_str()),
             Some("host.example.org")
         );
         assert_eq!(transport.requests().len(), 1);
