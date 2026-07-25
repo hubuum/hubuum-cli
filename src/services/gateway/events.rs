@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{from_value, Value};
 
-use crate::domain::JsonRecord;
+use crate::domain::{AuditEventRecord, JsonRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
@@ -153,7 +153,7 @@ impl HubuumGateway {
         &self,
         scope: AuditScope,
         input: AuditListInput,
-    ) -> Result<PagedResult<JsonRecord>, AppError> {
+    ) -> Result<PagedResult<AuditEventRecord>, AppError> {
         let request = match scope {
             AuditScope::Global => self.client.events(),
             AuditScope::Collection(id) => self.client.collection_events(id),
@@ -169,7 +169,7 @@ impl HubuumGateway {
         };
 
         let request = apply_audit_input(request, &input)?;
-        page_to_json(request.page()?)
+        page_to_audit(request.page()?)
     }
 
     pub fn audit_event_by_id(&self, id: i64) -> Result<JsonRecord, AppError> {
@@ -188,12 +188,10 @@ impl HubuumGateway {
                 },
             )?;
 
-            if let Some(record) = page
-                .items
-                .into_iter()
-                .find(|record| json_record_event_id(record) == Some(id))
-            {
-                return Ok(self.resolve_audit_resource_names(record));
+            if let Some(record) = page.items.into_iter().find(|record| record.id() == id) {
+                return Ok(
+                    self.resolve_audit_resource_names(JsonRecord::from_serializable(record.0)?)
+                );
             }
 
             let Some(next_cursor) = page.next_cursor else {
@@ -563,14 +561,6 @@ impl HubuumGateway {
     }
 }
 
-fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
-    record
-        .value
-        .get("id")
-        .or_else(|| record.value.get("event_id"))
-        .and_then(Value::as_i64)
-}
-
 fn json_record_history_id(record: &JsonRecord) -> Option<i64> {
     record.value.get("history_id").and_then(Value::as_i64)
 }
@@ -658,6 +648,24 @@ fn page_to_json<T: Serialize>(page: Page<T>) -> Result<PagedResult<JsonRecord>, 
         .into_iter()
         .map(JsonRecord::from_serializable)
         .collect::<Result<Vec<_>, _>>()?;
+    let returned_count = items.len();
+    Ok(PagedResult {
+        items,
+        next_cursor: page.next_cursor,
+        returned_count,
+        total_count,
+    })
+}
+
+fn page_to_audit(
+    page: Page<hubuum_client::EventResponse>,
+) -> Result<PagedResult<AuditEventRecord>, AppError> {
+    let total_count = page.total_count;
+    let items = page
+        .items
+        .into_iter()
+        .map(AuditEventRecord::from)
+        .collect::<Vec<_>>();
     let returned_count = items.len();
     Ok(PagedResult {
         items,

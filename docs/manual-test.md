@@ -372,6 +372,9 @@ event subscription list
 event delivery health
 event delivery list --limit 5
 audit list --limit 5
+audit list --actor-kind user --limit 5
+audit list --actor-kind system --limit 5
+audit list --actor-kind worker --limit 5
 audit show --id <audit-event-id>
 audit show --id <audit-event-id> --complete
 history class SmokeHost
@@ -392,7 +395,9 @@ remote-target delete cli-smoke-target
 
 Expected results:
 
-- Event and audit commands render current resource names.
+- Event and audit commands render current resource names. Audit list text
+  separates the audited entity type from the immediate `user`, `system`, or
+  `worker` actor kind.
 - `audit show` includes a readable nested `diff` when both snapshots exist,
   hides the complete snapshots by default, restores them with `--complete`, and
   renders the diff after the event metadata.

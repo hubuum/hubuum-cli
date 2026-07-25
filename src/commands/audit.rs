@@ -8,7 +8,8 @@ use super::{
     render_list_page, required_i64, CliCommand,
 };
 use crate::autocomplete::{
-    audit_event_ids, audit_resource_names, audit_resources, classes, collections, event_actions,
+    actor_kinds, audit_event_ids, audit_resource_names, audit_resources, classes, collections,
+    event_actions,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -27,6 +28,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 AuditList::default(),
                 CommandDocs {
                     about: Some("List visible audit events"),
+                    long_about: Some(
+                        "Lists visible audit events. The actor is the immediate origin of the mutation: user for a direct principal request, system for internal maintenance or recovery, and worker for asynchronous task execution. For worker events, provenance separately retains the root-task initiator.",
+                    ),
                     ..CommandDocs::default()
                 },
             ),
@@ -69,7 +73,11 @@ pub struct AuditList {
         autocomplete = "event_actions"
     )]
     pub action: Option<String>,
-    #[option(long = "actor-kind", help = "Actor kind filter")]
+    #[option(
+        long = "actor-kind",
+        help = "Immediate actor kind: user, system, or worker",
+        autocomplete = "actor_kinds"
+    )]
     pub actor_kind: Option<String>,
     #[option(long = "actor-user", help = "Actor user name")]
     pub actor_user: Option<String>,

@@ -47,7 +47,7 @@ pub use computed::{
     ComputedFieldPreviewRecord, ComputedFieldRecord, ComputedFieldSelector, ComputedFieldSet,
     SharedComputedFieldListRecord,
 };
-pub use events::JsonRecord;
+pub use events::{AuditEventRecord, JsonRecord};
 pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{

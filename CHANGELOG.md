@@ -10,7 +10,9 @@
   and object names. Object IDs outside the token's explicitly scoped classes
   are marked `unreachable`.
 - Expanded `audit show` with the provenance initiator's principal ID and name
-  while preserving the complete provenance object in structured output.
+  while preserving the complete provenance object in structured output. Audit
+  lists now display the immediate actor kind and complete `user`, `system`, and
+  `worker` actor filters.
 - Added explicit `group add_service_account` and
   `group remove_service_account` commands for managing service-account group
   membership by name.

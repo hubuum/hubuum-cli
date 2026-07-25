@@ -1,5 +1,7 @@
 use crate::services::CompletionContext;
 
+const ACTOR_KINDS: &[&str] = &["user", "system", "worker"];
+
 pub fn event_sinks(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     ctx.event_sinks(prefix)
 }
@@ -65,6 +67,10 @@ pub fn event_actions(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) 
         ],
         prefix,
     )
+}
+
+pub fn actor_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(ACTOR_KINDS, prefix)
 }
 
 pub fn audit_resources(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -147,4 +153,18 @@ fn option_value(parts: &[String], long: &str) -> Option<String> {
             part.strip_prefix(&format!("{long}=")).map(str::to_string)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{complete_values, ACTOR_KINDS};
+
+    #[test]
+    fn actor_kind_completion_uses_the_server_catalog() {
+        assert_eq!(
+            complete_values(ACTOR_KINDS, ""),
+            ["user", "system", "worker"]
+        );
+        assert_eq!(complete_values(ACTOR_KINDS, "w"), ["worker"]);
+    }
 }

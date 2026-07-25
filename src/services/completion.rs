@@ -492,8 +492,7 @@ impl CompletionStore {
             Ok::<_, AppError>(
                 page.items
                     .into_iter()
-                    .filter_map(|record| json_record_i64(&record, &["id", "event_id"]))
-                    .map(|id| id.to_string())
+                    .map(|record| record.id().to_string())
                     .collect::<Vec<_>>(),
             )
         })

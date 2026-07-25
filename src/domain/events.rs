@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string, to_value, Error as JsonError, Map, Value};
 
+use hubuum_client::EventResponse;
 use hubuum_filter::OutputEnvelope;
 
 use crate::errors::AppError;
@@ -11,6 +12,45 @@ use crate::output::set_semantic_output;
 pub struct JsonRecord {
     #[serde(flatten)]
     pub value: Value,
+}
+
+transparent_record!(AuditEventRecord, EventResponse);
+
+impl AuditEventRecord {
+    pub const fn id(&self) -> i64 {
+        self.0.id
+    }
+
+    fn actor_label(&self) -> String {
+        let actor_name = self
+            .0
+            .provenance
+            .as_ref()
+            .and_then(|provenance| provenance.actor.principal.as_ref())
+            .and_then(|principal| principal.name.as_deref());
+
+        match actor_name {
+            Some(name) => format!("{}: {name}", self.0.actor_kind),
+            None => self.0.actor_kind.clone(),
+        }
+    }
+}
+
+impl TableRenderable for AuditEventRecord {
+    fn headers() -> Vec<&'static str> {
+        vec!["id", "type", "action", "actor", "summary", "occurred"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.0.id.to_string(),
+            self.0.entity_type.clone(),
+            self.0.action.clone(),
+            self.actor_label(),
+            self.0.summary.clone(),
+            self.0.occurred_at.to_string(),
+        ]
+    }
 }
 
 impl From<Value> for JsonRecord {
@@ -333,9 +373,10 @@ impl DashFallback for String {
 
 #[cfg(test)]
 mod tests {
+    use hubuum_client::EventResponse;
     use serde_json::json;
 
-    use super::{detail_fields, detail_json_summary, JsonRecord};
+    use super::{detail_fields, detail_json_summary, AuditEventRecord, JsonRecord};
     use crate::formatting::TableRenderable;
 
     #[test]
@@ -359,6 +400,53 @@ mod tests {
                 "U".to_string(),
                 "host.example.org (192.0.2.10)".to_string(),
                 "2026-07-05T23:31:49.388144+00:00".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn audit_rows_distinguish_entity_type_from_actor_kind() {
+        let event: EventResponse = serde_json::from_value(json!({
+            "id": 603,
+            "event_id": "a0c041d8-20b9-4ff8-925b-0c4df1f99398",
+            "occurred_at": "2026-07-24T19:35:33.345470Z",
+            "entity_type": "task",
+            "entity_id": 44,
+            "entity_name": null,
+            "collection_id": null,
+            "action": "queued",
+            "actor_kind": "worker",
+            "actor_user_id": null,
+            "provenance": {
+                "actor": {
+                    "kind": "worker",
+                    "principal": null
+                },
+                "initiator": {
+                    "principal_id": 2,
+                    "name": "admin"
+                },
+                "task_id": 44
+            },
+            "correlation_id": null,
+            "request_id": null,
+            "summary": "Internal task queued",
+            "before": null,
+            "after": null,
+            "metadata": {},
+            "schema_version": 1
+        }))
+        .expect("audit event fixture should deserialize");
+
+        assert_eq!(
+            AuditEventRecord(event).row(),
+            vec![
+                "603",
+                "task",
+                "queued",
+                "worker",
+                "Internal task queued",
+                "2026-07-24T19:35:33.345470+00:00",
             ]
         );
     }

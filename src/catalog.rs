@@ -1165,6 +1165,7 @@ mod tests {
         assert!(scope_help.contains("resource"));
         assert!(!list_help.contains("--entity-type"));
         assert!(!list_help.contains("--entity-id"));
+        assert!(list_help.contains("user, system, or worker"));
         assert!(show_help.contains("Show a single audit event by id"));
         assert!(show_help.contains("--id"));
         assert!(show_help.contains("--complete"));
@@ -1444,6 +1445,22 @@ mod tests {
             .expect("audit show should expose --id");
 
         assert!(matches!(id.completion, CompletionSpec::Dynamic(_)));
+    }
+
+    #[test]
+    fn audit_actor_kind_has_dynamic_completion() {
+        let catalog = build_command_catalog();
+        let audit_list = catalog
+            .resolve_command(&[], &["audit".to_string(), "list".to_string()])
+            .expect("audit list should resolve");
+        let actor_kind = audit_list
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--actor-kind"))
+            .expect("audit list should expose --actor-kind");
+
+        assert!(matches!(actor_kind.completion, CompletionSpec::Dynamic(_)));
     }
 
     #[test]
