@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Updated `hubuum_client` to 0.7.0 for Hubuum server v0.0.4. Object-data patches
+  exceeding the server's 1,000-operation limit are now rejected before
+  transport.
 - Added explicit `group add_service_account` and
   `group remove_service_account` commands for managing service-account group
   membership by name.

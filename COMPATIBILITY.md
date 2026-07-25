@@ -9,10 +9,14 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.3 | 0.6.1 | 0.0.3 | Current declared target |
+| Unreleased (`main`) | 0.7.0 | 0.0.4 | Current development target |
+| 0.0.3 | 0.6.1 | 0.0.3 | Previous declared target |
 | 0.0.2 | 0.5.1 | 0.0.2 | Previous declared target |
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
+The current development target is tested by `hubuum_client` against the
+immutable Hubuum server v0.0.4 image
+`ghcr.io/hubuum/hubuum-server@sha256:60142d605f423b1dc58d9dfe709164b0d5ec93befd2d702f9bdca7ee0654a583`.
 The v0.0.3 target is tested by `hubuum_client` against the immutable
 server image
 `ghcr.io/hubuum/hubuum-server@sha256:f1f57a991f69005ee81f24e77533e61f75b5586949d98cccf1c40fc4329eb186`.

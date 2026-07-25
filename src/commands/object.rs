@@ -507,6 +507,18 @@ mod tests {
     }
 
     #[test]
+    fn object_data_patch_rejects_more_than_server_limit() {
+        let operations = vec![json!({"op": "remove", "path": "/stale"}); 1_001];
+        let payload = serde_json::to_string(&operations).expect("test patch should serialize");
+
+        let error =
+            parse_object_data_patch(&payload).expect_err("oversized patch should be rejected");
+        assert!(error
+            .to_string()
+            .contains("contains 1001 operations; the maximum is 1000"));
+    }
+
+    #[test]
     fn object_data_patch_reads_at_file_source() {
         let directory = tempdir().expect("temporary directory should be created");
         let path = directory.path().join("patch.json");
