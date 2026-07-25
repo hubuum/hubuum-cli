@@ -9,7 +9,7 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Unreleased (`main`) | 0.7.0 | 0.0.4 | Current development target |
+| Unreleased (`main`) | 0.7.1 | 0.0.4 | Current development target |
 | 0.0.3 | 0.6.1 | 0.0.3 | Previous declared target |
 | 0.0.2 | 0.5.1 | 0.0.2 | Previous declared target |
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
