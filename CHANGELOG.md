@@ -10,7 +10,9 @@
 - Added `user token show` and `service-account token show` with complete token
   metadata, permission and resource boundaries, and resolved collection, class,
   and object names. Object IDs outside the token's explicitly scoped classes
-  are marked `unreachable`.
+  are marked `unreachable`. ID resolution follows every server cursor page and
+  uses command-local positive and negative caches with bounded per-class object
+  lookups.
 - Expanded `audit show` with the provenance initiator's principal ID and name
   while preserving the complete provenance object in structured output. Audit
   lists now display the immediate actor kind and complete `user`, `system`, and
