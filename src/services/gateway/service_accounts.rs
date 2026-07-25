@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
-use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions};
+use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions, TokenId};
 use std::str::FromStr;
 
-use crate::domain::{PrincipalTokenRecord, ServiceAccountRecord};
+use crate::domain::{PrincipalTokenDetailsRecord, PrincipalTokenRecord, ServiceAccountRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -102,6 +102,15 @@ impl HubuumGateway {
         let handle = self.client.service_accounts().get_by_name(name)?;
         let tokens = handle.tokens()?;
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
+    }
+
+    pub fn service_account_token(
+        &self,
+        name: &str,
+        token_id: TokenId,
+    ) -> Result<PrincipalTokenDetailsRecord, AppError> {
+        let handle = self.client.service_accounts().get_by_name(name)?;
+        self.principal_token_details(handle.tokens()?, token_id)
     }
 
     pub fn service_account_token_create(

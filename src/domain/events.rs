@@ -27,6 +27,7 @@ impl JsonRecord {
     }
 
     pub(crate) fn into_audit_detail(mut self, include_snapshots: bool) -> Self {
+        let initiator = self.audit_provenance_initiator();
         let generated_diff = match &self.value {
             Value::Object(object) if !object.contains_key("diff") => {
                 match (object.get("before"), object.get("after")) {
@@ -40,6 +41,16 @@ impl JsonRecord {
         };
 
         if let Some(object) = self.value.as_object_mut() {
+            if let Some((principal_id, name)) = initiator {
+                object
+                    .entry("initiator_principal_id")
+                    .or_insert_with(|| Value::from(principal_id));
+                if let Some(name) = name {
+                    object
+                        .entry("initiator")
+                        .or_insert_with(|| Value::String(name));
+                }
+            }
             if let Some(generated_diff) = generated_diff {
                 object.insert("diff".to_string(), generated_diff);
             }
@@ -85,6 +96,19 @@ impl JsonRecord {
             .get(key)
             .and_then(Value::as_i64)
             .and_then(|id| i32::try_from(id).ok())
+    }
+
+    fn audit_provenance_initiator(&self) -> Option<(i32, Option<String>)> {
+        let initiator = self.value.pointer("/provenance/initiator")?;
+        let principal_id = initiator
+            .get("principal_id")
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok())?;
+        let name = initiator
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        Some((principal_id, name))
     }
 
     fn get_string(&self, key: &str) -> String {
@@ -168,7 +192,7 @@ fn json_summary(value: &Value) -> String {
 }
 
 fn detail_json_summary(key: &str, value: &Value) -> String {
-    if matches!(key, "data" | "diff" | "json_schema")
+    if matches!(key, "data" | "diff" | "json_schema" | "provenance")
         && matches!(value, Value::Array(_) | Value::Object(_))
     {
         pretty_json(value)
@@ -446,6 +470,33 @@ mod tests {
         assert_eq!(record.value["actor_user_id"], 1);
         assert_eq!(record.value["collection"], "Hosts");
         assert_eq!(record.value["collection_id"], 2);
+    }
+
+    #[test]
+    fn audit_detail_promotes_provenance_initiator() {
+        let record = JsonRecord::from(json!({
+            "id": 17,
+            "provenance": {
+                "actor": {
+                    "kind": "task",
+                    "principal": {
+                        "principal_id": 9,
+                        "name": "worker"
+                    }
+                },
+                "initiator": {
+                    "principal_id": 2,
+                    "name": "admin"
+                },
+                "task_id": 44
+            }
+        }))
+        .into_audit_detail(false);
+
+        assert_eq!(record.value["initiator"], "admin");
+        assert_eq!(record.value["initiator_principal_id"], 2);
+        assert_eq!(record.value["provenance"]["initiator"]["name"], "admin");
+        assert!(detail_json_summary("provenance", &record.value["provenance"]).contains('\n'));
     }
 
     #[test]

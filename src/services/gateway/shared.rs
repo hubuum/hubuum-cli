@@ -243,7 +243,7 @@ where
         .collect()
 }
 
-fn fetch_entities_for_ids<T, I, Id>(
+pub(super) fn fetch_entities_for_ids<T, I, Id>(
     resource: &Resource<T>,
     ids: I,
 ) -> Result<HashMap<i32, T::GetOutput>, AppError>

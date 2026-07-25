@@ -51,7 +51,8 @@ pub use events::JsonRecord;
 pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
-    MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,
+    MeRecord, PrincipalPermissionsRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord,
+    ResolvedTokenResource, ServiceAccountRecord,
 };
 pub use imports::ImportResultRecord;
 pub use object_fields::{

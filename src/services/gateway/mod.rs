@@ -16,6 +16,7 @@ mod service_accounts;
 mod settings;
 mod shared;
 mod tasks;
+mod tokens;
 mod users;
 
 use std::sync::Arc;

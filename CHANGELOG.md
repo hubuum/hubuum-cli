@@ -5,6 +5,12 @@
 - Updated `hubuum_client` to 0.7.0 for Hubuum server v0.0.4. Object-data patches
   exceeding the server's 1,000-operation limit are now rejected before
   transport.
+- Added `user token show` and `service-account token show` with complete token
+  metadata, permission and resource boundaries, and resolved collection, class,
+  and object names. Object IDs outside the token's explicitly scoped classes
+  are marked `unreachable`.
+- Expanded `audit show` with the provenance initiator's principal ID and name
+  while preserving the complete provenance object in structured output.
 - Added explicit `group add_service_account` and
   `group remove_service_account` commands for managing service-account group
   membership by name.

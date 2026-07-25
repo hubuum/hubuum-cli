@@ -1418,10 +1418,12 @@ mod tests {
             "jobs show --id",
             "jobs watch --task",
             "service-account token revoke --token-id",
+            "service-account token show --token-id",
             "task events --id",
             "task output --id",
             "task show --id",
             "user token revoke --token-id",
+            "user token show --token-id",
         ];
 
         exposed.sort();
@@ -1513,12 +1515,14 @@ mod tests {
             (&["user", "modify"][..], "--username"),
             (&["user", "set-password"][..], "--username"),
             (&["user", "token", "list"][..], "--username"),
+            (&["user", "token", "show"][..], "--username"),
             (&["user", "token", "create"][..], "--username"),
             (&["user", "token", "revoke"][..], "--username"),
             (&["service-account", "show"][..], "--name"),
             (&["service-account", "delete"][..], "--name"),
             (&["service-account", "disable"][..], "--name"),
             (&["service-account", "token", "list"][..], "--name"),
+            (&["service-account", "token", "show"][..], "--name"),
             (&["service-account", "token", "create"][..], "--name"),
             (&["service-account", "token", "revoke"][..], "--name"),
             (&["remote-target", "show"][..], "--name"),

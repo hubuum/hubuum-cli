@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use cli_command_derive::CommandArgs;
-use hubuum_client::FilterOperator;
+use hubuum_client::{FilterOperator, TokenId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string_pretty};
 use std::fs::read_to_string;
@@ -114,6 +114,22 @@ set-password alice --password-file /run/secrets/alice-password"#,
                 CommandDocs {
                     about: Some("List tokens for a user"),
                     ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "show",
+                UserTokenShow::default(),
+                CommandDocs {
+                    about: Some("Show a user token and its resolved scope"),
+                    long_about: Some(
+                        "Shows all token metadata returned by Hubuum, including permission and resource boundaries. Collection, class, and object IDs are resolved to names when possible. Object IDs are resolved only through classes explicitly present in the token scope and are marked unreachable otherwise.",
+                    ),
+                    examples: Some(
+                        "alice 42\n--username alice --token-id 42\nalice 42 --output json",
+                    ),
                 },
             ),
         )
@@ -465,6 +481,41 @@ impl CliCommand for UserTokenList {
             OutputFormat::Text => {
                 token_list.format_noreturn()?;
             }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenShow {
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
+    pub username: Option<String>,
+    #[option(short = "t", long = "token-id", help = "Token ID to show")]
+    pub token_id: Option<TokenId>,
+}
+
+impl CliCommand for UserTokenShow {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let username_is_option = query.username.is_some();
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
+        let token_id = required_option_or_pos(
+            query.token_id,
+            tokens,
+            usize::from(!username_is_option),
+            "token-id",
+        )?;
+        let token = services.gateway().user_token(&username, token_id)?;
+
+        match desired_format(tokens) {
+            OutputFormat::Json => token.format_json_noreturn()?,
+            OutputFormat::Text => token.format_noreturn()?,
         }
 
         Ok(())
