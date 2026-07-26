@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-07-26
+
 - Updated `hubuum_client` to 0.7.1 for Hubuum server v0.0.4, including sensitive
   header handling that keeps bearer tokens, restore capabilities, and custom
   raw headers out of debug output and HTTP/2 compression tables. Object-data
