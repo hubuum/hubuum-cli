@@ -1,15 +1,50 @@
 use hubuum_client::{
     ClassId, CollectionId, MeResponse, ObjectId, PrincipalCollectionPermissions,
-    PrincipalTokenMetadata, ServiceAccount,
+    PrincipalTokenMetadata, ServiceAccount, Token,
 };
 use serde::{Serialize, Serializer};
 use serde_json::to_value;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 transparent_record!(MeRecord, MeResponse);
 transparent_record!(PrincipalTokenRecord, PrincipalTokenMetadata);
 transparent_record!(PrincipalPermissionsRecord, PrincipalCollectionPermissions);
 transparent_record!(ServiceAccountRecord, ServiceAccount);
+
+pub struct IssuedTokenRecord {
+    token: String,
+    expires_at: Option<String>,
+}
+
+impl IssuedTokenRecord {
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub fn expires_at(&self) -> Option<&str> {
+        self.expires_at.as_deref()
+    }
+}
+
+impl From<Token> for IssuedTokenRecord {
+    fn from(token: Token) -> Self {
+        let expires_at = token.expires_at().map(ToString::to_string);
+        Self {
+            token: token.into_inner(),
+            expires_at,
+        }
+    }
+}
+
+impl Debug for IssuedTokenRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("IssuedTokenRecord")
+            .field("token", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PrincipalTokenDetailsRecord {
@@ -272,4 +307,27 @@ fn write_parent_reference<T: Display>(
         write!(formatter, ": {name}")?;
     }
     formatter.write_str(")")
+}
+
+#[cfg(test)]
+mod tests {
+    use hubuum_client::Token;
+    use serde_json::{from_value, json};
+
+    use super::IssuedTokenRecord;
+
+    #[test]
+    fn issued_token_preserves_expiry_and_redacts_debug_output() {
+        let token: Token = from_value(json!({
+            "token": "issued-secret",
+            "expires_at": "2026-07-27T05:17:17Z"
+        }))
+        .expect("issued token should deserialize");
+
+        let issued = IssuedTokenRecord::from(token);
+
+        assert_eq!(issued.token(), "issued-secret");
+        assert_eq!(issued.expires_at(), Some("2026-07-27T05:17:17+00:00"));
+        assert!(!format!("{issued:?}").contains("issued-secret"));
+    }
 }

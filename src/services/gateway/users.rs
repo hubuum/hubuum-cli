@@ -4,7 +4,9 @@ use hubuum_client::{
 };
 use std::str::FromStr;
 
-use crate::domain::{CreatedUser, PrincipalTokenDetailsRecord, PrincipalTokenRecord, UserRecord};
+use crate::domain::{
+    CreatedUser, IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, UserRecord,
+};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -171,7 +173,7 @@ impl HubuumGateway {
         &self,
         username: &str,
         input: NewTokenInput,
-    ) -> Result<String, AppError> {
+    ) -> Result<IssuedTokenRecord, AppError> {
         let handle = self.client.users().get_by_name(username)?;
         let mut req = NewTokenRequest::new();
 
@@ -204,7 +206,7 @@ impl HubuumGateway {
             req = req.scopes(scopes?);
         }
 
-        Ok(handle.tokens_create(req)?)
+        Ok(handle.tokens_create_token(req)?.into())
     }
 
     pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {

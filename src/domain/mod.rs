@@ -51,8 +51,8 @@ pub use events::{AuditEventId, AuditEventRecord, JsonRecord};
 pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
-    MeRecord, PrincipalPermissionsRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord,
-    ServiceAccountRecord,
+    IssuedTokenRecord, MeRecord, PrincipalPermissionsRecord, PrincipalTokenDetailsRecord,
+    PrincipalTokenRecord, ServiceAccountRecord,
 };
 pub(crate) use identity::{ResolvedTokenResource, TokenResourceParent};
 pub use imports::ImportResultRecord;
