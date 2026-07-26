@@ -1165,6 +1165,7 @@ mod tests {
         assert!(scope_help.contains("resource"));
         assert!(!list_help.contains("--entity-type"));
         assert!(!list_help.contains("--entity-id"));
+        assert!(list_help.contains("user, system, or worker"));
         assert!(show_help.contains("Show a single audit event by id"));
         assert!(show_help.contains("--id"));
         assert!(show_help.contains("--complete"));
@@ -1418,10 +1419,12 @@ mod tests {
             "jobs show --id",
             "jobs watch --task",
             "service-account token revoke --token-id",
+            "service-account token show --token-id",
             "task events --id",
             "task output --id",
             "task show --id",
             "user token revoke --token-id",
+            "user token show --token-id",
         ];
 
         exposed.sort();
@@ -1442,6 +1445,22 @@ mod tests {
             .expect("audit show should expose --id");
 
         assert!(matches!(id.completion, CompletionSpec::Dynamic(_)));
+    }
+
+    #[test]
+    fn audit_actor_kind_has_dynamic_completion() {
+        let catalog = build_command_catalog();
+        let audit_list = catalog
+            .resolve_command(&[], &["audit".to_string(), "list".to_string()])
+            .expect("audit list should resolve");
+        let actor_kind = audit_list
+            .command
+            .options
+            .iter()
+            .find(|option| option.long.as_deref() == Some("--actor-kind"))
+            .expect("audit list should expose --actor-kind");
+
+        assert!(matches!(actor_kind.completion, CompletionSpec::Dynamic(_)));
     }
 
     #[test]
@@ -1513,12 +1532,14 @@ mod tests {
             (&["user", "modify"][..], "--username"),
             (&["user", "set-password"][..], "--username"),
             (&["user", "token", "list"][..], "--username"),
+            (&["user", "token", "show"][..], "--username"),
             (&["user", "token", "create"][..], "--username"),
             (&["user", "token", "revoke"][..], "--username"),
             (&["service-account", "show"][..], "--name"),
             (&["service-account", "delete"][..], "--name"),
             (&["service-account", "disable"][..], "--name"),
             (&["service-account", "token", "list"][..], "--name"),
+            (&["service-account", "token", "show"][..], "--name"),
             (&["service-account", "token", "create"][..], "--name"),
             (&["service-account", "token", "revoke"][..], "--name"),
             (&["remote-target", "show"][..], "--name"),

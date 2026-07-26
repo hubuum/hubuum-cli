@@ -1,15 +1,19 @@
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+
 use hubuum_client::{
     client::sync::{EventListRequest, HistoryRequest},
     types::SortDirection,
-    FilterOperator, HubuumDateTime, NewEventSink, NewEventSubscription, Page, QueryFilter,
-    UpdateEventSink, UpdateEventSubscription,
+    ClassId, CollectionId, EventDeliveryId, EventSinkId, EventSubscriptionId, ExportTemplateId,
+    FilterOperator, GroupId, HistoryId, HubuumDateTime, NewEventSink, NewEventSubscription,
+    ObjectId, Page, QueryFilter, RemoteTargetId, UpdateEventSink, UpdateEventSubscription, UserId,
 };
 use log::debug;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
 
-use crate::domain::JsonRecord;
+use crate::domain::{AuditEventId, AuditEventRecord, JsonRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
@@ -22,9 +26,9 @@ use super::HubuumGateway;
 #[derive(Debug, Clone, Default)]
 pub struct AuditListInput {
     pub action: Option<String>,
-    pub actor_kind: Option<String>,
-    pub actor_user_id: Option<i32>,
-    pub collection_id: Option<i32>,
+    pub actor_kind: Option<AuditActorKind>,
+    pub actor_user_id: Option<UserId>,
+    pub collection_id: Option<CollectionId>,
     pub occurred_after: Option<String>,
     pub occurred_before: Option<String>,
     pub limit: Option<usize>,
@@ -32,24 +36,131 @@ pub struct AuditListInput {
     pub cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditActorKind {
+    User,
+    System,
+    Worker,
+}
+
+impl AuditActorKind {
+    pub const VALUES: &[&str] = &["user", "system", "worker"];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::System => "system",
+            Self::Worker => "worker",
+        }
+    }
+}
+
+impl Display for AuditActorKind {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AuditActorKind {
+    type Err = AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "user" => Ok(Self::User),
+            "system" => Ok(Self::System),
+            "worker" => Ok(Self::Worker),
+            _ => Err(AppError::InvalidOption(format!(
+                "Invalid audit actor kind '{value}'. Valid values: {}",
+                Self::VALUES.join(", ")
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuditResourceKind {
+    Collection,
+    Class,
+    Object,
+    User,
+    Group,
+    Template,
+    RemoteTarget,
+}
+
+impl AuditResourceKind {
+    pub const VALUES: &[&str] = &[
+        "collection",
+        "class",
+        "object",
+        "user",
+        "group",
+        "template",
+        "remote-target",
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Collection => "collection",
+            Self::Class => "class",
+            Self::Object => "object",
+            Self::User => "user",
+            Self::Group => "group",
+            Self::Template => "template",
+            Self::RemoteTarget => "remote-target",
+        }
+    }
+}
+
+impl Display for AuditResourceKind {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AuditResourceKind {
+    type Err = AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "collection" => Ok(Self::Collection),
+            "class" => Ok(Self::Class),
+            "object" => Ok(Self::Object),
+            "user" => Ok(Self::User),
+            "group" => Ok(Self::Group),
+            "template" => Ok(Self::Template),
+            "remote-target" => Ok(Self::RemoteTarget),
+            _ => Err(AppError::InvalidOption(format!(
+                "Invalid audit resource kind '{value}'. Valid values: {}",
+                Self::VALUES.join(", ")
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AuditScope {
     Global,
-    Collection(i32),
-    Class(i32),
-    Object { class_id: i32, object_id: i32 },
-    User(i32),
-    Group(i32),
-    Template(i32),
-    RemoteTarget(i32),
+    Collection(CollectionId),
+    Class(ClassId),
+    Object {
+        class_id: ClassId,
+        object_id: ObjectId,
+    },
+    User(UserId),
+    Group(GroupId),
+    Template(ExportTemplateId),
+    RemoteTarget(RemoteTargetId),
 }
 
 #[derive(Debug, Clone)]
 pub enum HistoryScope {
-    Class(i32),
+    Class(ClassId),
     Object {
-        class_id: i32,
-        object_id: i32,
+        class_id: ClassId,
+        object_id: ObjectId,
     },
     ClassName(String),
     ObjectName {
@@ -79,8 +190,8 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn event_sink_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.event_sinks().get_by_name(name)?.id().get())
+    pub fn event_sink_id_by_name(&self, name: &str) -> Result<EventSinkId, AppError> {
+        Ok(self.client.event_sinks().get_by_name(name)?.id())
     }
 
     pub fn list_event_subscription_names_for_collection(
@@ -100,52 +211,49 @@ impl HubuumGateway {
             .collect())
     }
 
-    pub fn collection_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        self.collection_id(name)
+    pub fn collection_id_by_name(&self, name: &str) -> Result<CollectionId, AppError> {
+        Ok(self.collection_id(name)?.into())
     }
 
-    pub fn user_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.users().get_by_name(name)?.id().into())
+    pub fn user_id_by_name(&self, name: &str) -> Result<UserId, AppError> {
+        Ok(self.client.users().get_by_name(name)?.id())
     }
 
     pub fn audit_scope_by_name(
         &self,
-        resource: &str,
+        resource: AuditResourceKind,
         name: Option<&str>,
         class_name: Option<&str>,
     ) -> Result<AuditScope, AppError> {
         let name = name.ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
         match resource {
-            "collection" => Ok(AuditScope::Collection(self.collection_id(name)?)),
-            "class" => Ok(AuditScope::Class(
-                self.class_handle_by_name(name)?.id().into(),
-            )),
-            "object" => {
+            AuditResourceKind::Collection => {
+                Ok(AuditScope::Collection(self.collection_id(name)?.into()))
+            }
+            AuditResourceKind::Class => {
+                Ok(AuditScope::Class(self.class_handle_by_name(name)?.id()))
+            }
+            AuditResourceKind::Object => {
                 let class_name = class_name
                     .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
                 let object = self.object_handle_by_name(class_name, name)?;
                 Ok(AuditScope::Object {
-                    class_id: object.resource().hubuum_class_id.into(),
-                    object_id: object.id().into(),
+                    class_id: object.resource().hubuum_class_id,
+                    object_id: object.id(),
                 })
             }
-            "user" => Ok(AuditScope::User(
-                self.client.users().get_by_name(name)?.id().into(),
+            AuditResourceKind::User => Ok(AuditScope::User(
+                self.client.users().get_by_name(name)?.id(),
             )),
-            "group" => Ok(AuditScope::Group(
-                self.client.groups().get_by_name(name)?.id().into(),
+            AuditResourceKind::Group => Ok(AuditScope::Group(
+                self.client.groups().get_by_name(name)?.id(),
             )),
-            "template" => Ok(AuditScope::Template(
-                self.client
-                    .export_templates()
-                    .get_by_name(name)?
-                    .id()
-                    .into(),
+            AuditResourceKind::Template => Ok(AuditScope::Template(
+                self.client.export_templates().get_by_name(name)?.id(),
             )),
-            "remote-target" => Ok(AuditScope::RemoteTarget(
-                self.client.remote_targets().get_by_name(name)?.id().get(),
+            AuditResourceKind::RemoteTarget => Ok(AuditScope::RemoteTarget(
+                self.client.remote_targets().get_by_name(name)?.id(),
             )),
-            other => Err(AppError::InvalidOption(format!("resource={other}"))),
         }
     }
 
@@ -153,7 +261,7 @@ impl HubuumGateway {
         &self,
         scope: AuditScope,
         input: AuditListInput,
-    ) -> Result<PagedResult<JsonRecord>, AppError> {
+    ) -> Result<PagedResult<AuditEventRecord>, AppError> {
         let request = match scope {
             AuditScope::Global => self.client.events(),
             AuditScope::Collection(id) => self.client.collection_events(id),
@@ -169,10 +277,10 @@ impl HubuumGateway {
         };
 
         let request = apply_audit_input(request, &input)?;
-        page_to_json(request.page()?)
+        page_to_audit(request.page()?)
     }
 
-    pub fn audit_event_by_id(&self, id: i64) -> Result<JsonRecord, AppError> {
+    pub fn audit_event_by_id(&self, id: AuditEventId) -> Result<JsonRecord, AppError> {
         const PAGE_LIMIT: usize = 100;
         const MAX_PAGES: usize = 100;
 
@@ -191,9 +299,11 @@ impl HubuumGateway {
             if let Some(record) = page
                 .items
                 .into_iter()
-                .find(|record| json_record_event_id(record) == Some(id))
+                .find(|record| record.id() == id.get())
             {
-                return Ok(self.resolve_audit_resource_names(record));
+                return Ok(
+                    self.resolve_audit_resource_names(JsonRecord::from_serializable(record.0)?)
+                );
             }
 
             let Some(next_cursor) = page.next_cursor else {
@@ -276,7 +386,7 @@ impl HubuumGateway {
     pub fn history_record_by_id(
         &self,
         scope: HistoryScope,
-        history_id: i64,
+        history_id: HistoryId,
     ) -> Result<JsonRecord, AppError> {
         const PAGE_LIMIT: usize = 100;
         const MAX_PAGES: usize = 100;
@@ -340,7 +450,7 @@ impl HubuumGateway {
     fn resolve_history_scope(&self, scope: HistoryScope) -> Result<HistoryScope, AppError> {
         match scope {
             HistoryScope::ClassName(class_name) => Ok(HistoryScope::Class(
-                self.class_handle_by_name(&class_name)?.id().into(),
+                self.class_handle_by_name(&class_name)?.id(),
             )),
             HistoryScope::ObjectName {
                 class_name,
@@ -348,8 +458,8 @@ impl HubuumGateway {
             } => {
                 let object = self.object_handle_by_name(&class_name, &object_name)?;
                 Ok(HistoryScope::Object {
-                    class_id: object.resource().hubuum_class_id.into(),
-                    object_id: object.id().into(),
+                    class_id: object.resource().hubuum_class_id,
+                    object_id: object.id(),
                 })
             }
             other => Ok(other),
@@ -406,7 +516,7 @@ impl HubuumGateway {
 
     pub fn event_subscriptions(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         query: &ListQuery,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
         let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
@@ -426,8 +536,8 @@ impl HubuumGateway {
 
     pub fn event_subscription(
         &self,
-        collection_id: i32,
-        subscription_id: i32,
+        collection_id: CollectionId,
+        subscription_id: EventSubscriptionId,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
             self.client
@@ -439,7 +549,7 @@ impl HubuumGateway {
 
     pub fn event_subscription_by_name(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         name: &str,
     ) -> Result<JsonRecord, AppError> {
         let subscription = self.event_subscription_id_by_name(collection_id, name)?;
@@ -448,7 +558,7 @@ impl HubuumGateway {
 
     pub fn create_event_subscription(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         input: NewEventSubscription,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
@@ -461,7 +571,7 @@ impl HubuumGateway {
 
     pub fn update_event_subscription(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         subscription_name: &str,
         input: UpdateEventSubscription,
     ) -> Result<JsonRecord, AppError> {
@@ -477,8 +587,8 @@ impl HubuumGateway {
 
     pub fn delete_event_subscription(
         &self,
-        collection_id: i32,
-        subscription_id: i32,
+        collection_id: CollectionId,
+        subscription_id: EventSubscriptionId,
     ) -> Result<(), AppError> {
         self.client
             .event_subscriptions(collection_id)
@@ -488,7 +598,7 @@ impl HubuumGateway {
 
     pub fn delete_event_subscription_by_name(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         subscription_name: &str,
     ) -> Result<(), AppError> {
         let subscription_id =
@@ -498,9 +608,9 @@ impl HubuumGateway {
 
     fn event_subscription_id_by_name(
         &self,
-        collection_id: i32,
+        collection_id: CollectionId,
         name: &str,
-    ) -> Result<i32, AppError> {
+    ) -> Result<EventSubscriptionId, AppError> {
         let page = self
             .client
             .event_subscriptions(collection_id)
@@ -509,7 +619,7 @@ impl HubuumGateway {
             .limit(2)
             .page()?;
         match page.items.as_slice() {
-            [subscription] => Ok(subscription.id.into()),
+            [subscription] => Ok(subscription.id),
             [] => Err(AppError::EntityNotFound(format!(
                 "event subscription '{name}'"
             ))),
@@ -532,7 +642,7 @@ impl HubuumGateway {
         page_to_json(page)
     }
 
-    pub fn event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+    pub fn event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(self.client.event_deliveries().get(id)?)
             .map_err(AppError::from)
     }
@@ -542,12 +652,12 @@ impl HubuumGateway {
             .map_err(AppError::from)
     }
 
-    pub fn retry_event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+    pub fn retry_event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(self.client.event_deliveries().retry(id)?)
             .map_err(AppError::from)
     }
 
-    pub fn dead_event_delivery(&self, id: i64) -> Result<JsonRecord, AppError> {
+    pub fn dead_event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(self.client.event_deliveries().mark_dead(id)?)
             .map_err(AppError::from)
     }
@@ -563,16 +673,8 @@ impl HubuumGateway {
     }
 }
 
-fn json_record_event_id(record: &JsonRecord) -> Option<i64> {
-    record
-        .value
-        .get("id")
-        .or_else(|| record.value.get("event_id"))
-        .and_then(Value::as_i64)
-}
-
-fn json_record_history_id(record: &JsonRecord) -> Option<i64> {
-    record.value.get("history_id").and_then(Value::as_i64)
+fn json_record_history_id(record: &JsonRecord) -> Option<HistoryId> {
+    from_value(record.value.get("history_id")?.clone()).ok()
 }
 
 fn apply_audit_input(
@@ -582,8 +684,8 @@ fn apply_audit_input(
     if let Some(action) = &input.action {
         request = request.action(action);
     }
-    if let Some(actor_kind) = &input.actor_kind {
-        request = request.actor_kind(actor_kind);
+    if let Some(actor_kind) = input.actor_kind {
+        request = request.actor_kind(actor_kind.as_str());
     }
     if let Some(actor_user_id) = input.actor_user_id {
         request = request.actor_user_id(actor_user_id);
@@ -658,6 +760,24 @@ fn page_to_json<T: Serialize>(page: Page<T>) -> Result<PagedResult<JsonRecord>, 
         .into_iter()
         .map(JsonRecord::from_serializable)
         .collect::<Result<Vec<_>, _>>()?;
+    let returned_count = items.len();
+    Ok(PagedResult {
+        items,
+        next_cursor: page.next_cursor,
+        returned_count,
+        total_count,
+    })
+}
+
+fn page_to_audit(
+    page: Page<hubuum_client::EventResponse>,
+) -> Result<PagedResult<AuditEventRecord>, AppError> {
+    let total_count = page.total_count;
+    let items = page
+        .items
+        .into_iter()
+        .map(AuditEventRecord::from)
+        .collect::<Vec<_>>();
     let returned_count = items.len();
     Ok(PagedResult {
         items,
@@ -824,3 +944,36 @@ pub(crate) const EVENT_DELIVERY_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{AuditActorKind, AuditResourceKind};
+
+    #[test]
+    fn audit_actor_kind_validates_the_server_vocabulary() {
+        assert_eq!(
+            "worker"
+                .parse::<AuditActorKind>()
+                .expect("valid actor kind"),
+            AuditActorKind::Worker
+        );
+        assert_eq!(
+            "SYSTEM"
+                .parse::<AuditActorKind>()
+                .expect("case insensitive"),
+            AuditActorKind::System
+        );
+        assert!("task".parse::<AuditActorKind>().is_err());
+    }
+
+    #[test]
+    fn audit_resource_kind_validates_endpoint_scopes() {
+        assert_eq!(
+            "remote-target"
+                .parse::<AuditResourceKind>()
+                .expect("valid resource kind"),
+            AuditResourceKind::RemoteTarget
+        );
+        assert!("task".parse::<AuditResourceKind>().is_err());
+    }
+}

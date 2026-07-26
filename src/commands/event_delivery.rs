@@ -1,10 +1,10 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::EventDeliveryId;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, first_positional_or, render_json_record, render_list_page, required_i64,
-    CliCommand,
+    build_list_query, render_json_record, render_list_page, required_option_or_pos, CliCommand,
 };
 use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
@@ -103,19 +103,14 @@ pub struct EventDeliveryShow {
         help = "Event delivery ID",
         autocomplete = "event_delivery_ids"
     )]
-    pub id: Option<i64>,
+    pub id: Option<EventDeliveryId>,
 }
 
 impl CliCommand for EventDeliveryShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.id = first_positional_or(query.id, tokens, "id")?;
-        render_json_record(
-            tokens,
-            &services
-                .gateway()
-                .event_delivery(required_i64(query.id, "id")?)?,
-        )
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
+        render_json_record(tokens, &services.gateway().event_delivery(id)?)
     }
 }
 
@@ -135,19 +130,14 @@ pub struct EventDeliveryRetry {
         help = "Event delivery ID",
         autocomplete = "event_delivery_ids"
     )]
-    pub id: Option<i64>,
+    pub id: Option<EventDeliveryId>,
 }
 
 impl CliCommand for EventDeliveryRetry {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.id = first_positional_or(query.id, tokens, "id")?;
-        render_json_record(
-            tokens,
-            &services
-                .gateway()
-                .retry_event_delivery(required_i64(query.id, "id")?)?,
-        )
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
+        render_json_record(tokens, &services.gateway().retry_event_delivery(id)?)
     }
 }
 
@@ -158,18 +148,13 @@ pub struct EventDeliveryDead {
         help = "Event delivery ID",
         autocomplete = "event_delivery_ids"
     )]
-    pub id: Option<i64>,
+    pub id: Option<EventDeliveryId>,
 }
 
 impl CliCommand for EventDeliveryDead {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.id = first_positional_or(query.id, tokens, "id")?;
-        render_json_record(
-            tokens,
-            &services
-                .gateway()
-                .dead_event_delivery(required_i64(query.id, "id")?)?,
-        )
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
+        render_json_record(tokens, &services.gateway().dead_event_delivery(id)?)
     }
 }

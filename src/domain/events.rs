@@ -1,6 +1,10 @@
-use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string, to_value, Error as JsonError, Map, Value};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+use serde_json::{from_value, json, to_string, to_value, Error as JsonError, Map, Value};
+
+use hubuum_client::{CollectionId, EventResponse, ProvenancePrincipal, UserId};
 use hubuum_filter::OutputEnvelope;
 
 use crate::errors::AppError;
@@ -11,6 +15,97 @@ use crate::output::set_semantic_output;
 pub struct JsonRecord {
     #[serde(flatten)]
     pub value: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "i64", into = "i64")]
+pub struct AuditEventId(i64);
+
+impl AuditEventId {
+    pub fn new(value: i64) -> Result<Self, AppError> {
+        if value <= 0 {
+            return Err(AppError::InvalidOption(format!(
+                "audit event ID must be positive, got {value}"
+            )));
+        }
+        Ok(Self(value))
+    }
+
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+impl Display for AuditEventId {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl FromStr for AuditEventId {
+    type Err = AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let parsed = value.parse::<i64>().map_err(|_| {
+            AppError::InvalidOption(format!(
+                "Invalid audit event ID '{value}': expected a positive integer"
+            ))
+        })?;
+        Self::new(parsed)
+    }
+}
+
+impl TryFrom<i64> for AuditEventId {
+    type Error = AppError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<AuditEventId> for i64 {
+    fn from(value: AuditEventId) -> Self {
+        value.get()
+    }
+}
+
+transparent_record!(AuditEventRecord, EventResponse);
+
+impl AuditEventRecord {
+    pub const fn id(&self) -> i64 {
+        self.0.id
+    }
+
+    fn actor_label(&self) -> String {
+        let actor_name = self
+            .0
+            .provenance
+            .as_ref()
+            .and_then(|provenance| provenance.actor.principal.as_ref())
+            .and_then(|principal| principal.name.as_deref());
+
+        match actor_name {
+            Some(name) => format!("{}: {name}", self.0.actor_kind),
+            None => self.0.actor_kind.clone(),
+        }
+    }
+}
+
+impl TableRenderable for AuditEventRecord {
+    fn headers() -> Vec<&'static str> {
+        vec!["id", "type", "action", "actor", "summary", "occurred"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.0.id.to_string(),
+            self.0.entity_type.clone(),
+            self.0.action.clone(),
+            self.actor_label(),
+            self.0.summary.clone(),
+            self.0.occurred_at.to_string(),
+        ]
+    }
 }
 
 impl From<Value> for JsonRecord {
@@ -27,6 +122,7 @@ impl JsonRecord {
     }
 
     pub(crate) fn into_audit_detail(mut self, include_snapshots: bool) -> Self {
+        let initiator = self.audit_provenance_initiator();
         let generated_diff = match &self.value {
             Value::Object(object) if !object.contains_key("diff") => {
                 match (object.get("before"), object.get("after")) {
@@ -40,6 +136,16 @@ impl JsonRecord {
         };
 
         if let Some(object) = self.value.as_object_mut() {
+            if let Some(initiator) = initiator {
+                object
+                    .entry("initiator_principal_id")
+                    .or_insert_with(|| Value::from(initiator.principal_id.get()));
+                if let Some(name) = initiator.name {
+                    object
+                        .entry("initiator")
+                        .or_insert_with(|| Value::String(name));
+                }
+            }
             if let Some(generated_diff) = generated_diff {
                 object.insert("diff".to_string(), generated_diff);
             }
@@ -52,12 +158,12 @@ impl JsonRecord {
         self
     }
 
-    pub(crate) fn audit_actor_user_id(&self) -> Option<i32> {
-        self.audit_id("actor_user_id")
+    pub(crate) fn audit_actor_user_id(&self) -> Option<UserId> {
+        from_value(self.value.get("actor_user_id")?.clone()).ok()
     }
 
-    pub(crate) fn audit_collection_id(&self) -> Option<i32> {
-        self.audit_id("collection_id")
+    pub(crate) fn audit_collection_id(&self) -> Option<CollectionId> {
+        from_value(self.value.get("collection_id")?.clone()).ok()
     }
 
     pub(crate) fn with_audit_resource_names(
@@ -80,11 +186,8 @@ impl JsonRecord {
         self
     }
 
-    fn audit_id(&self, key: &str) -> Option<i32> {
-        self.value
-            .get(key)
-            .and_then(Value::as_i64)
-            .and_then(|id| i32::try_from(id).ok())
+    fn audit_provenance_initiator(&self) -> Option<ProvenancePrincipal> {
+        from_value(self.value.pointer("/provenance/initiator")?.clone()).ok()
     }
 
     fn get_string(&self, key: &str) -> String {
@@ -168,7 +271,7 @@ fn json_summary(value: &Value) -> String {
 }
 
 fn detail_json_summary(key: &str, value: &Value) -> String {
-    if matches!(key, "data" | "diff" | "json_schema")
+    if matches!(key, "data" | "diff" | "json_schema" | "provenance")
         && matches!(value, Value::Array(_) | Value::Object(_))
     {
         pretty_json(value)
@@ -309,9 +412,10 @@ impl DashFallback for String {
 
 #[cfg(test)]
 mod tests {
+    use hubuum_client::EventResponse;
     use serde_json::json;
 
-    use super::{detail_fields, detail_json_summary, JsonRecord};
+    use super::{detail_fields, detail_json_summary, AuditEventId, AuditEventRecord, JsonRecord};
     use crate::formatting::TableRenderable;
 
     #[test]
@@ -337,6 +441,61 @@ mod tests {
                 "2026-07-05T23:31:49.388144+00:00".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn audit_rows_distinguish_entity_type_from_actor_kind() {
+        let event: EventResponse = serde_json::from_value(json!({
+            "id": 603,
+            "event_id": "a0c041d8-20b9-4ff8-925b-0c4df1f99398",
+            "occurred_at": "2026-07-24T19:35:33.345470Z",
+            "entity_type": "task",
+            "entity_id": 44,
+            "entity_name": null,
+            "collection_id": null,
+            "action": "queued",
+            "actor_kind": "worker",
+            "actor_user_id": null,
+            "provenance": {
+                "actor": {
+                    "kind": "worker",
+                    "principal": null
+                },
+                "initiator": {
+                    "principal_id": 2,
+                    "name": "admin"
+                },
+                "task_id": 44
+            },
+            "correlation_id": null,
+            "request_id": null,
+            "summary": "Internal task queued",
+            "before": null,
+            "after": null,
+            "metadata": {},
+            "schema_version": 1
+        }))
+        .expect("audit event fixture should deserialize");
+
+        assert_eq!(
+            AuditEventRecord(event).row(),
+            vec![
+                "603",
+                "task",
+                "queued",
+                "worker",
+                "Internal task queued",
+                "2026-07-24T19:35:33.345470+00:00",
+            ]
+        );
+    }
+
+    #[test]
+    fn audit_event_ids_reject_non_positive_values() {
+        assert_eq!("42".parse::<AuditEventId>().expect("positive ID").get(), 42);
+        assert!("0".parse::<AuditEventId>().is_err());
+        assert!("-1".parse::<AuditEventId>().is_err());
+        assert!(serde_json::from_value::<AuditEventId>(json!(0)).is_err());
     }
 
     #[test]
@@ -436,8 +595,8 @@ mod tests {
             "collection_id": 2
         }));
 
-        assert_eq!(record.audit_actor_user_id(), Some(1));
-        assert_eq!(record.audit_collection_id(), Some(2));
+        assert_eq!(record.audit_actor_user_id(), Some(1.into()));
+        assert_eq!(record.audit_collection_id(), Some(2.into()));
 
         let record =
             record.with_audit_resource_names(Some("admin".to_string()), Some("Hosts".to_string()));
@@ -446,6 +605,33 @@ mod tests {
         assert_eq!(record.value["actor_user_id"], 1);
         assert_eq!(record.value["collection"], "Hosts");
         assert_eq!(record.value["collection_id"], 2);
+    }
+
+    #[test]
+    fn audit_detail_promotes_provenance_initiator() {
+        let record = JsonRecord::from(json!({
+            "id": 17,
+            "provenance": {
+                "actor": {
+                    "kind": "task",
+                    "principal": {
+                        "principal_id": 9,
+                        "name": "worker"
+                    }
+                },
+                "initiator": {
+                    "principal_id": 2,
+                    "name": "admin"
+                },
+                "task_id": 44
+            }
+        }))
+        .into_audit_detail(false);
+
+        assert_eq!(record.value["initiator"], "admin");
+        assert_eq!(record.value["initiator_principal_id"], 2);
+        assert_eq!(record.value["provenance"]["initiator"]["name"], "admin");
+        assert!(detail_json_summary("provenance", &record.value["provenance"]).contains('\n'));
     }
 
     #[test]

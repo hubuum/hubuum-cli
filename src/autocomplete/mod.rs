@@ -11,9 +11,9 @@ mod sorts;
 pub use classes::classes;
 pub use collections::collections;
 pub use events::{
-    audit_event_ids, audit_resource_names, audit_resources, event_actions, event_delivery_ids,
-    event_entity_types, event_sink_kinds, event_sinks, event_subscriptions, principal_names,
-    remote_targets, service_accounts, users,
+    actor_kinds, audit_event_ids, audit_resource_names, audit_resources, event_actions,
+    event_delivery_ids, event_entity_types, event_sink_kinds, event_sinks, event_subscriptions,
+    principal_names, remote_targets, service_accounts, users,
 };
 pub use exports::{export_missing_data_policies, export_scope_kinds, export_templates};
 pub(crate) use filters::complete_where_clause;

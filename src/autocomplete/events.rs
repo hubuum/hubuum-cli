@@ -1,4 +1,4 @@
-use crate::services::CompletionContext;
+use crate::services::{AuditActorKind, AuditResourceKind, CompletionContext};
 
 pub fn event_sinks(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     ctx.event_sinks(prefix)
@@ -67,19 +67,12 @@ pub fn event_actions(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) 
     )
 }
 
+pub fn actor_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(AuditActorKind::VALUES, prefix)
+}
+
 pub fn audit_resources(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    complete_values(
-        &[
-            "collection",
-            "class",
-            "object",
-            "user",
-            "group",
-            "template",
-            "remote-target",
-        ],
-        prefix,
-    )
+    complete_values(AuditResourceKind::VALUES, prefix)
 }
 
 pub fn audit_event_ids(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
@@ -147,4 +140,26 @@ fn option_value(parts: &[String], long: &str) -> Option<String> {
             part.strip_prefix(&format!("{long}=")).map(str::to_string)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{complete_values, AuditActorKind, AuditResourceKind};
+
+    #[test]
+    fn actor_kind_completion_uses_the_server_catalog() {
+        assert_eq!(
+            complete_values(AuditActorKind::VALUES, ""),
+            ["user", "system", "worker"]
+        );
+        assert_eq!(complete_values(AuditActorKind::VALUES, "w"), ["worker"]);
+    }
+
+    #[test]
+    fn audit_resource_completion_uses_the_typed_catalog() {
+        assert_eq!(
+            complete_values(AuditResourceKind::VALUES, "remote"),
+            ["remote-target"]
+        );
+    }
 }

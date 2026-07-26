@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-07-26
+
+- Updated `hubuum_client` to 0.7.1 for Hubuum server v0.0.4, including sensitive
+  header handling that keeps bearer tokens, restore capabilities, and custom
+  raw headers out of debug output and HTTP/2 compression tables. Object-data
+  patches exceeding the server's 1,000-operation limit are now rejected before
+  transport.
+- Added `user token show` and `service-account token show` with complete token
+  metadata, permission and resource boundaries, and resolved collection, class,
+  and object names. Object IDs outside the token's explicitly scoped classes
+  are marked `unreachable`. ID resolution follows every server cursor page and
+  uses command-local positive and negative caches with bounded per-class object
+  lookups.
+- Expanded `audit show` with the provenance initiator's principal ID and name
+  while preserving the complete provenance object in structured output. Audit
+  lists now display the immediate actor kind and complete `user`, `system`, and
+  `worker` actor filters.
 - Added explicit `group add_service_account` and
   `group remove_service_account` commands for managing service-account group
   membership by name.

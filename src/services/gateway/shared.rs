@@ -243,7 +243,7 @@ where
         .collect()
 }
 
-fn fetch_entities_for_ids<T, I, Id>(
+pub(super) fn fetch_entities_for_ids<T, I, Id>(
     resource: &Resource<T>,
     ids: I,
 ) -> Result<HashMap<i32, T::GetOutput>, AppError>
@@ -268,7 +268,7 @@ where
         let results = resource
             .query()
             .filter("id", FilterOperator::Equals { is_negated: false }, joined)
-            .list()?;
+            .all()?;
         entities.extend(
             results
                 .into_iter()
@@ -277,4 +277,71 @@ where
     }
 
     Ok(entities)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{
+        header::{HeaderName, HeaderValue},
+        StatusCode,
+    };
+    use serde_json::json;
+
+    use super::fetch_entities_for_ids;
+
+    #[test]
+    fn id_resolution_follows_cursor_pagination() {
+        let transport = MockTransport::default();
+        let mut first_page = TransportResponse::json(
+            StatusCode::OK,
+            &json!([{
+                "id": 1,
+                "name": "First",
+                "description": "",
+                "parent_collection_id": null,
+                "created_at": "2026-07-25T12:00:00Z",
+                "updated_at": "2026-07-25T12:00:00Z"
+            }]),
+        )
+        .expect("first page should serialize");
+        first_page.headers.insert(
+            HeaderName::from_static("x-next-cursor"),
+            HeaderValue::from_static("page-2"),
+        );
+        transport.push_response(first_page);
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([{
+                    "id": 2,
+                    "name": "Second",
+                    "description": "",
+                    "parent_collection_id": null,
+                    "created_at": "2026-07-25T12:00:00Z",
+                    "updated_at": "2026-07-25T12:00:00Z"
+                }]),
+            )
+            .expect("second page should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should be valid")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+
+        let collections = fetch_entities_for_ids(&client.collections(), [1, 2])
+            .expect("all collection pages should resolve");
+
+        assert_eq!(collections.len(), 2);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "page-2"));
+    }
 }

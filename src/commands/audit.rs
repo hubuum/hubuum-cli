@@ -4,18 +4,20 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    desired_format, normalize_server_page_size, option_or_pos, render_json_record,
-    render_list_page, required_i64, CliCommand,
+    desired_format, normalize_server_page_size, render_json_record, render_list_page,
+    required_option, required_option_or_pos, CliCommand,
 };
 use crate::autocomplete::{
-    audit_event_ids, audit_resource_names, audit_resources, classes, collections, event_actions,
+    actor_kinds, audit_event_ids, audit_resource_names, audit_resources, classes, collections,
+    event_actions,
 };
 use crate::catalog::CommandCatalogBuilder;
+use crate::domain::AuditEventId;
 use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, AuditListInput, AuditScope};
+use crate::services::{AppServices, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -27,6 +29,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 AuditList::default(),
                 CommandDocs {
                     about: Some("List visible audit events"),
+                    long_about: Some(
+                        "Lists visible audit events. The actor is the immediate origin of the mutation: user for a direct principal request, system for internal maintenance or recovery, and worker for asynchronous task execution. For worker events, provenance separately retains the root-task initiator.",
+                    ),
                     ..CommandDocs::default()
                 },
             ),
@@ -39,7 +44,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Show a single audit event by id"),
                     long_about: Some(
-                        "Looks for a visible audit event by id. When before and after snapshots are available, the result includes a nested JSON diff. Pass --complete to include the full snapshots. User and collection names are resolved when the referenced resources are still available. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
+                        "Looks for a visible audit event by id. The root-task initiator's principal ID and name are promoted from provenance while the complete provenance object remains available. When before and after snapshots are available, the result includes a nested JSON diff. Pass --complete to include the full snapshots. User and collection names are resolved when the referenced resources are still available. The current hubuum_client does not expose a direct event-id endpoint, so this command scans recent visible audit pages until it finds the event.",
                     ),
                     examples: Some("12345\n--id 12345"),
                 },
@@ -69,8 +74,12 @@ pub struct AuditList {
         autocomplete = "event_actions"
     )]
     pub action: Option<String>,
-    #[option(long = "actor-kind", help = "Actor kind filter")]
-    pub actor_kind: Option<String>,
+    #[option(
+        long = "actor-kind",
+        help = "Immediate actor kind: user, system, or worker",
+        autocomplete = "actor_kinds"
+    )]
+    pub actor_kind: Option<AuditActorKind>,
     #[option(long = "actor-user", help = "Actor user name")]
     pub actor_user: Option<String>,
     #[option(
@@ -121,7 +130,7 @@ impl CliCommand for AuditList {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditShow {
     #[option(long = "id", help = "Audit event ID", autocomplete = "audit_event_ids")]
-    pub id: Option<i64>,
+    pub id: Option<AuditEventId>,
     #[option(
         long = "complete",
         help = "Include complete before and after snapshots",
@@ -132,11 +141,11 @@ pub struct AuditShow {
 
 impl CliCommand for AuditShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let mut query = Self::parse_tokens(tokens)?;
-        query.id = option_or_pos(query.id, tokens, 0, "id")?;
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
         let event = services
             .gateway()
-            .audit_event_by_id(required_i64(query.id, "id")?)?
+            .audit_event_by_id(id)?
             .into_audit_detail(query.complete);
         render_json_record(tokens, &event)
     }
@@ -149,7 +158,7 @@ pub struct AuditResource {
         help = "Resource: collection,class,object,user,group,template,remote-target",
         autocomplete = "audit_resources"
     )]
-    pub resource: String,
+    pub resource: Option<AuditResourceKind>,
     #[option(
         long = "name",
         help = "Resource name",
@@ -185,8 +194,9 @@ pub struct AuditResource {
 impl CliCommand for AuditResource {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
+        let resource = required_option(query.resource, "resource")?;
         let scope = services.gateway().audit_scope_by_name(
-            &query.resource,
+            resource,
             query.name.as_deref(),
             query.class.as_deref(),
         )?;

@@ -16,6 +16,7 @@ mod service_accounts;
 mod settings;
 mod shared;
 mod tasks;
+mod tokens;
 mod users;
 
 use std::sync::Arc;
@@ -31,7 +32,9 @@ pub use computed::{
     ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
     ComputedPreviewTarget, ComputedResultKind,
 };
-pub use events::{AuditListInput, AuditScope, HistoryInput, HistoryScope};
+pub use events::{
+    AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, HistoryInput, HistoryScope,
+};
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;

@@ -919,7 +919,8 @@ mod tests {
         let patch = ObjectDataPatchDocument::new([ObjectDataPatchOperation::Add {
             path: "/facts".to_string(),
             value: json!({"os": "Fedora"}),
-        }]);
+        }])
+        .expect("test patch should be valid");
         let input = ObjectDataPatchInput::new("Hosts", "srv-01", patch)
             .expect("input should be valid")
             .create_if_missing("Managed by Ansible");
@@ -956,7 +957,8 @@ mod tests {
                 path: "/publisher".to_string(),
                 value: json!("ansible"),
             },
-        ]);
+        ])
+        .expect("test patch should be valid");
 
         let data = initial_data_from_patch(&patch).expect("patch should initialize object data");
 
@@ -971,7 +973,8 @@ mod tests {
         let patch = ObjectDataPatchDocument::new([ObjectDataPatchOperation::Add {
             path: "/facts/os".to_string(),
             value: json!("Fedora"),
-        }]);
+        }])
+        .expect("test patch should be valid");
 
         let error = initial_data_from_patch(&patch)
             .expect_err("patch with a missing parent should not initialize data");

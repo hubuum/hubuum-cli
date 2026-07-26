@@ -47,12 +47,14 @@ pub use computed::{
     ComputedFieldPreviewRecord, ComputedFieldRecord, ComputedFieldSelector, ComputedFieldSet,
     SharedComputedFieldListRecord,
 };
-pub use events::JsonRecord;
+pub use events::{AuditEventId, AuditEventRecord, JsonRecord};
 pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
-    MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord, ServiceAccountRecord,
+    MeRecord, PrincipalPermissionsRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord,
+    ServiceAccountRecord,
 };
+pub(crate) use identity::{ResolvedTokenResource, TokenResourceParent};
 pub use imports::ImportResultRecord;
 pub use object_fields::{
     observed_json_pointers, visit_observed_data_fields, DEFAULT_OBJECT_FIELD_DEPTH,

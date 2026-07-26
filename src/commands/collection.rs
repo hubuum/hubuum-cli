@@ -700,7 +700,7 @@ impl CliCommand for CollectionPrincipalPermissions {
 
 fn principal_id_by_name(services: &AppServices, kind: &str, name: &str) -> Result<i32, AppError> {
     match kind {
-        "user" => services.gateway().user_id_by_name(name),
+        "user" => services.gateway().user_id_by_name(name).map(Into::into),
         "group" => services.gateway().group_id_by_name(name),
         "service-account" => services.gateway().service_account_id_by_name(name),
         other => Err(AppError::InvalidOption(format!("principal-kind={other}"))),

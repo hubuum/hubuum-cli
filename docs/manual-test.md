@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
 This checklist targets the current Hubuum CLI command surface and Hubuum server
-v0.0.3 using `hubuum_client` 0.6.x. It intentionally uses the current
+v0.0.4 using `hubuum_client` 0.7.x. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -326,6 +326,12 @@ me show
 me groups
 me permissions
 me tokens
+user token list <username>
+user token show <username> <token-id>
+user token show --username <username> --token-id <token-id> --output json
+service-account token list <service-account>
+service-account token show <service-account> <token-id>
+service-account token show --name <service-account> --token-id <token-id> --output json
 ```
 
 Check collection permissions:
@@ -348,7 +354,13 @@ Expected results:
 
 - Permission command names use `collection`.
 - User rename is rejected explicitly if the server/client model does not expose it.
-- Token create/list/revoke commands work for supported principals.
+- Token create/list/show/revoke commands work for supported principals.
+- Token detail output includes all server metadata and the complete permission
+  and resource boundaries. JSON output preserves the raw scope and adds
+  `resolved_resources`.
+- Scoped collection, class, and object IDs are resolved to names when visible.
+  Object IDs are looked up only through classes explicitly present in that
+  token's resource boundary; unmatched objects are marked `unreachable`.
 
 ## Events And Remote Targets
 
@@ -360,6 +372,9 @@ event subscription list
 event delivery health
 event delivery list --limit 5
 audit list --limit 5
+audit list --actor-kind user --limit 5
+audit list --actor-kind system --limit 5
+audit list --actor-kind worker --limit 5
 audit show --id <audit-event-id>
 audit show --id <audit-event-id> --complete
 history class SmokeHost
@@ -380,12 +395,17 @@ remote-target delete cli-smoke-target
 
 Expected results:
 
-- Event and audit commands render current resource names.
+- Event and audit commands render current resource names. Audit list text
+  separates the audited entity type from the immediate `user`, `system`, or
+  `worker` actor kind.
 - `audit show` includes a readable nested `diff` when both snapshots exist,
   hides the complete snapshots by default, restores them with `--complete`, and
   renders the diff after the event metadata.
 - Existing actor users and collections are resolved to `actor_user` and
   `collection` without removing their immutable ID fields.
+- `audit show` promotes the root-task initiator from `provenance` to
+  `initiator_principal_id` and `initiator` fields while retaining the complete
+  nested provenance object.
 - `history show` renders the complete selected class or object version by either
   history ID or RFC 3339 timestamp, with structured data expanded for reading.
 - Remote-target subject options use `collection`, `class`, `object`, `class_relation`, and `object_relation`.

@@ -1,4 +1,5 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::HistoryId;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -64,13 +65,13 @@ pub struct HistoryShow {
     )]
     pub name: Option<String>,
     #[option(long = "id", help = "History record ID")]
-    pub id: Option<i64>,
+    pub id: Option<HistoryId>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
 }
 
 enum HistorySelector {
-    Id(i64),
+    Id(HistoryId),
     At(String),
 }
 
@@ -98,7 +99,10 @@ impl CliCommand for HistoryShow {
     }
 }
 
-fn history_selector(id: Option<i64>, at: Option<String>) -> Result<HistorySelector, AppError> {
+fn history_selector(
+    id: Option<HistoryId>,
+    at: Option<String>,
+) -> Result<HistorySelector, AppError> {
     match (id, at) {
         (Some(id), None) => Ok(HistorySelector::Id(id)),
         (None, Some(at)) => Ok(HistorySelector::At(at)),
@@ -219,15 +223,17 @@ mod tests {
     #[test]
     fn history_show_accepts_exactly_one_selector() {
         assert!(matches!(
-            history_selector(Some(1498), None).expect("id should be accepted"),
-            HistorySelector::Id(1498)
+            history_selector(Some(1498.into()), None).expect("id should be accepted"),
+            HistorySelector::Id(id) if id.get() == 1498
         ));
         assert!(matches!(
             history_selector(None, Some("2026-07-21T20:17:03Z".to_string()))
                 .expect("timestamp should be accepted"),
             HistorySelector::At(at) if at == "2026-07-21T20:17:03Z"
         ));
-        assert!(history_selector(Some(1498), Some("2026-07-21T20:17:03Z".to_string())).is_err());
+        assert!(
+            history_selector(Some(1498.into()), Some("2026-07-21T20:17:03Z".to_string())).is_err()
+        );
         assert!(history_selector(None, None).is_err());
     }
 }
