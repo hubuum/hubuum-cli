@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-07-26
+
 - Updated `hubuum_client` to 0.7.2 for Hubuum server v0.0.5. User and
   service-account token creation now reports the authoritative expiry returned
   by the server, including its materialized default. Administrative
