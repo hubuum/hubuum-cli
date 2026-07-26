@@ -33,8 +33,9 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.4 targets Hubuum server
-v0.0.4 through `hubuum_client` v0.7.1.
+[compatibility matrix](COMPATIBILITY.md). Rolling `main` builds target Hubuum
+server v0.0.5 through `hubuum_client` v0.7.2. The latest tagged release, Hubuum
+CLI v0.0.4, targets server v0.0.4 through `hubuum_client` v0.7.1.
 
 ## Usage
 

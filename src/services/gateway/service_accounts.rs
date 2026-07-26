@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions, TokenId};
 use std::str::FromStr;
 
-use crate::domain::{PrincipalTokenDetailsRecord, PrincipalTokenRecord, ServiceAccountRecord};
+use crate::domain::{
+    IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, ServiceAccountRecord,
+};
 use crate::errors::AppError;
 use crate::list_query::{
     apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -117,7 +119,7 @@ impl HubuumGateway {
         &self,
         name: &str,
         input: NewTokenInput,
-    ) -> Result<String, AppError> {
+    ) -> Result<IssuedTokenRecord, AppError> {
         let handle = self.client.service_accounts().get_by_name(name)?;
         let mut req = NewTokenRequest::new();
 
@@ -150,7 +152,7 @@ impl HubuumGateway {
             req = req.scopes(scopes?);
         }
 
-        Ok(handle.tokens_create(req)?)
+        Ok(handle.tokens_create_token(req)?.into())
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {

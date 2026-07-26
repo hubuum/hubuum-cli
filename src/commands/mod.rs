@@ -1,6 +1,6 @@
 use log::trace;
 use serde::Serialize;
-use serde_json::to_string_pretty;
+use serde_json::{json, to_string_pretty};
 use std::any::TypeId;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -42,7 +42,7 @@ pub(crate) mod version;
 pub use builder::build_command_catalog;
 
 use crate::autocomplete::output_formats;
-use crate::domain::{JsonRecord, TaskRecord};
+use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
 use crate::services::CompletionContext;
 use crate::suggestions::did_you_mean_message;
@@ -350,6 +350,32 @@ pub fn render_task_record(tokens: &CommandTokenizer, task: &TaskRecord) -> Resul
     Ok(())
 }
 
+fn render_issued_token(
+    tokens: &CommandTokenizer,
+    owner: &str,
+    token: &IssuedTokenRecord,
+) -> Result<(), AppError> {
+    const WARNING: &str = "This token will not be shown again. Store it securely.";
+
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(to_string_pretty(&json!({
+            "token": token.token(),
+            "expires_at": token.expires_at(),
+            "warning": WARNING,
+        }))?)?,
+        OutputFormat::Text => {
+            append_line(format!("\nToken created for {owner}:"))?;
+            append_line(format!("  {}", token.token()))?;
+            if let Some(expires_at) = token.expires_at() {
+                append_line(format!("  Expires: {expires_at}"))?;
+            }
+            append_line(format!("\n⚠️  {WARNING}\n"))?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn contains_clause(field: impl Into<String>, value: impl Into<String>) -> FilterClause {
     filter_clause(
         field,
@@ -480,14 +506,17 @@ pub fn want_help(tokens: &CommandTokenizer) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use hubuum_client::Token;
+    use serde_json::{from_str, from_value, json, Value};
     use std::any::TypeId;
 
     use serial_test::serial;
 
     use super::{
-        normalize_server_page_size, option_or_pos, required_option_or_pos,
+        normalize_server_page_size, option_or_pos, render_issued_token, required_option_or_pos,
         validate_unknown_options, CliOption, CommandArgs,
     };
+    use crate::domain::IssuedTokenRecord;
     use crate::errors::AppError;
     use crate::output::{reset_output, take_output};
     use crate::tokenizer::CommandTokenizer;
@@ -543,6 +572,28 @@ mod tests {
             snapshot.warnings,
             vec!["Requested page size 500 exceeds the supported maximum of 250; using 250."]
         );
+    }
+
+    #[test]
+    #[serial]
+    fn issued_token_json_includes_authoritative_expiry() {
+        reset_output().expect("output should reset");
+        let token: Token = from_value(json!({
+            "token": "issued-secret",
+            "expires_at": "2026-07-27T05:17:17Z"
+        }))
+        .expect("issued token should deserialize");
+        let issued = IssuedTokenRecord::from(token);
+        let tokens = CommandTokenizer::new("dummy --output json", "dummy", &[])
+            .expect("tokenization should succeed");
+
+        render_issued_token(&tokens, "user 'alice'", &issued).expect("issued token should render");
+
+        let snapshot = take_output().expect("output should be captured");
+        let value: Value =
+            from_str(&snapshot.lines[0]).expect("issued token output should be valid JSON");
+        assert_eq!(value["token"], "issued-secret");
+        assert_eq!(value["expires_at"], "2026-07-27T05:17:17+00:00");
     }
 
     #[test]

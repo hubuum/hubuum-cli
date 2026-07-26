@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use cli_command_derive::CommandArgs;
 use hubuum_client::{FilterOperator, TokenId};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string_pretty};
+use serde_json::to_string_pretty;
 use std::fs::read_to_string;
 use std::iter::repeat;
 use std::path::Path;
@@ -554,7 +554,7 @@ impl CliCommand for UserTokenCreate {
         let query = Self::parse_tokens(tokens)?;
         let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
-        let raw_token = services.gateway().user_token_create(
+        let issued_token = services.gateway().user_token_create(
             &username,
             NewTokenInput {
                 name: query.name,
@@ -564,21 +564,7 @@ impl CliCommand for UserTokenCreate {
             },
         )?;
 
-        match desired_format(tokens) {
-            OutputFormat::Json => {
-                append_line(to_string_pretty(&json!({
-                    "token": raw_token,
-                    "warning": "This token will not be shown again. Store it securely."
-                }))?)?;
-            }
-            OutputFormat::Text => {
-                append_line(format!("\nToken created for user '{}':", username))?;
-                append_line(format!("  {}", raw_token))?;
-                append_line("\n⚠️  This token will not be shown again. Store it securely.\n")?;
-            }
-        }
-
-        Ok(())
+        super::render_issued_token(tokens, &format!("user '{username}'"), &issued_token)
     }
 }
 

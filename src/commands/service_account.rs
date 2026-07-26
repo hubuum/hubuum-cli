@@ -1,7 +1,7 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::TokenId;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string_pretty};
+use serde_json::to_string_pretty;
 
 use crate::autocomplete::{groups, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
@@ -391,7 +391,7 @@ impl CliCommand for ServiceAccountTokenCreate {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
-        let raw_token = services.gateway().service_account_token_create(
+        let issued_token = services.gateway().service_account_token_create(
             &name,
             NewTokenInput {
                 name: query.token_name,
@@ -401,21 +401,7 @@ impl CliCommand for ServiceAccountTokenCreate {
             },
         )?;
 
-        match desired_format(tokens) {
-            OutputFormat::Json => {
-                append_line(to_string_pretty(&json!({
-                    "token": raw_token,
-                    "warning": "This token will not be shown again. Store it securely."
-                }))?)?;
-            }
-            OutputFormat::Text => {
-                append_line(format!("\nToken created for service account '{}':", name))?;
-                append_line(format!("  {}", raw_token))?;
-                append_line("\n⚠️  This token will not be shown again. Store it securely.\n")?;
-            }
-        }
-
-        Ok(())
+        super::render_issued_token(tokens, &format!("service account '{name}'"), &issued_token)
     }
 }
 
