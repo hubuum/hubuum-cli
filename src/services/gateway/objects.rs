@@ -7,8 +7,8 @@ use reqwest::StatusCode;
 use serde_json::Value;
 
 use crate::domain::{
-    build_related_object_tree, observed_json_pointers, ObjectDataMutationOutcome,
-    ObjectDataMutationRecord, ObjectShowRecord, ResolvedObjectRecord,
+    build_related_object_tree, observed_object_data_fields, ObjectDataMutationOutcome,
+    ObjectDataMutationRecord, ObjectShowRecord, ObservedObjectDataFields, ResolvedObjectRecord,
 };
 use crate::errors::AppError;
 use crate::list_query::{
@@ -132,12 +132,12 @@ impl HubuumGateway {
         }
     }
 
-    pub fn observed_object_data_pointers(
+    pub fn observed_object_data_fields(
         &self,
         class_name: &str,
         sample_limit: usize,
         max_depth: usize,
-    ) -> Result<Vec<String>, AppError> {
+    ) -> Result<ObservedObjectDataFields, AppError> {
         let class = self.client.classes().get_by_name(class_name)?;
         let objects = self
             .client
@@ -145,7 +145,7 @@ impl HubuumGateway {
             .query()
             .limit(sample_limit)
             .list()?;
-        Ok(observed_json_pointers(
+        Ok(observed_object_data_fields(
             objects.iter().filter_map(|object| object.data.as_ref()),
             max_depth,
         ))

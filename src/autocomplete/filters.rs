@@ -1,6 +1,3 @@
-use serde_json::Value;
-
-use crate::json_schema::schema_paths;
 use crate::list_query::{
     completion_operators, resolve_filter_field_spec, FilterFieldSpec, FilterOperatorProfile,
     FilterValueProfile,
@@ -248,10 +245,9 @@ fn complete_field_or_json_path(
         return completions;
     }
 
-    let schema_completions =
-        complete_json_data_path_from_schema(ctx, command_path, command_parts, prefix);
-    if !schema_completions.is_empty() {
-        return schema_completions;
+    let data_completions = complete_object_data_path(ctx, command_path, command_parts, prefix);
+    if !data_completions.is_empty() {
+        return data_completions;
     }
 
     complete_json_path_fallback(prefix, specs)
@@ -269,7 +265,7 @@ fn complete_json_path_fallback(prefix: &str, specs: &[FilterFieldSpec]) -> Vec<F
     Vec::new()
 }
 
-fn complete_json_data_path_from_schema(
+fn complete_object_data_path(
     ctx: &CompletionContext,
     command_path: &[String],
     command_parts: &[String],
@@ -279,7 +275,7 @@ fn complete_json_data_path_from_schema(
         command_path,
         [scope, command]
             if scope == "object" && (command == "list" || command == "aggregate")
-    ) || !prefix.starts_with("json_data.")
+    ) || !(prefix.starts_with("data.") || prefix.starts_with("json_data."))
     {
         return Vec::new();
     }
@@ -288,23 +284,23 @@ fn complete_json_data_path_from_schema(
         return Vec::new();
     };
 
-    let Some(schema) = ctx.class_schema(&class_name) else {
-        return Vec::new();
-    };
-
-    let Some(schema) = schema else {
-        return status_completions(prefix, "no schema");
-    };
-
-    let schema_paths = schema_paths(&schema, false);
-    if schema_paths.is_empty() {
-        return status_completions(prefix, "no schema");
+    let fields = ctx.object_data_fields_for_class(&class_name);
+    if fields.is_empty() {
+        return status_completions(prefix, "no schema or observed fields");
     }
 
-    let completions =
-        schema_path_completions_from_paths("json_data", prefix, &schema, schema_paths);
+    let root = if prefix.starts_with("json_data.") {
+        "json_data"
+    } else {
+        "data"
+    };
+    let paths = fields
+        .into_iter()
+        .filter_map(|field| field.strip_prefix("data.").map(str::to_string))
+        .collect::<Vec<_>>();
+    let completions = data_path_completions_from_paths(root, prefix, &paths);
     if completions.is_empty() {
-        return status_completions(prefix, "no schema match");
+        return status_completions(prefix, "no field match");
     }
 
     completions
@@ -332,25 +328,27 @@ fn class_name_from_parts(parts: &[String]) -> Option<String> {
         .map(|pair| pair[1].clone())
 }
 
-fn schema_path_completions_from_paths(
+fn data_path_completions_from_paths(
     root: &str,
     prefix: &str,
-    schema: &Value,
-    paths: Vec<String>,
+    paths: &[String],
 ) -> Vec<FilterCompletion> {
     paths
-        .into_iter()
+        .iter()
         .flat_map(|path| {
             let field = format!("{root}.{path}");
             let field_completion = FilterCompletion {
                 value: field.clone(),
-                description: Some("schema field".to_string()),
+                description: Some("object data field".to_string()),
                 append_whitespace: true,
             };
-            let nested_completion =
-                schema_path_points_to_object(schema, &path).then(|| FilterCompletion {
+            let child_prefix = format!("{path}.");
+            let nested_completion = paths
+                .iter()
+                .any(|candidate| candidate.starts_with(&child_prefix))
+                .then(|| FilterCompletion {
                     value: format!("{field}."),
-                    description: Some("schema object".to_string()),
+                    description: Some("object data container".to_string()),
                     append_whitespace: false,
                 });
             [Some(field_completion), nested_completion]
@@ -358,24 +356,6 @@ fn schema_path_completions_from_paths(
         .flatten()
         .filter(|candidate| candidate.value.starts_with(prefix))
         .collect()
-}
-
-fn schema_path_points_to_object(schema: &Value, path: &str) -> bool {
-    let Some(node) = schema_node_for_path(schema, path) else {
-        return false;
-    };
-
-    node.get("properties")
-        .and_then(|value| value.as_object())
-        .map(|properties| !properties.is_empty())
-        .unwrap_or(false)
-}
-
-fn schema_node_for_path<'a>(mut schema: &'a Value, path: &str) -> Option<&'a Value> {
-    for part in path.split('.') {
-        schema = schema.get("properties")?.get(part)?;
-    }
-    Some(schema)
 }
 
 fn complete_field(
@@ -479,14 +459,11 @@ fn placeholder_value(spec: FilterFieldSpec, operator: &str) -> FilterCompletion 
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::{
         class_name_from_parts, clause_stage, clause_stage_with_fields, complete_field,
-        complete_json_path_fallback, placeholder_value, schema_path_completions_from_paths,
+        complete_json_path_fallback, data_path_completions_from_paths, placeholder_value,
         status_completions, ClauseStage,
     };
-    use crate::json_schema::schema_paths;
     use crate::list_query::{FilterFieldSpec, FilterOperatorProfile, FilterValueProfile};
 
     #[test]
@@ -622,25 +599,15 @@ mod tests {
     }
 
     #[test]
-    fn schema_path_completion_expands_json_schema_properties() {
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "contact": { "type": "string" },
-                "owner": {
-                    "type": "object",
-                    "properties": {
-                        "email": { "type": "string" }
-                    }
-                }
-            }
-        });
-
-        let completions = schema_path_completions_from_paths(
+    fn data_path_completion_expands_nested_schema_or_observed_fields() {
+        let completions = data_path_completions_from_paths(
             "json_data",
             "json_data.o",
-            &schema,
-            schema_paths(&schema, false),
+            &[
+                "contact".to_string(),
+                "owner".to_string(),
+                "owner.email".to_string(),
+            ],
         );
         let values = completions
             .iter()
@@ -676,13 +643,16 @@ mod tests {
 
     #[test]
     fn status_completions_do_not_collapse_to_single_quick_completion() {
-        let completions = status_completions("json_data.", "no schema");
+        let completions = status_completions("json_data.", "no data fields");
 
         assert_eq!(completions.len(), 2);
         assert!(completions
             .iter()
             .all(|completion| completion.value == "json_data."));
-        assert_eq!(completions[0].description.as_deref(), Some("no schema"));
+        assert_eq!(
+            completions[0].description.as_deref(),
+            Some("no data fields")
+        );
         assert_eq!(
             completions[1].description.as_deref(),
             Some("type path manually")

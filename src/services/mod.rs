@@ -75,7 +75,7 @@ impl AppServices {
     }
 
     pub fn invalidate_completion(&self) {
-        self.completion.invalidate_all();
+        self.completion.invalidate_volatile();
     }
 
     pub fn sync_user_preferences_if_enabled(&self) -> Result<(), AppError> {

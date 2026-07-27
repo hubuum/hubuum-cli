@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tokio::runtime::Handle;
@@ -7,10 +8,11 @@ use tokio::task::spawn_blocking;
 
 use crate::config::get_config;
 use crate::domain::{
-    JsonRecord, TaskRecord, DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+    JsonRecord, ObservedObjectDataFields, TaskRecord, DEFAULT_OBJECT_FIELD_DEPTH,
+    DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
 use crate::errors::AppError;
-use crate::json_schema::schema_json_pointers;
+use crate::json_schema::{schema_json_pointers, schema_paths};
 use crate::list_query::{ListQuery, SortClause, SortDirectionArg};
 use crate::services::{AuditListInput, AuditScope, ListTasksInput};
 
@@ -35,11 +37,35 @@ struct CompletionSnapshot {
     objects_by_class: HashMap<String, Vec<String>>,
     event_subscriptions_by_collection: HashMap<String, Vec<String>>,
     class_schemas: HashMap<String, Option<Value>>,
-    observed_paths_by_class: HashMap<String, Vec<String>>,
+    observed_fields_by_class: HashMap<String, TimedCompletion<ObservedObjectDataFields>>,
     computed_sort_fields_by_class: HashMap<String, Vec<String>>,
     task_ids: Option<Vec<CompletionItem>>,
     audit_event_ids: Option<Vec<String>>,
     event_delivery_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone)]
+struct TimedCompletion<T> {
+    value: T,
+    cached_at: Instant,
+}
+
+impl<T: Clone> TimedCompletion<T> {
+    fn new(value: T) -> Self {
+        Self {
+            value,
+            cached_at: Instant::now(),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_at(value: T, cached_at: Instant) -> Self {
+        Self { value, cached_at }
+    }
+
+    fn fresh_value(&self, ttl: Duration, now: Instant) -> Option<T> {
+        (now.saturating_duration_since(self.cached_at) < ttl).then(|| self.value.clone())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -232,20 +258,40 @@ impl CompletionContext {
             return Vec::new();
         };
 
-        let Some(schema) = self.class_schema(&class_name) else {
-            return Vec::new();
-        };
-        let pointers = pointers_from_schema_or_else(schema.as_ref(), || {
-            self.runtime
-                .block_on(
-                    self.services
-                        .completion_store()
-                        .load_observed_paths_for_class(self.services.gateway(), class_name),
-                )
-                .unwrap_or_default()
-        });
+        let schema = self.class_schema(&class_name).flatten();
+        let observed = self.observed_fields_for_class(class_name);
+        let pointers = merged_json_pointers(
+            schema.as_ref(),
+            observed
+                .as_ref()
+                .map(ObservedObjectDataFields::json_pointers)
+                .unwrap_or_default(),
+        );
 
         json_pointer_completion_candidates(&pointers, prefix)
+    }
+
+    pub fn object_data_fields(&self, parts: &[String]) -> Vec<String> {
+        let Some(class_name) = class_name_from_parts(parts) else {
+            return Vec::new();
+        };
+        self.object_data_fields_for_class(&class_name)
+    }
+
+    pub fn object_data_fields_for_class(&self, class_name: &str) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        let schema = self.class_schema(class_name).flatten();
+        let observed = self.observed_fields_for_class(class_name.to_string());
+        merged_aggregate_data_fields(
+            schema.as_ref(),
+            observed
+                .as_ref()
+                .map(ObservedObjectDataFields::aggregate_paths)
+                .unwrap_or_default(),
+        )
     }
 
     pub fn computed_sort_fields(&self, parts: &[String]) -> Vec<String> {
@@ -279,12 +325,25 @@ impl CompletionContext {
             .unwrap_or_default();
         filter_prefix(&fetched, prefix)
     }
+
+    fn observed_fields_for_class(&self, class_name: String) -> Option<ObservedObjectDataFields> {
+        let ttl = observed_field_cache_ttl();
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_observed_fields_for_class(self.services.gateway(), class_name, ttl),
+            )
+            .ok()
+    }
 }
 
 impl CompletionStore {
-    pub(crate) fn invalidate_all(&self) {
+    pub(crate) fn invalidate_volatile(&self) {
         if let Ok(mut snapshot) = self.snapshot.write() {
+            let observed_fields_by_class = std::mem::take(&mut snapshot.observed_fields_by_class);
             *snapshot = CompletionSnapshot::default();
+            snapshot.observed_fields_by_class = observed_fields_by_class;
         }
     }
 
@@ -403,20 +462,25 @@ impl CompletionStore {
         Ok(fetched)
     }
 
-    async fn load_observed_paths_for_class(
+    async fn load_observed_fields_for_class(
         &self,
         gateway: Arc<HubuumGateway>,
         class_name: String,
-    ) -> Result<Vec<String>, AppError> {
-        if let Ok(snapshot) = self.snapshot.read() {
-            if let Some(cached) = snapshot.observed_paths_by_class.get(&class_name) {
-                return Ok(cached.clone());
+        ttl: Option<Duration>,
+    ) -> Result<ObservedObjectDataFields, AppError> {
+        if let Some(ttl) = ttl {
+            if let Ok(snapshot) = self.snapshot.read() {
+                if let Some(cached) = snapshot.observed_fields_by_class.get(&class_name) {
+                    if let Some(value) = cached.fresh_value(ttl, Instant::now()) {
+                        return Ok(value);
+                    }
+                }
             }
         }
 
         let cache_key = class_name.clone();
         let fetched = spawn_blocking(move || {
-            gateway.observed_object_data_pointers(
+            gateway.observed_object_data_fields(
                 &class_name,
                 DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
                 DEFAULT_OBJECT_FIELD_DEPTH,
@@ -426,9 +490,13 @@ impl CompletionStore {
         .map_err(|err| AppError::CommandExecutionError(err.to_string()))??;
 
         if let Ok(mut snapshot) = self.snapshot.write() {
-            snapshot
-                .observed_paths_by_class
-                .insert(cache_key, fetched.clone());
+            if ttl.is_some() {
+                snapshot
+                    .observed_fields_by_class
+                    .insert(cache_key, TimedCompletion::new(fetched.clone()));
+            } else {
+                snapshot.observed_fields_by_class.remove(&cache_key);
+            }
         }
 
         Ok(fetched)
@@ -662,11 +730,31 @@ fn json_pointer_completion_candidates(pointers: &[String], prefix: &str) -> Vec<
         .collect()
 }
 
-fn pointers_from_schema_or_else(
-    schema: Option<&Value>,
-    observed: impl FnOnce() -> Vec<String>,
-) -> Vec<String> {
-    schema.map(schema_json_pointers).unwrap_or_else(observed)
+fn merged_json_pointers(schema: Option<&Value>, observed: &[String]) -> Vec<String> {
+    let mut pointers = BTreeSet::new();
+    if let Some(schema) = schema {
+        pointers.extend(schema_json_pointers(schema));
+    }
+    pointers.extend(observed.iter().cloned());
+    pointers.into_iter().collect()
+}
+
+fn merged_aggregate_data_fields(schema: Option<&Value>, observed: &[String]) -> Vec<String> {
+    let mut fields = BTreeSet::new();
+    if let Some(schema) = schema {
+        fields.extend(
+            schema_paths(schema, false)
+                .into_iter()
+                .map(|path| format!("data.{path}")),
+        );
+    }
+    fields.extend(observed.iter().cloned());
+    fields.into_iter().collect()
+}
+
+fn observed_field_cache_ttl() -> Option<Duration> {
+    let config = get_config();
+    (!config.cache.disable && config.cache.time > 0).then(|| Duration::from_secs(config.cache.time))
 }
 
 fn task_description(task: &TaskRecord) -> String {
@@ -690,11 +778,15 @@ fn json_record_i64(record: &JsonRecord, keys: &[&str]) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::time::{Duration, Instant};
 
     use serde_json::json;
 
-    use super::{filter_prefix, json_pointer_completion_candidates, pointers_from_schema_or_else};
+    use super::{
+        filter_prefix, json_pointer_completion_candidates, merged_aggregate_data_fields,
+        merged_json_pointers, CompletionKind, CompletionStore, ObservedObjectDataFields,
+        TimedCompletion,
+    };
 
     #[test]
     fn filter_prefix_matches_start_of_value() {
@@ -735,27 +827,85 @@ mod tests {
     }
 
     #[test]
-    fn schema_paths_take_precedence_over_observed_data() {
-        let fallback_called = Cell::new(false);
+    fn schema_and_observed_paths_are_merged() {
         let schema = json!({
             "properties": {
-                "schema_only": {"type": "string"}
+                "schema_only": {"type": "string"},
+                "shared": {"type": "string"}
             }
         });
 
-        let pointers = pointers_from_schema_or_else(Some(&schema), || {
-            fallback_called.set(true);
-            vec!["/observed_only".to_string()]
-        });
+        let pointers = merged_json_pointers(
+            Some(&schema),
+            &["/observed_only".to_string(), "/shared".to_string()],
+        );
 
-        assert_eq!(pointers, vec!["/schema_only".to_string()]);
-        assert!(!fallback_called.get());
+        assert_eq!(
+            pointers,
+            vec![
+                "/observed_only".to_string(),
+                "/schema_only".to_string(),
+                "/shared".to_string(),
+            ]
+        );
     }
 
     #[test]
-    fn observed_data_is_used_without_a_schema() {
-        let pointers = pointers_from_schema_or_else(None, || vec!["/observed".to_string()]);
+    fn aggregate_fields_merge_schema_and_observed_data() {
+        let schema = json!({
+            "properties": {
+                "schema_only": {"type": "string"},
+                "shared": {"type": "string"}
+            }
+        });
 
-        assert_eq!(pointers, vec!["/observed".to_string()]);
+        assert_eq!(
+            merged_aggregate_data_fields(
+                Some(&schema),
+                &["data.observed_only".to_string(), "data.shared".to_string()],
+            ),
+            vec![
+                "data.observed_only".to_string(),
+                "data.schema_only".to_string(),
+                "data.shared".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn timed_completion_expires_at_the_ttl() {
+        let cached_at = Instant::now();
+        let cached = TimedCompletion::new_at(vec!["value"], cached_at);
+        let ttl = Duration::from_secs(60);
+
+        assert_eq!(
+            cached.fresh_value(ttl, cached_at + Duration::from_secs(59)),
+            Some(vec!["value"])
+        );
+        assert_eq!(
+            cached.fresh_value(ttl, cached_at + Duration::from_secs(60)),
+            None
+        );
+    }
+
+    #[test]
+    fn command_invalidation_preserves_timed_observed_fields() {
+        let store = CompletionStore::default();
+        {
+            let mut snapshot = store.snapshot.write().expect("completion snapshot");
+            snapshot
+                .simple_sources
+                .insert(CompletionKind::Classes, vec!["Hosts".to_string()]);
+            snapshot.observed_fields_by_class.insert(
+                "Hosts".to_string(),
+                TimedCompletion::new(ObservedObjectDataFields::default()),
+            );
+        }
+
+        store.invalidate_volatile();
+
+        let snapshot = store.snapshot.read().expect("completion snapshot");
+        assert!(snapshot.simple_sources.is_empty());
+        assert!(snapshot.observed_fields_by_class.contains_key("Hosts"));
     }
 }

@@ -143,10 +143,12 @@ hubuum-cli object show --class Hosts host-1 --computed S:average_load
 hubuum-cli object list --class Hosts --computed all --output json
 ```
 
-In the REPL, `--path` completion uses the selected class's JSON Schema when one
-is present. For schema-less classes it inspects a cached sample of up to 100
-objects, using the same depth-six traversal as `object fields`. Suggested paths
-are escaped JSON Pointers into object `data`.
+In the REPL, data-field completion merges the selected class's JSON Schema with
+a sample of up to 100 objects, using the same depth-six traversal as
+`object fields`. This supplies escaped JSON Pointers for computed `--path`
+options and dotted paths for aggregate dimensions, measures, and filters.
+Inspected fields are cached for `cache.time` seconds (one hour by default) and
+the cache can be bypassed with `cache.disable`.
 
 Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 `--computed S:<key>` and `--computed P:<key>` options to select individual

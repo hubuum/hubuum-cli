@@ -1,5 +1,5 @@
+use crate::services::sort_specs_for_command_path;
 use crate::services::CompletionContext;
-use crate::{json_schema::schema_paths, services::sort_specs_for_command_path};
 
 pub fn objects_from_class(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
     ctx.objects_from_class(prefix, parts, "--class")
@@ -99,28 +99,12 @@ fn aggregate_fields(ctx: &CompletionContext, parts: &[String]) -> Vec<String> {
 }
 
 fn aggregate_data_fields(ctx: &CompletionContext, parts: &[String]) -> Vec<String> {
-    let Some(class_name) = class_name_from_parts(parts) else {
-        return vec!["data.".to_string()];
-    };
-    let Some(schema) = ctx.class_schema(&class_name).flatten() else {
-        return vec!["data.".to_string()];
-    };
-    let fields = schema_paths(&schema, false)
-        .into_iter()
-        .map(|path| format!("data.{path}"))
-        .collect::<Vec<_>>();
+    let fields = ctx.object_data_fields(parts);
     if fields.is_empty() {
         vec!["data.".to_string()]
     } else {
         fields
     }
-}
-
-fn class_name_from_parts(parts: &[String]) -> Option<String> {
-    parts
-        .windows(2)
-        .find(|pair| pair[0] == "--class" || pair[0] == "-c")
-        .map(|pair| pair[1].clone())
 }
 
 pub fn object_aggregate_sort(

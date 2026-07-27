@@ -5,8 +5,10 @@
 - Added `object aggregate`, exposing the server's permission-scoped object
   aggregation with ordered data or computed dimensions, numeric measures,
   pre-aggregation filters, aggregate sorting, cursor pagination, and optional
-  total counts. The existing `G` and `A` pipe stages remain local transforms
-  over rows already returned by another command.
+  total counts. Aggregate dimensions, measures, and data filters complete from
+  both class schemas and sampled object fields; inspected fields use the
+  configured completion cache lifetime. The existing `G` and `A` pipe stages
+  remain local transforms over rows already returned by another command.
 
 ## [0.0.5] - 2026-07-26
 
