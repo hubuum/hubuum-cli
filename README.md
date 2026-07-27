@@ -143,10 +143,12 @@ hubuum-cli object show --class Hosts host-1 --computed S:average_load
 hubuum-cli object list --class Hosts --computed all --output json
 ```
 
-In the REPL, `--path` completion uses the selected class's JSON Schema when one
-is present. For schema-less classes it inspects a cached sample of up to 100
-objects, using the same depth-six traversal as `object fields`. Suggested paths
-are escaped JSON Pointers into object `data`.
+In the REPL, data-field completion merges the selected class's JSON Schema with
+a sample of up to 100 objects, using the same depth-six traversal as
+`object fields`. This supplies escaped JSON Pointers for computed `--path`
+options and dotted paths for aggregate dimensions, measures, and filters.
+Inspected fields are cached for `cache.time` seconds (one hour by default) and
+the cache can be bypassed with `cache.disable`.
 
 Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 `--computed S:<key>` and `--computed P:<key>` options to select individual
@@ -190,6 +192,54 @@ The CLI fetches all matching objects for computed sorting, sorts them locally,
 and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
+
+Object-list text and pipeline output automatically promotes dotted data fields
+referenced by `--where` into explicit columns. This makes the matching value
+visible without separately repeating the path in `--data-columns`:
+
+```sh
+hubuum-cli object list --class Hosts \
+  --where json_data.facts.operating_system.major_version lt 8
+hubuum-cli object list --class Hosts \
+  --where data.environment equals production \
+  --include-where-results false
+```
+
+The second form keeps the normal configured or automatic data-column layout.
+Raw JSON output already contains these values in the nested `data` object and
+is not flattened.
+
+Run permission-scoped aggregation on the server with `object aggregate`.
+`--group-by` accepts scalar object fields, dotted `data` paths, and computed
+selectors. Numeric measures use `operation:field`; repeat dimensions up to three
+times and measures up to four times:
+
+```sh
+hubuum-cli object aggregate --class Hosts --group-by data.os_version
+hubuum-cli object aggregate --class Hosts \
+  --group-by data.region \
+  --aggregate sum:data.cpu.cores \
+  --aggregate average:S:load \
+  --sort object_count desc \
+  --limit 25 --include-total
+hubuum-cli object aggregate --class Hosts \
+  --aggregate average:data.cpu.cores \
+  --where data.environment equals production
+```
+
+Every aggregate row includes `object_count`. Measures support `sum`, `average`
+(`avg` is accepted as an input alias), `min`, and `max` over numeric `data.path`,
+`S:key`, or `P:key` values. Filters run before aggregation and accept the same
+object fields and dotted data paths as `object list`, plus up to two computed
+selectors.
+Text output exposes flattened dimension and measure columns; JSON preserves the
+server's dimension and measure states, contributing counts, and skipped counts.
+Cursor pagination and generated next-page commands operate on aggregate rows.
+
+The `G` and `A` pipe stages are still useful for ad hoc local transformations,
+but they only process rows already returned by the preceding command. Use
+`object aggregate` when the result must cover the complete server-side matching
+set.
 
 Class-specific display aliases provide short local names for raw object-data
 paths. Selectors are tried in order and the first present value is displayed:

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+- Added `object aggregate`, exposing the server's permission-scoped object
+  aggregation with ordered data or computed dimensions, numeric measures,
+  pre-aggregation filters, aggregate sorting, cursor pagination, and optional
+  total counts. Aggregate dimensions, measures, and data filters complete from
+  both class schemas and sampled object fields; inspected fields use the
+  configured completion cache lifetime. The existing `G` and `A` pipe stages
+  remain local transforms over rows already returned by another command.
+- Object-list text and pipeline output now promotes dotted data fields used by
+  `--where` into explicit columns by default. Use
+  `--include-where-results false` to retain the configured data-column layout.
+  REPL completion also resumes normal option suggestions immediately after a
+  complete `--where` or `--sort` clause.
+
 ## [0.0.5] - 2026-07-26
 
 - Updated `hubuum_client` to 0.7.2 for Hubuum server v0.0.5. User and

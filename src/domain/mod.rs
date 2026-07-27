@@ -27,6 +27,7 @@ mod exports;
 mod groups;
 mod identity;
 mod imports;
+mod object_aggregates;
 mod object_fields;
 mod objects;
 mod relations;
@@ -56,9 +57,10 @@ pub use identity::{
 };
 pub(crate) use identity::{ResolvedTokenResource, TokenResourceParent};
 pub use imports::ImportResultRecord;
+pub use object_aggregates::ObjectAggregateRecord;
 pub use object_fields::{
-    observed_json_pointers, visit_observed_data_fields, DEFAULT_OBJECT_FIELD_DEPTH,
-    DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+    observed_object_data_fields, visit_observed_data_fields, ObservedObjectDataFields,
+    DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
 pub use objects::{
     ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectRecord, ObjectShowRecord,

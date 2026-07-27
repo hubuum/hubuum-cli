@@ -9,6 +9,7 @@ pub const DEFAULT_OBJECT_FIELD_DEPTH: usize = 6;
 pub struct ObjectDataPath {
     display: String,
     pointer: String,
+    segments: Vec<String>,
 }
 
 impl ObjectDataPath {
@@ -16,20 +17,27 @@ impl ObjectDataPath {
         Self {
             display: "data".to_string(),
             pointer: String::new(),
+            segments: Vec::new(),
         }
     }
 
     fn property(&self, name: &str) -> Self {
+        let mut segments = self.segments.clone();
+        segments.push(name.to_string());
         Self {
             display: format!("{}.{}", self.display, name),
             pointer: format!("{}/{}", self.pointer, escape_json_pointer_segment(name)),
+            segments,
         }
     }
 
     fn array_item(&self) -> Self {
+        let mut segments = self.segments.clone();
+        segments.push("0".to_string());
         Self {
             display: format!("{}[*]", self.display),
             pointer: format!("{}/0", self.pointer),
+            segments,
         }
     }
 
@@ -39,6 +47,34 @@ impl ObjectDataPath {
 
     pub fn pointer(&self) -> &str {
         &self.pointer
+    }
+
+    fn aggregate_path(&self) -> Option<String> {
+        self.segments
+            .iter()
+            .all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+            })
+            .then(|| format!("data.{}", self.segments.join(".")))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ObservedObjectDataFields {
+    json_pointers: Vec<String>,
+    aggregate_paths: Vec<String>,
+}
+
+impl ObservedObjectDataFields {
+    pub fn json_pointers(&self) -> &[String] {
+        &self.json_pointers
+    }
+
+    pub fn aggregate_paths(&self) -> &[String] {
+        &self.aggregate_paths
     }
 }
 
@@ -59,15 +95,22 @@ pub fn visit_observed_data_fields<'a>(
     }
 }
 
-pub fn observed_json_pointers<'a>(
+pub fn observed_object_data_fields<'a>(
     data: impl IntoIterator<Item = &'a Value>,
     max_depth: usize,
-) -> Vec<String> {
+) -> ObservedObjectDataFields {
     let mut pointers = BTreeSet::new();
+    let mut aggregate_paths = BTreeSet::new();
     visit_observed_data_fields(data, max_depth, |path, _| {
         pointers.insert(path.pointer().to_string());
+        if let Some(aggregate_path) = path.aggregate_path() {
+            aggregate_paths.insert(aggregate_path);
+        }
     });
-    pointers.into_iter().collect()
+    ObservedObjectDataFields {
+        json_pointers: pointers.into_iter().collect(),
+        aggregate_paths: aggregate_paths.into_iter().collect(),
+    }
 }
 
 fn visit_value<'a>(
@@ -117,7 +160,7 @@ fn escape_json_pointer_segment(segment: &str) -> String {
 mod tests {
     use serde_json::json;
 
-    use super::observed_json_pointers;
+    use super::observed_object_data_fields;
 
     #[test]
     fn observed_paths_are_valid_json_pointers() {
@@ -130,7 +173,7 @@ mod tests {
         });
 
         assert_eq!(
-            observed_json_pointers([&data], 6),
+            observed_object_data_fields([&data], 6).json_pointers(),
             vec![
                 "/interfaces".to_string(),
                 "/interfaces/0".to_string(),
@@ -149,8 +192,29 @@ mod tests {
         let data = json!({"one": {"two": {"three": true}}});
 
         assert_eq!(
-            observed_json_pointers([&data], 2),
+            observed_object_data_fields([&data], 2).json_pointers(),
             vec!["/one".to_string(), "/one/two".to_string()]
+        );
+    }
+
+    #[test]
+    fn observed_fields_expose_aggregate_safe_dotted_paths() {
+        let data = json!({
+            "interfaces": [{"ipv4": "192.0.2.1"}],
+            "metrics": {"load": 1.5},
+            "invalid.name": true,
+            "invalid/name": true
+        });
+
+        assert_eq!(
+            observed_object_data_fields([&data], 6).aggregate_paths(),
+            [
+                "data.interfaces".to_string(),
+                "data.interfaces.0".to_string(),
+                "data.interfaces.0.ipv4".to_string(),
+                "data.metrics".to_string(),
+                "data.metrics.load".to_string(),
+            ]
         );
     }
 }

@@ -303,22 +303,35 @@ where
         OutputFormat::Json => {
             if has_pipeline()? {
                 paged.items.format_noreturn()?;
-            } else if should_wrap_paged_json(tokens, paged) {
-                set_semantic_output(OutputEnvelope::detail(to_value(paged)?, Vec::new()))?;
             } else {
-                set_semantic_output(OutputEnvelope::rows(
-                    to_value(&paged.items)?
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default(),
-                    Vec::new(),
-                ))?;
+                set_paged_json_output(tokens, paged)?;
             }
         }
         OutputFormat::Text => {
             paged.items.format_noreturn()?;
             append_paging_footer(tokens, paged)?;
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn set_paged_json_output<T>(
+    tokens: &CommandTokenizer,
+    paged: &PagedResult<T>,
+) -> Result<(), AppError>
+where
+    T: Serialize,
+{
+    if should_wrap_paged_json(tokens, paged) {
+        set_semantic_output(OutputEnvelope::detail(to_value(paged)?, Vec::new()))?;
+    } else {
+        set_semantic_output(OutputEnvelope::rows(
+            to_value(&paged.items)?
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+            Vec::new(),
+        ))?;
     }
     Ok(())
 }

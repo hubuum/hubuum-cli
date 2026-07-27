@@ -63,14 +63,26 @@ Create, inspect, and update an object:
 
 ```text
 object create --name smoke-1 --class SmokeHost --collection cli-smoke --description "Smoke object" --data '{"os_version":"15.7.7","owner":"ops","network":{"interfaces":[{"ipv4":"129.240.1.10"}]}}'
+object create --name smoke-2 --class SmokeHost --collection cli-smoke --description "Second smoke object" --data '{"os_version":"15.7.7","owner":"platform","cpu":{"cores":4}}'
 object list --class SmokeHost --limit 10
 object list --class SmokeHost --limit 500
+object list --class SmokeHost --where data.cpu.cores gte 1
+object list --class SmokeHost --where data.cpu.cores gte 1 --include-where-results false
 object show --class SmokeHost smoke-1
 object modify --class SmokeHost smoke-1 --description "Smoke object updated" --data owner=platform
 object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"RHEL","rhel_subscription":"active"}}]'
 object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]'
 object data patch --class SmokeHost --name smoke-created --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]' --create --description "Created by CLI smoke test"
 object fields --class SmokeHost
+```
+
+Run server-side object aggregates, including grouping, global numeric measures,
+pre-aggregation filters, computed dimensions, JSON metadata, and pagination:
+
+```text
+object aggregate --class SmokeHost --group-by data.os_version
+object aggregate --class SmokeHost --group-by data.owner --aggregate sum:data.cpu.cores --sort object_count desc
+object aggregate --class SmokeHost --aggregate average:data.cpu.cores --where name contains smoke --include-total --limit 1
 ```
 
 Create shared and personal computed definitions, preview them, and verify
@@ -83,6 +95,7 @@ computed shared preview --class SmokeHost --key owner_copy --label "Owner copy" 
 computed shared rebuild --class SmokeHost
 computed personal create --class SmokeHost --key owner_personal --label "Personal owner" --operation first_non_null --path /owner --result-type string
 computed personal list --class SmokeHost
+object aggregate --class SmokeHost --group-by S:owner_copy --where S:owner_copy equals platform --output json
 object show --class SmokeHost smoke-1 --computed S:owner_copy
 object list --class SmokeHost --computed all --output json
 object list --class SmokeHost
@@ -102,6 +115,12 @@ Type `object list --class SmokeHost --sort S:` and press Tab. Verify enabled
 shared definitions are offered; repeat with `P:` for personal definitions.
 Repeat after `--computed` and verify `all`, `none`, `S:<key>`, and `P:<key>` are
 offered.
+
+Type
+`object list --class SmokeHost --where json_data.cpu.cores '<' 8 --inc`
+and press Tab. Verify completion offers `--include-where-results` after the
+complete filter clause.
+
 Configure defaults for the smoke class and verify they apply to both list and
 show, then verify an explicit selection replaces them:
 
@@ -145,6 +164,10 @@ Expected results:
   combining either with `--cursor` returns an actionable error.
 - Display aliases use the first selector that exists and can be selected like
   ordinary data columns.
+- `object aggregate` groups the complete permission-visible matching set rather
+  than only the current object-list page. Numeric measures report values,
+  contributing counts, and skipped counts in JSON; `--limit 1` offers the next
+  aggregate cursor page when more groups exist.
 - `S:<key>` and `P:<key>` selectors work in semantic pipe filtering,
   projection, sorting, grouping, aggregation, and value extraction when selected
   explicitly or by a per-class default.
@@ -484,6 +507,8 @@ Remove temporary resources in dependency order:
 relation object delete --class-a SmokeHost --object-a smoke-1 --class-b SmokeService --object-b service-1
 relation class delete --class-a SmokeHost --class-b SmokeService
 object delete --class SmokeService --name service-1
+object delete --class SmokeHost --name smoke-created
+object delete --class SmokeHost --name smoke-2
 object delete --class SmokeHost --name smoke-1
 class delete SmokeService
 class delete SmokeHost
