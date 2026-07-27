@@ -193,6 +193,22 @@ and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
 
+Object-list text and pipeline output automatically promotes dotted data fields
+referenced by `--where` into explicit columns. This makes the matching value
+visible without separately repeating the path in `--data-columns`:
+
+```sh
+hubuum-cli object list --class Hosts \
+  --where json_data.facts.operating_system.major_version lt 8
+hubuum-cli object list --class Hosts \
+  --where data.environment equals production \
+  --include-where-results false
+```
+
+The second form keeps the normal configured or automatic data-column layout.
+Raw JSON output already contains these values in the nested `data` object and
+is not flattened.
+
 Run permission-scoped aggregation on the server with `object aggregate`.
 `--group-by` accepts scalar object fields, dotted `data` paths, and computed
 selectors. Numeric measures use `operation:field`; repeat dimensions up to three

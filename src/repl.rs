@@ -826,6 +826,9 @@ fn clause_option_context(
         clause_parts.push(value.to_string());
     }
     clause_parts.extend(parts[option_index + 1..].iter().cloned());
+    if clause_parts.len() > value_count {
+        return None;
+    }
 
     let prefix = if ends_with_space {
         String::new()
@@ -1189,7 +1192,11 @@ fn where_suggestion(
         .filter(|description| {
             matches!(
                 *description,
-                "no schema" | "no schema match" | "type path manually"
+                "no schema"
+                    | "no schema match"
+                    | "no schema or observed fields"
+                    | "no field match"
+                    | "type path manually"
             )
         })
         .map(str::to_string);
@@ -1615,6 +1622,21 @@ mod tests {
         assert_eq!(context.prefix, "na");
         assert_eq!(context.replacement_start, "collection list --where=".len());
         assert!(!context.is_complete);
+    }
+
+    #[test]
+    fn clause_option_context_releases_tokens_after_a_complete_where_clause() {
+        let parts = vec![
+            "object".to_string(),
+            "list".to_string(),
+            "--where".to_string(),
+            "json_data.facts.operating_system.major_version".to_string(),
+            "<".to_string(),
+            "8".to_string(),
+            "--include".to_string(),
+        ];
+
+        assert!(clause_option_context(&parts, "--where", 3, 0, 0, "--include", false,).is_none());
     }
 
     #[test]

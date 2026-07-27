@@ -9,6 +9,11 @@
   both class schemas and sampled object fields; inspected fields use the
   configured completion cache lifetime. The existing `G` and `A` pipe stages
   remain local transforms over rows already returned by another command.
+- Object-list text and pipeline output now promotes dotted data fields used by
+  `--where` into explicit columns by default. Use
+  `--include-where-results false` to retain the configured data-column layout.
+  REPL completion also resumes normal option suggestions immediately after a
+  complete `--where` or `--sort` clause.
 
 ## [0.0.5] - 2026-07-26
 

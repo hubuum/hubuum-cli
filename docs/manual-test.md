@@ -66,6 +66,8 @@ object create --name smoke-1 --class SmokeHost --collection cli-smoke --descript
 object create --name smoke-2 --class SmokeHost --collection cli-smoke --description "Second smoke object" --data '{"os_version":"15.7.7","owner":"platform","cpu":{"cores":4}}'
 object list --class SmokeHost --limit 10
 object list --class SmokeHost --limit 500
+object list --class SmokeHost --where data.cpu.cores gte 1
+object list --class SmokeHost --where data.cpu.cores gte 1 --include-where-results false
 object show --class SmokeHost smoke-1
 object modify --class SmokeHost smoke-1 --description "Smoke object updated" --data owner=platform
 object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"RHEL","rhel_subscription":"active"}}]'
@@ -113,6 +115,12 @@ Type `object list --class SmokeHost --sort S:` and press Tab. Verify enabled
 shared definitions are offered; repeat with `P:` for personal definitions.
 Repeat after `--computed` and verify `all`, `none`, `S:<key>`, and `P:<key>` are
 offered.
+
+Type
+`object list --class SmokeHost --where json_data.cpu.cores '<' 8 --inc`
+and press Tab. Verify completion offers `--include-where-results` after the
+complete filter clause.
+
 Configure defaults for the smoke class and verify they apply to both list and
 show, then verify an explicit selection replaces them:
 

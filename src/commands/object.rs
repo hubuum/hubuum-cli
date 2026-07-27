@@ -19,9 +19,9 @@ use super::{
     option_or_pos, want_json, CliCommand,
 };
 use crate::autocomplete::{
-    classes, collections, computed_fields, object_aggregate_dimensions, object_aggregate_measures,
-    object_aggregate_sort, object_aggregate_where, object_data_columns, object_sort, object_where,
-    objects_from_class,
+    bool, classes, collections, computed_fields, object_aggregate_dimensions,
+    object_aggregate_measures, object_aggregate_sort, object_aggregate_where, object_data_columns,
+    object_sort, object_where, objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
@@ -35,7 +35,7 @@ use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
 use crate::list_query::{
-    append_paging_footer, render_paged_result, set_paged_json_output, PagedResult,
+    append_paging_footer, render_paged_result, set_paged_json_output, FilterClause, PagedResult,
 };
 use crate::models::{ObjectListDataColumns, OutputFormat};
 use crate::output::{
@@ -114,7 +114,13 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 ObjectList::default(),
                 CommandDocs {
                     about: Some("List objects"),
-                    ..CommandDocs::default()
+                    long_about: Some(
+                        "List objects with server-side filtering and sorting. Dotted data fields referenced by --where are included as text and pipeline columns by default; use --include-where-results false to keep the normal data-column layout.",
+                    ),
+                    examples: Some(
+                        r#"--class Hosts --where json_data.facts.operating_system.major_version lt 8
+--class Hosts --where data.environment equals production --include-where-results false"#,
+                    ),
                 },
             ),
         )
@@ -495,11 +501,11 @@ mod tests {
 
     use super::{
         all_computed_value_columns, bounded_auto_data_columns, data_column_display_value,
-        data_column_value, display_json_value, explicit_data_columns, first_seen_data_keys,
-        object_data_column_label, object_field_summaries, object_list_row,
-        object_show_pipeline_value, parse_object_data_patch, ComputedFieldSelection,
-        ComputedValueColumn, ComputedValueScope, ObjectAggregate, ObjectList, ObjectListColumns,
-        DEFAULT_OBJECT_FIELD_DEPTH,
+        data_column_value, display_json_value, explicit_data_columns, extend_unique_data_keys,
+        first_seen_data_keys, object_data_column_label, object_field_summaries, object_list_row,
+        object_show_pipeline_value, parse_object_data_patch, where_result_data_keys,
+        ComputedFieldSelection, ComputedValueColumn, ComputedValueScope, ObjectAggregate,
+        ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::commands::command_options;
@@ -507,7 +513,7 @@ mod tests {
     use crate::domain::{
         ComputedFieldSet, ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord,
     };
-    use crate::list_query::PagedResult;
+    use crate::list_query::{parse_where_clause, PagedResult};
     use crate::output::{append_line, reset_output, take_output};
     use crate::tokenizer::CommandTokenizer;
 
@@ -629,7 +635,8 @@ mod tests {
     #[test]
     fn object_list_parses_repeatable_computed_selections() {
         let tokens = CommandTokenizer::new(
-            "object list --class Hosts --computed S:load --computed P:note",
+            "object list --class Hosts --computed S:load --computed P:note \
+             --include-where-results false",
             "list",
             &command_options::<ObjectList>(),
         )
@@ -638,6 +645,7 @@ mod tests {
         let query = ObjectList::parse_tokens(&tokens).expect("command should parse");
 
         assert_eq!(query.computed, vec!["S:load", "P:note"]);
+        assert_eq!(query.include_where_results, Some(false));
     }
 
     #[test]
@@ -766,6 +774,7 @@ mod tests {
         );
         let columns = ObjectListColumns {
             data_keys: vec!["contact".to_string(), "name".to_string()],
+            data_preview: false,
             compact_base: false,
             computed_columns: Vec::new(),
         };
@@ -786,6 +795,7 @@ mod tests {
         let object = test_object(1, json!({"name": "data-name", "hardware": {"cpu": "M2"}}));
         let columns = ObjectListColumns {
             data_keys: vec!["data.name".to_string(), "data.hardware.cpu".to_string()],
+            data_preview: false,
             compact_base: true,
             computed_columns: Vec::new(),
         };
@@ -812,6 +822,7 @@ mod tests {
         }));
         let columns = ObjectListColumns {
             data_keys: Vec::new(),
+            data_preview: true,
             compact_base: false,
             computed_columns: all_computed_value_columns(std::slice::from_ref(&object)),
         };
@@ -849,6 +860,7 @@ mod tests {
         let objects = vec![first, second];
         let columns = ObjectListColumns {
             data_keys: Vec::new(),
+            data_preview: true,
             compact_base: false,
             computed_columns: all_computed_value_columns(&objects),
         };
@@ -965,6 +977,7 @@ mod tests {
         let object = test_object(1, json!({"os": {"redhat": {"version": "9.8"}}}));
         let columns = ObjectListColumns {
             data_keys: vec!["os_version".to_string()],
+            data_preview: false,
             compact_base: true,
             computed_columns: Vec::new(),
         };
@@ -1096,6 +1109,73 @@ mod tests {
         assert_eq!(object_data_column_label("name"), "data.name");
         assert_eq!(object_data_column_label("Name"), "data.Name");
         assert_eq!(object_data_column_label("contact"), "contact");
+    }
+
+    #[test]
+    fn where_result_fields_are_normalized_deduplicated_and_optional() {
+        let filters = [
+            "json_data.facts.operating_system.major_version < 8",
+            "data.owner equals ops",
+            "data.owner not_equals root",
+            "name contains host",
+        ]
+        .into_iter()
+        .map(parse_where_clause)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("filters should parse");
+
+        assert_eq!(
+            where_result_data_keys(&filters, true),
+            vec![
+                "data.facts.operating_system.major_version".to_string(),
+                "data.owner".to_string(),
+            ]
+        );
+        assert!(where_result_data_keys(&filters, false).is_empty());
+    }
+
+    #[test]
+    fn where_result_fields_extend_columns_without_removing_data_preview() {
+        let mut data_keys = vec!["owner".to_string()];
+        extend_unique_data_keys(
+            &mut data_keys,
+            &[
+                "data.owner".to_string(),
+                "data.facts.operating_system.major_version".to_string(),
+            ],
+        );
+        assert_eq!(
+            data_keys,
+            vec![
+                "owner".to_string(),
+                "data.facts.operating_system.major_version".to_string(),
+            ]
+        );
+
+        let object = test_object(
+            1,
+            json!({
+                "facts": {"operating_system": {"major_version": 7}},
+                "owner": "ops"
+            }),
+        );
+        let columns = ObjectListColumns {
+            data_keys: vec!["data.facts.operating_system.major_version".to_string()],
+            data_preview: true,
+            compact_base: false,
+            computed_columns: Vec::new(),
+        };
+        let row = object_list_row(&object, &columns)
+            .expect("row should render")
+            .as_object()
+            .cloned()
+            .expect("row should be an object");
+
+        assert!(row.contains_key("Data"));
+        assert_eq!(
+            row.get("data.facts.operating_system.major_version"),
+            Some(&json!("7"))
+        );
     }
 
     #[test]
@@ -1371,6 +1451,12 @@ pub struct ObjectList {
     )]
     pub include_total: Option<bool>,
     #[option(
+        long = "include-where-results",
+        help = "Include data fields referenced by --where in text and pipeline output (default: true)",
+        autocomplete = "bool"
+    )]
+    pub include_where_results: Option<bool>,
+    #[option(
         long = "data-columns",
         help = "Object data columns: auto, preview, all, or comma-separated keys",
         autocomplete = "object_data_columns"
@@ -1390,6 +1476,7 @@ impl CliCommand for ObjectList {
         let query: ObjectList = Self::parse_tokens(tokens)?;
         let computed_selection =
             ComputedFieldSelection::resolve(&query.computed, query.class.as_deref())?;
+        let include_where_results = query.include_where_results.unwrap_or(true);
         let class_filter = query.class.clone();
         let list_query = build_list_query(
             &query.where_clauses,
@@ -1415,12 +1502,15 @@ impl CliCommand for ObjectList {
         let objects = services
             .gateway()
             .list_objects(&list_query, include_computed)?;
+        let where_result_data_keys =
+            where_result_data_keys(&list_query.filters, include_where_results);
         render_object_list_page(
             services,
             tokens,
             &objects,
             class_filter.as_deref(),
             query.data_columns.as_deref(),
+            &where_result_data_keys,
             &computed_selection,
         )
     }
@@ -1563,6 +1653,7 @@ fn render_object_list_page(
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
     data_columns: Option<&str>,
+    where_result_data_keys: &[String],
     computed_selection: &ComputedFieldSelection,
 ) -> Result<(), AppError> {
     match (desired_format(tokens), has_pipeline()?) {
@@ -1577,6 +1668,7 @@ fn render_object_list_page(
                 objects,
                 class_filter,
                 data_columns,
+                where_result_data_keys,
                 computed_selection,
             )?;
             let rows = objects
@@ -1593,6 +1685,7 @@ fn render_object_list_page(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectListColumns {
     data_keys: Vec<String>,
+    data_preview: bool,
     compact_base: bool,
     computed_columns: Vec<ComputedValueColumn>,
 }
@@ -1607,15 +1700,14 @@ impl ObjectListColumns {
                 "Class".to_string(),
             ]);
         }
-        if self.data_keys.is_empty() {
+        if self.data_preview {
             columns.push("Data".to_string());
-        } else {
-            columns.extend(
-                self.data_keys
-                    .iter()
-                    .map(|key| object_data_column_label(key)),
-            );
         }
+        columns.extend(
+            self.data_keys
+                .iter()
+                .map(|key| object_data_column_label(key)),
+        );
         if !self.compact_base {
             columns.extend(["Created".to_string(), "Updated".to_string()]);
         }
@@ -1842,9 +1934,10 @@ fn object_list_columns(
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
     requested: Option<&str>,
+    where_result_data_keys: &[String],
     computed_selection: &ComputedFieldSelection,
 ) -> Result<ObjectListColumns, AppError> {
-    let (data_keys, compact_base) = match requested {
+    let (mut data_keys, compact_base) = match requested {
         Some(value) => match value.parse::<ObjectListDataColumns>() {
             Ok(ObjectListDataColumns::Preview) => (Vec::new(), false),
             Ok(ObjectListDataColumns::Auto) => {
@@ -1868,11 +1961,50 @@ fn object_list_columns(
             ObjectListDataColumns::All => (first_seen_data_keys(objects), false),
         },
     };
+    let data_preview = data_keys.is_empty();
+    extend_unique_data_keys(&mut data_keys, where_result_data_keys);
     Ok(ObjectListColumns {
         data_keys,
+        data_preview,
         compact_base,
         computed_columns: computed_selection.columns(&objects.items),
     })
+}
+
+fn where_result_data_keys(filters: &[FilterClause], include: bool) -> Vec<String> {
+    if !include {
+        return Vec::new();
+    }
+
+    let mut seen = HashSet::new();
+    filters
+        .iter()
+        .filter_map(|filter| {
+            let path = filter
+                .field
+                .strip_prefix("data.")
+                .or_else(|| filter.field.strip_prefix("json_data."))?;
+            (!path.is_empty()).then(|| format!("data.{path}"))
+        })
+        .filter(|field| seen.insert(data_key_identity(field).to_string()))
+        .collect()
+}
+
+fn extend_unique_data_keys(data_keys: &mut Vec<String>, additional: &[String]) {
+    let mut seen = data_keys
+        .iter()
+        .map(|key| data_key_identity(key).to_string())
+        .collect::<HashSet<_>>();
+    data_keys.extend(
+        additional
+            .iter()
+            .filter(|key| seen.insert(data_key_identity(key).to_string()))
+            .cloned(),
+    );
+}
+
+fn data_key_identity(key: &str) -> &str {
+    key.strip_prefix("data.").unwrap_or(key)
 }
 
 fn configured_object_data_columns(class_filter: Option<&str>) -> Option<Vec<String>> {
@@ -2040,12 +2172,13 @@ fn object_list_row(
         insert_display_aliases(&mut row, &object.class, data);
     }
 
-    if columns.data_keys.is_empty() {
+    if columns.data_preview {
         row.insert(
             "Data".to_string(),
             Value::String(data_preview(object.data.as_ref())),
         );
-    } else if let Some(data) = data_object {
+    }
+    if let Some(data) = data_object {
         for key in &columns.data_keys {
             if let Some(value) = data_or_alias_display_value(&object.class, data, key) {
                 row.insert(object_data_column_label(key), Value::String(value));
@@ -2077,6 +2210,7 @@ fn object_show_pipeline_value(
 ) -> Result<(Value, Vec<String>), AppError> {
     let columns = ObjectListColumns {
         data_keys: Vec::new(),
+        data_preview: true,
         compact_base: false,
         computed_columns: computed_selection.columns(std::slice::from_ref(&object.object)),
     };
