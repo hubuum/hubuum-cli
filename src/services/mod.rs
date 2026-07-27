@@ -22,10 +22,12 @@ pub use gateway::{
     CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
     CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
     HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
-    NewTokenInput, ObjectDataPatchInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot,
-    RelationTarget, RelationTraversalOptions, RemoteAuthConfigInput, RunBackupInput,
-    RunExportInput, SearchInput, SearchKind, SubmitImportInput, TaskLookupInput,
-    UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
+    NewTokenInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
+    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
+    RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions,
+    RemoteAuthConfigInput, RunBackupInput, RunExportInput, SearchInput, SearchKind,
+    SubmitImportInput, TaskLookupInput, UpdateExportTemplateInput, UpdateRemoteTargetInput,
+    UserFilter, UserUpdateInput,
 };
 
 #[derive(Debug, Clone)]

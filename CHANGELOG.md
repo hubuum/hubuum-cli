@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Added `object aggregate`, exposing the server's permission-scoped object
+  aggregation with ordered data or computed dimensions, numeric measures,
+  pre-aggregation filters, aggregate sorting, cursor pagination, and optional
+  total counts. The existing `G` and `A` pipe stages remain local transforms
+  over rows already returned by another command.
+
 ## [0.0.5] - 2026-07-26
 
 - Updated `hubuum_client` to 0.7.2 for Hubuum server v0.0.5. User and

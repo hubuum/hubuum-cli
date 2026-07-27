@@ -8,6 +8,7 @@ mod exports;
 mod groups;
 mod identity;
 mod imports;
+mod object_aggregates;
 mod objects;
 mod relations;
 mod remote_targets;
@@ -38,6 +39,10 @@ pub use events::{
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub use imports::SubmitImportInput;
+pub use object_aggregates::{
+    ObjectAggregateDimensionInput, ObjectAggregateInput, ObjectAggregateMeasureInput,
+    ObjectAggregateSortInput,
+};
 pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use remote_targets::{
@@ -75,6 +80,9 @@ pub(crate) fn filter_specs_for_command_path(
         }
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_FILTER_SPECS)
+        }
+        [scope, command] if scope == "object" && command == "aggregate" => {
+            Some(object_aggregates::OBJECT_AGGREGATE_FILTER_SPECS)
         }
         [scope, subtype, command]
             if scope == "relation" && subtype == "class" && command == "list" =>
@@ -130,6 +138,9 @@ pub(crate) fn sort_specs_for_command_path(
         }
         [scope, command] if scope == "object" && command == "list" => {
             Some(objects::OBJECT_SORT_SPECS)
+        }
+        [scope, command] if scope == "object" && command == "aggregate" => {
+            Some(object_aggregates::OBJECT_AGGREGATE_SORT_SPECS)
         }
         [scope, subtype, command]
             if scope == "relation" && subtype == "class" && command == "list" =>

@@ -1384,6 +1384,7 @@ mod tests {
             &["restore", "stage"][..],
             &["computed", "shared", "list"][..],
             &["computed", "personal", "list"][..],
+            &["object", "aggregate"][..],
         ] {
             assert!(catalog
                 .resolve_command(

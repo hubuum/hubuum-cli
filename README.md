@@ -191,6 +191,38 @@ and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
 
+Run permission-scoped aggregation on the server with `object aggregate`.
+`--group-by` accepts scalar object fields, dotted `data` paths, and computed
+selectors. Numeric measures use `operation:field`; repeat dimensions up to three
+times and measures up to four times:
+
+```sh
+hubuum-cli object aggregate --class Hosts --group-by data.os_version
+hubuum-cli object aggregate --class Hosts \
+  --group-by data.region \
+  --aggregate sum:data.cpu.cores \
+  --aggregate average:S:load \
+  --sort object_count desc \
+  --limit 25 --include-total
+hubuum-cli object aggregate --class Hosts \
+  --aggregate average:data.cpu.cores \
+  --where data.environment equals production
+```
+
+Every aggregate row includes `object_count`. Measures support `sum`, `average`
+(`avg` is accepted as an input alias), `min`, and `max` over numeric `data.path`,
+`S:key`, or `P:key` values. Filters run before aggregation and accept the same
+object fields and dotted data paths as `object list`, plus up to two computed
+selectors.
+Text output exposes flattened dimension and measure columns; JSON preserves the
+server's dimension and measure states, contributing counts, and skipped counts.
+Cursor pagination and generated next-page commands operate on aggregate rows.
+
+The `G` and `A` pipe stages are still useful for ad hoc local transformations,
+but they only process rows already returned by the preceding command. Use
+`object aggregate` when the result must cover the complete server-side matching
+set.
+
 Class-specific display aliases provide short local names for raw object-data
 paths. Selectors are tried in order and the first present value is displayed:
 

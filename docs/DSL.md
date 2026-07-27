@@ -13,6 +13,11 @@ command output
 The DSL is useful when a command already returns the right kind of data and you
 want a smaller local view without adding another API flag.
 
+Grouping with `G` and aggregation with `A` are local pipe operations over the
+rows returned by the preceding command. For permission-scoped aggregation over
+the complete matching object set before pagination, use `object aggregate`; see
+the main README for command examples.
+
 Examples below use REPL/script syntax. In a POSIX shell, escape or quote `|`,
 `>`, and `>>` so those standalone operator arguments reach Hubuum CLI, for
 example `hubuum-cli config show \| F output \> output.txt`.
@@ -178,6 +183,9 @@ object list --class Hosts | F os_version 26 | C
 ```
 
 ## Grouping And Aggregates
+
+These stages operate locally on the current semantic rows. They do not call the
+server's object-aggregate endpoint.
 
 Group by one or more fields:
 

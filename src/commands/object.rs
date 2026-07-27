@@ -19,26 +19,31 @@ use super::{
     option_or_pos, want_json, CliCommand,
 };
 use crate::autocomplete::{
-    classes, collections, computed_fields, object_data_columns, object_sort, object_where,
+    classes, collections, computed_fields, object_aggregate_dimensions, object_aggregate_measures,
+    object_aggregate_sort, object_aggregate_where, object_data_columns, object_sort, object_where,
     objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
 use crate::domain::{
-    visit_observed_data_fields, ComputedFieldSelector, ComputedFieldSet, ObjectShowRecord,
-    ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+    visit_observed_data_fields, ComputedFieldSelector, ComputedFieldSet, ObjectAggregateRecord,
+    ObjectShowRecord, ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH,
+    DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
 use crate::errors::AppError;
 use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
-use crate::list_query::{append_paging_footer, render_paged_result, PagedResult};
+use crate::list_query::{
+    append_paging_footer, render_paged_result, set_paged_json_output, PagedResult,
+};
 use crate::models::{ObjectListDataColumns, OutputFormat};
 use crate::output::{
     add_warning, append_key_value, append_line, has_pipeline, set_semantic_output,
 };
 use crate::services::{
-    AppServices, CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput,
+    AppServices, CreateObjectInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
+    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
     RelationTraversalOptions,
 };
 use crate::terminal::terminal_width;
@@ -80,6 +85,24 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     examples: Some(
                         r#"--class Hosts --name srv-01 --patch '[{"op":"add","path":"/facts","value":{"os":"Fedora"}}]'
 --class Hosts --name srv-01 --patch @facts-patch.json --create --description "Managed by Ansible""#,
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["object"],
+            catalog_command(
+                "aggregate",
+                ObjectAggregate::default(),
+                CommandDocs {
+                    about: Some("Aggregate objects on the server"),
+                    long_about: Some(
+                        "Run permission-scoped aggregation across all matching objects in one class. Repeat --group-by for up to three ordered dimensions and --aggregate for up to four numeric measures. Unlike the local G/A pipe stages, this command aggregates before server pagination.",
+                    ),
+                    examples: Some(
+                        r#"--class Hosts --group-by data.os_version
+--class Hosts --group-by data.region --aggregate sum:data.cpu.cores --sort object_count desc
+--class Hosts --aggregate average:S:load --where data.environment equals production --include-total"#,
                     ),
                 },
             ),
@@ -475,7 +498,7 @@ mod tests {
         data_column_value, display_json_value, explicit_data_columns, first_seen_data_keys,
         object_data_column_label, object_field_summaries, object_list_row,
         object_show_pipeline_value, parse_object_data_patch, ComputedFieldSelection,
-        ComputedValueColumn, ComputedValueScope, ObjectList, ObjectListColumns,
+        ComputedValueColumn, ComputedValueScope, ObjectAggregate, ObjectList, ObjectListColumns,
         DEFAULT_OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
@@ -615,6 +638,36 @@ mod tests {
         let query = ObjectList::parse_tokens(&tokens).expect("command should parse");
 
         assert_eq!(query.computed, vec!["S:load", "P:note"]);
+    }
+
+    #[test]
+    fn object_aggregate_parses_repeated_dimensions_measures_and_filters() {
+        let tokens = CommandTokenizer::new(
+            "object aggregate --class Hosts --group-by data.region --group-by S:risk \
+             --aggregate sum:data.cpu.cores --aggregate average:P:load \
+             --where data.environment equals production --sort object_count desc \
+             --limit 25 --cursor next-page --include-total",
+            "aggregate",
+            &command_options::<ObjectAggregate>(),
+        )
+        .expect("command should tokenize");
+
+        let query = ObjectAggregate::parse_tokens(&tokens).expect("command should parse");
+
+        assert_eq!(query.class, "Hosts");
+        assert_eq!(query.group_by, vec!["data.region", "S:risk"]);
+        assert_eq!(
+            query.aggregate,
+            vec!["sum:data.cpu.cores", "average:P:load"]
+        );
+        assert_eq!(
+            query.where_clauses,
+            vec!["data.environment equals production"]
+        );
+        assert_eq!(query.sort.as_deref(), Some("object_count desc"));
+        assert_eq!(query.limit, Some(25));
+        assert_eq!(query.cursor.as_deref(), Some("next-page"));
+        assert_eq!(query.include_total, Some(true));
     }
 
     #[test]
@@ -1168,6 +1221,111 @@ fn prettify_slice_path(path: &str) -> String {
         .replace("']['", ".")
         .replace("['", "")
         .replace("']", "")
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ObjectAggregate {
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Exact name of the class",
+        autocomplete = "classes"
+    )]
+    pub class: String,
+    #[option(
+        long = "group-by",
+        help = "Dimension: name, description, collection_id, timestamps, data.path, S:key, or P:key (repeatable)",
+        autocomplete = "object_aggregate_dimensions"
+    )]
+    pub group_by: Vec<String>,
+    #[option(
+        long = "aggregate",
+        help = "Numeric measure: sum|average|min|max:data.path|S:key|P:key (repeatable)",
+        autocomplete = "object_aggregate_measures"
+    )]
+    pub aggregate: Vec<String>,
+    #[option(
+        long = "where",
+        help = "Pre-aggregation filter clause: 'field op value'",
+        nargs = 3,
+        autocomplete = "object_aggregate_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
+        long = "sort",
+        help = "Aggregate sort: dimensions|object_count asc|desc",
+        nargs = 2,
+        autocomplete = "object_aggregate_sort"
+    )]
+    pub sort: Option<String>,
+    #[option(long = "limit", help = "Aggregate page size (server maximum: 250)")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Cursor for the next aggregate page")]
+    pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact number of aggregate rows",
+        flag = "true"
+    )]
+    pub include_total: Option<bool>,
+}
+
+impl CliCommand for ObjectAggregate {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let dimensions = query
+            .group_by
+            .iter()
+            .map(|value| value.parse::<ObjectAggregateDimensionInput>())
+            .collect::<Result<Vec<_>, _>>()?;
+        let measures = query
+            .aggregate
+            .iter()
+            .map(|value| value.parse::<ObjectAggregateMeasureInput>())
+            .collect::<Result<Vec<_>, _>>()?;
+        let list_query = build_list_query(
+            &query.where_clauses,
+            &[],
+            query.limit,
+            query.cursor,
+            query.include_total.unwrap_or(false),
+            [],
+        )?;
+        let sort = query
+            .sort
+            .as_deref()
+            .map(str::parse::<ObjectAggregateSortInput>)
+            .transpose()?;
+        let input = ObjectAggregateInput::new(query.class, dimensions, measures)?
+            .filters(list_query.filters)
+            .sort(sort)
+            .limit(list_query.limit)
+            .cursor(list_query.cursor)
+            .include_total(list_query.include_total);
+        let columns = input.columns();
+        let aggregates = services.gateway().aggregate_objects(&input)?;
+
+        render_object_aggregate_page(tokens, &aggregates, columns)
+    }
+}
+
+fn render_object_aggregate_page(
+    tokens: &CommandTokenizer,
+    aggregates: &PagedResult<ObjectAggregateRecord>,
+    columns: Vec<String>,
+) -> Result<(), AppError> {
+    match (desired_format(tokens), has_pipeline()?) {
+        (OutputFormat::Json, false) => set_paged_json_output(tokens, aggregates),
+        (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
+            let rows = aggregates
+                .items
+                .iter()
+                .map(ObjectAggregateRecord::semantic_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            set_semantic_output(OutputEnvelope::rows(rows, columns))?;
+            append_paging_footer(tokens, aggregates)
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
