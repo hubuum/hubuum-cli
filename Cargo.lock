@@ -1010,14 +1010,13 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79232e2f7f01b82a4fe825d542500ee56b431327044e2f4e5d2186aa68285fce"
+checksum = "f0b9b6e994e58e05174b48cf8818b33f429d3a30773926bc33f578a8080426d6"
 dependencies = [
  "chrono",
  "fastrand",
  "httpdate",
- "hubuum_client_derive",
  "log",
  "percent-encoding",
  "reqwest",
@@ -1029,17 +1028,6 @@ dependencies = [
  "strum 0.28.0",
  "thiserror 2.0.19",
  "url",
-]
-
-[[package]]
-name = "hubuum_client_derive"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "381a70cbec819c64771197f0717e6fd8ca303b899b54a9a355a5e2cafdb00045"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.3",
 ]
 
 [[package]]
