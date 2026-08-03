@@ -116,6 +116,37 @@ impl From<TableStyle> for Value {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum TableHeaders {
+    Full,
+    #[default]
+    Grouped,
+    None,
+}
+
+impl FromStr for TableHeaders {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "full" => Ok(TableHeaders::Full),
+            "grouped" => Ok(TableHeaders::Grouped),
+            "none" => Ok(TableHeaders::None),
+            _ => Err(format!(
+                "Invalid table headers mode: {s}. Use full, grouped, or none."
+            )),
+        }
+    }
+}
+
+impl From<TableHeaders> for Value {
+    fn from(val: TableHeaders) -> Self {
+        Value::new(None, val.to_string())
+    }
+}
+
 #[derive(Debug, Serialize, Clone, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TableWidth {

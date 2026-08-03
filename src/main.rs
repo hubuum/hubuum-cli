@@ -56,7 +56,7 @@ async fn main() -> Result<(), AppError> {
     let mode = execution_mode(&matches, startup_args.mode);
 
     match &mode {
-        StartupMode::Command(command) if can_execute_offline(command) => {
+        StartupMode::Command(command) if can_execute_offline(catalog.as_ref(), command) => {
             let catalog = catalog.clone();
             let command = command.clone();
             let outcome = spawn_blocking(move || execute_offline_line(catalog.as_ref(), &command))
@@ -67,7 +67,9 @@ async fn main() -> Result<(), AppError> {
             }
             return Ok(());
         }
-        StartupMode::Script(filename) if can_execute_script_offline(filename).await? => {
+        StartupMode::Script(filename)
+            if can_execute_script_offline(catalog.as_ref(), filename).await? =>
+        {
             let session = SharedSession::new();
             if !execute_offline_script(catalog.clone(), &session, filename).await? {
                 exit(1);
@@ -138,12 +140,15 @@ async fn execute_script(
     Ok(true)
 }
 
-async fn can_execute_script_offline(filename: &str) -> Result<bool, AppError> {
+async fn can_execute_script_offline(
+    catalog: &CommandCatalog,
+    filename: &str,
+) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     Ok(content
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .all(can_execute_offline))
+        .all(|line| can_execute_offline(catalog, line)))
 }
 
 async fn execute_offline_script(

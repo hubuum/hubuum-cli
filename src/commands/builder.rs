@@ -7,10 +7,11 @@ use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
-use crate::commands::{self, command_options, render_format, CliCommand};
+use crate::commands::{self, command_options, render_format, table_headers, CliCommand};
 use crate::errors::AppError;
 use crate::output::{
-    reset_output, set_pipeline, set_pipeline_suffix, set_render_format, take_output,
+    reset_output, set_pipeline, set_pipeline_suffix, set_render_format, set_table_headers,
+    take_output,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -25,6 +26,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
 
     commands::admin::register_commands(&mut builder);
+    commands::alias::register_commands(&mut builder);
     commands::backup::register_commands(&mut builder);
     commands::audit::register_commands(&mut builder);
     commands::auth::register_commands(&mut builder);
@@ -126,6 +128,7 @@ where
 
             let tokens = CommandTokenizer::new(&raw_line, &cmd_name, &command_options::<C>())?;
             set_render_format(render_format(&tokens)?)?;
+            set_table_headers(table_headers(&tokens)?)?;
 
             command.execute(services.as_ref(), &tokens)?;
             services.invalidate_completion();

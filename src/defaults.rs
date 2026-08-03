@@ -1,6 +1,6 @@
 use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
-    TableStyle, TableWidth, TableWrap,
+    TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 
 pub struct Defaults;
@@ -26,6 +26,7 @@ impl Defaults {
     pub const OUTPUT_THEME_FILE: &'static str = "";
     pub const OUTPUT_PADDING: i8 = 15;
     pub const OUTPUT_TABLE_STYLE: TableStyle = TableStyle::Rounded;
+    pub const OUTPUT_TABLE_HEADERS: TableHeaders = TableHeaders::Grouped;
     pub const OUTPUT_TABLE_WIDTH: TableWidth = TableWidth::Auto;
     pub const OUTPUT_TABLE_WRAP: TableWrap = TableWrap::Auto;
     pub const OUTPUT_TABLE_BANDS: TableBands = TableBands::Auto;

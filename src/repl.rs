@@ -656,6 +656,9 @@ impl ReplCompleter {
         };
 
         let mut scope_words = scope_words;
+        if scope.is_empty() && context_parts.is_empty() {
+            scope_words.extend(get_config().aliases.names().map(str::to_string));
+        }
         scope_words.push("?".to_string());
         if !scope.is_empty() {
             scope_words.push("..".to_string());

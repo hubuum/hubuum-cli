@@ -4,7 +4,7 @@ use hubuum_theme::{catalog as theme_catalog, theme_names};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string as to_json_string;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env::var_os;
 use std::fs::{create_dir_all, read_to_string, write};
 use std::io::ErrorKind;
@@ -15,12 +15,12 @@ use toml::map::Map as TomlMap;
 use toml::{from_str as parse_toml, to_string_pretty as format_toml, Value as TomlValue};
 
 use crate::defaults::Defaults;
-use crate::domain::ComputedFieldSet;
+use crate::domain::{CommandAliasName, CommandAliasTarget, CommandAliases, ComputedFieldSet};
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
-    TableStyle, TableWidth, TableWrap,
+    TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 
 static CONFIG: Lazy<RwLock<Arc<AppConfig>>> =
@@ -91,6 +91,8 @@ pub enum ConfigSource {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub aliases: CommandAliases,
     pub server: ServerConfig,
     pub cache: CacheConfig,
     #[serde(default)]
@@ -109,6 +111,8 @@ pub struct SettingsConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserPreferences {
+    #[serde(default)]
+    pub aliases: CommandAliases,
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
@@ -123,6 +127,8 @@ pub struct UserOutputPreferences {
     pub theme: String,
     pub padding: i8,
     pub table_style: TableStyle,
+    #[serde(default)]
+    pub table_headers: TableHeaders,
     pub table_width: TableWidth,
     pub table_wrap: TableWrap,
     pub table_bands: TableBands,
@@ -139,6 +145,7 @@ pub struct UserOutputPreferences {
 impl UserPreferences {
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
+            aliases: config.aliases.clone(),
             completion: config.completion.clone(),
             background: config.background.clone(),
             repl: config.repl.clone(),
@@ -149,6 +156,7 @@ impl UserPreferences {
                 theme: config.output.theme.clone(),
                 padding: config.output.padding,
                 table_style: config.output.table_style.clone(),
+                table_headers: config.output.table_headers,
                 table_width: config.output.table_width.clone(),
                 table_wrap: config.output.table_wrap.clone(),
                 table_bands: config.output.table_bands,
@@ -215,6 +223,7 @@ pub struct OutputConfig {
     pub theme_file: String,
     pub padding: i8,
     pub table_style: TableStyle,
+    pub table_headers: TableHeaders,
     pub table_width: TableWidth,
     pub table_wrap: TableWrap,
     pub table_bands: TableBands,
@@ -244,12 +253,14 @@ enum ConfigValueKind {
     OutputColor,
     ThemeName,
     TableStyle,
+    TableHeaders,
     TableWidth,
     TableWrap,
     TableBands,
     EmptyResult,
     ObjectListDataColumns,
     StringListMap,
+    StringMap,
     StringNestedListMap,
     ComputedFieldSetMap,
 }
@@ -264,6 +275,13 @@ struct ConfigKeyDescriptor {
 }
 
 const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
+    ConfigKeyDescriptor {
+        key: "aliases",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__ALIASES",
+        value_kind: ConfigValueKind::StringMap,
+        sensitive: false,
+    },
     ConfigKeyDescriptor {
         key: "settings.store_on_server",
         cli_arg: None,
@@ -433,6 +451,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.table_headers",
+        cli_arg: Some("table_headers"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_HEADERS",
+        value_kind: ConfigValueKind::TableHeaders,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.table_width",
         cli_arg: Some("table_width"),
         env_var: "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
@@ -500,6 +525,7 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            aliases: CommandAliases::default(),
             server: ServerConfig {
                 hostname: Defaults::SERVER_HOSTNAME.to_string(),
                 port: Defaults::SERVER_PORT,
@@ -537,6 +563,7 @@ impl Default for AppConfig {
                 theme_file: Defaults::OUTPUT_THEME_FILE.to_string(),
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
+                table_headers: Defaults::OUTPUT_TABLE_HEADERS,
                 table_width: Defaults::OUTPUT_TABLE_WIDTH,
                 table_wrap: Defaults::OUTPUT_TABLE_WRAP,
                 table_bands: Defaults::OUTPUT_TABLE_BANDS,
@@ -566,7 +593,9 @@ pub fn config_key_names() -> Vec<&'static str> {
 }
 
 pub fn is_user_preference_key(key: &str) -> bool {
-    (key.starts_with("completion.")
+    (key == "aliases"
+        || key.starts_with("aliases.")
+        || key.starts_with("completion.")
         || key.starts_with("background.")
         || key.starts_with("repl.")
         || key.starts_with("relations.")
@@ -588,12 +617,14 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         ConfigValueKind::TableStyle => {
             strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         }
+        ConfigValueKind::TableHeaders => strings(&["grouped", "full", "none"]),
         ConfigValueKind::TableWidth => strings(&["auto", "full"]),
         ConfigValueKind::TableWrap => strings(&["auto", "never"]),
         ConfigValueKind::TableBands => strings(&["auto", "always", "never"]),
         ConfigValueKind::EmptyResult => strings(&["message", "silent"]),
         ConfigValueKind::ObjectListDataColumns => strings(&["auto", "preview", "all"]),
-        ConfigValueKind::StringListMap
+        ConfigValueKind::StringMap
+        | ConfigValueKind::StringListMap
         | ConfigValueKind::StringNestedListMap
         | ConfigValueKind::ComputedFieldSetMap => Vec::new(),
         ConfigValueKind::String
@@ -679,6 +710,9 @@ fn inspect_config_state_inner(
 }
 
 pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> {
+    if let Some(alias_name) = command_alias_key(key)? {
+        return set_persisted_command_alias(&alias_name, value);
+    }
     if let Some(class_name) = object_list_class_columns_key(key) {
         return set_persisted_object_list_class_columns(class_name, value);
     }
@@ -701,6 +735,13 @@ pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> 
 }
 
 pub fn unset_persisted_value(key: &str) -> Result<PathBuf, AppError> {
+    if let Some(alias_name) = command_alias_key(key)? {
+        let path = get_config_state().paths.write_target.clone();
+        let mut root = read_toml_file_for_update(&path)?;
+        remove_toml_path(&mut root, &format!("aliases.{}", alias_name.as_str()));
+        write_toml_file(&path, &root)?;
+        return Ok(path);
+    }
     if object_list_class_columns_key(key).is_some()
         || object_class_computed_fields_key(key).is_some()
         || object_list_class_alias_key(key).is_some()
@@ -754,7 +795,7 @@ fn merge_user_preferences(
         .as_table_mut()
         .ok_or_else(|| AppError::ConfigError("Config root is not a TOML table".to_string()))?;
 
-    for section in ["completion", "background", "repl", "relations"] {
+    for section in ["aliases", "completion", "background", "repl", "relations"] {
         if let Some(value) = preference_sections.get(section) {
             target.insert(section.to_string(), value.clone());
         }
@@ -861,6 +902,7 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.theme" => target.output.theme = source.output.theme.clone(),
             "output.theme_file" => target.output.theme_file = source.output.theme_file.clone(),
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
+            "output.table_headers" => target.output.table_headers = source.output.table_headers,
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
             "output.table_wrap" => target.output.table_wrap = source.output.table_wrap.clone(),
             "output.table_bands" => target.output.table_bands = source.output.table_bands,
@@ -876,6 +918,7 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
 
     let mut builder = Config::builder()
         // Start with default values
+        .set_default("aliases", HashMap::<String, String>::new())?
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
         .set_default("output.color", Defaults::OUTPUT_COLOR.to_string())?
         .set_default("output.theme", Defaults::OUTPUT_THEME)?
@@ -884,6 +927,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default(
             "output.table_style",
             Defaults::OUTPUT_TABLE_STYLE.to_string(),
+        )?
+        .set_default(
+            "output.table_headers",
+            Defaults::OUTPUT_TABLE_HEADERS.to_string(),
         )?
         .set_default(
             "output.table_width",
@@ -1102,6 +1149,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "theme" => Some("--theme"),
         "theme_file" => Some("--theme-file"),
         "table_style" => Some("--table-style"),
+        "table_headers" => Some("--table-headers"),
         "table_width" => Some("--table-width"),
         "table_wrap" => Some("--table-wrap"),
         "table_bands" => Some("--table-bands"),
@@ -1113,6 +1161,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
 
 fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
     match key {
+        "aliases" => ConfigValueRef::StringMap(&config.aliases),
         "server.hostname" => ConfigValueRef::String(&config.server.hostname),
         "server.port" => ConfigValueRef::U16(config.server.port),
         "server.ssl_validation" => ConfigValueRef::Bool(config.server.ssl_validation),
@@ -1143,6 +1192,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.theme_file" => ConfigValueRef::String(&config.output.theme_file),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
+        "output.table_headers" => ConfigValueRef::TableHeaders(&config.output.table_headers),
         "output.table_width" => ConfigValueRef::TableWidth(&config.output.table_width),
         "output.table_wrap" => ConfigValueRef::TableWrap(&config.output.table_wrap),
         "output.table_bands" => ConfigValueRef::TableBands(&config.output.table_bands),
@@ -1176,11 +1226,13 @@ enum ConfigValueRef<'a> {
     OutputFormat(&'a OutputFormat),
     OutputColor(&'a OutputColor),
     TableStyle(&'a TableStyle),
+    TableHeaders(&'a TableHeaders),
     TableWidth(&'a TableWidth),
     TableWrap(&'a TableWrap),
     TableBands(&'a TableBands),
     EmptyResult(&'a EmptyResult),
     ObjectListDataColumns(&'a ObjectListDataColumns),
+    StringMap(&'a CommandAliases),
     StringListMap(&'a HashMap<String, Vec<String>>),
     StringNestedListMap(&'a HashMap<String, HashMap<String, Vec<String>>>),
     ComputedFieldSetMap(&'a HashMap<String, ComputedFieldSet>),
@@ -1212,11 +1264,15 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         },
         ConfigValueRef::OutputColor(value) => value.to_string(),
         ConfigValueRef::TableStyle(value) => value.to_string(),
+        ConfigValueRef::TableHeaders(value) => value.to_string(),
         ConfigValueRef::TableWidth(value) => value.to_string(),
         ConfigValueRef::TableWrap(value) => value.to_string(),
         ConfigValueRef::TableBands(value) => value.to_string(),
         ConfigValueRef::EmptyResult(value) => value.to_string(),
         ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
+        ConfigValueRef::StringMap(value) => {
+            to_json_string(&value.iter().collect::<BTreeMap<_, _>>()).unwrap_or_default()
+        }
         ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::ComputedFieldSetMap(value) => to_json_string(value).unwrap_or_default(),
@@ -1303,6 +1359,12 @@ fn parse_config_value(
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
+        ConfigValueKind::TableHeaders => TomlValue::String(
+            value
+                .parse::<TableHeaders>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
         ConfigValueKind::TableWidth => TomlValue::String(
             value
                 .parse::<TableWidth>()
@@ -1333,6 +1395,9 @@ fn parse_config_value(
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
+        ConfigValueKind::StringMap => {
+            parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
         ConfigValueKind::StringListMap => {
             parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
         }
@@ -1365,6 +1430,29 @@ fn validate_theme_name_config_value(value: &str) -> Result<(), AppError> {
 fn object_list_class_columns_key(key: &str) -> Option<&str> {
     key.strip_prefix("output.object_list_class_columns.")
         .filter(|class_name| !class_name.is_empty())
+}
+
+fn command_alias_key(key: &str) -> Result<Option<CommandAliasName>, AppError> {
+    let Some(name) = key.strip_prefix("aliases.") else {
+        return Ok(None);
+    };
+    Ok(Some(CommandAliasName::new(name)?))
+}
+
+fn set_persisted_command_alias(
+    alias_name: &CommandAliasName,
+    value: &str,
+) -> Result<PathBuf, AppError> {
+    let target = CommandAliasTarget::new(value)?;
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file_for_update(&path)?;
+    set_toml_path(
+        &mut root,
+        &format!("aliases.{}", alias_name.as_str()),
+        TomlValue::String(target.as_str().to_string()),
+    )?;
+    write_toml_file(&path, &root)?;
+    Ok(path)
 }
 
 fn object_class_computed_fields_key(key: &str) -> Option<&str> {
@@ -1526,8 +1614,8 @@ mod tests {
     use super::*;
     use crate::cli::{build_cli, update_config_from_cli};
     use crate::models::{
-        EmptyResult, ObjectListDataColumns, OutputColor, Protocol, TableBands, TableStyle,
-        TableWidth, TableWrap,
+        EmptyResult, ObjectListDataColumns, OutputColor, Protocol, TableBands, TableHeaders,
+        TableStyle, TableWidth, TableWrap,
     };
     use serial_test::serial;
     use std::env::{remove_var, set_var, temp_dir};
@@ -1560,6 +1648,7 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__THEME",
             "HUBUUM_CLI__OUTPUT__THEME_FILE",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
+            "HUBUUM_CLI__OUTPUT__TABLE_HEADERS",
             "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
             "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
             "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
@@ -1604,6 +1693,7 @@ mod tests {
         set_var("HUBUUM_CLI__OUTPUT__THEME", "solarized-dark");
         set_var("HUBUUM_CLI__OUTPUT__THEME_FILE", "/tmp/hubuum-themes.toml");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_STYLE", "plain");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_HEADERS", "full");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_WIDTH", "100");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_WRAP", "never");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_BANDS", "always");
@@ -1639,6 +1729,7 @@ mod tests {
         assert_eq!(cfg.output.theme, "solarized-dark");
         assert_eq!(cfg.output.theme_file, "/tmp/hubuum-themes.toml");
         assert_eq!(cfg.output.table_style, TableStyle::Plain);
+        assert_eq!(cfg.output.table_headers, TableHeaders::Full);
         assert_eq!(cfg.output.table_width, TableWidth::Fixed(100));
         assert_eq!(cfg.output.table_wrap, TableWrap::Never);
         assert_eq!(cfg.output.table_bands, TableBands::Always);
@@ -1676,6 +1767,30 @@ Hosts = ["contact", "jack", "data.name"]
                 "data.name".to_string()
             ])
         );
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn table_headers_none_can_be_persisted() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        set_persisted_value("output.table_headers", "none").expect("header mode should persist");
+        let configured = load_config(Some(path)).expect("persisted config should load");
+
+        assert_eq!(configured.output.table_headers, TableHeaders::None);
         clear_env();
     }
 
@@ -1798,6 +1913,100 @@ Hosts = ["all", "S:os_version"]
 
     #[test]
     #[serial]
+    fn config_set_and_unset_persist_command_aliases() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        set_persisted_value("aliases.outdated-kernels", "object list | C")
+            .expect("command alias should persist");
+        let configured = load_config(Some(path.clone())).expect("persisted config should load");
+        assert_eq!(
+            configured.aliases.get("outdated-kernels"),
+            Some("object list | C")
+        );
+
+        unset_persisted_value("aliases.outdated-kernels").expect("command alias should be removed");
+        let configured = load_config(Some(path)).expect("updated config should load");
+        assert!(configured.aliases.is_empty());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn command_alias_config_keys_validate_names_and_targets() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path,
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        assert!(set_persisted_value("aliases.2invalid", "help").is_err());
+        assert!(set_persisted_value("aliases.valid", "").is_err());
+        assert!(set_persisted_value("aliases.valid", "help\nversion").is_err());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
+    fn config_set_and_unset_persist_class_aliases() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        set_persisted_value(
+            "output.object_list_class_aliases.Hosts.IPv4",
+            "data.facts.network.default_ipv4.address",
+        )
+        .expect("class alias should persist");
+        let configured = load_config(Some(path.clone())).expect("persisted config should load");
+        assert_eq!(
+            configured.output.object_list_class_aliases["Hosts"]["IPv4"],
+            vec!["data.facts.network.default_ipv4.address"]
+        );
+
+        unset_persisted_value("output.object_list_class_aliases.Hosts.IPv4")
+            .expect("class alias should be removed");
+        let configured = load_config(Some(path)).expect("updated config should load");
+        assert!(configured
+            .output
+            .object_list_class_aliases
+            .get("Hosts")
+            .and_then(|aliases| aliases.get("IPv4"))
+            .is_none());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
     fn config_mutations_preserve_malformed_files() {
         clear_env();
         let dir = tempdir().expect("tempdir");
@@ -1912,6 +2121,7 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
         assert_eq!(cfg.output.theme, baseline.output.theme);
         assert_eq!(cfg.output.theme_file, baseline.output.theme_file);
         assert_eq!(cfg.output.table_style, baseline.output.table_style);
+        assert_eq!(cfg.output.table_headers, baseline.output.table_headers);
         assert_eq!(cfg.output.table_width, baseline.output.table_width);
         assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
         assert_eq!(cfg.output.table_bands, baseline.output.table_bands);
@@ -1933,6 +2143,10 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
             strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         );
         assert_eq!(
+            config_value_candidates("output.table_headers"),
+            strings(&["grouped", "full", "none"])
+        );
+        assert_eq!(
             config_value_candidates("output.table_bands"),
             strings(&["auto", "always", "never"])
         );
@@ -1950,6 +2164,7 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
     #[test]
     fn server_sync_only_includes_portable_preference_keys() {
         assert!(is_user_preference_key("output.theme"));
+        assert!(is_user_preference_key("output.table_headers"));
         assert!(is_user_preference_key(
             "output.object_list_class_columns.Hosts"
         ));
@@ -2116,7 +2331,13 @@ theme_file = "/machine/specific/themes.toml"
 "#,
         )
         .expect("test TOML should parse");
-        let mut config = AppConfig::default();
+        let mut config = AppConfig {
+            aliases: serde_json::from_value(serde_json::json!({
+                "outdated-kernels": "object list --class Hosts | C"
+            }))
+            .expect("command aliases should deserialize"),
+            ..AppConfig::default()
+        };
         config.output.theme = "hubuum-light".to_string();
         let preferences = UserPreferences::from_config(&config);
 
@@ -2141,6 +2362,10 @@ theme_file = "/machine/specific/themes.toml"
         assert_eq!(
             toml_get(&root, "output.theme_file").and_then(TomlValue::as_str),
             Some("/machine/specific/themes.toml")
+        );
+        assert_eq!(
+            toml_get(&root, "aliases.outdated-kernels").and_then(TomlValue::as_str),
+            Some("object list --class Hosts | C")
         );
     }
 }

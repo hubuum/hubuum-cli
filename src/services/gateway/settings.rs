@@ -71,7 +71,13 @@ mod tests {
 
     #[test]
     fn stored_preferences_round_trip_without_server_credentials() {
-        let mut config = AppConfig::default();
+        let mut config = AppConfig {
+            aliases: serde_json::from_value(json!({
+                "outdated-kernels": "object list --class Hosts | C"
+            }))
+            .expect("command aliases should deserialize"),
+            ..AppConfig::default()
+        };
         config.output.object_class_computed_fields.insert(
             "Hosts".to_string(),
             ComputedFieldSet::from_values(&["S:load".to_string()])
@@ -85,6 +91,10 @@ mod tests {
         let decoded = decode_preferences(encoded).expect("preferences should decode");
         assert_eq!(decoded.output.theme, config.output.theme);
         assert_eq!(decoded.relations.max_depth, config.relations.max_depth);
+        assert_eq!(
+            decoded.aliases.get("outdated-kernels"),
+            config.aliases.get("outdated-kernels")
+        );
         assert_eq!(
             decoded.output.object_class_computed_fields["Hosts"],
             config.output.object_class_computed_fields["Hosts"]
@@ -101,10 +111,15 @@ mod tests {
             .as_object_mut()
             .expect("output preferences should be an object")
             .remove("object_class_computed_fields");
+        encoded["preferences"]
+            .as_object_mut()
+            .expect("preferences should be an object")
+            .remove("aliases");
 
         let decoded = decode_preferences(encoded).expect("older preferences should decode");
 
         assert!(decoded.output.object_class_computed_fields.is_empty());
+        assert!(decoded.aliases.is_empty());
     }
 
     #[test]

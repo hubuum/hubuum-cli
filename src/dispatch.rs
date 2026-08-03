@@ -11,13 +11,15 @@ use crate::catalog::{
 use crate::commands::auth::render_auth_providers;
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::metrics::render_metrics;
-use crate::commands::render_format;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
 use crate::commands::version::render_version;
+use crate::commands::{render_format, table_headers};
+use crate::config::get_config;
+use crate::domain::expand_command_aliases;
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, reset_output, set_pipeline, set_pipeline_suffix,
-    set_render_format, take_output, OutputSnapshot,
+    set_render_format, set_table_headers, take_output, OutputSnapshot,
 };
 use crate::redirection::{split_redirect_candidate, OutputRedirect};
 use crate::tokenizer::CommandTokenizer;
@@ -27,7 +29,10 @@ pub async fn execute_line(
     session: &SharedSession,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
-    let (line, redirect) = prepare_redirect(&app.catalog, &session.scope(), line)?;
+    let scope = session.scope();
+    let aliases = get_config();
+    let expansion = expand_command_aliases(&app.catalog, &scope, &aliases.aliases, line)?;
+    let (line, redirect) = prepare_redirect(&app.catalog, &scope, expansion.line())?;
     let mut outcome = execute_line_inner(app, session, &line).await?;
     outcome.redirect = redirect;
     Ok(outcome)
@@ -109,6 +114,7 @@ async fn execute_line_inner(
     let tokens =
         CommandTokenizer::new_without_value_source_resolution(&line, &cmd_name, &option_defs)?;
     set_render_format(render_format(&tokens)?)?;
+    set_table_headers(table_headers(&tokens)?)?;
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
@@ -141,7 +147,12 @@ fn parent_scope_action(current_scope: &[String]) -> ScopeAction {
     }
 }
 
-pub fn can_execute_offline(line: &str) -> bool {
+pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
+    let aliases = get_config();
+    let Ok(expansion) = expand_command_aliases(catalog, &[], &aliases.aliases, line) else {
+        return false;
+    };
+    let line = expansion.line();
     let line = match split_redirect_candidate(line) {
         Ok(Some(candidate)) => candidate.line,
         Ok(None) => line.to_string(),
@@ -167,7 +178,9 @@ pub fn execute_offline_line(
     catalog: &CommandCatalog,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
-    let (line, redirect) = prepare_redirect(catalog, &[], line)?;
+    let aliases = get_config();
+    let expansion = expand_command_aliases(catalog, &[], &aliases.aliases, line)?;
+    let (line, redirect) = prepare_redirect(catalog, &[], expansion.line())?;
     let mut outcome = execute_offline_line_inner(catalog, &line)?;
     outcome.redirect = redirect;
     Ok(outcome)
@@ -223,41 +236,49 @@ fn execute_offline_line_inner(
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_config_show(&tokens)?;
     } else if command_path_is(&parts, &["config", "paths"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_config_paths(&tokens)?;
     } else if command_path_is(&parts, &["theme", "list"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_list(&tokens)?;
     } else if command_path_is(&parts, &["theme", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_show(&tokens)?;
     } else if command_path_is(&parts, &["theme", "preview"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_preview(&tokens)?;
     } else if command_path_is(&parts, &["auth", "providers"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_auth_providers(&tokens)?;
     } else if command_path_is(&parts, &["metrics"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_metrics(&tokens)?;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_version(&tokens)?;
     } else {
         catalog.resolve_command(&[], &parts)?;
@@ -324,7 +345,7 @@ fn render_help_from_catalog(
     parts: &[String],
 ) -> Result<CommandOutcome, AppError> {
     if parts.is_empty() {
-        append_line(catalog.render_scope_help(&scope))?;
+        append_line(render_scope_help_with_aliases(catalog, &scope))?;
     } else if parts.first().map(String::as_str) == Some("pipe") {
         append_line(catalog.render_pipe_topic_help(parts.get(1).map(String::as_str))?)?;
     } else if parts.first().map(String::as_str) == Some("shell") {
@@ -334,7 +355,17 @@ fn render_help_from_catalog(
     } else if let Some(_nested_scope) = catalog.resolve_scope(&scope, parts) {
         let mut nested_path = scope.clone();
         nested_path.extend_from_slice(parts);
-        append_line(catalog.render_scope_help(&nested_path))?;
+        append_line(render_scope_help_with_aliases(catalog, &nested_path))?;
+    } else if scope.is_empty() {
+        let config = get_config();
+        let Some(command) = parts
+            .first()
+            .filter(|_| parts.len() == 1)
+            .and_then(|name| config.aliases.get(name))
+        else {
+            return Err(AppError::CommandNotFound(parts.join(" ")));
+        };
+        append_line(format!("Alias: {}\n\n  {command}", parts[0]))?;
     } else {
         return Err(AppError::CommandNotFound(parts.join(" ")));
     }
@@ -344,6 +375,23 @@ fn render_help_from_catalog(
         scope_action: ScopeAction::None,
         ..Default::default()
     })
+}
+
+fn render_scope_help_with_aliases(catalog: &CommandCatalog, scope: &[String]) -> String {
+    let mut help = catalog.render_scope_help(scope);
+    if !scope.is_empty() {
+        return help;
+    }
+    let config = get_config();
+    if config.aliases.is_empty() {
+        return help;
+    }
+    help.push_str("\n\nAliases:\n");
+    for (name, command) in config.aliases.iter() {
+        help.push_str(&format!("  {name:<16}  {command}\n"));
+    }
+    help.pop();
+    help
 }
 
 fn prepare_redirect(
@@ -438,8 +486,9 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        apply_output_state, can_execute_offline, execute_offline_line, is_help_alias,
-        parent_scope_action, prepare_redirect, process_filter,
+        apply_output_state, can_execute_offline, execute_offline_line, invocation_parts,
+        is_help_alias, parent_scope_action, prepare_redirect, process_filter,
+        tokenizer_for_resolved,
     };
     use crate::app::SharedSession;
     use crate::catalog::ScopeAction;
@@ -506,6 +555,23 @@ mod tests {
 
     #[test]
     #[serial]
+    fn outdated_kernel_example_is_one_valid_object_pipeline() {
+        reset_output().expect("buffer should reset");
+        let example = include_str!("../examples/show-outdated-kernels.hubuum").trim();
+        let (command, pipeline, suffix) = process_filter(example).expect("example should parse");
+        let catalog = build_command_catalog();
+        let parts = invocation_parts(&command).expect("command should tokenize");
+        let resolved = catalog
+            .resolve_command(&[], &parts)
+            .expect("object command should resolve");
+
+        tokenizer_for_resolved(&command, &resolved).expect("object options should parse");
+        assert_eq!(pipeline.len(), 1);
+        assert!(suffix.is_some_and(|suffix| suffix.starts_with("| JQ ")));
+    }
+
+    #[test]
+    #[serial]
     fn help_alias_accepts_question_mark() {
         assert!(is_help_alias(&["?".to_string(), "class".to_string()]));
         assert!(is_help_alias(&["help".to_string()]));
@@ -542,21 +608,29 @@ mod tests {
 
     #[test]
     fn offline_command_detection_is_limited_to_catalog_and_config_inspection() {
-        assert!(can_execute_offline("help --tree"));
-        assert!(can_execute_offline("config show --key server.hostname"));
-        assert!(can_execute_offline("config paths"));
-        assert!(can_execute_offline("theme list"));
-        assert!(can_execute_offline("theme preview hubuum-dark"));
-        assert!(can_execute_offline("auth providers"));
-        assert!(can_execute_offline("metrics"));
-        assert!(can_execute_offline("metrics --path /internal/metrics"));
-        assert!(can_execute_offline("version"));
-        assert!(can_execute_offline("version --server"));
-        assert!(!can_execute_offline("theme use hubuum-dark"));
+        let catalog = build_command_catalog();
+        assert!(can_execute_offline(&catalog, "help --tree"));
+        assert!(can_execute_offline(
+            &catalog,
+            "config show --key server.hostname"
+        ));
+        assert!(can_execute_offline(&catalog, "config paths"));
+        assert!(can_execute_offline(&catalog, "theme list"));
+        assert!(can_execute_offline(&catalog, "theme preview hubuum-dark"));
+        assert!(can_execute_offline(&catalog, "auth providers"));
+        assert!(can_execute_offline(&catalog, "metrics"));
+        assert!(can_execute_offline(
+            &catalog,
+            "metrics --path /internal/metrics"
+        ));
+        assert!(can_execute_offline(&catalog, "version"));
+        assert!(can_execute_offline(&catalog, "version --server"));
+        assert!(!can_execute_offline(&catalog, "theme use hubuum-dark"));
         assert!(!can_execute_offline(
+            &catalog,
             "config set --key server.hostname --value localhost"
         ));
-        assert!(!can_execute_offline("object list --limit 5"));
+        assert!(!can_execute_offline(&catalog, "object list --limit 5"));
     }
 
     #[test]

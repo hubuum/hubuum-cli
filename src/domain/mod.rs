@@ -21,6 +21,7 @@ macro_rules! transparent_record {
 mod backups;
 mod classes;
 mod collections;
+mod command_aliases;
 mod computed;
 mod events;
 mod exports;
@@ -42,6 +43,10 @@ pub use classes::{ClassRecord, ClassShowRecord};
 pub use collections::{
     CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
     GroupPermissionsSummary,
+};
+pub use command_aliases::{
+    alias_name_shadows_command, expand_command_aliases, CommandAliasName, CommandAliasTarget,
+    CommandAliases,
 };
 pub use computed::{
     ClassComputationStateRecord, ComputedFieldDeleteRecord, ComputedFieldMutationRecord,
