@@ -368,7 +368,10 @@ fn render_single_entry(entry: &ConfigEntry, format: OutputFormat) -> Result<(), 
         OutputFormat::Text => {
             let mut object = Map::new();
             object.insert("key".to_string(), Value::String(entry.key.clone()));
-            object.insert("value".to_string(), Value::String(entry.value.clone()));
+            object.insert(
+                "value".to_string(),
+                Value::String(entry.display_value.clone()),
+            );
             object.insert("source".to_string(), Value::String(format_source(entry)));
             set_semantic_output(OutputEnvelope::detail(
                 Value::Object(object),
@@ -385,7 +388,7 @@ fn render_config_entries(entries: &[ConfigEntry]) -> Result<(), AppError> {
         .map(|entry| {
             json!({
                 "key": entry.key,
-                "value": entry.value,
+                "value": entry.display_value,
                 "source": format_source_kind(entry),
                 "detail": entry.source_detail.as_deref().unwrap_or(""),
             })
@@ -434,6 +437,7 @@ mod tests {
             format_source_kind(&ConfigEntry {
                 key: "server.hostname".to_string(),
                 value: "localhost".to_string(),
+                display_value: "localhost".to_string(),
                 source: ConfigSource::Environment,
                 source_detail: Some("HUBUUM_CLI__SERVER__HOSTNAME".to_string()),
                 sensitive: false,
