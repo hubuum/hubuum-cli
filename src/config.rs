@@ -1917,6 +1917,11 @@ Hosts = ["all", "S:os_version"]
         clear_env();
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("config.toml");
+        let inherited_alias = load_config(None)
+            .expect("inherited config should load")
+            .aliases
+            .get("outdated-kernels")
+            .map(str::to_string);
         init_config_state(ConfigState {
             paths: ConfigPaths {
                 system: dir.path().join("system.toml"),
@@ -1938,7 +1943,10 @@ Hosts = ["all", "S:os_version"]
 
         unset_persisted_value("aliases.outdated-kernels").expect("command alias should be removed");
         let configured = load_config(Some(path)).expect("updated config should load");
-        assert!(configured.aliases.is_empty());
+        assert_eq!(
+            configured.aliases.get("outdated-kernels"),
+            inherited_alias.as_deref()
+        );
         clear_env();
     }
 
