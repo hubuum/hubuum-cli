@@ -342,12 +342,40 @@ pub fn execution_mode(matches: &ArgMatches, startup_mode: StartupMode) -> Startu
 }
 
 fn has_legacy_execution_arg(args: &[String]) -> bool {
-    args.iter().any(|arg| {
-        arg == "--command"
-            || arg.starts_with("--command=")
-            || arg == "--source"
-            || arg.starts_with("--source=")
-    })
+    let mut idx = 1;
+    while idx < args.len() {
+        let arg = &args[idx];
+        if is_legacy_execution_arg(arg) {
+            return true;
+        }
+        if is_help_or_version(arg) {
+            return false;
+        }
+        if is_global_option_with_value(arg) {
+            idx += usize::from(!arg.contains('=')) + 1;
+            continue;
+        }
+        if is_global_bool_option(arg) {
+            idx += 1;
+            if !arg.contains('=')
+                && args
+                    .get(idx)
+                    .is_some_and(|value| parse_boolish(value).is_some())
+            {
+                idx += 1;
+            }
+            continue;
+        }
+        return false;
+    }
+    false
+}
+
+fn is_legacy_execution_arg(arg: &str) -> bool {
+    arg == "--command"
+        || arg.starts_with("--command=")
+        || arg == "--source"
+        || arg.starts_with("--source=")
 }
 
 fn is_help_or_version(arg: &str) -> bool {
@@ -759,6 +787,25 @@ mod tests {
         assert_eq!(
             execution_mode(&matches, startup.mode),
             StartupMode::Command("help".to_string())
+        );
+    }
+
+    #[test]
+    fn command_option_after_direct_command_is_not_treated_as_legacy_mode() {
+        let startup = split_startup_args([
+            "hubuum-cli",
+            "alias",
+            "set",
+            "--name",
+            "quick-help",
+            "--command",
+            "help | C",
+        ]);
+
+        assert_eq!(startup.clap_args, vec!["hubuum-cli"]);
+        assert_eq!(
+            startup.mode,
+            StartupMode::Command("alias set --name quick-help --command 'help | C'".to_string())
         );
     }
 }
