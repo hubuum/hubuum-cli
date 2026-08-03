@@ -9,6 +9,7 @@ use std::str::FromStr;
 use hubuum_client::FilterOperator;
 
 mod admin;
+mod alias;
 mod audit;
 pub(crate) mod auth;
 mod backup;
@@ -154,7 +155,7 @@ pub fn standard_options() -> Vec<CliOption> {
             nargs: None,
             repeatable: false,
             value_source: false,
-            help: "Table headers: grouped or full".to_string(),
+            help: "Table headers: grouped, full, or none".to_string(),
             field_type: TypeId::of::<String>(),
             field_type_help: "string".to_string(),
             required: false,
@@ -588,7 +589,7 @@ mod tests {
     #[test]
     fn table_headers_accepts_per_command_override() {
         let tokens = CommandTokenizer::new(
-            "dummy list --table-headers full",
+            "dummy list --table-headers none",
             "list",
             &command_options::<DummyArgs>(),
         )
@@ -596,7 +597,7 @@ mod tests {
 
         assert_eq!(
             table_headers(&tokens).expect("table header mode should parse"),
-            TableHeaders::Full
+            TableHeaders::None
         );
     }
 

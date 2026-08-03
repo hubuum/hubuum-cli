@@ -488,7 +488,9 @@ fn render_rows_text(
 
     let headers = column_headers(&columns, &rows, table_headers);
     let mut table = Table::new();
-    table.set_header(headers);
+    if !headers.is_empty() {
+        table.set_header(headers);
+    }
     apply_table_style(&mut table, &get_config().output.table_style);
     apply_table_layout(
         &mut table,
@@ -703,12 +705,16 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
 fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<usize> {
     columns
         .iter()
-        .zip(headers.iter())
-        .map(|column| {
-            let (column, header) = column;
+        .enumerate()
+        .map(|(index, column)| {
             rows.iter()
                 .map(|row| cell_text(row.get(column)).len())
-                .chain(once(header.lines().map(str::len).max().unwrap_or_default()))
+                .chain(once(
+                    headers
+                        .get(index)
+                        .map(|header| header.lines().map(str::len).max().unwrap_or_default())
+                        .unwrap_or_default(),
+                ))
                 .max()
                 .unwrap_or_default()
         })
@@ -735,8 +741,12 @@ fn render_dense_headers(headers: &[String], widths: &[usize]) -> Vec<String> {
 }
 
 fn column_headers(columns: &[String], rows: &[Value], table_headers: TableHeaders) -> Vec<String> {
-    if table_headers == TableHeaders::Full {
-        return columns.iter().map(|column| column_header(column)).collect();
+    match table_headers {
+        TableHeaders::Full => {
+            return columns.iter().map(|column| column_header(column)).collect();
+        }
+        TableHeaders::None => return Vec::new(),
+        TableHeaders::Grouped => {}
     }
 
     let aliases = configured_header_aliases(columns, rows);
@@ -1224,6 +1234,32 @@ mod tests {
         let headers = column_headers(&columns, &rows, TableHeaders::Full);
 
         assert_eq!(headers, vec!["facts.network.default_ipv4.address"]);
+    }
+
+    #[test]
+    #[serial]
+    fn none_headers_suppress_header_rows_for_table_renderers() {
+        for style in [TableStyle::Plain, TableStyle::Dense] {
+            let mut config = AppConfig::default();
+            config.output.table_style = style.clone();
+            config.output.table_headers = TableHeaders::None;
+            config.output.table_bands = TableBands::Never;
+            init_config(config).expect("config should initialize");
+            reset_output().expect("buffer should reset");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![json!({"Name": "alpha", "Status": "ready"})],
+                vec!["Name".to_string(), "Status".to_string()],
+            ))
+            .expect("semantic output should be set");
+
+            let rendered = take_output().expect("snapshot").render();
+
+            assert_eq!(rendered.lines().count(), 1, "{style}");
+            assert!(!rendered.contains("Name"), "{style}");
+            assert!(!rendered.contains("Status"), "{style}");
+            assert!(rendered.contains("alpha"), "{style}");
+            assert!(rendered.contains("ready"), "{style}");
+        }
     }
 
     #[test]

@@ -80,6 +80,43 @@ fn direct_help_and_config_paths_do_not_require_login() {
 }
 
 #[test]
+fn personal_aliases_expand_before_offline_detection_and_pipelines() {
+    let directory = tempdir().expect("temporary directory");
+    let config = directory.path().join("config.toml");
+    write(
+        &config,
+        r#"
+[aliases]
+quick-help = "help | F Available"
+"#,
+    )
+    .expect("alias config should be written");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("UTF-8 config path"),
+            "quick-help",
+            "|",
+            "C",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("1"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("UTF-8 config path"),
+            "help",
+            "quick-help",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("help | F Available"));
+}
+
+#[test]
 fn metrics_uses_the_configured_path_without_authentication() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("metrics listener should bind");
     let port = listener

@@ -148,10 +148,20 @@ pub fn file_paths(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
     file_path_candidates(prefix)
 }
 
+pub fn command_aliases(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    get_config()
+        .aliases
+        .names()
+        .filter(|name| name.starts_with(prefix))
+        .map(str::to_string)
+        .collect()
+}
+
 const OBJECT_LIST_CLASS_COLUMNS_PREFIX: &str = "output.object_list_class_columns.";
 const OBJECT_LIST_CLASS_ALIASES_PREFIX: &str = "output.object_list_class_aliases.";
 const LEGACY_OBJECT_LIST_CLASS_META_PREFIX: &str = "output.object_list_class_meta.";
 const OBJECT_CLASS_COMPUTED_FIELDS_PREFIX: &str = "output.object_class_computed_fields.";
+const COMMAND_ALIASES_PREFIX: &str = "aliases.";
 
 pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     let mut keys = config_key_names()
@@ -165,6 +175,15 @@ pub fn config_keys(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
             ctx.classes(class_prefix)
                 .into_iter()
                 .map(|class| format!("{OBJECT_LIST_CLASS_COLUMNS_PREFIX}{class}")),
+        );
+    }
+    if let Some(alias_prefix) = prefix.strip_prefix(COMMAND_ALIASES_PREFIX) {
+        keys.extend(
+            get_config()
+                .aliases
+                .names()
+                .filter(|name| name.starts_with(alias_prefix))
+                .map(|name| format!("{COMMAND_ALIASES_PREFIX}{name}")),
         );
     }
     if let Some(class_prefix) = prefix.strip_prefix(OBJECT_CLASS_COMPUTED_FIELDS_PREFIX) {

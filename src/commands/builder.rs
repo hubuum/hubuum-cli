@@ -26,6 +26,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
 
     commands::admin::register_commands(&mut builder);
+    commands::alias::register_commands(&mut builder);
     commands::backup::register_commands(&mut builder);
     commands::audit::register_commands(&mut builder);
     commands::auth::register_commands(&mut builder);

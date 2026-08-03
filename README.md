@@ -71,6 +71,35 @@ Run commands from a script file:
 hubuum-cli script commands.hubuum
 ```
 
+Personal command aliases bind one root-level word to a complete command line,
+including pipe stages and redirects. They are stored in the active user config
+and participate in preference export/import. Built-in commands and scopes take
+precedence over aliases.
+
+```sh
+hubuum-cli alias set --name hosts --command 'object list --class Hosts | P Name'
+hubuum-cli hosts
+hubuum-cli alias list
+hubuum-cli alias unset --name hosts
+```
+
+Long aliases can be loaded from a one-command script file. This example finds
+hosts whose kernel is older than the newest numeric kernel version observed in
+the same OS major version:
+
+```sh
+hubuum-cli script examples/show-outdated-kernels.hubuum
+hubuum-cli alias set --name outdated-kernels \
+  --command file://examples/show-outdated-kernels.hubuum
+hubuum-cli outdated-kernels
+```
+
+The example converts each kernel into an array of numeric components, so
+`553.16` becomes `[553, 16]` rather than `55316`. Its computed `S:dual_stack`
+sort intentionally makes `object list` fetch the complete matching set before
+the local pipe runs; replace it with an enabled computed field available on the
+target `Hosts` class if needed.
+
 `help`, `help --tree`, `version`, `config show`, and `config paths` run from the local
 command catalog and configuration files without logging in. `version --server`,
 `auth providers`, and `metrics` make unauthenticated requests. Other API-backed
@@ -396,13 +425,15 @@ hubuum-cli --table-style dense --table-bands auto object list --limit 5
 hubuum-cli --table-width full --table-wrap 40 object list --class Hosts
 hubuum-cli --empty-result silent object list --class Hosts --limit 0
 hubuum-cli object list --class Hosts --table-headers full
+hubuum-cli object list --class Hosts --table-headers none
 ```
 
 Grouped headers are the default for text tables. Dotted paths are displayed on
 multiple header lines so path names do not determine individual column widths;
 unambiguous class aliases take precedence. Use `--table-headers full` for the
-original flat paths. Machine-oriented formats retain their semantic column
-names.
+original flat paths, or `--table-headers none` to suppress table headers.
+Machine-oriented formats retain their semantic column names. Persist the mode
+with `hubuum-cli config set --key output.table_headers --value none`.
 
 Related config keys are `output.table_style`, `output.table_headers`,
 `output.table_width`, `output.table_wrap`, `output.table_bands`, and

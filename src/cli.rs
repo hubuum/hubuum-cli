@@ -182,9 +182,9 @@ pub fn build_cli() -> Command {
             Arg::new("table_headers")
                 .long("table-headers")
                 .value_name("MODE")
-                .value_parser(["grouped", "full"])
+                .value_parser(["grouped", "full", "none"])
                 .env("HUBUUM_CLI__OUTPUT__TABLE_HEADERS")
-                .help("Set table headers (grouped or full)"),
+                .help("Set table headers (grouped, full, or none)"),
         )
         .arg(
             Arg::new("table_width")
@@ -642,7 +642,7 @@ mod tests {
                 "--table-style",
                 "plain",
                 "--table-headers",
-                "full",
+                "none",
                 "--table-width",
                 "100",
                 "--table-wrap",
@@ -657,7 +657,7 @@ mod tests {
         update_config_from_cli(&mut config, &matches);
 
         assert_eq!(config.output.table_style, TableStyle::Plain);
-        assert_eq!(config.output.table_headers, TableHeaders::Full);
+        assert_eq!(config.output.table_headers, TableHeaders::None);
         assert_eq!(config.output.table_width, TableWidth::Fixed(100));
         assert_eq!(config.output.table_wrap, TableWrap::Never);
         assert_eq!(config.output.table_bands, TableBands::Always);

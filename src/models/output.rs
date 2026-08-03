@@ -123,6 +123,7 @@ pub enum TableHeaders {
     Full,
     #[default]
     Grouped,
+    None,
 }
 
 impl FromStr for TableHeaders {
@@ -132,8 +133,9 @@ impl FromStr for TableHeaders {
         match s.to_lowercase().as_str() {
             "full" => Ok(TableHeaders::Full),
             "grouped" => Ok(TableHeaders::Grouped),
+            "none" => Ok(TableHeaders::None),
             _ => Err(format!(
-                "Invalid table headers mode: {s}. Use full or grouped."
+                "Invalid table headers mode: {s}. Use full, grouped, or none."
             )),
         }
     }

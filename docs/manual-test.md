@@ -452,6 +452,7 @@ object list --class Hosts --limit 5 --table-width full --table-wrap 40
 object list --class Hosts --limit 0 --empty-result silent
 object list --class Hosts --where json_data.facts.operating_system.major_version = 10
 object list --class Hosts --where json_data.facts.operating_system.major_version = 10 --table-headers full
+object list --class Hosts --limit 5 --table-headers none
 ```
 
 Check focused help:
@@ -471,6 +472,7 @@ Expected results:
 - Dense table bands are subtle on dark backgrounds.
 - Grouped headers retain dotted path components without widening every column.
 - `--table-headers full` restores flat, complete dotted paths for one command.
+- `--table-headers none` suppresses the table header rows.
 - Theme selection works at runtime and persists through config when requested.
 
 ## Administrative Configuration, Backups, And Restore
