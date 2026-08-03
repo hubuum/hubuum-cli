@@ -11,7 +11,7 @@ use rand::distr::Alphanumeric;
 use rand::{rng, RngExt};
 use rpassword::prompt_password;
 
-use crate::autocomplete::{file_paths, user_sort, user_where, users};
+use crate::autocomplete::{file_paths, user_sort, user_token_ids, user_where, users};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
 use crate::errors::AppError;
@@ -19,7 +19,9 @@ use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput};
+use crate::services::{
+    AppServices, CloneTokenInput, CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput,
+};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -141,6 +143,22 @@ set-password alice --password-file /run/secrets/alice-password"#,
                 CommandDocs {
                     about: Some("Create a token for a user"),
                     ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "clone",
+                UserTokenClone::default(),
+                CommandDocs {
+                    about: Some("Clone an active user token's scope"),
+                    long_about: Some(
+                        "Creates a replacement token for the same user with the source token's exact permission and resource boundaries. The source name and description are copied unless overridden. The replacement receives the server's default lifetime unless --expires-at is supplied. With --revoke, the source is revoked only after the replacement is created.",
+                    ),
+                    examples: Some(
+                        "alice 42\n--username alice --token-id 42 --name replacement\n--username alice --token-id 42 --revoke",
+                    ),
                 },
             ),
         )
@@ -496,7 +514,12 @@ pub struct UserTokenShow {
         autocomplete = "users"
     )]
     pub username: Option<String>,
-    #[option(short = "t", long = "token-id", help = "Token ID to show")]
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Token ID to show",
+        autocomplete = "user_token_ids"
+    )]
     pub token_id: Option<TokenId>,
 }
 
@@ -569,6 +592,65 @@ impl CliCommand for UserTokenCreate {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenClone {
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
+    pub username: Option<String>,
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Active source token ID",
+        autocomplete = "user_token_ids"
+    )]
+    pub token_id: Option<TokenId>,
+    #[option(short = "n", long = "name", help = "Replacement token name")]
+    pub name: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Replacement token description"
+    )]
+    pub description: Option<String>,
+    #[option(
+        long = "expires-at",
+        help = "Replacement expiration, RFC3339; defaults to the server lifetime"
+    )]
+    pub expires_at: Option<String>,
+    #[option(
+        long = "revoke",
+        help = "Revoke the source after creating the replacement",
+        flag = "true"
+    )]
+    pub revoke: Option<bool>,
+}
+
+impl CliCommand for UserTokenClone {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let username_is_option = query.username.is_some();
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
+        let token_id = required_option_or_pos(
+            query.token_id,
+            tokens,
+            usize::from(!username_is_option),
+            "token-id",
+        )?;
+        let input = CloneTokenInput::new(token_id)
+            .name(query.name)
+            .description(query.description)
+            .expires_at(query.expires_at)
+            .revoke_source(query.revoke.unwrap_or(false));
+        let outcome = services.gateway().user_token_clone(&username, input)?;
+
+        super::render_cloned_token(tokens, &format!("user '{username}'"), &outcome)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct UserTokenRevoke {
     #[option(
         short = "u",
@@ -577,7 +659,12 @@ pub struct UserTokenRevoke {
         autocomplete = "users"
     )]
     pub username: Option<String>,
-    #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Token ID to revoke",
+        autocomplete = "user_token_ids"
+    )]
     pub token_id: i32,
 }
 

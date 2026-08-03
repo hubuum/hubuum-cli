@@ -10,6 +10,7 @@ mod identity;
 mod imports;
 mod object_aggregates;
 mod objects;
+mod principal_tokens;
 mod relations;
 mod remote_targets;
 mod search;
@@ -44,6 +45,9 @@ pub use object_aggregates::{
     ObjectAggregateSortInput,
 };
 pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
+pub use principal_tokens::{
+    CloneTokenInput, CloneTokenOutcome, NewTokenInput, SourceTokenRevocation,
+};
 pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
 pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
@@ -52,7 +56,7 @@ pub use remote_targets::{
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
 pub use tasks::{ListTasksInput, TaskLookupInput};
-pub use users::{CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput};
+pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
 pub struct HubuumGateway {

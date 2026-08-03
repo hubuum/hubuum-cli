@@ -1419,11 +1419,13 @@ mod tests {
             "jobs output --id",
             "jobs show --id",
             "jobs watch --task",
+            "service-account token clone --token-id",
             "service-account token revoke --token-id",
             "service-account token show --token-id",
             "task events --id",
             "task output --id",
             "task show --id",
+            "user token clone --token-id",
             "user token revoke --token-id",
             "user token show --token-id",
         ];
@@ -1446,6 +1448,33 @@ mod tests {
             .expect("audit show should expose --id");
 
         assert!(matches!(id.completion, CompletionSpec::Dynamic(_)));
+    }
+
+    #[test]
+    fn active_token_id_options_have_dynamic_completion() {
+        let catalog = build_command_catalog();
+
+        for path in [
+            ["user", "token", "show"],
+            ["user", "token", "clone"],
+            ["user", "token", "revoke"],
+            ["service-account", "token", "show"],
+            ["service-account", "token", "clone"],
+            ["service-account", "token", "revoke"],
+        ] {
+            let command_path = path.map(str::to_string);
+            let resolved = catalog
+                .resolve_command(&[], &command_path)
+                .unwrap_or_else(|_| panic!("{command_path:?} should resolve"));
+            let token_id = resolved
+                .command
+                .options
+                .iter()
+                .find(|option| option.long.as_deref() == Some("--token-id"))
+                .unwrap_or_else(|| panic!("{command_path:?} should expose --token-id"));
+
+            assert!(matches!(token_id.completion, CompletionSpec::Dynamic(_)));
+        }
     }
 
     #[test]
@@ -1535,6 +1564,7 @@ mod tests {
             (&["user", "token", "list"][..], "--username"),
             (&["user", "token", "show"][..], "--username"),
             (&["user", "token", "create"][..], "--username"),
+            (&["user", "token", "clone"][..], "--username"),
             (&["user", "token", "revoke"][..], "--username"),
             (&["service-account", "show"][..], "--name"),
             (&["service-account", "delete"][..], "--name"),
@@ -1542,6 +1572,7 @@ mod tests {
             (&["service-account", "token", "list"][..], "--name"),
             (&["service-account", "token", "show"][..], "--name"),
             (&["service-account", "token", "create"][..], "--name"),
+            (&["service-account", "token", "clone"][..], "--name"),
             (&["service-account", "token", "revoke"][..], "--name"),
             (&["remote-target", "show"][..], "--name"),
             (&["remote-target", "update"][..], "--name"),

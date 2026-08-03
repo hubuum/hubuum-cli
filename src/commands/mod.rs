@@ -46,7 +46,7 @@ use crate::autocomplete::output_formats;
 use crate::config::get_config;
 use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
-use crate::services::CompletionContext;
+use crate::services::{CloneTokenOutcome, CompletionContext, SourceTokenRevocation};
 use crate::suggestions::did_you_mean_message;
 use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
 use crate::{
@@ -367,18 +367,18 @@ pub fn render_task_record(tokens: &CommandTokenizer, task: &TaskRecord) -> Resul
     Ok(())
 }
 
+const ISSUED_TOKEN_WARNING: &str = "This token will not be shown again. Store it securely.";
+
 fn render_issued_token(
     tokens: &CommandTokenizer,
     owner: &str,
     token: &IssuedTokenRecord,
 ) -> Result<(), AppError> {
-    const WARNING: &str = "This token will not be shown again. Store it securely.";
-
     match desired_format(tokens) {
         OutputFormat::Json => append_line(to_string_pretty(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
-            "warning": WARNING,
+            "warning": ISSUED_TOKEN_WARNING,
         }))?)?,
         OutputFormat::Text => {
             append_line(format!("\nToken created for {owner}:"))?;
@@ -386,7 +386,54 @@ fn render_issued_token(
             if let Some(expires_at) = token.expires_at() {
                 append_line(format!("  Expires: {expires_at}"))?;
             }
-            append_line(format!("\n⚠️  {WARNING}\n"))?;
+            append_line(format!("\n⚠️  {ISSUED_TOKEN_WARNING}\n"))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn render_cloned_token(
+    tokens: &CommandTokenizer,
+    owner: &str,
+    outcome: &CloneTokenOutcome,
+) -> Result<(), AppError> {
+    let token = outcome.issued_token();
+    let (source_revoke_requested, source_revoked, revoke_error) = match outcome.source_revocation()
+    {
+        SourceTokenRevocation::NotRequested => (false, None, None),
+        SourceTokenRevocation::Revoked => (true, Some(true), None),
+        SourceTokenRevocation::Failed(error) => (true, Some(false), Some(error.as_str())),
+    };
+
+    match desired_format(tokens) {
+        OutputFormat::Json => append_line(to_string_pretty(&json!({
+            "token": token.token(),
+            "expires_at": token.expires_at(),
+            "source_token_id": outcome.source_token_id(),
+            "source_revoke_requested": source_revoke_requested,
+            "source_revoked": source_revoked,
+            "revoke_error": revoke_error,
+            "warning": ISSUED_TOKEN_WARNING,
+        }))?)?,
+        OutputFormat::Text => {
+            append_line(format!("\nToken cloned for {owner}:"))?;
+            append_line(format!("  {}", token.token()))?;
+            if let Some(expires_at) = token.expires_at() {
+                append_line(format!("  Expires: {expires_at}"))?;
+            }
+            match outcome.source_revocation() {
+                SourceTokenRevocation::NotRequested => {}
+                SourceTokenRevocation::Revoked => append_line(format!(
+                    "  Source token {} revoked",
+                    outcome.source_token_id()
+                ))?,
+                SourceTokenRevocation::Failed(error) => append_line(format!(
+                    "\n⚠️  Replacement created, but source token {} could not be revoked: {error}",
+                    outcome.source_token_id()
+                ))?,
+            }
+            append_line(format!("\n⚠️  {ISSUED_TOKEN_WARNING}\n"))?;
         }
     }
 

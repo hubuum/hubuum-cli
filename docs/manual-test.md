@@ -352,10 +352,19 @@ me tokens
 user token list <username>
 user token show <username> <token-id>
 user token show --username <username> --token-id <token-id> --output json
+user token clone --username <username> --token-id <token-id> --name replacement
 service-account token list <service-account>
 service-account token show <service-account> <token-id>
 service-account token show --name <service-account> --token-id <token-id> --output json
+service-account token clone --name <service-account> --token-id <token-id> --token-name replacement
 ```
+
+In the interactive shell, type `--token-id` followed by a space after selecting
+the user or service account, then press Tab. Confirm that the active token IDs
+from the corresponding token list are suggested.
+
+To test source revocation, create a disposable source token and clone it with
+`--revoke`. Do not use an operational credential for this check.
 
 Check collection permissions:
 
@@ -377,7 +386,10 @@ Expected results:
 
 - Permission command names use `collection`.
 - User rename is rejected explicitly if the server/client model does not expose it.
-- Token create/list/show/revoke commands work for supported principals.
+- Token create/list/show/clone/revoke commands work for supported principals.
+- Token cloning preserves both permission and resource boundaries, receives a
+  fresh server-default expiry unless overridden, and revokes the source only
+  after replacement creation when `--revoke` is supplied.
 - Token detail output includes all server metadata and the complete permission
   and resource boundaries. JSON output preserves the raw scope and adds
   `resolved_resources`.
