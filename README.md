@@ -77,10 +77,24 @@ and participate in preference export/import. Built-in commands and scopes take
 precedence over aliases.
 
 ```sh
-hubuum-cli alias set --name hosts --command 'object list --class Hosts | P Name'
+hubuum-cli alias set --name hosts \
+  --description 'List known hosts' \
+  --command 'object list --class Hosts | P Name'
 hubuum-cli hosts
 hubuum-cli alias list
+hubuum-cli alias show --name hosts
 hubuum-cli alias unset --name hosts
+```
+
+`alias list`, root help, and `config show` use the optional description so long
+command pipelines do not overwhelm summary output. `alias show` retains the
+complete command. Described aliases use this compatible expanded TOML form;
+existing `name = "command"` aliases remain valid:
+
+```toml
+[aliases.hosts]
+command = "object list --class Hosts | P Name"
+description = "List known hosts"
 ```
 
 Long aliases can be loaded from a one-command script file. This example finds
@@ -90,6 +104,7 @@ the same OS major version:
 ```sh
 hubuum-cli script examples/show-outdated-kernels.hubuum
 hubuum-cli alias set --name outdated-kernels \
+  --description 'Find hosts running an outdated kernel' \
   --command file://examples/show-outdated-kernels.hubuum
 hubuum-cli outdated-kernels
 ```

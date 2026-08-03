@@ -8,10 +8,12 @@ use super::{build_command_catalog, desired_format, CliCommand};
 use crate::autocomplete::{command_aliases, file_paths};
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::{
-    get_config, is_user_preference_key, reload_runtime_config, set_persisted_value,
+    get_config, is_user_preference_key, persist_command_alias, reload_runtime_config,
     unset_persisted_value,
 };
-use crate::domain::{alias_name_shadows_command, CommandAliasName, CommandAliasTarget};
+use crate::domain::{
+    alias_name_shadows_command, CommandAliasDescription, CommandAliasName, CommandAliasTarget,
+};
 use crate::errors::AppError;
 use crate::models::OutputFormat;
 use crate::output::{append_line, set_semantic_output};
@@ -27,9 +29,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 AliasList::default(),
                 CommandDocs {
                     about: Some("List personal command aliases"),
-                    long_about: Some(
-                        "List personal aliases and the complete command lines they expand to.",
-                    ),
+                    long_about: Some("List personal aliases and their short descriptions."),
                     ..CommandDocs::default()
                 },
             ),
@@ -87,11 +87,16 @@ impl CliCommand for AliasList {
         let rows = aliases
             .aliases
             .iter()
-            .map(|(name, command)| json!({"Name": name, "Command": command}))
+            .map(|(name, _)| {
+                json!({
+                    "Name": name,
+                    "Description": aliases.aliases.description(name).unwrap_or(""),
+                })
+            })
             .collect();
         set_semantic_output(OutputEnvelope::rows(
             rows,
-            vec!["Name".to_string(), "Command".to_string()],
+            vec!["Name".to_string(), "Description".to_string()],
         ))?;
         Ok(())
     }
@@ -116,14 +121,24 @@ impl CliCommand for AliasShow {
         let command = config.aliases.get(name.as_str()).ok_or_else(|| {
             AppError::EntityNotFound(format!("command alias '{}'", name.as_str()))
         })?;
+        let description = config.aliases.description(name.as_str());
         match desired_format(tokens) {
             OutputFormat::Json => append_line(to_string_pretty(&json!({
                 "name": name.as_str(),
+                "description": description,
                 "command": command,
             }))?)?,
             OutputFormat::Text => set_semantic_output(OutputEnvelope::detail(
-                json!({"Name": name.as_str(), "Command": command}),
-                vec!["Name".to_string(), "Command".to_string()],
+                json!({
+                    "Name": name.as_str(),
+                    "Description": description,
+                    "Command": command,
+                }),
+                vec![
+                    "Name".to_string(),
+                    "Description".to_string(),
+                    "Command".to_string(),
+                ],
             ))?,
         }
         Ok(())
@@ -142,6 +157,12 @@ pub struct AliasSet {
         autocomplete = "file_paths"
     )]
     pub command: String,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Short one-line description shown in alias summaries"
+    )]
+    pub description: Option<String>,
 }
 
 impl CliCommand for AliasSet {
@@ -149,6 +170,10 @@ impl CliCommand for AliasSet {
         let query = Self::parse_tokens(tokens)?;
         let name = CommandAliasName::new(query.name)?;
         let command = CommandAliasTarget::new(query.command)?;
+        let description = query
+            .description
+            .map(CommandAliasDescription::new)
+            .transpose()?;
         if alias_name_shadows_command(&build_command_catalog(), name.as_str()) {
             return Err(AppError::InvalidOption(format!(
                 "alias name '{}' conflicts with a built-in command or scope",
@@ -157,7 +182,7 @@ impl CliCommand for AliasSet {
         }
 
         let key = format!("aliases.{}", name.as_str());
-        let path = set_persisted_value(&key, command.as_str())?;
+        let path = persist_command_alias(&name, &command, description.as_ref())?;
         reload_runtime_config()?;
         if is_user_preference_key(&key) {
             services.sync_user_preferences_if_enabled()?;
@@ -167,6 +192,7 @@ impl CliCommand for AliasSet {
             "Saved",
             name.as_str(),
             Some(command.as_str()),
+            description.as_ref().map(CommandAliasDescription::as_str),
             &path.display().to_string(),
         )
     }
@@ -205,6 +231,7 @@ impl CliCommand for AliasUnset {
             "Removed",
             name.as_str(),
             None,
+            None,
             &path.display().to_string(),
         )
     }
@@ -215,12 +242,14 @@ fn render_persisted_alias(
     action: &str,
     name: &str,
     command: Option<&str>,
+    description: Option<&str>,
     path: &str,
 ) -> Result<(), AppError> {
     match desired_format(tokens) {
         OutputFormat::Json => append_line(to_string_pretty(&json!({
             "action": action.to_lowercase(),
             "name": name,
+            "description": description,
             "command": command,
             "path": path,
         }))?)?,
@@ -246,11 +275,15 @@ mod tests {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("command.hubuum");
         write(&path, "object list --class Hosts | P Name\n").expect("command file");
-        let line = format!("alias set --name hosts --command file://{}", path.display());
+        let line = format!(
+            "alias set --name hosts --description 'List known hosts' --command file://{}",
+            path.display()
+        );
         let tokens = CommandTokenizer::new(&line, "set", &command_options::<AliasSet>())
             .expect("alias command should tokenize");
         let parsed = AliasSet::parse_tokens(&tokens).expect("alias options should parse");
 
         assert_eq!(parsed.command, "object list --class Hosts | P Name");
+        assert_eq!(parsed.description.as_deref(), Some("List known hosts"));
     }
 }

@@ -365,7 +365,12 @@ fn render_help_from_catalog(
         else {
             return Err(AppError::CommandNotFound(parts.join(" ")));
         };
-        append_line(format!("Alias: {}\n\n  {command}", parts[0]))?;
+        let description = config
+            .aliases
+            .description(&parts[0])
+            .map(|description| format!("\n\n{description}"))
+            .unwrap_or_default();
+        append_line(format!("Alias: {}{description}\n\n  {command}", parts[0]))?;
     } else {
         return Err(AppError::CommandNotFound(parts.join(" ")));
     }
@@ -387,8 +392,12 @@ fn render_scope_help_with_aliases(catalog: &CommandCatalog, scope: &[String]) ->
         return help;
     }
     help.push_str("\n\nAliases:\n");
-    for (name, command) in config.aliases.iter() {
-        help.push_str(&format!("  {name:<16}  {command}\n"));
+    for (name, _) in config.aliases.iter() {
+        let description = config
+            .aliases
+            .description(name)
+            .unwrap_or("<no description>");
+        help.push_str(&format!("  {name:<16}  {description}\n"));
     }
     help.pop();
     help

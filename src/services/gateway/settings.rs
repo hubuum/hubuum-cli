@@ -73,7 +73,10 @@ mod tests {
     fn stored_preferences_round_trip_without_server_credentials() {
         let mut config = AppConfig {
             aliases: serde_json::from_value(json!({
-                "outdated-kernels": "object list --class Hosts | C"
+                "outdated-kernels": {
+                    "command": "object list --class Hosts | C",
+                    "description": "Find hosts running an outdated kernel"
+                }
             }))
             .expect("command aliases should deserialize"),
             ..AppConfig::default()
@@ -94,6 +97,10 @@ mod tests {
         assert_eq!(
             decoded.aliases.get("outdated-kernels"),
             config.aliases.get("outdated-kernels")
+        );
+        assert_eq!(
+            decoded.aliases.description("outdated-kernels"),
+            config.aliases.description("outdated-kernels")
         );
         assert_eq!(
             decoded.output.object_class_computed_fields["Hosts"],
