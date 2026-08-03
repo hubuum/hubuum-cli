@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Write as FmtWrite};
 use std::io::{stdout, Write};
 use std::iter::{once, repeat_n};
@@ -19,7 +20,9 @@ use log::debug;
 
 use crate::config::get_config;
 use crate::errors::AppError;
-use crate::models::{EmptyResult, OutputFormat, TableBands, TableStyle, TableWidth, TableWrap};
+use crate::models::{
+    EmptyResult, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
+};
 use crate::terminal::terminal_width;
 use crate::theme::{color_choice, paint, ThemeRole};
 
@@ -93,6 +96,7 @@ pub struct OutputBuffer {
     pipeline: Vec<PipeStage>,
     pipeline_suffix: Option<String>,
     render_format: RenderFormat,
+    table_headers: TableHeaders,
     warnings: Vec<String>,
     errors: Vec<String>,
     next_page_command: Option<String>,
@@ -102,6 +106,7 @@ impl OutputBuffer {
     fn new() -> Self {
         Self {
             render_format: config_render_format(),
+            table_headers: get_config().output.table_headers,
             ..Self::default()
         }
     }
@@ -146,6 +151,10 @@ impl OutputBuffer {
         self.render_format = format;
     }
 
+    fn set_table_headers(&mut self, table_headers: TableHeaders) {
+        self.table_headers = table_headers;
+    }
+
     fn set_next_page_command(&mut self, command: String) {
         self.next_page_command = Some(command);
     }
@@ -173,6 +182,7 @@ impl OutputBuffer {
         self.pipeline.clear();
         self.pipeline_suffix = None;
         self.render_format = config_render_format();
+        self.table_headers = get_config().output.table_headers;
         self.next_page_command = None;
     }
 
@@ -189,7 +199,11 @@ impl OutputBuffer {
                     OutputEvent::Line(line) => rendered.push(line.clone()),
                     OutputEvent::Semantic(envelope) => {
                         let envelope = apply_pipeline(envelope.clone(), &self.pipeline)?;
-                        rendered.extend(render_semantic(&envelope, self.render_format)?);
+                        rendered.extend(render_semantic_with_table_headers(
+                            &envelope,
+                            self.render_format,
+                            self.table_headers,
+                        )?);
                         semantic.push(envelope);
                     }
                 }
@@ -346,6 +360,14 @@ pub fn set_render_format(format: RenderFormat) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn set_table_headers(table_headers: TableHeaders) -> Result<(), AppError> {
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .set_table_headers(table_headers);
+    Ok(())
+}
+
 pub fn set_next_page_command(command: String) -> Result<(), AppError> {
     OUTPUT_BUFFER
         .lock()
@@ -361,12 +383,13 @@ pub fn pipeline_suppresses_pagination() -> Result<bool, AppError> {
         .pipeline_suppresses_pagination())
 }
 
-pub(crate) fn render_semantic(
+fn render_semantic_with_table_headers(
     envelope: &OutputEnvelope,
     format: RenderFormat,
+    table_headers: TableHeaders,
 ) -> Result<Vec<String>, AppError> {
     match format {
-        RenderFormat::Text => render_semantic_text(envelope),
+        RenderFormat::Text => render_semantic_text(envelope, table_headers),
         RenderFormat::Json => Ok(to_string_pretty(&envelope.value)?
             .lines()
             .map(str::to_string)
@@ -389,9 +412,10 @@ pub(crate) fn render_semantic_item(
                 render_detail_text(&OutputEnvelope::detail(value.clone(), columns.to_vec()))?
             }
             OutputShape::Values | OutputShape::Lines => vec![semantic_scalar(value)],
-            OutputShape::Groups => {
-                render_rows_text(&OutputEnvelope::rows(group_summary_rows(value), Vec::new()))?
-            }
+            OutputShape::Groups => render_rows_text(
+                &OutputEnvelope::rows(group_summary_rows(value), Vec::new()),
+                get_config().output.table_headers,
+            )?,
             OutputShape::Empty => Vec::new(),
         },
         RenderFormat::Json => to_string_pretty(value)?
@@ -417,28 +441,37 @@ fn config_render_format() -> RenderFormat {
     }
 }
 
-fn render_semantic_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> {
+fn render_semantic_text(
+    envelope: &OutputEnvelope,
+    table_headers: TableHeaders,
+) -> Result<Vec<String>, AppError> {
     match envelope.shape {
         OutputShape::Empty => Ok(Vec::new()),
         OutputShape::Lines => Ok(value_array(&envelope.value)
             .iter()
             .filter_map(|value| value.as_str().map(str::to_string))
             .collect()),
-        OutputShape::Rows => render_rows_text(envelope),
+        OutputShape::Rows => render_rows_text(envelope, table_headers),
         OutputShape::Detail => render_detail_text(envelope),
         OutputShape::Message => Ok(vec![semantic_scalar(&envelope.value)]),
         OutputShape::Values => Ok(value_array(&envelope.value)
             .iter()
             .map(semantic_scalar)
             .collect()),
-        OutputShape::Groups => render_rows_text(&OutputEnvelope::rows(
-            group_summary_rows(&envelope.value),
-            envelope.columns.clone(),
-        )),
+        OutputShape::Groups => render_rows_text(
+            &OutputEnvelope::rows(
+                group_summary_rows(&envelope.value),
+                envelope.columns.clone(),
+            ),
+            table_headers,
+        ),
     }
 }
 
-fn render_rows_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> {
+fn render_rows_text(
+    envelope: &OutputEnvelope,
+    table_headers: TableHeaders,
+) -> Result<Vec<String>, AppError> {
     let rows = value_array(&envelope.value);
     if rows.is_empty() {
         return if get_config().output.empty_result == EmptyResult::Message {
@@ -450,10 +483,10 @@ fn render_rows_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> 
 
     let columns = display_columns(envelope, &rows);
     if get_config().output.table_style == TableStyle::Dense {
-        return Ok(render_dense_rows(&rows, &columns));
+        return Ok(render_dense_rows(&rows, &columns, table_headers));
     }
 
-    let headers = column_headers(&columns);
+    let headers = column_headers(&columns, &rows, table_headers);
     let mut table = Table::new();
     table.set_header(headers);
     apply_table_style(&mut table, &get_config().output.table_style);
@@ -607,22 +640,24 @@ fn display_columns(envelope: &OutputEnvelope, rows: &[Value]) -> Vec<String> {
         .unwrap_or_else(|| vec!["value".to_string()])
 }
 
-fn render_dense_rows(rows: &[Value], columns: &[String]) -> Vec<String> {
-    render_dense_rows_with_band(rows, columns, apply_row_band)
+fn render_dense_rows(
+    rows: &[Value],
+    columns: &[String],
+    table_headers: TableHeaders,
+) -> Vec<String> {
+    render_dense_rows_with_band(rows, columns, table_headers, apply_row_band)
 }
 
 fn render_dense_rows_with_band(
     rows: &[Value],
     columns: &[String],
+    table_headers: TableHeaders,
     mut band_row: impl FnMut(usize, String) -> String,
 ) -> Vec<String> {
-    let headers = column_headers(columns);
+    let headers = column_headers(columns, rows, table_headers);
     let widths = dense_widths(rows, columns, &headers);
-    let mut lines = Vec::with_capacity(rows.len() + 1);
-    lines.push(render_dense_line(
-        headers.iter().map(String::as_str),
-        &widths,
-    ));
+    let mut lines = render_dense_headers(&headers, &widths);
+    lines.reserve(rows.len());
     for (index, row) in rows.iter().enumerate() {
         let line = render_dense_line(
             columns
@@ -651,13 +686,18 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
         "status".to_string(),
     ];
 
-    render_dense_rows_with_band(&rows, &columns, |index, line| {
-        if index.is_multiple_of(2) {
-            paint_theme(theme, ThemeRole::TableBand, line)
-        } else {
-            line
-        }
-    })
+    render_dense_rows_with_band(
+        &rows,
+        &columns,
+        get_config().output.table_headers,
+        |index, line| {
+            if index.is_multiple_of(2) {
+                paint_theme(theme, ThemeRole::TableBand, line)
+            } else {
+                line
+            }
+        },
+    )
 }
 
 fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<usize> {
@@ -668,15 +708,113 @@ fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<u
             let (column, header) = column;
             rows.iter()
                 .map(|row| cell_text(row.get(column)).len())
-                .chain(once(header.len()))
+                .chain(once(header.lines().map(str::len).max().unwrap_or_default()))
                 .max()
-                .unwrap_or(header.len())
+                .unwrap_or_default()
         })
         .collect()
 }
 
-fn column_headers(columns: &[String]) -> Vec<String> {
-    columns.iter().map(|column| column_header(column)).collect()
+fn render_dense_headers(headers: &[String], widths: &[usize]) -> Vec<String> {
+    let header_lines = headers
+        .iter()
+        .map(|header| header.lines().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let height = header_lines.iter().map(Vec::len).max().unwrap_or_default();
+
+    (0..height)
+        .map(|line| {
+            render_dense_line(
+                header_lines
+                    .iter()
+                    .map(|header| header.get(line).copied().unwrap_or_default()),
+                widths,
+            )
+        })
+        .collect()
+}
+
+fn column_headers(columns: &[String], rows: &[Value], table_headers: TableHeaders) -> Vec<String> {
+    if table_headers == TableHeaders::Full {
+        return columns.iter().map(|column| column_header(column)).collect();
+    }
+
+    let aliases = configured_header_aliases(columns, rows);
+    let markdown = get_config().output.table_style == TableStyle::Markdown;
+    columns
+        .iter()
+        .map(|column| {
+            aliases.get(column).cloned().unwrap_or_else(|| {
+                let header = column_header(column);
+                if markdown {
+                    header
+                } else {
+                    header.replace('.', "\n")
+                }
+            })
+        })
+        .collect()
+}
+
+fn configured_header_aliases(columns: &[String], rows: &[Value]) -> HashMap<String, String> {
+    let Some(class_name) = common_object_class(rows) else {
+        return HashMap::new();
+    };
+    let config = get_config();
+    let Some(configured) = config.output.object_list_class_aliases.get(class_name) else {
+        return HashMap::new();
+    };
+
+    let candidates = columns
+        .iter()
+        .map(|column| {
+            let matches = configured
+                .iter()
+                .filter(|(_, selectors)| {
+                    selectors.iter().any(|selector| {
+                        normalized_data_path(selector) == normalized_data_path(column)
+                    })
+                })
+                .map(|(alias, _)| alias.clone())
+                .collect::<BTreeSet<_>>();
+            (matches.len() == 1)
+                .then(|| matches.into_iter().next())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+
+    let mut label_counts = HashMap::<String, usize>::new();
+    for (column, alias) in columns.iter().zip(candidates.iter()) {
+        let label = alias.clone().unwrap_or_else(|| column_header(column));
+        *label_counts.entry(label).or_default() += 1;
+    }
+
+    columns
+        .iter()
+        .zip(candidates)
+        .filter_map(|(column, alias)| {
+            let alias = alias?;
+            (label_counts.get(&alias) == Some(&1)).then(|| (column.clone(), alias))
+        })
+        .collect()
+}
+
+fn common_object_class(rows: &[Value]) -> Option<&str> {
+    let mut classes = rows.iter().map(|row| {
+        row.get("Class")
+            .or_else(|| row.get("class"))
+            .and_then(Value::as_str)
+    });
+    let class_name = classes.next()??;
+    classes
+        .all(|candidate| candidate == Some(class_name))
+        .then_some(class_name)
+}
+
+fn normalized_data_path(path: &str) -> &str {
+    path.strip_prefix("data.")
+        .or_else(|| path.strip_prefix("json_data."))
+        .unwrap_or(path)
 }
 
 fn column_header(column: &str) -> String {
@@ -781,13 +919,14 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
 mod tests {
     use serde_json::json;
     use serial_test::serial;
+    use std::collections::HashMap;
 
     use super::{
-        append_line, render_dense_theme_preview, reset_output, set_pipeline, set_render_format,
-        set_semantic_output, take_output, OutputSnapshot, RenderFormat,
+        append_line, column_headers, render_dense_theme_preview, reset_output, set_pipeline,
+        set_render_format, set_semantic_output, take_output, OutputSnapshot, RenderFormat,
     };
     use crate::config::{init_config, AppConfig};
-    use crate::models::{OutputColor, TableBands, TableStyle};
+    use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle};
     use hubuum_filter::{OutputEnvelope, PipeStage, ProjectTerm};
     use hubuum_theme::resolve_theme;
     #[test]
@@ -983,6 +1122,153 @@ mod tests {
             .is_some_and(|line| line.contains("contact")));
         assert!(!rendered.contains("data.contact"));
         assert!(rendered.contains("Entry"));
+    }
+
+    #[test]
+    #[serial]
+    fn grouped_headers_stack_complete_data_paths() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        let rows = vec![json!({"Class": "Hosts"})];
+        let columns = vec![
+            "data.facts.network.default_ipv4.address".to_string(),
+            "data.facts.operating_system.major_version".to_string(),
+        ];
+
+        let headers = column_headers(&columns, &rows, TableHeaders::Grouped);
+
+        assert_eq!(
+            headers,
+            vec![
+                "facts\nnetwork\ndefault_ipv4\naddress",
+                "facts\noperating_system\nmajor_version",
+            ]
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn configured_class_aliases_override_grouped_headers() {
+        let mut config = AppConfig::default();
+        config.output.object_list_class_aliases.insert(
+            "Hosts".to_string(),
+            HashMap::from([
+                (
+                    "IPv4".to_string(),
+                    vec!["data.facts.network.default_ipv4.address".to_string()],
+                ),
+                (
+                    "OS_major".to_string(),
+                    vec!["json_data.facts.operating_system.major_version".to_string()],
+                ),
+            ]),
+        );
+        init_config(config).expect("config should initialize");
+        let rows = vec![json!({"Class": "Hosts"})];
+        let columns = vec![
+            "data.facts.network.default_ipv4.address".to_string(),
+            "data.facts.operating_system.major_version".to_string(),
+        ];
+
+        let headers = column_headers(&columns, &rows, TableHeaders::Grouped);
+
+        assert_eq!(headers, vec!["IPv4", "OS_major"]);
+    }
+
+    #[test]
+    #[serial]
+    fn ambiguous_class_aliases_fall_back_to_grouped_headers() {
+        let mut config = AppConfig::default();
+        config.output.object_list_class_aliases.insert(
+            "Hosts".to_string(),
+            HashMap::from([(
+                "Address".to_string(),
+                vec![
+                    "data.facts.network.default_ipv4.address".to_string(),
+                    "data.facts.network.default_ipv6.address".to_string(),
+                ],
+            )]),
+        );
+        init_config(config).expect("config should initialize");
+        let rows = vec![json!({"Class": "Hosts"})];
+        let columns = vec![
+            "data.facts.network.default_ipv4.address".to_string(),
+            "data.facts.network.default_ipv6.address".to_string(),
+        ];
+
+        let headers = column_headers(&columns, &rows, TableHeaders::Grouped);
+
+        assert_eq!(
+            headers,
+            vec![
+                "facts\nnetwork\ndefault_ipv4\naddress",
+                "facts\nnetwork\ndefault_ipv6\naddress",
+            ]
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn full_headers_ignore_aliases_and_stay_on_one_line() {
+        let mut config = AppConfig::default();
+        config.output.object_list_class_aliases.insert(
+            "Hosts".to_string(),
+            HashMap::from([(
+                "IPv4".to_string(),
+                vec!["data.facts.network.default_ipv4.address".to_string()],
+            )]),
+        );
+        init_config(config).expect("config should initialize");
+        let rows = vec![json!({"Class": "Hosts"})];
+        let columns = vec!["data.facts.network.default_ipv4.address".to_string()];
+
+        let headers = column_headers(&columns, &rows, TableHeaders::Full);
+
+        assert_eq!(headers, vec!["facts.network.default_ipv4.address"]);
+    }
+
+    #[test]
+    #[serial]
+    fn dense_grouped_headers_render_each_path_component() {
+        let mut config = AppConfig::default();
+        config.output.table_style = TableStyle::Dense;
+        config.output.table_bands = TableBands::Never;
+        init_config(config).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![json!({
+                "Class": "Hosts",
+                "data.facts.operating_system.major_version": "10"
+            })],
+            vec!["data.facts.operating_system.major_version".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert_eq!(
+            rendered.lines().map(str::trim_end).collect::<Vec<_>>(),
+            vec!["facts", "operating_system", "major_version", "10"]
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn delimited_headers_keep_semantic_column_names() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_render_format(RenderFormat::Csv).expect("render format should set");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![json!({
+                "Class": "Hosts",
+                "data.facts.operating_system.major_version": "10"
+            })],
+            vec!["data.facts.operating_system.major_version".to_string()],
+        ))
+        .expect("semantic output should be set");
+
+        let rendered = take_output().expect("snapshot").render();
+
+        assert_eq!(rendered, "data.facts.operating_system.major_version\n10\n");
     }
 
     #[test]

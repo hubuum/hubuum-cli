@@ -450,6 +450,8 @@ Check output controls:
 object list --class Hosts --limit 5 --table-style dense --table-bands auto
 object list --class Hosts --limit 5 --table-width full --table-wrap 40
 object list --class Hosts --limit 0 --empty-result silent
+object list --class Hosts --where json_data.facts.operating_system.major_version = 10
+object list --class Hosts --where json_data.facts.operating_system.major_version = 10 --table-headers full
 ```
 
 Check focused help:
@@ -467,6 +469,8 @@ Expected results:
 
 - Help text colors only command fragments when color is enabled.
 - Dense table bands are subtle on dark backgrounds.
+- Grouped headers retain dotted path components without widening every column.
+- `--table-headers full` restores flat, complete dotted paths for one command.
 - Theme selection works at runtime and persists through config when requested.
 
 ## Administrative Configuration, Backups, And Restore

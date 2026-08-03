@@ -20,7 +20,7 @@ use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
-    TableStyle, TableWidth, TableWrap,
+    TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 
 static CONFIG: Lazy<RwLock<Arc<AppConfig>>> =
@@ -123,6 +123,8 @@ pub struct UserOutputPreferences {
     pub theme: String,
     pub padding: i8,
     pub table_style: TableStyle,
+    #[serde(default)]
+    pub table_headers: TableHeaders,
     pub table_width: TableWidth,
     pub table_wrap: TableWrap,
     pub table_bands: TableBands,
@@ -149,6 +151,7 @@ impl UserPreferences {
                 theme: config.output.theme.clone(),
                 padding: config.output.padding,
                 table_style: config.output.table_style.clone(),
+                table_headers: config.output.table_headers,
                 table_width: config.output.table_width.clone(),
                 table_wrap: config.output.table_wrap.clone(),
                 table_bands: config.output.table_bands,
@@ -215,6 +218,7 @@ pub struct OutputConfig {
     pub theme_file: String,
     pub padding: i8,
     pub table_style: TableStyle,
+    pub table_headers: TableHeaders,
     pub table_width: TableWidth,
     pub table_wrap: TableWrap,
     pub table_bands: TableBands,
@@ -244,6 +248,7 @@ enum ConfigValueKind {
     OutputColor,
     ThemeName,
     TableStyle,
+    TableHeaders,
     TableWidth,
     TableWrap,
     TableBands,
@@ -433,6 +438,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "output.table_headers",
+        cli_arg: Some("table_headers"),
+        env_var: "HUBUUM_CLI__OUTPUT__TABLE_HEADERS",
+        value_kind: ConfigValueKind::TableHeaders,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "output.table_width",
         cli_arg: Some("table_width"),
         env_var: "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
@@ -537,6 +549,7 @@ impl Default for AppConfig {
                 theme_file: Defaults::OUTPUT_THEME_FILE.to_string(),
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
+                table_headers: Defaults::OUTPUT_TABLE_HEADERS,
                 table_width: Defaults::OUTPUT_TABLE_WIDTH,
                 table_wrap: Defaults::OUTPUT_TABLE_WRAP,
                 table_bands: Defaults::OUTPUT_TABLE_BANDS,
@@ -588,6 +601,7 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         ConfigValueKind::TableStyle => {
             strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         }
+        ConfigValueKind::TableHeaders => strings(&["grouped", "full"]),
         ConfigValueKind::TableWidth => strings(&["auto", "full"]),
         ConfigValueKind::TableWrap => strings(&["auto", "never"]),
         ConfigValueKind::TableBands => strings(&["auto", "always", "never"]),
@@ -861,6 +875,7 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.theme" => target.output.theme = source.output.theme.clone(),
             "output.theme_file" => target.output.theme_file = source.output.theme_file.clone(),
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
+            "output.table_headers" => target.output.table_headers = source.output.table_headers,
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
             "output.table_wrap" => target.output.table_wrap = source.output.table_wrap.clone(),
             "output.table_bands" => target.output.table_bands = source.output.table_bands,
@@ -884,6 +899,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default(
             "output.table_style",
             Defaults::OUTPUT_TABLE_STYLE.to_string(),
+        )?
+        .set_default(
+            "output.table_headers",
+            Defaults::OUTPUT_TABLE_HEADERS.to_string(),
         )?
         .set_default(
             "output.table_width",
@@ -1102,6 +1121,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "theme" => Some("--theme"),
         "theme_file" => Some("--theme-file"),
         "table_style" => Some("--table-style"),
+        "table_headers" => Some("--table-headers"),
         "table_width" => Some("--table-width"),
         "table_wrap" => Some("--table-wrap"),
         "table_bands" => Some("--table-bands"),
@@ -1143,6 +1163,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.theme_file" => ConfigValueRef::String(&config.output.theme_file),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
+        "output.table_headers" => ConfigValueRef::TableHeaders(&config.output.table_headers),
         "output.table_width" => ConfigValueRef::TableWidth(&config.output.table_width),
         "output.table_wrap" => ConfigValueRef::TableWrap(&config.output.table_wrap),
         "output.table_bands" => ConfigValueRef::TableBands(&config.output.table_bands),
@@ -1176,6 +1197,7 @@ enum ConfigValueRef<'a> {
     OutputFormat(&'a OutputFormat),
     OutputColor(&'a OutputColor),
     TableStyle(&'a TableStyle),
+    TableHeaders(&'a TableHeaders),
     TableWidth(&'a TableWidth),
     TableWrap(&'a TableWrap),
     TableBands(&'a TableBands),
@@ -1212,6 +1234,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         },
         ConfigValueRef::OutputColor(value) => value.to_string(),
         ConfigValueRef::TableStyle(value) => value.to_string(),
+        ConfigValueRef::TableHeaders(value) => value.to_string(),
         ConfigValueRef::TableWidth(value) => value.to_string(),
         ConfigValueRef::TableWrap(value) => value.to_string(),
         ConfigValueRef::TableBands(value) => value.to_string(),
@@ -1300,6 +1323,12 @@ fn parse_config_value(
         ConfigValueKind::TableStyle => TomlValue::String(
             value
                 .parse::<TableStyle>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::TableHeaders => TomlValue::String(
+            value
+                .parse::<TableHeaders>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
@@ -1526,8 +1555,8 @@ mod tests {
     use super::*;
     use crate::cli::{build_cli, update_config_from_cli};
     use crate::models::{
-        EmptyResult, ObjectListDataColumns, OutputColor, Protocol, TableBands, TableStyle,
-        TableWidth, TableWrap,
+        EmptyResult, ObjectListDataColumns, OutputColor, Protocol, TableBands, TableHeaders,
+        TableStyle, TableWidth, TableWrap,
     };
     use serial_test::serial;
     use std::env::{remove_var, set_var, temp_dir};
@@ -1560,6 +1589,7 @@ mod tests {
             "HUBUUM_CLI__OUTPUT__THEME",
             "HUBUUM_CLI__OUTPUT__THEME_FILE",
             "HUBUUM_CLI__OUTPUT__TABLE_STYLE",
+            "HUBUUM_CLI__OUTPUT__TABLE_HEADERS",
             "HUBUUM_CLI__OUTPUT__TABLE_WIDTH",
             "HUBUUM_CLI__OUTPUT__TABLE_WRAP",
             "HUBUUM_CLI__OUTPUT__TABLE_BANDS",
@@ -1604,6 +1634,7 @@ mod tests {
         set_var("HUBUUM_CLI__OUTPUT__THEME", "solarized-dark");
         set_var("HUBUUM_CLI__OUTPUT__THEME_FILE", "/tmp/hubuum-themes.toml");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_STYLE", "plain");
+        set_var("HUBUUM_CLI__OUTPUT__TABLE_HEADERS", "full");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_WIDTH", "100");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_WRAP", "never");
         set_var("HUBUUM_CLI__OUTPUT__TABLE_BANDS", "always");
@@ -1639,6 +1670,7 @@ mod tests {
         assert_eq!(cfg.output.theme, "solarized-dark");
         assert_eq!(cfg.output.theme_file, "/tmp/hubuum-themes.toml");
         assert_eq!(cfg.output.table_style, TableStyle::Plain);
+        assert_eq!(cfg.output.table_headers, TableHeaders::Full);
         assert_eq!(cfg.output.table_width, TableWidth::Fixed(100));
         assert_eq!(cfg.output.table_wrap, TableWrap::Never);
         assert_eq!(cfg.output.table_bands, TableBands::Always);
@@ -1798,6 +1830,46 @@ Hosts = ["all", "S:os_version"]
 
     #[test]
     #[serial]
+    fn config_set_and_unset_persist_class_aliases() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        init_config_state(ConfigState {
+            paths: ConfigPaths {
+                system: dir.path().join("system.toml"),
+                user: path.clone(),
+                custom: Some(path.clone()),
+                write_target: path.clone(),
+            },
+            entries: Vec::new(),
+        })
+        .expect("config state should initialize");
+
+        set_persisted_value(
+            "output.object_list_class_aliases.Hosts.IPv4",
+            "data.facts.network.default_ipv4.address",
+        )
+        .expect("class alias should persist");
+        let configured = load_config(Some(path.clone())).expect("persisted config should load");
+        assert_eq!(
+            configured.output.object_list_class_aliases["Hosts"]["IPv4"],
+            vec!["data.facts.network.default_ipv4.address"]
+        );
+
+        unset_persisted_value("output.object_list_class_aliases.Hosts.IPv4")
+            .expect("class alias should be removed");
+        let configured = load_config(Some(path)).expect("updated config should load");
+        assert!(configured
+            .output
+            .object_list_class_aliases
+            .get("Hosts")
+            .and_then(|aliases| aliases.get("IPv4"))
+            .is_none());
+        clear_env();
+    }
+
+    #[test]
+    #[serial]
     fn config_mutations_preserve_malformed_files() {
         clear_env();
         let dir = tempdir().expect("tempdir");
@@ -1912,6 +1984,7 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
         assert_eq!(cfg.output.theme, baseline.output.theme);
         assert_eq!(cfg.output.theme_file, baseline.output.theme_file);
         assert_eq!(cfg.output.table_style, baseline.output.table_style);
+        assert_eq!(cfg.output.table_headers, baseline.output.table_headers);
         assert_eq!(cfg.output.table_width, baseline.output.table_width);
         assert_eq!(cfg.output.table_wrap, baseline.output.table_wrap);
         assert_eq!(cfg.output.table_bands, baseline.output.table_bands);
@@ -1933,6 +2006,10 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
             strings(&["ascii", "compact", "dense", "markdown", "plain", "rounded"])
         );
         assert_eq!(
+            config_value_candidates("output.table_headers"),
+            strings(&["grouped", "full"])
+        );
+        assert_eq!(
             config_value_candidates("output.table_bands"),
             strings(&["auto", "always", "never"])
         );
@@ -1950,6 +2027,7 @@ os_version = ["data.os.macos.version", "data.os.redhat.version"]
     #[test]
     fn server_sync_only_includes_portable_preference_keys() {
         assert!(is_user_preference_key("output.theme"));
+        assert!(is_user_preference_key("output.table_headers"));
         assert!(is_user_preference_key(
             "output.object_list_class_columns.Hosts"
         ));

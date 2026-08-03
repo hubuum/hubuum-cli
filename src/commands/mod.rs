@@ -42,6 +42,7 @@ pub(crate) mod version;
 pub use builder::build_command_catalog;
 
 use crate::autocomplete::output_formats;
+use crate::config::get_config;
 use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
 use crate::services::CompletionContext;
@@ -53,7 +54,7 @@ use crate::{
         filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
         PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
     },
-    models::OutputFormat,
+    models::{OutputFormat, TableHeaders},
     output::{add_warning, append_line},
 };
 
@@ -143,6 +144,21 @@ pub fn standard_options() -> Vec<CliOption> {
             field_type_help: "string".to_string(),
             required: false,
             autocomplete: Some(output_formats),
+        },
+        CliOption {
+            name: "table_headers".to_string(),
+            short: None,
+            long: Some("--table-headers".to_string()),
+            flag: false,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            value_source: false,
+            help: "Table headers: grouped or full".to_string(),
+            field_type: TypeId::of::<String>(),
+            field_type_help: "string".to_string(),
+            required: false,
+            autocomplete: None,
         },
     ]
 }
@@ -485,6 +501,16 @@ pub fn render_format(tokens: &CommandTokenizer) -> Result<RenderFormat, AppError
     }
 }
 
+pub fn table_headers(tokens: &CommandTokenizer) -> Result<TableHeaders, AppError> {
+    tokens
+        .get_options()
+        .get("table-headers")
+        .filter(|value| !value.is_empty())
+        .map(|value| value.parse::<TableHeaders>().map_err(AppError::ParseError))
+        .transpose()
+        .map(|value| value.unwrap_or(get_config().output.table_headers))
+}
+
 fn validate_output_options(tokens: &CommandTokenizer) -> Result<(), AppError> {
     if want_json(tokens) {
         if let Some(format) = output_format_name(tokens) {
@@ -513,11 +539,12 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        normalize_server_page_size, option_or_pos, render_issued_token, required_option_or_pos,
-        validate_unknown_options, CliOption, CommandArgs,
+        command_options, normalize_server_page_size, option_or_pos, render_issued_token,
+        required_option_or_pos, table_headers, validate_unknown_options, CliOption, CommandArgs,
     };
     use crate::domain::IssuedTokenRecord;
     use crate::errors::AppError;
+    use crate::models::TableHeaders;
     use crate::output::{reset_output, take_output};
     use crate::tokenizer::CommandTokenizer;
 
@@ -556,6 +583,21 @@ mod tests {
             .expect_err("unknown option should fail validation");
 
         assert!(err.to_string().contains("Did you mean '--limit'?"));
+    }
+
+    #[test]
+    fn table_headers_accepts_per_command_override() {
+        let tokens = CommandTokenizer::new(
+            "dummy list --table-headers full",
+            "list",
+            &command_options::<DummyArgs>(),
+        )
+        .expect("table header option should tokenize");
+
+        assert_eq!(
+            table_headers(&tokens).expect("table header mode should parse"),
+            TableHeaders::Full
+        );
     }
 
     #[test]

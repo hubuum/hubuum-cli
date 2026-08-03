@@ -1,7 +1,7 @@
 // src/cli.rs
 use crate::config::AppConfig;
 use crate::models::{
-    EmptyResult, OutputColor, Protocol, TableBands, TableStyle, TableWidth, TableWrap,
+    EmptyResult, OutputColor, Protocol, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
@@ -177,6 +177,14 @@ pub fn build_cli() -> Command {
                 .value_parser(["ascii", "compact", "dense", "markdown", "plain", "rounded"])
                 .env("HUBUUM_CLI__OUTPUT__TABLE_STYLE")
                 .help("Set table borders (ascii, compact, dense, markdown, plain, rounded)"),
+        )
+        .arg(
+            Arg::new("table_headers")
+                .long("table-headers")
+                .value_name("MODE")
+                .value_parser(["grouped", "full"])
+                .env("HUBUUM_CLI__OUTPUT__TABLE_HEADERS")
+                .help("Set table headers (grouped or full)"),
         )
         .arg(
             Arg::new("table_width")
@@ -493,6 +501,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     if let Some(table_style) = get_command_line_value::<String>(matches, "table_style") {
         config.output.table_style = table_style.parse().unwrap_or(TableStyle::Rounded);
     }
+    if let Some(table_headers) = get_command_line_value::<String>(matches, "table_headers") {
+        config.output.table_headers = table_headers.parse().unwrap_or(TableHeaders::Grouped);
+    }
     if let Some(table_width) = get_command_line_value::<String>(matches, "table_width") {
         config.output.table_width = table_width.parse().unwrap_or(TableWidth::Auto);
     }
@@ -630,6 +641,8 @@ mod tests {
                 "hubuum-cli",
                 "--table-style",
                 "plain",
+                "--table-headers",
+                "full",
                 "--table-width",
                 "100",
                 "--table-wrap",
@@ -644,6 +657,7 @@ mod tests {
         update_config_from_cli(&mut config, &matches);
 
         assert_eq!(config.output.table_style, TableStyle::Plain);
+        assert_eq!(config.output.table_headers, TableHeaders::Full);
         assert_eq!(config.output.table_width, TableWidth::Fixed(100));
         assert_eq!(config.output.table_wrap, TableWrap::Never);
         assert_eq!(config.output.table_bands, TableBands::Always);

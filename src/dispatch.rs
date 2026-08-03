@@ -11,13 +11,13 @@ use crate::catalog::{
 use crate::commands::auth::render_auth_providers;
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::metrics::render_metrics;
-use crate::commands::render_format;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
 use crate::commands::version::render_version;
+use crate::commands::{render_format, table_headers};
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, reset_output, set_pipeline, set_pipeline_suffix,
-    set_render_format, take_output, OutputSnapshot,
+    set_render_format, set_table_headers, take_output, OutputSnapshot,
 };
 use crate::redirection::{split_redirect_candidate, OutputRedirect};
 use crate::tokenizer::CommandTokenizer;
@@ -109,6 +109,7 @@ async fn execute_line_inner(
     let tokens =
         CommandTokenizer::new_without_value_source_resolution(&line, &cmd_name, &option_defs)?;
     set_render_format(render_format(&tokens)?)?;
+    set_table_headers(table_headers(&tokens)?)?;
     let options = tokens.get_options();
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
@@ -223,41 +224,49 @@ fn execute_offline_line_inner(
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_config_show(&tokens)?;
     } else if command_path_is(&parts, &["config", "paths"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_config_paths(&tokens)?;
     } else if command_path_is(&parts, &["theme", "list"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_list(&tokens)?;
     } else if command_path_is(&parts, &["theme", "show"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_show(&tokens)?;
     } else if command_path_is(&parts, &["theme", "preview"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_theme_preview(&tokens)?;
     } else if command_path_is(&parts, &["auth", "providers"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_auth_providers(&tokens)?;
     } else if command_path_is(&parts, &["metrics"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_metrics(&tokens)?;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
         render_version(&tokens)?;
     } else {
         catalog.resolve_command(&[], &parts)?;
