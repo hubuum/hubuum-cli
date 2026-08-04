@@ -13,7 +13,7 @@ use crate::domain::ObjectAggregateRecord;
 use crate::errors::AppError;
 use crate::list_query::{
     validate_filter_clauses, FilterClause, FilterFieldSpec, FilterOperatorProfile,
-    FilterValueProfile, FilterValueResolver, PagedResult, SortFieldSpec,
+    FilterValueProfile, FilterValueResolver, PageSelection, PagedResult, SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -208,6 +208,7 @@ pub struct ObjectAggregateInput {
     limit: Option<usize>,
     cursor: Option<String>,
     include_total: bool,
+    page_selection: PageSelection,
 }
 
 impl ObjectAggregateInput {
@@ -258,6 +259,7 @@ impl ObjectAggregateInput {
             limit: None,
             cursor: None,
             include_total: false,
+            page_selection: PageSelection::Single,
         })
     }
 
@@ -283,6 +285,11 @@ impl ObjectAggregateInput {
 
     pub fn include_total(mut self, include_total: bool) -> Self {
         self.include_total = include_total;
+        self
+    }
+
+    pub fn page_selection(mut self, page_selection: PageSelection) -> Self {
+        self.page_selection = page_selection;
         self
     }
 
@@ -335,7 +342,11 @@ impl HubuumGateway {
             request = request.cursor(cursor.clone());
         }
 
-        Ok(PagedResult::from_page(request.page()?, Into::into))
+        if matches!(input.page_selection, PageSelection::All) {
+            Ok(PagedResult::from_pages(request.pages())?.map(Into::into))
+        } else {
+            Ok(PagedResult::from_page(request.page()?, Into::into))
+        }
     }
 
     fn resolve_object_aggregate_filters(

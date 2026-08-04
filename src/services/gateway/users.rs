@@ -6,7 +6,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
@@ -112,8 +112,8 @@ impl HubuumGateway {
             query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
 
-        let page = apply_query_paging(query_op, query, &validated_sorts).page()?;
-        Ok(PagedResult::from_page(page, UserRecord::from))
+        let page = fetch_query_results(query_op, query, &validated_sorts)?;
+        Ok(page.map(UserRecord::from))
     }
 
     pub fn delete_user(&self, username: &str) -> Result<(), AppError> {

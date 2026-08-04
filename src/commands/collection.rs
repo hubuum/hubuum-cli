@@ -6,6 +6,7 @@ use strum::IntoEnumIterator;
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
+    PageSelection,
 };
 use crate::catalog::CommandCatalogBuilder;
 
@@ -207,6 +208,12 @@ pub struct CollectionList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for CollectionList {
@@ -236,7 +243,8 @@ impl CliCommand for CollectionList {
             ]
             .into_iter()
             .flatten(),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let collections = services.gateway().list_collections(&list_query)?;
         render_list_page(tokens, &collections)
     }

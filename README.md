@@ -339,6 +339,21 @@ hubuum-cli object list --class Hosts --limit 25 --include-total
 hubuum-cli task list --include-total --output json
 ```
 
+Use `--all` to follow every remaining server cursor and buffer the complete
+result before output pipelines run. `--limit` remains the page size when it is
+combined with `--all`, and `--cursor <token> --all` starts from that cursor. The
+CLI and client enforce automatic-pagination safety limits and reject repeated cursors.
+Because complete results are held in memory, use `--all` deliberately for large
+datasets:
+
+```sh
+hubuum-cli object list --class Hosts --all \| count
+hubuum-cli audit list --cursor eyJpZCI6MTAwfQ --all --output json
+```
+
+If a pipeline is applied to a page that has more results without `--all`, the
+CLI warns that the transformation only covered the current page.
+
 Colored output defaults to terminal-aware `auto` mode and can be controlled per run or via `output.color`:
 
 ```sh

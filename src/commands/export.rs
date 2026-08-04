@@ -8,6 +8,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
 use super::{
     build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
+    PageSelection,
 };
 use crate::autocomplete::{
     classes, collections, export_content_types, export_missing_data_policies, export_scope_kinds,
@@ -122,6 +123,12 @@ pub struct ExportList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ExportList {
@@ -134,7 +141,8 @@ impl CliCommand for ExportList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let exports = services.gateway().list_export_templates(&list_query)?;
         render_list_page(tokens, &exports)
     }

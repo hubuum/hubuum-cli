@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Paginated commands now accept `--all` to fetch and buffer every
+  remaining cursor page before output pipelines run. Pipelines applied without
+  `--all` warn when more server pages are available, and unified streaming
+  search rejects the incompatible `--all --stream` combination.
 - Personal command aliases now accept an optional one-line description. Alias
   lists, root help, and effective-config output use the description instead of
   printing long command pipelines, while `alias show` retains the full command.

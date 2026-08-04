@@ -2,8 +2,9 @@ use chrono::{DateTime, NaiveDateTime};
 use hubuum_client::{
     client::{sync::CursorRequest, sync::QueryOp, Page},
     types::SortDirection,
-    ApiResource, FilterOperator, QueryFilter,
+    ApiError, ApiResource, FilterOperator, QueryFilter,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
@@ -14,7 +15,7 @@ use crate::errors::AppError;
 use crate::formatting::{OutputFormatter, TableRenderable};
 use crate::models::OutputFormat;
 use crate::output::{
-    append_line, append_pipeline_suffix, has_pipeline, pipeline_suppresses_pagination,
+    add_warning, append_line, append_pipeline_suffix, has_pipeline, pipeline_suppresses_pagination,
     set_next_page_command, set_semantic_output, RenderFormat,
 };
 use crate::suggestions::did_you_mean_message;
@@ -22,6 +23,8 @@ use crate::tokenizer::CommandTokenizer;
 use hubuum_filter::OutputEnvelope;
 
 pub const SERVER_MAX_PAGE_SIZE: usize = 250;
+pub(crate) const PARTIAL_PIPELINE_WARNING: &str =
+    "Pipeline applied to the current page only; use --all for all matching results.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerPageSize {
@@ -61,6 +64,26 @@ pub struct ListQuery {
     pub limit: Option<usize>,
     pub cursor: Option<String>,
     pub include_total: bool,
+    #[serde(default)]
+    pub page_selection: PageSelection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PageSelection {
+    #[default]
+    Single,
+    All,
+}
+
+impl PageSelection {
+    pub const fn from_all(all: bool) -> Self {
+        if all {
+            Self::All
+        } else {
+            Self::Single
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,7 +216,16 @@ impl SortDirectionArg {
 }
 
 impl<T> PagedResult<T> {
-    pub fn from_page<U, F>(page: Page<U>, map: F) -> Self
+    pub(crate) fn empty(next_cursor: Option<String>, total_count: Option<u64>) -> Self {
+        Self {
+            items: Vec::new(),
+            next_cursor,
+            returned_count: 0,
+            total_count,
+        }
+    }
+
+    pub(crate) fn from_page<U, F>(page: Page<U>, map: F) -> Self
     where
         F: Fn(U) -> T,
     {
@@ -206,6 +238,52 @@ impl<T> PagedResult<T> {
             returned_count,
             total_count,
         }
+    }
+
+    pub(crate) fn from_pages<I>(pages: I) -> Result<Self, AppError>
+    where
+        I: IntoIterator<Item = Result<Page<T>, ApiError>>,
+    {
+        let mut pages = pages.into_iter();
+        let Some(first_page) = pages.next() else {
+            return Ok(Self::empty(None, None));
+        };
+        let first_page = first_page?;
+        let total_count = first_page.total_count;
+        let mut items = first_page.items;
+        for page in pages {
+            items.extend(page?.items);
+        }
+        let returned_count = items.len();
+        Ok(Self {
+            items,
+            next_cursor: None,
+            returned_count,
+            total_count,
+        })
+    }
+
+    pub(crate) fn map<U, F>(self, map: F) -> PagedResult<U>
+    where
+        F: Fn(T) -> U,
+    {
+        PagedResult {
+            items: self.items.into_iter().map(map).collect(),
+            next_cursor: self.next_cursor,
+            returned_count: self.returned_count,
+            total_count: self.total_count,
+        }
+    }
+}
+
+impl ListQuery {
+    pub(crate) fn page_selection(mut self, page_selection: PageSelection) -> Self {
+        self.page_selection = page_selection;
+        self
+    }
+
+    pub(crate) const fn fetches_all(&self) -> bool {
+        matches!(self.page_selection, PageSelection::All)
     }
 }
 
@@ -229,6 +307,7 @@ pub fn list_query_from_raw(
         limit: limit.map(|requested| ServerPageSize::from_requested(requested).effective()),
         cursor,
         include_total: false,
+        page_selection: PageSelection::Single,
     })
 }
 
@@ -299,6 +378,7 @@ pub fn render_paged_result<T>(
 where
     T: Serialize + Clone + TableRenderable,
 {
+    warn_on_partial_pipeline(paged)?;
     match format {
         OutputFormat::Json => {
             if has_pipeline()? {
@@ -311,6 +391,13 @@ where
             paged.items.format_noreturn()?;
             append_paging_footer(tokens, paged)?;
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn warn_on_partial_pipeline<T>(paged: &PagedResult<T>) -> Result<(), AppError> {
+    if paged.next_cursor.is_some() && has_pipeline()? {
+        add_warning(PARTIAL_PIPELINE_WARNING)?;
     }
     Ok(())
 }
@@ -336,7 +423,7 @@ where
     Ok(())
 }
 
-pub fn apply_query_paging<T>(
+fn apply_query_paging<T>(
     query: QueryOp<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -366,6 +453,22 @@ where
         query.cursor(cursor)
     } else {
         query
+    }
+}
+
+pub(crate) fn fetch_query_results<T>(
+    query: QueryOp<T>,
+    list_query: &ListQuery,
+    sorts: &[ValidatedSortClause],
+) -> Result<PagedResult<T::GetOutput>, AppError>
+where
+    T: ApiResource,
+{
+    let query = apply_query_paging(query, list_query, sorts);
+    if list_query.fetches_all() {
+        PagedResult::from_pages(query.pages())
+    } else {
+        Ok(PagedResult::from_page(query.page()?, |item| item))
     }
 }
 
@@ -467,7 +570,7 @@ pub const fn completion_sort_directions() -> &'static [&'static str] {
     &["asc", "desc"]
 }
 
-pub fn apply_cursor_request_paging<T>(
+fn apply_cursor_request_paging<T>(
     request: CursorRequest<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -494,6 +597,22 @@ pub fn apply_cursor_request_paging<T>(
         request.cursor(cursor)
     } else {
         request
+    }
+}
+
+pub(crate) fn fetch_cursor_results<T>(
+    request: CursorRequest<T>,
+    list_query: &ListQuery,
+    sorts: &[ValidatedSortClause],
+) -> Result<PagedResult<T>, AppError>
+where
+    T: DeserializeOwned,
+{
+    let request = apply_cursor_request_paging(request, list_query, sorts);
+    if list_query.fetches_all() {
+        PagedResult::from_pages(request.pages())
+    } else {
+        Ok(PagedResult::from_page(request.page()?, |item| item))
     }
 }
 
@@ -1368,6 +1487,9 @@ mod tests {
 
         let snapshot = take_output().expect("snapshot should be captured");
         assert!(snapshot.next_page_command.is_none());
+        assert!(snapshot.warnings.iter().any(|warning| warning.contains(
+            "Pipeline applied to the current page only; use --all for all matching results."
+        )));
         assert!(!snapshot
             .lines
             .iter()

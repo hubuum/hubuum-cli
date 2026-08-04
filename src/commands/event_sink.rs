@@ -6,7 +6,7 @@ use serde_json::{from_str, from_value, Value};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
-    CliCommand,
+    CliCommand, PageSelection,
 };
 use crate::autocomplete::{event_sink_kinds, event_sinks};
 use crate::catalog::CommandCatalogBuilder;
@@ -78,6 +78,12 @@ pub struct EventSinkList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for EventSinkList {
@@ -90,7 +96,8 @@ impl CliCommand for EventSinkList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         render_list_page(tokens, &services.gateway().event_sinks(&list_query)?)
     }
 }

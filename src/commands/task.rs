@@ -5,7 +5,7 @@ use serde_json::to_string_pretty;
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, desired_format, normalize_server_page_size, option_or_pos, render_list_page,
-    render_task_record, CliCommand,
+    render_task_record, CliCommand, PageSelection,
 };
 use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
 use crate::catalog::CommandCatalogBuilder;
@@ -116,6 +116,12 @@ pub struct TaskEvents {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for TaskEvents {
@@ -129,7 +135,8 @@ impl CliCommand for TaskEvents {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let events = services.gateway().task_events(
             TaskLookupInput {
                 task_id: query
@@ -182,6 +189,12 @@ pub struct TaskList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for TaskList {
@@ -193,6 +206,7 @@ impl CliCommand for TaskList {
             limit: normalize_server_page_size(query.limit)?,
             cursor: query.cursor,
             include_total: query.include_total.unwrap_or(false),
+            page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
         })?;
         render_list_page(tokens, &tasks)
     }

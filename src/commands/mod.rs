@@ -53,7 +53,7 @@ use crate::{
     formatting::{OutputFormatter, TableRenderable},
     list_query::{
         filter_clause, list_query_from_raw, render_paged_result, FilterClause, ListQuery,
-        PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
+        PageSelection, PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
     },
     models::{OutputFormat, TableHeaders},
     output::{add_warning, append_line},

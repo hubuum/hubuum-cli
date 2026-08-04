@@ -4,8 +4,8 @@ use std::mem::swap;
 use std::slice::from_ref;
 
 use hubuum_client::{
-    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, FilterOperator,
-    Object, ObjectRelation, ObjectWithPath, Page,
+    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, Object,
+    ObjectRelation, ObjectWithPath,
 };
 
 use crate::domain::{
@@ -14,12 +14,15 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, validate_filter_clauses, validate_sort_clauses, FilterClause,
+    fetch_cursor_results, validate_filter_clauses, validate_sort_clauses, FilterClause,
     FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult,
     SortFieldSpec,
 };
 
-use super::{shared::find_entities_by_ids, HubuumGateway};
+use super::{
+    shared::{fetch_entities_for_ids, find_entities_by_ids},
+    HubuumGateway,
+};
 
 #[derive(Debug, Clone)]
 pub struct RelationTarget {
@@ -60,12 +63,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             class.related_classes().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
 
         self.resolve_related_class_page(page, class.resource())
     }
@@ -82,25 +84,17 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             class.related_relations().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_relation_ids(&page.items)?;
-        Ok(PagedResult::from_page(page, |relation| {
-            ResolvedClassRelationRecord::new(&relation, &class_map)
-        }))
+        Ok(page.map(|relation| ResolvedClassRelationRecord::new(&relation, &class_map)))
     }
 
     pub fn related_class_graph(
@@ -197,12 +191,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             object.related_relations().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         self.resolve_object_relation_page(page)
     }
 
@@ -281,7 +274,7 @@ impl HubuumGateway {
         } else {
             request.ignore_classes(ignore_classes)
         };
-        let page = apply_cursor_request_paging(request, query, &validated_sorts).page()?;
+        let page = fetch_cursor_results(request, query, &validated_sorts)?;
         self.resolve_related_object_page(page, object.resource())
     }
 
@@ -388,15 +381,10 @@ impl HubuumGateway {
 
     fn resolve_object_relation_page(
         &self,
-        page: Page<ObjectRelation>,
+        page: PagedResult<ObjectRelation>,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_relation_map = find_entities_by_ids(
@@ -413,7 +401,7 @@ impl HubuumGateway {
         let object_map =
             self.resolve_object_map_from_relations(&page.items, &class_relation_map)?;
 
-        Ok(PagedResult::from_page(page, |relation| {
+        Ok(page.map(|relation| {
             let class_relation = class_relation_map
                 .get(&relation.class_relation_id.into())
                 .expect("class relation should be loaded");
@@ -443,24 +431,10 @@ impl HubuumGateway {
 
         let mut objects = HashMap::new();
         for (class_id, object_ids) in grouped {
-            let joined = object_ids
-                .into_iter()
-                .map(|object_id| object_id.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            for object in self
-                .client
-                .objects(class_id)
-                .query()
-                .filter(
-                    "id",
-                    FilterOperator::Equals { is_negated: false },
-                    joined.clone(),
-                )
-                .list()?
-            {
-                objects.insert(object.id.into(), object);
-            }
+            objects.extend(fetch_entities_for_ids(
+                &self.client.objects(class_id),
+                object_ids,
+            )?);
         }
 
         Ok(objects)
@@ -468,16 +442,11 @@ impl HubuumGateway {
 
     fn resolve_related_object_page(
         &self,
-        page: Page<ObjectWithPath>,
+        page: PagedResult<ObjectWithPath>,
         root_object: &Object,
     ) -> Result<PagedResult<ResolvedRelatedObjectRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_ids(
@@ -501,7 +470,7 @@ impl HubuumGateway {
             .chain(once((root_object.id.into(), root_object.clone())))
             .collect::<HashMap<_, _>>();
 
-        Ok(PagedResult::from_page(page, |object| {
+        Ok(page.map(|object| {
             ResolvedRelatedObjectRecord::new(
                 &object,
                 &class_map,
@@ -517,16 +486,11 @@ impl HubuumGateway {
 
     fn resolve_related_class_page(
         &self,
-        page: Page<ClassWithPath>,
+        page: PagedResult<ClassWithPath>,
         root_class: &Class,
     ) -> Result<PagedResult<ResolvedRelatedClassRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_ids(
@@ -544,7 +508,7 @@ impl HubuumGateway {
                 .collect::<Vec<_>>(),
         )?;
 
-        Ok(PagedResult::from_page(page, |class| {
+        Ok(page.map(|class| {
             ResolvedRelatedClassRecord::new(
                 &class,
                 &collection_map,
@@ -1076,5 +1040,118 @@ fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppErr
         (Some(object_a), Some(object_b)) => Ok((object_a, object_b)),
         (None, _) => Err(AppError::MissingOptions(vec!["object-a".to_string()])),
         (_, None) => Err(AppError::MissingOptions(vec!["object-b".to_string()])),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use hubuum_client::{
+        blocking::Client, ClassRelation, MockTransport, ObjectRelation, Token, TransportResponse,
+    };
+    use reqwest::{
+        header::{HeaderName, HeaderValue},
+        StatusCode,
+    };
+    use serde_json::{from_value, json};
+
+    use super::HubuumGateway;
+
+    #[test]
+    fn object_relation_resolution_chunks_filters_and_follows_pages() {
+        let transport = MockTransport::default();
+        let mut first_page = TransportResponse::json(
+            StatusCode::OK,
+            &json!([object_json(1, "First resolved object")]),
+        )
+        .expect("first object lookup page should serialize");
+        first_page.headers.insert(
+            HeaderName::from_static("x-next-cursor"),
+            HeaderValue::from_static("lookup-page-2"),
+        );
+        transport.push_response(first_page);
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([object_json(101, "Second resolved object")]),
+            )
+            .expect("second object lookup page should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &json!([]))
+                .expect("second object lookup chunk should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should be valid")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+        let class_relation: ClassRelation = from_value(json!({
+            "id": 7,
+            "from_hubuum_class_id": 42,
+            "to_hubuum_class_id": 42,
+            "forward_template_alias": null,
+            "reverse_template_alias": null,
+            "created_at": "2026-07-25T12:00:00Z",
+            "updated_at": "2026-07-25T12:00:00Z"
+        }))
+        .expect("class relation should deserialize");
+        let class_relation_map = HashMap::from([(7, class_relation)]);
+        let relations = (1..=26)
+            .map(|id| {
+                from_value::<ObjectRelation>(json!({
+                    "id": id,
+                    "from_hubuum_object_id": id,
+                    "to_hubuum_object_id": id + 100,
+                    "class_relation_id": 7,
+                    "created_at": "2026-07-25T12:00:00Z",
+                    "updated_at": "2026-07-25T12:00:00Z"
+                }))
+                .expect("object relation should deserialize")
+            })
+            .collect::<Vec<_>>();
+
+        let objects = gateway
+            .resolve_object_map_from_relations(&relations, &class_relation_map)
+            .expect("all relation object names should resolve");
+
+        assert_eq!(
+            objects.get(&1).map(|object| object.name.as_str()),
+            Some("First resolved object")
+        );
+        assert_eq!(
+            objects.get(&101).map(|object| object.name.as_str()),
+            Some("Second resolved object")
+        );
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "lookup-page-2"));
+        assert!(requests.iter().all(|request| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "id__equals")
+                .is_some_and(|(_, value)| value.split(',').count() <= 50)
+        }));
+    }
+
+    fn object_json(id: i32, name: &str) -> serde_json::Value {
+        json!({
+            "id": id,
+            "name": name,
+            "collection_id": 1,
+            "hubuum_class_id": 42,
+            "description": "",
+            "data": null,
+            "created_at": "2026-07-25T12:00:00Z",
+            "updated_at": "2026-07-25T12:00:00Z"
+        })
     }
 }

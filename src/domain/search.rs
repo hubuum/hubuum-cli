@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ClassRecord, CollectionRecord, ResolvedObjectRecord};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SearchCursorSet {
     pub collections: Option<String>,
     pub classes: Option<String>,
@@ -13,6 +13,18 @@ impl SearchCursorSet {
     pub fn is_empty(&self) -> bool {
         self.collections.is_none() && self.classes.is_none() && self.objects.is_none()
     }
+
+    pub(crate) fn retain_active(&mut self, active: &Self) {
+        if active.collections.is_none() {
+            self.collections = None;
+        }
+        if active.classes.is_none() {
+            self.classes = None;
+        }
+        if active.objects.is_none() {
+            self.objects = None;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -20,6 +32,18 @@ pub struct SearchResultsRecord {
     pub collections: Vec<CollectionRecord>,
     pub classes: Vec<ClassRecord>,
     pub objects: Vec<ResolvedObjectRecord>,
+}
+
+impl SearchResultsRecord {
+    pub fn item_count(&self) -> usize {
+        self.collections.len() + self.classes.len() + self.objects.len()
+    }
+
+    pub fn extend(&mut self, other: Self) {
+        self.collections.extend(other.collections);
+        self.classes.extend(other.classes);
+        self.objects.extend(other.objects);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

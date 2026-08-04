@@ -15,7 +15,7 @@ use crate::tokenizer::CommandTokenizer;
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand,
+    CliCommand, PageSelection,
 };
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -198,6 +198,12 @@ pub struct ServiceAccountList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ServiceAccountList {
@@ -217,7 +223,8 @@ impl CliCommand for ServiceAccountList {
             ]
             .into_iter()
             .flatten(),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
 
         let service_accounts = services.gateway().list_service_accounts(&list_query)?;
         render_list_page(tokens, &service_accounts)

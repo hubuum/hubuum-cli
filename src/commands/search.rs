@@ -13,8 +13,9 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::formatting::{append_json, OutputFormatter, TableRenderable};
+use crate::list_query::PARTIAL_PIPELINE_WARNING;
 use crate::models::OutputFormat;
-use crate::output::{add_error, append_line, set_next_page_command};
+use crate::output::{add_error, add_warning, append_line, has_pipeline, set_next_page_command};
 use crate::services::{AppServices, SearchInput, SearchKind};
 use crate::tokenizer::CommandTokenizer;
 
@@ -88,6 +89,12 @@ pub struct SearchCommand {
         flag = "true"
     )]
     pub stream: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for SearchCommand {
@@ -99,6 +106,9 @@ impl CliCommand for SearchCommand {
             .query
             .clone()
             .ok_or_else(|| AppError::MissingOptions(vec!["query".to_string()]))?;
+        let fetch_all = query.all.unwrap_or(false);
+        let stream = query.stream.unwrap_or(false);
+        validate_search_mode(fetch_all, stream)?;
 
         let input = SearchInput {
             query: query_string,
@@ -111,14 +121,27 @@ impl CliCommand for SearchCommand {
             search_object_data: query.search_object_data.unwrap_or(false),
         };
 
-        if query.stream.unwrap_or(false) {
+        if stream {
             let events = services.gateway().search_stream(&input)?;
             render_search_stream(tokens, &events)
         } else {
-            let response = services.gateway().search(&input)?;
+            let response = if fetch_all {
+                services.gateway().search_all(&input)?
+            } else {
+                services.gateway().search(&input)?
+            };
             render_search_response(tokens, &response)
         }
     }
+}
+
+fn validate_search_mode(fetch_all: bool, stream: bool) -> Result<(), AppError> {
+    if fetch_all && stream {
+        return Err(AppError::InvalidOption(
+            "--all cannot be combined with --stream".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn render_search_response(
@@ -127,7 +150,7 @@ fn render_search_response(
 ) -> Result<(), AppError> {
     if matches!(desired_format(tokens), OutputFormat::Json) {
         append_json(response)?;
-        return apply_next_page_state(tokens, &response.next, false);
+        return apply_next_page_state(tokens, &response.next, false, true);
     }
 
     append_line(format!("Query: {}", response.query))?;
@@ -139,7 +162,7 @@ fn render_search_response(
         response.results.objects.len()
     ))?;
 
-    apply_next_page_state(tokens, &response.next, true)
+    apply_next_page_state(tokens, &response.next, true, true)
 }
 
 fn render_search_stream(
@@ -149,7 +172,7 @@ fn render_search_stream(
     if matches!(desired_format(tokens), OutputFormat::Json) {
         append_json(events)?;
         let next = next_from_stream(events);
-        return apply_next_page_state(tokens, &next, false);
+        return apply_next_page_state(tokens, &next, false, false);
     }
 
     let mut started_query: Option<String> = None;
@@ -182,7 +205,7 @@ fn render_search_stream(
     }
 
     let next = next_from_stream(events);
-    apply_next_page_state(tokens, &next, true)
+    apply_next_page_state(tokens, &next, true, false)
 }
 
 fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> {
@@ -247,9 +270,19 @@ fn apply_next_page_state(
     tokens: &CommandTokenizer,
     next: &SearchCursorSet,
     notify: bool,
+    supports_all: bool,
 ) -> Result<(), AppError> {
     if next.is_empty() {
         return Ok(());
+    }
+
+    if has_pipeline()? {
+        let warning = if supports_all {
+            PARTIAL_PIPELINE_WARNING
+        } else {
+            "Pipeline applied to the current streaming page only; --all cannot be combined with --stream."
+        };
+        add_warning(warning)?;
     }
 
     let next_command = next_cursor_command(tokens, next);
@@ -290,7 +323,7 @@ fn next_cursor_command(tokens: &CommandTokenizer, next: &SearchCursorSet) -> Str
 
 #[cfg(test)]
 mod tests {
-    use super::{next_cursor_command, SearchCommand};
+    use super::{next_cursor_command, validate_search_mode, SearchCommand};
     use crate::commands::{command_options, option_or_pos};
     use crate::domain::SearchCursorSet;
     use crate::services::SearchKind;
@@ -347,5 +380,25 @@ mod tests {
             parsed.kinds,
             vec![SearchKind::Collection, SearchKind::Object]
         );
+    }
+
+    #[test]
+    fn parse_tokens_accepts_all_pages_flag() {
+        let tokens = CommandTokenizer::new(
+            "search server --all",
+            "search",
+            &command_options::<SearchCommand>(),
+        )
+        .expect("tokenization should succeed");
+
+        let parsed = SearchCommand::parse_tokens(&tokens).expect("parse should succeed");
+        assert_eq!(parsed.all, Some(true));
+    }
+
+    #[test]
+    fn all_pages_rejects_streaming_search() {
+        let error = validate_search_mode(true, true).expect_err("modes should conflict");
+        assert!(error.to_string().contains("--all"));
+        assert!(error.to_string().contains("--stream"));
     }
 }
