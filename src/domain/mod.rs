@@ -45,8 +45,8 @@ pub use collections::{
     GroupPermissionsSummary,
 };
 pub use command_aliases::{
-    alias_name_shadows_command, expand_command_aliases, CommandAliasName, CommandAliasTarget,
-    CommandAliases,
+    alias_name_shadows_command, expand_command_aliases, CommandAliasDescription, CommandAliasName,
+    CommandAliasTarget, CommandAliases,
 };
 pub use computed::{
     ClassComputationStateRecord, ComputedFieldDeleteRecord, ComputedFieldMutationRecord,

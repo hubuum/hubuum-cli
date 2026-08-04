@@ -15,7 +15,9 @@ use toml::map::Map as TomlMap;
 use toml::{from_str as parse_toml, to_string_pretty as format_toml, Value as TomlValue};
 
 use crate::defaults::Defaults;
-use crate::domain::{CommandAliasName, CommandAliasTarget, CommandAliases, ComputedFieldSet};
+use crate::domain::{
+    CommandAliasDescription, CommandAliasName, CommandAliasTarget, CommandAliases, ComputedFieldSet,
+};
 use crate::errors::AppError;
 use crate::files::{get_system_config_path, get_user_config_path};
 use crate::models::{
@@ -73,6 +75,8 @@ pub struct ConfigPaths {
 pub struct ConfigEntry {
     pub key: String,
     pub value: String,
+    #[serde(skip)]
+    pub display_value: String,
     pub source: ConfigSource,
     pub source_detail: Option<String>,
     pub sensitive: bool,
@@ -687,7 +691,11 @@ fn inspect_config_state_inner(
             let (source, source_detail) = resolve_config_source(descriptor, &resolution_context);
             ConfigEntry {
                 key: descriptor.key.to_string(),
-                value: display_config_value(
+                value: serialize_config_value(
+                    config_value(config, descriptor.key),
+                    descriptor.sensitive,
+                ),
+                display_value: display_config_value(
                     config_value(config, descriptor.key),
                     descriptor.sensitive,
                 ),
@@ -711,7 +719,8 @@ fn inspect_config_state_inner(
 
 pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> {
     if let Some(alias_name) = command_alias_key(key)? {
-        return set_persisted_command_alias(&alias_name, value);
+        let target = CommandAliasTarget::new(value)?;
+        return persist_command_alias(&alias_name, &target, None);
     }
     if let Some(class_name) = object_list_class_columns_key(key) {
         return set_persisted_object_list_class_columns(class_name, value);
@@ -1161,7 +1170,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
 
 fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
     match key {
-        "aliases" => ConfigValueRef::StringMap(&config.aliases),
+        "aliases" => ConfigValueRef::CommandAliases(&config.aliases),
         "server.hostname" => ConfigValueRef::String(&config.server.hostname),
         "server.port" => ConfigValueRef::U16(config.server.port),
         "server.ssl_validation" => ConfigValueRef::Bool(config.server.ssl_validation),
@@ -1232,7 +1241,7 @@ enum ConfigValueRef<'a> {
     TableBands(&'a TableBands),
     EmptyResult(&'a EmptyResult),
     ObjectListDataColumns(&'a ObjectListDataColumns),
-    StringMap(&'a CommandAliases),
+    CommandAliases(&'a CommandAliases),
     StringListMap(&'a HashMap<String, Vec<String>>),
     StringNestedListMap(&'a HashMap<String, HashMap<String, Vec<String>>>),
     ComputedFieldSetMap(&'a HashMap<String, ComputedFieldSet>),
@@ -1270,13 +1279,115 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::TableBands(value) => value.to_string(),
         ConfigValueRef::EmptyResult(value) => value.to_string(),
         ConfigValueRef::ObjectListDataColumns(value) => value.to_string(),
-        ConfigValueRef::StringMap(value) => {
-            to_json_string(&value.iter().collect::<BTreeMap<_, _>>()).unwrap_or_default()
-        }
+        ConfigValueRef::CommandAliases(value) => format_command_aliases(value),
+        ConfigValueRef::StringListMap(value) => format_string_list_map(value),
+        ConfigValueRef::StringNestedListMap(value) => format_string_nested_list_map(value),
+        ConfigValueRef::ComputedFieldSetMap(value) => format_computed_field_set_map(value),
+    }
+}
+
+fn serialize_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
+    if sensitive {
+        return display_config_value(value, true);
+    }
+
+    match value {
+        ConfigValueRef::CommandAliases(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::ComputedFieldSetMap(value) => to_json_string(value).unwrap_or_default(),
+        value => display_config_value(value, sensitive),
     }
+}
+
+fn format_command_aliases(aliases: &CommandAliases) -> String {
+    if aliases.is_empty() {
+        return "{}".to_string();
+    }
+
+    aliases
+        .names()
+        .map(|name| {
+            format!(
+                "{name}: {}",
+                aliases.description(name).unwrap_or("<no description>")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_string_list_map(values: &HashMap<String, Vec<String>>) -> String {
+    let values = values.iter().collect::<BTreeMap<_, _>>();
+    format_list_map(values.into_iter().map(|(name, items)| {
+        (
+            name.as_str(),
+            items.iter().map(String::as_str).collect::<Vec<_>>(),
+        )
+    }))
+}
+
+fn format_computed_field_set_map(values: &HashMap<String, ComputedFieldSet>) -> String {
+    let values = values.iter().collect::<BTreeMap<_, _>>();
+    format_list_map(values.into_iter().map(|(name, fields)| {
+        (
+            name.as_str(),
+            fields
+                .selectors()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        )
+    }))
+}
+
+fn format_list_map<'a, T, I>(values: I) -> String
+where
+    T: AsRef<str>,
+    I: IntoIterator<Item = (&'a str, Vec<T>)>,
+{
+    let mut lines = Vec::new();
+    for (name, items) in values {
+        if items.is_empty() {
+            lines.push(format!("{name}: []"));
+            continue;
+        }
+        lines.push(format!("{name}:"));
+        lines.extend(
+            items
+                .into_iter()
+                .map(|item| format!("  - {}", item.as_ref())),
+        );
+    }
+    if lines.is_empty() {
+        "{}".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn format_string_nested_list_map(values: &HashMap<String, HashMap<String, Vec<String>>>) -> String {
+    if values.is_empty() {
+        return "{}".to_string();
+    }
+
+    let mut lines = Vec::new();
+    for (name, nested) in values.iter().collect::<BTreeMap<_, _>>() {
+        if nested.is_empty() {
+            lines.push(format!("{name}: {{}}"));
+            continue;
+        }
+        lines.push(format!("{name}:"));
+        for (nested_name, items) in nested.iter().collect::<BTreeMap<_, _>>() {
+            if items.is_empty() {
+                lines.push(format!("  {nested_name}: []"));
+                continue;
+            }
+            lines.push(format!("  {nested_name}:"));
+            lines.extend(items.iter().map(|item| format!("    - {item}")));
+        }
+    }
+    lines.join("\n")
 }
 
 fn read_toml_file(path: &Path) -> Option<TomlValue> {
@@ -1439,17 +1550,30 @@ fn command_alias_key(key: &str) -> Result<Option<CommandAliasName>, AppError> {
     Ok(Some(CommandAliasName::new(name)?))
 }
 
-fn set_persisted_command_alias(
+pub fn persist_command_alias(
     alias_name: &CommandAliasName,
-    value: &str,
+    target: &CommandAliasTarget,
+    description: Option<&CommandAliasDescription>,
 ) -> Result<PathBuf, AppError> {
-    let target = CommandAliasTarget::new(value)?;
     let path = get_config_state().paths.write_target.clone();
     let mut root = read_toml_file_for_update(&path)?;
+    let value = match description {
+        Some(description) => TomlValue::Table(TomlMap::from_iter([
+            (
+                "command".to_string(),
+                TomlValue::String(target.as_str().to_string()),
+            ),
+            (
+                "description".to_string(),
+                TomlValue::String(description.as_str().to_string()),
+            ),
+        ])),
+        None => TomlValue::String(target.as_str().to_string()),
+    };
     set_toml_path(
         &mut root,
         &format!("aliases.{}", alias_name.as_str()),
-        TomlValue::String(target.as_str().to_string()),
+        value,
     )?;
     write_toml_file(&path, &root)?;
     Ok(path)
@@ -1771,6 +1895,119 @@ Hosts = ["contact", "jack", "data.name"]
     }
 
     #[test]
+    fn structured_config_values_render_as_sorted_indented_trees() {
+        let columns = HashMap::from([
+            ("Services".to_string(), vec!["Name".to_string()]),
+            (
+                "Hosts".to_string(),
+                vec![
+                    "data.facts.network.default_ipv4.address".to_string(),
+                    "data.facts.network.default_ipv6.address".to_string(),
+                ],
+            ),
+        ]);
+        assert_eq!(
+            display_config_value(ConfigValueRef::StringListMap(&columns), false),
+            "Hosts:\n  - data.facts.network.default_ipv4.address\n  - data.facts.network.default_ipv6.address\nServices:\n  - Name"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&serialize_config_value(
+                ConfigValueRef::StringListMap(&columns),
+                false,
+            ))
+            .expect("serialized columns should remain JSON"),
+            serde_json::json!({
+                "Hosts": [
+                    "data.facts.network.default_ipv4.address",
+                    "data.facts.network.default_ipv6.address"
+                ],
+                "Services": ["Name"]
+            })
+        );
+
+        let aliases = HashMap::from([(
+            "Hosts".to_string(),
+            HashMap::from([
+                (
+                    "os_version".to_string(),
+                    vec!["data.facts.operating_system.version".to_string()],
+                ),
+                (
+                    "IP".to_string(),
+                    vec![
+                        "data.facts.network.default_ipv4.address".to_string(),
+                        "data.facts.network.default_ipv6.address".to_string(),
+                    ],
+                ),
+            ]),
+        )]);
+        assert_eq!(
+            display_config_value(ConfigValueRef::StringNestedListMap(&aliases), false),
+            "Hosts:\n  IP:\n    - data.facts.network.default_ipv4.address\n    - data.facts.network.default_ipv6.address\n  os_version:\n    - data.facts.operating_system.version"
+        );
+    }
+
+    #[test]
+    fn command_alias_config_value_uses_descriptions_instead_of_commands() {
+        let aliases: CommandAliases = serde_json::from_value(serde_json::json!({
+            "hosts": "object list --class Hosts | P Name",
+            "outdated-kernels": {
+                "command": "object list --class Hosts | JQ 'a very long filter'",
+                "description": "Find hosts running an outdated kernel"
+            }
+        }))
+        .expect("aliases should deserialize");
+
+        assert_eq!(
+            display_config_value(ConfigValueRef::CommandAliases(&aliases), false),
+            "hosts: <no description>\noutdated-kernels: Find hosts running an outdated kernel"
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&serialize_config_value(
+                ConfigValueRef::CommandAliases(&aliases),
+                false,
+            ))
+            .expect("serialized aliases should remain JSON"),
+            serde_json::json!({
+                "hosts": "object list --class Hosts | P Name",
+                "outdated-kernels": {
+                    "command": "object list --class Hosts | JQ 'a very long filter'",
+                    "description": "Find hosts running an outdated kernel"
+                }
+            })
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn described_command_aliases_load_from_toml() {
+        clear_env();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        write(
+            &path,
+            r#"
+[aliases.outdated-kernels]
+command = "object list --class Hosts | C"
+description = "Find hosts running an outdated kernel"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(Some(path)).expect("load config");
+
+        assert_eq!(
+            cfg.aliases.get("outdated-kernels"),
+            Some("object list --class Hosts | C")
+        );
+        assert_eq!(
+            cfg.aliases.description("outdated-kernels"),
+            Some("Find hosts running an outdated kernel")
+        );
+        clear_env();
+    }
+
+    #[test]
     #[serial]
     fn table_headers_none_can_be_persisted() {
         clear_env();
@@ -1917,6 +2154,11 @@ Hosts = ["all", "S:os_version"]
         clear_env();
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("config.toml");
+        let inherited_alias = load_config(None)
+            .expect("inherited config should load")
+            .aliases
+            .get("outdated-kernels")
+            .map(str::to_string);
         init_config_state(ConfigState {
             paths: ConfigPaths {
                 system: dir.path().join("system.toml"),
@@ -1936,11 +2178,32 @@ Hosts = ["all", "S:os_version"]
             Some("object list | C")
         );
 
+        let name = CommandAliasName::new("outdated-kernels").expect("valid alias name");
+        let target =
+            CommandAliasTarget::new("object list --class Hosts | C").expect("valid alias command");
+        let description = CommandAliasDescription::new("Find hosts running an outdated kernel")
+            .expect("valid alias description");
+        persist_command_alias(&name, &target, Some(&description))
+            .expect("described command alias should persist");
+        let configured = load_config(Some(path.clone())).expect("persisted config should load");
+        assert_eq!(
+            configured.aliases.get("outdated-kernels"),
+            Some("object list --class Hosts | C")
+        );
+        assert_eq!(
+            configured.aliases.description("outdated-kernels"),
+            Some("Find hosts running an outdated kernel")
+        );
+
         unset_persisted_value("aliases.outdated-kernels").expect("command alias should be removed");
         let persisted = read_to_string(&path).expect("updated config should be readable");
         let root = parse_toml(&persisted).expect("updated config should remain valid TOML");
         assert!(toml_get(&root, "aliases.outdated-kernels").is_none());
-        load_config(Some(path)).expect("updated config should load with inherited aliases");
+        let configured = load_config(Some(path)).expect("updated config should load");
+        assert_eq!(
+            configured.aliases.get("outdated-kernels"),
+            inherited_alias.as_deref()
+        );
         clear_env();
     }
 

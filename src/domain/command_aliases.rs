@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::ser::SerializeStruct as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::catalog::CommandCatalog;
 use crate::errors::AppError;
@@ -10,17 +11,72 @@ const RESERVED_COMMANDS: &[&str] = &["..", "?", "exit", "next", "quit"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
-pub struct CommandAliases(BTreeMap<String, String>);
+pub struct CommandAliases(BTreeMap<String, CommandAliasEntry>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommandAliasEntry {
+    command: String,
+    description: Option<String>,
+}
+
+impl Serialize for CommandAliasEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let Some(description) = &self.description else {
+            return serializer.serialize_str(&self.command);
+        };
+
+        let mut value = serializer.serialize_struct("CommandAlias", 2)?;
+        value.serialize_field("command", &self.command)?;
+        value.serialize_field("description", description)?;
+        value.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CommandAliasEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StoredAlias {
+            Command(String),
+            Described {
+                command: String,
+                description: String,
+            },
+        }
+
+        let (command, description) = match StoredAlias::deserialize(deserializer)? {
+            StoredAlias::Command(command) => (command, None),
+            StoredAlias::Described {
+                command,
+                description,
+            } => (command, Some(description)),
+        };
+        let command = CommandAliasTarget::new(command).map_err(D::Error::custom)?;
+        let description = description
+            .map(CommandAliasDescription::new)
+            .transpose()
+            .map_err(D::Error::custom)?;
+        Ok(Self {
+            command: command.0,
+            description: description.map(|description| description.0),
+        })
+    }
+}
 
 impl<'de> Deserialize<'de> for CommandAliases {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let aliases = BTreeMap::<String, String>::deserialize(deserializer)?;
-        for (name, target) in &aliases {
+        let aliases = BTreeMap::<String, CommandAliasEntry>::deserialize(deserializer)?;
+        for name in aliases.keys() {
             CommandAliasName::new(name.clone()).map_err(D::Error::custom)?;
-            CommandAliasTarget::new(target.clone()).map_err(D::Error::custom)?;
         }
         Ok(Self(aliases))
     }
@@ -28,13 +84,19 @@ impl<'de> Deserialize<'de> for CommandAliases {
 
 impl CommandAliases {
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.0.get(name).map(String::as_str)
+        self.0.get(name).map(|alias| alias.command.as_str())
+    }
+
+    pub fn description(&self, name: &str) -> Option<&str> {
+        self.0
+            .get(name)
+            .and_then(|alias| alias.description.as_deref())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
         self.0
             .iter()
-            .map(|(name, command)| (name.as_str(), command.as_str()))
+            .map(|(name, alias)| (name.as_str(), alias.command.as_str()))
     }
 
     pub fn names(&self) -> impl Iterator<Item = &str> {
@@ -88,6 +150,31 @@ impl CommandAliasTarget {
         if value.contains(['\n', '\r']) {
             return Err(AppError::InvalidOption(
                 "alias command must contain exactly one logical command line".to_string(),
+            ));
+        }
+        Ok(Self(value.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandAliasDescription(String);
+
+impl CommandAliasDescription {
+    pub fn new(value: impl Into<String>) -> Result<Self, AppError> {
+        let value = value.into();
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(AppError::InvalidOption(
+                "alias description cannot be empty".to_string(),
+            ));
+        }
+        if value.contains(['\n', '\r']) {
+            return Err(AppError::InvalidOption(
+                "alias description must fit on one logical line".to_string(),
             ));
         }
         Ok(Self(value.to_string()))
@@ -169,15 +256,22 @@ fn first_word_and_suffix(line: &str) -> Option<(&str, &str)> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{expand_command_aliases, CommandAliasName, CommandAliasTarget, CommandAliases};
+    use super::{
+        expand_command_aliases, CommandAliasDescription, CommandAliasEntry, CommandAliasName,
+        CommandAliasTarget, CommandAliases,
+    };
     use crate::commands::build_command_catalog;
 
     fn aliases(values: &[(&str, &str)]) -> CommandAliases {
-        CommandAliases(BTreeMap::from_iter(
-            values
-                .iter()
-                .map(|(name, command)| ((*name).to_string(), (*command).to_string())),
-        ))
+        CommandAliases(BTreeMap::from_iter(values.iter().map(|(name, command)| {
+            (
+                (*name).to_string(),
+                CommandAliasEntry {
+                    command: (*command).to_string(),
+                    description: None,
+                },
+            )
+        })))
     }
 
     #[test]
@@ -202,6 +296,18 @@ mod tests {
     }
 
     #[test]
+    fn alias_descriptions_are_trimmed_nonempty_logical_lines() {
+        assert_eq!(
+            CommandAliasDescription::new("  Find outdated kernels  ")
+                .expect("description should validate")
+                .as_str(),
+            "Find outdated kernels"
+        );
+        assert!(CommandAliasDescription::new(" ").is_err());
+        assert!(CommandAliasDescription::new("first\nsecond").is_err());
+    }
+
+    #[test]
     fn deserialization_preserves_alias_invariants() {
         assert!(serde_json::from_value::<CommandAliases>(serde_json::json!({
             "outdated-kernels": "object list | C"
@@ -215,6 +321,35 @@ mod tests {
             "valid": "help\nversion"
         }))
         .is_err());
+    }
+
+    #[test]
+    fn described_aliases_round_trip_with_legacy_string_aliases() {
+        let aliases = serde_json::from_value::<CommandAliases>(serde_json::json!({
+            "hosts": "object list --class Hosts",
+            "outdated-kernels": {
+                "command": "object list --class Hosts | JQ '...'",
+                "description": "Find hosts running an outdated kernel"
+            }
+        }))
+        .expect("mixed alias formats should deserialize");
+
+        assert_eq!(aliases.get("hosts"), Some("object list --class Hosts"));
+        assert_eq!(aliases.description("hosts"), None);
+        assert_eq!(
+            aliases.description("outdated-kernels"),
+            Some("Find hosts running an outdated kernel")
+        );
+        assert_eq!(
+            serde_json::to_value(&aliases).expect("aliases should serialize"),
+            serde_json::json!({
+                "hosts": "object list --class Hosts",
+                "outdated-kernels": {
+                    "command": "object list --class Hosts | JQ '...'",
+                    "description": "Find hosts running an outdated kernel"
+                }
+            })
+        );
     }
 
     #[test]

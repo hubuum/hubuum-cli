@@ -647,30 +647,41 @@ fn render_dense_rows(
     columns: &[String],
     table_headers: TableHeaders,
 ) -> Vec<String> {
-    render_dense_rows_with_band(rows, columns, table_headers, apply_row_band)
+    let config = get_config();
+    render_dense_rows_with_band(
+        rows,
+        columns,
+        table_headers,
+        DenseLayout::new(
+            &config.output.table_width,
+            &config.output.table_wrap,
+            terminal_width(),
+        ),
+        apply_row_band,
+    )
 }
 
 fn render_dense_rows_with_band(
     rows: &[Value],
     columns: &[String],
     table_headers: TableHeaders,
+    layout: DenseLayout<'_>,
     mut band_row: impl FnMut(usize, String) -> String,
 ) -> Vec<String> {
     let headers = column_headers(columns, rows, table_headers);
-    let widths = dense_widths(rows, columns, &headers);
+    let widths = dense_widths(rows, columns, &headers, layout);
     let mut lines = render_dense_headers(&headers, &widths);
     lines.reserve(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        let line = render_dense_line(
-            columns
-                .iter()
-                .map(|column| cell_text(row.get(column)))
-                .collect::<Vec<_>>()
-                .iter()
-                .map(String::as_str),
-            &widths,
+        let cells = columns
+            .iter()
+            .map(|column| cell_text(row.get(column)))
+            .collect::<Vec<_>>();
+        lines.extend(
+            render_dense_cells(&cells, &widths)
+                .into_iter()
+                .map(|line| band_row(index, line)),
         );
-        lines.push(band_row(index, line));
     }
     lines
 }
@@ -688,10 +699,16 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
         "status".to_string(),
     ];
 
+    let config = get_config();
     render_dense_rows_with_band(
         &rows,
         &columns,
-        get_config().output.table_headers,
+        config.output.table_headers,
+        DenseLayout::new(
+            &config.output.table_width,
+            &config.output.table_wrap,
+            terminal_width(),
+        ),
         |index, line| {
             if index.is_multiple_of(2) {
                 paint_theme(theme, ThemeRole::TableBand, line)
@@ -702,42 +719,120 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
     )
 }
 
-fn dense_widths(rows: &[Value], columns: &[String], headers: &[String]) -> Vec<usize> {
-    columns
+#[derive(Clone, Copy)]
+struct DenseLayout<'a> {
+    width: &'a TableWidth,
+    wrap: &'a TableWrap,
+    terminal_width: Option<usize>,
+}
+
+impl<'a> DenseLayout<'a> {
+    fn new(width: &'a TableWidth, wrap: &'a TableWrap, terminal_width: Option<usize>) -> Self {
+        Self {
+            width,
+            wrap,
+            terminal_width,
+        }
+    }
+
+    fn constrain(self, widths: &mut [usize]) {
+        match self.wrap {
+            TableWrap::Never => return,
+            TableWrap::Auto => {}
+            TableWrap::Fixed(width) => {
+                let cell_width = usize::from(*width).max(1);
+                for width in widths.iter_mut() {
+                    *width = (*width).min(cell_width);
+                }
+            }
+        }
+
+        let table_width = match self.width {
+            TableWidth::Auto | TableWidth::Full => self.terminal_width,
+            TableWidth::Fixed(width) => Some(usize::from(*width)),
+        };
+        if let Some(table_width) = table_width {
+            constrain_dense_widths(widths, table_width);
+        }
+    }
+}
+
+fn dense_widths(
+    rows: &[Value],
+    columns: &[String],
+    headers: &[String],
+    layout: DenseLayout<'_>,
+) -> Vec<usize> {
+    let mut widths = columns
         .iter()
         .enumerate()
         .map(|(index, column)| {
             rows.iter()
-                .map(|row| cell_text(row.get(column)).len())
+                .map(|row| dense_text_width(&cell_text(row.get(column))))
                 .chain(once(
                     headers
                         .get(index)
-                        .map(|header| header.lines().map(str::len).max().unwrap_or_default())
+                        .map(|header| dense_text_width(header))
                         .unwrap_or_default(),
                 ))
                 .max()
                 .unwrap_or_default()
         })
-        .collect()
+        .collect::<Vec<_>>();
+    layout.constrain(&mut widths);
+    widths
+}
+
+fn dense_text_width(value: &str) -> usize {
+    value
+        .lines()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or_default()
+}
+
+fn constrain_dense_widths(widths: &mut [usize], table_width: usize) {
+    if widths.is_empty() {
+        return;
+    }
+    let separator_width = 3_usize.saturating_mul(widths.len().saturating_sub(1));
+    let available = table_width
+        .saturating_sub(separator_width)
+        .max(widths.len());
+    let mut excess = widths.iter().sum::<usize>().saturating_sub(available);
+
+    while excess > 0 {
+        let widest = widths.iter().copied().max().unwrap_or(1);
+        if widest <= 1 {
+            break;
+        }
+        let next_widest = widths
+            .iter()
+            .copied()
+            .filter(|width| *width < widest)
+            .max()
+            .unwrap_or(1);
+        let widest_columns = widths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, width)| (*width == widest).then_some(index))
+            .collect::<Vec<_>>();
+        let reducible = (widest - next_widest).saturating_mul(widest_columns.len());
+        let reduction = excess.min(reducible);
+        if reduction == 0 {
+            break;
+        }
+        let reduction_per_column = reduction / widest_columns.len();
+        let remainder = reduction % widest_columns.len();
+        for (position, index) in widest_columns.into_iter().enumerate() {
+            widths[index] -= reduction_per_column + usize::from(position < remainder);
+        }
+        excess -= reduction;
+    }
 }
 
 fn render_dense_headers(headers: &[String], widths: &[usize]) -> Vec<String> {
-    let header_lines = headers
-        .iter()
-        .map(|header| header.lines().collect::<Vec<_>>())
-        .collect::<Vec<_>>();
-    let height = header_lines.iter().map(Vec::len).max().unwrap_or_default();
-
-    (0..height)
-        .map(|line| {
-            render_dense_line(
-                header_lines
-                    .iter()
-                    .map(|header| header.get(line).copied().unwrap_or_default()),
-                widths,
-            )
-        })
-        .collect()
+    render_dense_cells(headers, widths)
 }
 
 fn column_headers(columns: &[String], rows: &[Value], table_headers: TableHeaders) -> Vec<String> {
@@ -831,11 +926,64 @@ fn column_header(column: &str) -> String {
     column.strip_prefix("data.").unwrap_or(column).to_string()
 }
 
+fn render_dense_cells(values: &[String], widths: &[usize]) -> Vec<String> {
+    let wrapped = values
+        .iter()
+        .zip(widths)
+        .map(|(value, width)| wrap_dense_cell(value, *width))
+        .collect::<Vec<_>>();
+    let height = wrapped.iter().map(Vec::len).max().unwrap_or_default();
+
+    (0..height)
+        .map(|line| {
+            render_dense_line(
+                wrapped
+                    .iter()
+                    .map(|cell| cell.get(line).map(String::as_str).unwrap_or_default()),
+                widths,
+            )
+        })
+        .collect()
+}
+
+fn wrap_dense_cell(value: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    value
+        .split('\n')
+        .flat_map(|source_line| {
+            let mut lines = Vec::new();
+            let mut remaining = source_line.trim_start();
+            while remaining.chars().count() > width {
+                let hard_end = remaining
+                    .char_indices()
+                    .nth(width)
+                    .map(|(index, _)| index)
+                    .unwrap_or(remaining.len());
+                let prefix = &remaining[..hard_end];
+                let split_at = prefix
+                    .char_indices()
+                    .rev()
+                    .find_map(|(index, character)| {
+                        (index > 0 && character.is_whitespace()).then_some(index)
+                    })
+                    .unwrap_or(hard_end);
+                lines.push(remaining[..split_at].trim_end().to_string());
+                remaining = remaining[split_at..].trim_start();
+            }
+            lines.push(remaining.to_string());
+            lines
+        })
+        .collect()
+}
+
 fn render_dense_line<'a>(values: impl IntoIterator<Item = &'a str>, widths: &[usize]) -> String {
     values
         .into_iter()
         .zip(widths.iter())
-        .map(|(value, width)| format!("{value:<width$}"))
+        .map(|(value, width)| {
+            let padding = width.saturating_sub(value.chars().count());
+            format!("{value}{}", " ".repeat(padding))
+        })
         .collect::<Vec<_>>()
         .join(" | ")
 }
@@ -896,6 +1044,16 @@ fn apply_table_style(table: &mut Table, style: &TableStyle) {
 }
 
 fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, columns: usize) {
+    apply_table_layout_at_terminal_width(table, width, wrap, columns, terminal_width());
+}
+
+fn apply_table_layout_at_terminal_width(
+    table: &mut Table,
+    width: &TableWidth,
+    wrap: &TableWrap,
+    columns: usize,
+    terminal_width: Option<usize>,
+) {
     let arrangement = match wrap {
         TableWrap::Never => ContentArrangement::Disabled,
         TableWrap::Auto | TableWrap::Fixed(_) => match width {
@@ -906,11 +1064,13 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
     table.set_content_arrangement(arrangement);
 
     match width {
-        TableWidth::Auto => {}
-        TableWidth::Full => {
-            if let Some(width) = terminal_width().and_then(|width| u16::try_from(width).ok()) {
-                table.set_width(width);
+        TableWidth::Auto => {
+            if !matches!(wrap, TableWrap::Never) {
+                set_table_width_from_terminal(table, terminal_width);
             }
+        }
+        TableWidth::Full => {
+            set_table_width_from_terminal(table, terminal_width);
         }
         TableWidth::Fixed(width) => {
             table.set_width(*width);
@@ -925,6 +1085,12 @@ fn apply_table_layout(table: &mut Table, width: &TableWidth, wrap: &TableWrap, c
     }
 }
 
+fn set_table_width_from_terminal(table: &mut Table, terminal_width: Option<usize>) {
+    if let Some(width) = terminal_width.and_then(|width| u16::try_from(width).ok()) {
+        table.set_width(width);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -932,13 +1098,86 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        append_line, column_headers, render_dense_theme_preview, reset_output, set_pipeline,
-        set_render_format, set_semantic_output, take_output, OutputSnapshot, RenderFormat,
+        append_line, apply_table_layout_at_terminal_width, apply_table_style, column_headers,
+        render_dense_rows_with_band, render_dense_theme_preview, reset_output, set_pipeline,
+        set_render_format, set_semantic_output, take_output, DenseLayout, OutputSnapshot,
+        RenderFormat,
     };
     use crate::config::{init_config, AppConfig};
-    use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle};
+    use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap};
+    use comfy_table::Table;
     use hubuum_filter::{OutputEnvelope, PipeStage, ProjectTerm};
     use hubuum_theme::resolve_theme;
+
+    #[test]
+    fn automatic_table_width_wraps_long_cells_within_the_terminal() {
+        let mut table = Table::new();
+        table.set_header(["key", "value", "source", "detail"]);
+        apply_table_style(&mut table, &TableStyle::Rounded);
+        apply_table_layout_at_terminal_width(
+            &mut table,
+            &TableWidth::Auto,
+            &TableWrap::Auto,
+            4,
+            Some(60),
+        );
+        table.add_row([
+            "aliases",
+            "a long command alias value that should wrap inside this cell instead of widening the table",
+            "user file",
+            "/tmp/config.toml",
+        ]);
+
+        let rendered = table.to_string();
+
+        assert!(rendered.lines().all(|line| line.chars().count() <= 60));
+        assert!(rendered.lines().count() > 5);
+    }
+
+    #[test]
+    fn automatic_dense_table_width_wraps_long_cells_within_the_terminal() {
+        let rows = vec![json!({
+            "key": "aliases",
+            "value": "a long command alias value that should wrap inside this cell instead of widening the table",
+            "source": "user file",
+            "detail": "/tmp/config.toml",
+        })];
+        let columns = ["key", "value", "source", "detail"].map(str::to_string);
+        let lines = render_dense_rows_with_band(
+            &rows,
+            &columns,
+            TableHeaders::Full,
+            DenseLayout::new(&TableWidth::Auto, &TableWrap::Auto, Some(60)),
+            |_, line| line,
+        );
+
+        assert!(lines.iter().all(|line| line.chars().count() <= 60));
+        assert!(lines.len() > 2);
+    }
+
+    #[test]
+    fn never_wrap_keeps_automatic_tables_unbounded() {
+        let mut table = Table::new();
+        table.set_header(["key", "value"]);
+        apply_table_style(&mut table, &TableStyle::Rounded);
+        apply_table_layout_at_terminal_width(
+            &mut table,
+            &TableWidth::Auto,
+            &TableWrap::Never,
+            2,
+            Some(30),
+        );
+        table.add_row([
+            "aliases",
+            "a value that is deliberately wider than thirty columns",
+        ]);
+
+        assert!(table
+            .to_string()
+            .lines()
+            .any(|line| line.chars().count() > 30));
+    }
+
     #[test]
     #[serial]
     fn take_output_applies_filter_and_resets_buffer() {

@@ -86,8 +86,9 @@ fn personal_aliases_expand_before_offline_detection_and_pipelines() {
     write(
         &config,
         r#"
-[aliases]
-quick-help = "help | F Available"
+[aliases.quick-help]
+command = "help | F Available"
+description = "Show available top-level commands"
 "#,
     )
     .expect("alias config should be written");
@@ -113,6 +114,7 @@ quick-help = "help | F Available"
         ])
         .assert()
         .success()
+        .stdout(contains("Show available top-level commands"))
         .stdout(contains("help | F Available"));
 }
 

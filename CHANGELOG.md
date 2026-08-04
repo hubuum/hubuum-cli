@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Personal command aliases now accept an optional one-line description. Alias
+  lists, root help, and effective-config output use the description instead of
+  printing long command pipelines, while `alias show` retains the full command.
+  Structured map and list values in text `config show` output are now rendered
+  as sorted, indented trees instead of dense JSON strings. Existing
+  string-valued aliases remain compatible.
 - Added `object aggregate`, exposing the server's permission-scoped object
   aggregation with ordered data or computed dimensions, numeric measures,
   pre-aggregation filters, aggregate sorting, cursor pagination, and optional
