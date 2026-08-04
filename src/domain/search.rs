@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ClassRecord, CollectionRecord, ResolvedObjectRecord};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SearchCursorSet {
     pub collections: Option<String>,
     pub classes: Option<String>,
@@ -20,6 +20,18 @@ pub struct SearchResultsRecord {
     pub collections: Vec<CollectionRecord>,
     pub classes: Vec<ClassRecord>,
     pub objects: Vec<ResolvedObjectRecord>,
+}
+
+impl SearchResultsRecord {
+    pub fn item_count(&self) -> usize {
+        self.collections.len() + self.classes.len() + self.objects.len()
+    }
+
+    pub fn extend(&mut self, other: Self) {
+        self.collections.extend(other.collections);
+        self.classes.extend(other.classes);
+        self.objects.extend(other.objects);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

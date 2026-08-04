@@ -27,7 +27,7 @@ use crate::tokenizer::CommandTokenizer;
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand,
+    CliCommand, PageSelection,
 };
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -312,6 +312,12 @@ pub struct UserList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for UserList {
@@ -345,7 +351,8 @@ impl CliCommand for UserList {
             ]
             .into_iter()
             .flatten(),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let users = services.gateway().list_users(&list_query)?;
         render_list_page(tokens, &users)
     }

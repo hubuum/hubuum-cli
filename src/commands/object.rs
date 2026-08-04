@@ -16,7 +16,7 @@ use hubuum_filter::{scalar_text, select_values, OutputEnvelope};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, equals_clause, normalize_server_page_size,
-    option_or_pos, want_json, CliCommand,
+    option_or_pos, want_json, CliCommand, PageSelection,
 };
 use crate::autocomplete::{
     bool, classes, collections, computed_fields, object_aggregate_dimensions,
@@ -35,7 +35,8 @@ use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
 use crate::list_query::{
-    append_paging_footer, render_paged_result, set_paged_json_output, FilterClause, PagedResult,
+    append_paging_footer, render_paged_result, set_paged_json_output, warn_on_partial_pipeline,
+    FilterClause, PagedResult,
 };
 use crate::models::{ObjectListDataColumns, OutputFormat};
 use crate::output::{
@@ -1348,6 +1349,12 @@ pub struct ObjectAggregate {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ObjectAggregate {
@@ -1370,7 +1377,8 @@ impl CliCommand for ObjectAggregate {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let sort = query
             .sort
             .as_deref()
@@ -1381,7 +1389,8 @@ impl CliCommand for ObjectAggregate {
             .sort(sort)
             .limit(list_query.limit)
             .cursor(list_query.cursor)
-            .include_total(list_query.include_total);
+            .include_total(list_query.include_total)
+            .page_selection(list_query.page_selection);
         let columns = input.columns();
         let aggregates = services.gateway().aggregate_objects(&input)?;
 
@@ -1394,6 +1403,7 @@ fn render_object_aggregate_page(
     aggregates: &PagedResult<ObjectAggregateRecord>,
     columns: Vec<String>,
 ) -> Result<(), AppError> {
+    warn_on_partial_pipeline(aggregates)?;
     match (desired_format(tokens), has_pipeline()?) {
         (OutputFormat::Json, false) => set_paged_json_output(tokens, aggregates),
         (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
@@ -1451,6 +1461,12 @@ pub struct ObjectList {
     )]
     pub include_total: Option<bool>,
     #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
+    #[option(
         long = "include-where-results",
         help = "Include data fields referenced by --where in text and pipeline output (default: true)",
         autocomplete = "bool"
@@ -1493,7 +1509,8 @@ impl CliCommand for ObjectList {
             ]
             .into_iter()
             .flatten(),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let include_computed = computed_selection.requests_values()
             || list_query
                 .sorts
@@ -1656,6 +1673,7 @@ fn render_object_list_page(
     where_result_data_keys: &[String],
     computed_selection: &ComputedFieldSelection,
 ) -> Result<(), AppError> {
+    warn_on_partial_pipeline(objects)?;
     match (desired_format(tokens), has_pipeline()?) {
         (OutputFormat::Json, false) => render_paged_result(
             tokens,

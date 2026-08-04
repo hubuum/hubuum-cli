@@ -10,7 +10,10 @@ use serde_json::from_str;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
-use super::{build_list_query, option_or_pos, render_list_page, render_task_record, CliCommand};
+use super::{
+    build_list_query, option_or_pos, render_list_page, render_task_record, CliCommand,
+    PageSelection,
+};
 use crate::autocomplete::{collections, file_paths, import_result_sort};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
@@ -291,6 +294,12 @@ pub struct ImportResults {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ImportResults {
@@ -304,7 +313,8 @@ impl CliCommand for ImportResults {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let results = services.gateway().import_results(
             query
                 .id

@@ -6,7 +6,7 @@ use hubuum_client::{
     types::SortDirection,
     ClassId, CollectionId, EventDeliveryId, EventSinkId, EventSubscriptionId, ExportTemplateId,
     FilterOperator, GroupId, HistoryId, HubuumDateTime, NewEventSink, NewEventSubscription,
-    ObjectId, Page, QueryFilter, RemoteTargetId, UpdateEventSink, UpdateEventSubscription, UserId,
+    ObjectId, QueryFilter, RemoteTargetId, UpdateEventSink, UpdateEventSubscription, UserId,
 };
 use log::debug;
 use serde::de::DeserializeOwned;
@@ -16,8 +16,8 @@ use serde_json::{from_value, Value};
 use crate::domain::{AuditEventId, AuditEventRecord, JsonRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
-    validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery,
+    fetch_cursor_results, fetch_query_results, validate_filter_clauses, validate_sort_clauses,
+    FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery, PageSelection,
     PagedResult, SortFieldSpec, ValidatedFilterClause,
 };
 
@@ -34,6 +34,7 @@ pub struct AuditListInput {
     pub limit: Option<usize>,
     pub sort: Option<String>,
     pub cursor: Option<String>,
+    pub page_selection: PageSelection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +177,7 @@ pub struct HistoryInput {
     pub cursor: Option<String>,
     pub at: Option<String>,
     pub include_total: bool,
+    pub page_selection: PageSelection,
 }
 
 impl HubuumGateway {
@@ -277,7 +279,12 @@ impl HubuumGateway {
         };
 
         let request = apply_audit_input(request, &input)?;
-        page_to_audit(request.page()?)
+        let page = if matches!(input.page_selection, PageSelection::All) {
+            PagedResult::from_complete(request.all()?, false)
+        } else {
+            PagedResult::from_page(request.page()?, |event| event)
+        };
+        Ok(page.map(AuditEventRecord::from))
     }
 
     pub fn audit_event_by_id(&self, id: AuditEventId) -> Result<JsonRecord, AppError> {
@@ -362,7 +369,7 @@ impl HubuumGateway {
         match scope {
             HistoryScope::Class(id) => {
                 let request = apply_history_input(self.client.class_history(id), &input)?;
-                page_to_json(request.page()?)
+                history_results(request, &input)
             }
             HistoryScope::Object {
                 class_id,
@@ -370,7 +377,7 @@ impl HubuumGateway {
             } => {
                 let request =
                     apply_history_input(self.client.object_history(class_id, object_id), &input)?;
-                page_to_json(request.page()?)
+                history_results(request, &input)
             }
             HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
                 unreachable!("history name scopes are resolved before request execution")
@@ -473,13 +480,12 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.event_sinks().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        page_to_json(page)
+        )?;
+        paged_to_json(page)
     }
 
     pub fn event_sink_by_name(&self, name: &str) -> Result<JsonRecord, AppError> {
@@ -522,16 +528,15 @@ impl HubuumGateway {
         let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
         let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_SUBSCRIPTION_SORT_SPECS)?;
         let filters = self.resolve_event_filters(&validated)?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             self.client
                 .event_subscriptions(collection_id)
                 .query()
                 .filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        page_to_json(page)
+        )?;
+        paged_to_json(page)
     }
 
     pub fn event_subscription(
@@ -633,13 +638,12 @@ impl HubuumGateway {
         let validated = validate_filter_clauses(&query.filters, EVENT_DELIVERY_FILTER_SPECS)?;
         let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_DELIVERY_SORT_SPECS)?;
         let filters = self.resolve_event_filters(&validated)?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             self.client.event_deliveries().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        page_to_json(page)
+        )?;
+        paged_to_json(page)
     }
 
     pub fn event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
@@ -721,7 +725,8 @@ where
     if let Some(limit) = input.limit {
         request = request.limit(limit);
     }
-    request = request.include_total(input.include_total);
+    request = request
+        .include_total(input.include_total && !matches!(input.page_selection, PageSelection::All));
     if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
         request = request.sort(field, direction);
     }
@@ -753,37 +758,32 @@ fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
     from_value(Value::String(value.to_string())).map_err(AppError::from)
 }
 
-fn page_to_json<T: Serialize>(page: Page<T>) -> Result<PagedResult<JsonRecord>, AppError> {
-    let total_count = page.total_count;
+fn history_results<T>(
+    request: HistoryRequest<T>,
+    input: &HistoryInput,
+) -> Result<PagedResult<JsonRecord>, AppError>
+where
+    T: DeserializeOwned + Serialize,
+{
+    let page = if matches!(input.page_selection, PageSelection::All) {
+        PagedResult::from_complete(request.all()?, input.include_total)
+    } else {
+        PagedResult::from_page(request.page()?, |item| item)
+    };
+    paged_to_json(page)
+}
+
+fn paged_to_json<T: Serialize>(page: PagedResult<T>) -> Result<PagedResult<JsonRecord>, AppError> {
     let items = page
         .items
         .into_iter()
         .map(JsonRecord::from_serializable)
         .collect::<Result<Vec<_>, _>>()?;
-    let returned_count = items.len();
     Ok(PagedResult {
         items,
         next_cursor: page.next_cursor,
-        returned_count,
-        total_count,
-    })
-}
-
-fn page_to_audit(
-    page: Page<hubuum_client::EventResponse>,
-) -> Result<PagedResult<AuditEventRecord>, AppError> {
-    let total_count = page.total_count;
-    let items = page
-        .items
-        .into_iter()
-        .map(AuditEventRecord::from)
-        .collect::<Vec<_>>();
-    let returned_count = items.len();
-    Ok(PagedResult {
-        items,
-        next_cursor: page.next_cursor,
-        returned_count,
-        total_count,
+        returned_count: page.returned_count,
+        total_count: page.total_count,
     })
 }
 

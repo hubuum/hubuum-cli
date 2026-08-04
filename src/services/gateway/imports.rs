@@ -3,7 +3,7 @@ use hubuum_client::ImportRequest;
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
+    fetch_cursor_results, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
 };
 
 use super::HubuumGateway;
@@ -35,13 +35,12 @@ impl HubuumGateway {
         query: &ListQuery,
     ) -> Result<PagedResult<ImportResultRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, IMPORT_RESULT_SORT_SPECS)?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             self.client.imports().results(task_id),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        Ok(PagedResult::from_page(page, ImportResultRecord::from))
+        )?;
+        Ok(page.map(ImportResultRecord::from))
     }
 }
 

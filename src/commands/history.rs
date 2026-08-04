@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     normalize_server_page_size, option_or_pos, render_json_record, render_list_page, CliCommand,
+    PageSelection,
 };
 use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::CommandCatalogBuilder;
@@ -133,6 +134,12 @@ pub struct ClassHistory {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ClassHistory {
@@ -153,6 +160,7 @@ impl CliCommand for ClassHistory {
                 cursor: query.cursor,
                 at: query.at,
                 include_total: query.include_total.unwrap_or(false),
+                page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
             },
         )?;
         render_list_page(tokens, &history)
@@ -183,6 +191,12 @@ pub struct ObjectHistory {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ObjectHistory {
@@ -210,6 +224,7 @@ impl CliCommand for ObjectHistory {
                 cursor: query.cursor,
                 at: query.at,
                 include_total: query.include_total.unwrap_or(false),
+                page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
             },
         )?;
         render_list_page(tokens, &history)

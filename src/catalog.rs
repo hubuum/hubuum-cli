@@ -811,6 +811,13 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
         ));
         help.push('\n');
     }
+    if option_names.contains(&"all") {
+        help.push_str(&format!(
+            "  Use {} to fetch and buffer every remaining page before output pipelines run.",
+            paint_command("--all")
+        ));
+        help.push('\n');
+    }
     if option_names.contains(&"cursor") {
         help.push_str(&format!(
             "  Use {} to continue from a previous page.",
@@ -1294,6 +1301,9 @@ mod tests {
             "Use --limit <n> to request a page size (server maximum: 250); larger values are truncated with a warning."
         ));
         assert!(plain.contains("Use --cursor <token> to continue from a previous page."));
+        assert!(plain.contains(
+            "Use --all to fetch and buffer every remaining page before output pipelines run."
+        ));
         assert!(plain.contains("type next"));
         assert!(plain.contains("repl.enter_fetches_next_page"));
         assert!(plain.contains("Pipe:"));
@@ -1370,7 +1380,20 @@ mod tests {
             assert!(option_names.contains(&"limit"));
             assert!(option_names.contains(&"cursor"));
             assert!(option_names.contains(&"include_total"));
+            assert!(option_names.contains(&"all"));
         }
+    }
+
+    #[test]
+    fn every_cursor_paginated_command_exposes_all() {
+        let catalog = build_command_catalog();
+        let mut missing = Vec::new();
+        collect_cursor_commands_without_all(&catalog.root, &mut Vec::new(), &mut missing);
+        assert!(
+            missing.is_empty(),
+            "cursor-paginated commands missing --all: {}",
+            missing.join(", ")
+        );
     }
 
     #[test]
@@ -1748,6 +1771,36 @@ mod tests {
         for nested_scope in scope.scopes.values() {
             path.push(nested_scope.name.clone());
             collect_commands_missing_about(nested_scope, path, missing);
+            path.pop();
+        }
+    }
+
+    fn collect_cursor_commands_without_all(
+        scope: &ScopeSpec,
+        path: &mut Vec<String>,
+        missing: &mut Vec<String>,
+    ) {
+        for command in scope.commands.values() {
+            let has_cursor = command.options.iter().any(|option| {
+                option
+                    .long
+                    .as_deref()
+                    .is_some_and(|long| long == "cursor" || long.starts_with("cursor-"))
+            });
+            let has_all = command
+                .options
+                .iter()
+                .any(|option| option.long.as_deref() == Some("all"));
+            if has_cursor && !has_all {
+                let mut command_path = path.clone();
+                command_path.push(command.name.clone());
+                missing.push(command_path.join(" "));
+            }
+        }
+
+        for nested_scope in scope.scopes.values() {
+            path.push(nested_scope.name.clone());
+            collect_cursor_commands_without_all(nested_scope, path, missing);
             path.pop();
         }
     }

@@ -5,7 +5,7 @@ use std::slice::from_ref;
 
 use hubuum_client::{
     client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, FilterOperator,
-    Object, ObjectRelation, ObjectWithPath, Page,
+    Object, ObjectRelation, ObjectWithPath,
 };
 
 use crate::domain::{
@@ -14,7 +14,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, validate_filter_clauses, validate_sort_clauses, FilterClause,
+    fetch_cursor_results, validate_filter_clauses, validate_sort_clauses, FilterClause,
     FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult,
     SortFieldSpec,
 };
@@ -60,12 +60,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             class.related_classes().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
 
         self.resolve_related_class_page(page, class.resource())
     }
@@ -82,12 +81,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             class.related_relations().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -98,9 +96,7 @@ impl HubuumGateway {
         }
 
         let class_map = self.class_map_from_relation_ids(&page.items)?;
-        Ok(PagedResult::from_page(page, |relation| {
-            ResolvedClassRelationRecord::new(&relation, &class_map)
-        }))
+        Ok(page.map(|relation| ResolvedClassRelationRecord::new(&relation, &class_map)))
     }
 
     pub fn related_class_graph(
@@ -197,12 +193,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             object.related_relations().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         self.resolve_object_relation_page(page)
     }
 
@@ -281,7 +276,7 @@ impl HubuumGateway {
         } else {
             request.ignore_classes(ignore_classes)
         };
-        let page = apply_cursor_request_paging(request, query, &validated_sorts).page()?;
+        let page = fetch_cursor_results(request, query, &validated_sorts)?;
         self.resolve_related_object_page(page, object.resource())
     }
 
@@ -388,7 +383,7 @@ impl HubuumGateway {
 
     fn resolve_object_relation_page(
         &self,
-        page: Page<ObjectRelation>,
+        page: PagedResult<ObjectRelation>,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         if page.items.is_empty() {
             return Ok(PagedResult {
@@ -413,7 +408,7 @@ impl HubuumGateway {
         let object_map =
             self.resolve_object_map_from_relations(&page.items, &class_relation_map)?;
 
-        Ok(PagedResult::from_page(page, |relation| {
+        Ok(page.map(|relation| {
             let class_relation = class_relation_map
                 .get(&relation.class_relation_id.into())
                 .expect("class relation should be loaded");
@@ -468,7 +463,7 @@ impl HubuumGateway {
 
     fn resolve_related_object_page(
         &self,
-        page: Page<ObjectWithPath>,
+        page: PagedResult<ObjectWithPath>,
         root_object: &Object,
     ) -> Result<PagedResult<ResolvedRelatedObjectRecord>, AppError> {
         if page.items.is_empty() {
@@ -501,7 +496,7 @@ impl HubuumGateway {
             .chain(once((root_object.id.into(), root_object.clone())))
             .collect::<HashMap<_, _>>();
 
-        Ok(PagedResult::from_page(page, |object| {
+        Ok(page.map(|object| {
             ResolvedRelatedObjectRecord::new(
                 &object,
                 &class_map,
@@ -517,7 +512,7 @@ impl HubuumGateway {
 
     fn resolve_related_class_page(
         &self,
-        page: Page<ClassWithPath>,
+        page: PagedResult<ClassWithPath>,
         root_class: &Class,
     ) -> Result<PagedResult<ResolvedRelatedClassRecord>, AppError> {
         if page.items.is_empty() {
@@ -544,7 +539,7 @@ impl HubuumGateway {
                 .collect::<Vec<_>>(),
         )?;
 
-        Ok(PagedResult::from_page(page, |class| {
+        Ok(page.map(|class| {
             ResolvedRelatedClassRecord::new(
                 &class,
                 &collection_map,

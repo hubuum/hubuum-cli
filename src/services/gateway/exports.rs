@@ -10,7 +10,7 @@ use hubuum_client::{
 use crate::domain::{ExportTemplateRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
     FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
     SortFieldSpec,
 };
@@ -140,12 +140,11 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.export_templates().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -160,9 +159,7 @@ impl HubuumGateway {
                 template.collection_id
             })?;
 
-        Ok(PagedResult::from_page(page, |template| {
-            ExportTemplateRecord::new(&template, &collectionmap)
-        }))
+        Ok(page.map(|template| ExportTemplateRecord::new(&template, &collectionmap)))
     }
 
     pub fn export_template(&self, name: &str) -> Result<ExportTemplateRecord, AppError> {

@@ -5,7 +5,7 @@ use serde_json::{to_string_pretty, Value};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand,
+    CliCommand, PageSelection,
 };
 use crate::catalog::CommandCatalogBuilder;
 
@@ -320,6 +320,12 @@ pub struct ClassList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for ClassList {
@@ -339,7 +345,8 @@ impl CliCommand for ClassList {
             ]
             .into_iter()
             .flatten(),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let classes = services.gateway().list_classes(&list_query)?;
         render_list_page(tokens, &classes)
     }

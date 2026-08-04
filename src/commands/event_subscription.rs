@@ -10,7 +10,7 @@ use super::builder::{catalog_command, CommandDocs};
 use super::event_sink::parse_json_object;
 use super::{
     build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
-    CliCommand,
+    CliCommand, PageSelection,
 };
 use crate::autocomplete::{
     collections, event_actions, event_entity_types, event_sinks, event_subscriptions,
@@ -94,6 +94,12 @@ pub struct EventSubscriptionList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for EventSubscriptionList {
@@ -107,7 +113,8 @@ impl CliCommand for EventSubscriptionList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         render_list_page(
             tokens,
             &services

@@ -7,7 +7,8 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, validate_sort_clauses, ListQuery, PagedResult, SortFieldSpec,
+    fetch_cursor_results, validate_sort_clauses, ListQuery, PageSelection, PagedResult,
+    SortFieldSpec,
 };
 use crate::services::WaitTaskInput;
 
@@ -25,6 +26,7 @@ pub struct ListTasksInput {
     pub limit: Option<usize>,
     pub cursor: Option<String>,
     pub include_total: bool,
+    pub page_selection: PageSelection,
 }
 
 impl HubuumGateway {
@@ -42,13 +44,12 @@ impl HubuumGateway {
         query: &ListQuery,
     ) -> Result<PagedResult<TaskEventRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, TASK_EVENT_SORT_SPECS)?;
-        let page = apply_cursor_request_paging(
+        let page = fetch_cursor_results(
             self.client.tasks().events(input.task_id),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        Ok(PagedResult::from_page(page, TaskEventRecord::from))
+        )?;
+        Ok(page.map(TaskEventRecord::from))
     }
 
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
@@ -94,9 +95,15 @@ impl HubuumGateway {
         if let Some(c) = input.cursor {
             q = q.cursor(c);
         }
-        q = q.include_total(input.include_total);
-        let page = q.page()?;
-        Ok(PagedResult::from_page(page, TaskRecord::from))
+        q = q.include_total(
+            input.include_total && !matches!(input.page_selection, PageSelection::All),
+        );
+        let page = if matches!(input.page_selection, PageSelection::All) {
+            PagedResult::from_complete(q.all()?, input.include_total)
+        } else {
+            PagedResult::from_page(q.page()?, |task| task)
+        };
+        Ok(page.map(TaskRecord::from))
     }
 }
 

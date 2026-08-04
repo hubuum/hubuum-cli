@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, render_json_record, render_list_page, required_option_or_pos, CliCommand,
+    PageSelection,
 };
 use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
@@ -79,6 +80,12 @@ pub struct EventDeliveryList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for EventDeliveryList {
@@ -91,7 +98,8 @@ impl CliCommand for EventDeliveryList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         render_list_page(tokens, &services.gateway().event_deliveries(&list_query)?)
     }
 }

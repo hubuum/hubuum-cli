@@ -12,7 +12,7 @@ use crate::domain::{
     ComputedFieldPreviewRecord, ComputedFieldRecord, SharedComputedFieldListRecord,
 };
 use crate::errors::AppError;
-use crate::list_query::{apply_cursor_request_paging, ListQuery, PagedResult};
+use crate::list_query::{fetch_cursor_results, ListQuery, PagedResult};
 
 use super::HubuumGateway;
 
@@ -372,8 +372,8 @@ impl HubuumGateway {
             }
             None => self.client.personal_computed_fields().query(),
         };
-        let page = apply_cursor_request_paging(request, query, &[]).page()?;
-        Ok(PagedResult::from_page(page, Into::into))
+        let page = fetch_cursor_results(request, query, &[])?;
+        Ok(page.map(Into::into))
     }
 
     pub fn create_personal_computed_field(

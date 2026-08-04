@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::domain::{RemoteTargetRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
@@ -254,13 +254,12 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.remote_targets().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        Ok(PagedResult::from_page(page, RemoteTargetRecord::from))
+        )?;
+        Ok(page.map(RemoteTargetRecord::from))
     }
 
     pub fn remote_target(&self, name: &str) -> Result<RemoteTargetRecord, AppError> {

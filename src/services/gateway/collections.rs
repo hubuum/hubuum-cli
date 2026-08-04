@@ -6,7 +6,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
@@ -63,13 +63,12 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.collections().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        Ok(PagedResult::from_page(page, CollectionRecord::from))
+        )?;
+        Ok(page.map(CollectionRecord::from))
     }
 
     pub fn get_collection(&self, name: &str) -> Result<CollectionRecord, AppError> {
@@ -189,3 +188,79 @@ pub(crate) const COLLECTION_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{
+        header::{HeaderName, HeaderValue},
+        StatusCode,
+    };
+    use serde_json::json;
+
+    use super::HubuumGateway;
+    use crate::list_query::{ListQuery, PageSelection};
+
+    #[test]
+    fn list_collections_fetches_every_page_when_requested() {
+        let transport = MockTransport::default();
+        let mut first_page =
+            TransportResponse::json(StatusCode::OK, &json!([collection_json(1, "First")]))
+                .expect("first page should serialize");
+        first_page.headers.insert(
+            HeaderName::from_static("x-next-cursor"),
+            HeaderValue::from_static("page-2"),
+        );
+        transport.push_response(first_page);
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &json!([collection_json(2, "Second")]))
+                .expect("second page should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should parse")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let results = gateway
+            .list_collections(&ListQuery {
+                include_total: true,
+                page_selection: PageSelection::All,
+                ..ListQuery::default()
+            })
+            .expect("all collection pages should load");
+
+        assert_eq!(
+            results
+                .items
+                .iter()
+                .map(|collection| collection.0.name.as_str())
+                .collect::<Vec<_>>(),
+            ["First", "Second"]
+        );
+        assert_eq!(results.returned_count, 2);
+        assert_eq!(results.total_count, Some(2));
+        assert!(results.next_cursor.is_none());
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "page-2"));
+    }
+
+    fn collection_json(id: i32, name: &str) -> serde_json::Value {
+        json!({
+            "id": id,
+            "name": name,
+            "description": "",
+            "parent_collection_id": null,
+            "created_at": "2026-07-25T12:00:00Z",
+            "updated_at": "2026-07-25T12:00:00Z"
+        })
+    }
+}

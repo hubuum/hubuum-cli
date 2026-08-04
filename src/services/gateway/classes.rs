@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::domain::{build_related_class_tree, ClassRecord, ClassShowRecord, ObjectRecord};
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_query_paging, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
+    fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
     FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery, PagedResult,
     SortFieldSpec,
 };
@@ -138,13 +138,12 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.classes().query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
-        Ok(PagedResult::from_page(page, ClassRecord::from))
+        )?;
+        Ok(page.map(ClassRecord::from))
     }
 }
 

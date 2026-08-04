@@ -4,7 +4,7 @@ use cli_command_derive::CommandArgs;
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand};
+use super::{build_list_query, desired_format, render_list_page, CliCommand, PageSelection};
 use crate::autocomplete::{
     bool, classes, computed_field_paths, computed_operations, computed_result_types,
     objects_from_class,
@@ -618,6 +618,12 @@ pub struct PersonalComputedList {
         flag = true
     )]
     include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = true
+    )]
+    all: Option<bool>,
 }
 
 impl CliCommand for PersonalComputedList {
@@ -630,7 +636,8 @@ impl CliCommand for PersonalComputedList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let fields = services
             .gateway()
             .list_personal_computed_fields(query.class.as_deref(), &list_query)?;

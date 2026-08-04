@@ -1,11 +1,10 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    desired_format, normalize_server_page_size, render_json_record, render_list_page,
-    required_option, required_option_or_pos, CliCommand,
+    normalize_server_page_size, render_json_record, render_list_page, required_option,
+    required_option_or_pos, CliCommand, PageSelection,
 };
 use crate::autocomplete::{
     actor_kinds, audit_event_ids, audit_resource_names, audit_resources, classes, collections,
@@ -14,9 +13,6 @@ use crate::autocomplete::{
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::AuditEventId;
 use crate::errors::AppError;
-use crate::formatting::OutputFormatter;
-use crate::models::OutputFormat;
-use crate::output::append_line;
 use crate::services::{AppServices, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope};
 use crate::tokenizer::CommandTokenizer;
 
@@ -98,6 +94,12 @@ pub struct AuditList {
     pub sort: Option<String>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for AuditList {
@@ -121,6 +123,7 @@ impl CliCommand for AuditList {
             limit: normalize_server_page_size(query.limit)?,
             sort: query.sort,
             cursor: query.cursor,
+            page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
         };
         let events = services.gateway().audit_events(AuditScope::Global, input)?;
         render_list_page(tokens, &events)
@@ -189,6 +192,12 @@ pub struct AuditResource {
     pub sort: Option<String>,
     #[option(long = "cursor", help = "Cursor for the next page")]
     pub cursor: Option<String>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for AuditResource {
@@ -212,14 +221,11 @@ impl CliCommand for AuditResource {
                 limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
+                page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
                 ..AuditListInput::default()
             },
         )?;
 
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(to_string_pretty(&events)?)?,
-            OutputFormat::Text => events.items.format_noreturn()?,
-        }
-        Ok(())
+        render_list_page(tokens, &events)
     }
 }

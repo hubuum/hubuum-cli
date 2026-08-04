@@ -2,7 +2,9 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, lte_clause, render_list_page, CliCommand};
+use super::{
+    build_list_query, desired_format, lte_clause, render_list_page, CliCommand, PageSelection,
+};
 use crate::autocomplete::{
     classes, objects_from_class_a, objects_from_class_b, objects_from_root_class,
     relation_class_direct_sort, relation_class_direct_where, relation_class_graph_where,
@@ -218,6 +220,12 @@ pub struct RelatedClassList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for RelatedClassList {
@@ -236,7 +244,8 @@ impl CliCommand for RelatedClassList {
                     .unwrap_or(DEFAULT_RELATED_CLASS_MAX_DEPTH)
                     .to_string(),
             )),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let classes = services
             .gateway()
             .list_related_classes(&query.root_class, &list_query)?;
@@ -372,6 +381,12 @@ pub struct RelatedClassRelationList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for RelatedClassRelationList {
@@ -384,7 +399,8 @@ impl CliCommand for RelatedClassRelationList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let relations = services
             .gateway()
             .list_related_class_relations(&query.root_class, &list_query)?;
@@ -629,6 +645,12 @@ pub struct RelatedRelationList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for RelatedRelationList {
@@ -641,7 +663,8 @@ impl CliCommand for RelatedRelationList {
             query.cursor,
             query.include_total.unwrap_or(false),
             [],
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let relations = services.gateway().list_related_object_relations(
             &RelationRoot {
                 root_class: query.root_class,
@@ -704,6 +727,12 @@ pub struct RelatedObjectList {
         flag = "true"
     )]
     pub include_total: Option<bool>,
+    #[option(
+        long = "all",
+        help = "Fetch and buffer all result pages before applying pipelines",
+        flag = "true"
+    )]
+    pub all: Option<bool>,
 }
 
 impl CliCommand for RelatedObjectList {
@@ -722,7 +751,8 @@ impl CliCommand for RelatedObjectList {
                     .unwrap_or(DEFAULT_RELATED_OBJECT_MAX_DEPTH)
                     .to_string(),
             )),
-        )?;
+        )?
+        .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let objects = services.gateway().list_related_objects(
             &RelationRoot {
                 root_class: query.root_class,

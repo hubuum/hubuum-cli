@@ -12,10 +12,9 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::list_query::{
-    apply_cursor_request_paging, apply_query_paging, validate_filter_clauses,
-    validate_sort_clauses, FilterFieldSpec, FilterOperatorProfile, FilterValueProfile,
-    FilterValueResolver, ListQuery, PagedResult, SortDirectionArg, SortFieldSpec,
-    ValidatedSortClause,
+    fetch_cursor_results, fetch_query_results, validate_filter_clauses, validate_sort_clauses,
+    FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery,
+    PagedResult, SortDirectionArg, SortFieldSpec, ValidatedSortClause,
 };
 
 use super::{shared::find_entities_by_ids, HubuumGateway, RelationTraversalOptions};
@@ -365,8 +364,10 @@ impl HubuumGateway {
                 .collect::<Result<Vec<_>, AppError>>()?;
             sort_objects_locally(&mut items, &object_sorts);
             let total_count = query.include_total.then_some(items.len() as u64);
-            if let Some(limit) = query.limit {
-                items.truncate(limit);
+            if !query.fetches_all() {
+                if let Some(limit) = query.limit {
+                    items.truncate(limit);
+                }
             }
             let returned_count = items.len();
             return Ok(PagedResult {
@@ -378,12 +379,11 @@ impl HubuumGateway {
         }
 
         if include_computed {
-            let page = apply_cursor_request_paging(
+            let page = fetch_cursor_results(
                 self.client.computed_objects(class.id()).filters(filters),
                 query,
                 &validated_sorts,
-            )
-            .page()?;
+            )?;
             if page.items.is_empty() {
                 return Ok(PagedResult {
                     items: Vec::new(),
@@ -420,12 +420,11 @@ impl HubuumGateway {
             });
         }
 
-        let page = apply_query_paging(
+        let page = fetch_query_results(
             self.client.objects(class.id()).query().filters(filters),
             query,
             &validated_sorts,
-        )
-        .page()?;
+        )?;
         if page.items.is_empty() {
             return Ok(PagedResult {
                 items: Vec::new(),
@@ -443,9 +442,7 @@ impl HubuumGateway {
                 object.collection_id
             })?;
 
-        Ok(PagedResult::from_page(page, |object| {
-            ResolvedObjectRecord::new(&object, &classmap, &collectionmap)
-        }))
+        Ok(page.map(|object| ResolvedObjectRecord::new(&object, &classmap, &collectionmap)))
     }
 
     pub fn update_object(
