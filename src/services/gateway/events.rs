@@ -280,7 +280,7 @@ impl HubuumGateway {
 
         let request = apply_audit_input(request, &input)?;
         let page = if matches!(input.page_selection, PageSelection::All) {
-            PagedResult::from_complete(request.all()?, false)
+            PagedResult::from_pages(request.pages(), false)?
         } else {
             PagedResult::from_page(request.page()?, |event| event)
         };
@@ -725,8 +725,7 @@ where
     if let Some(limit) = input.limit {
         request = request.limit(limit);
     }
-    request = request
-        .include_total(input.include_total && !matches!(input.page_selection, PageSelection::All));
+    request = request.include_total(input.include_total);
     if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
         request = request.sort(field, direction);
     }
@@ -766,7 +765,7 @@ where
     T: DeserializeOwned + Serialize,
 {
     let page = if matches!(input.page_selection, PageSelection::All) {
-        PagedResult::from_complete(request.all()?, input.include_total)
+        PagedResult::from_pages(request.pages(), input.include_total)?
     } else {
         PagedResult::from_page(request.page()?, |item| item)
     };

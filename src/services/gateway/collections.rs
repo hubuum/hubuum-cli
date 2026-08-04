@@ -204,14 +204,18 @@ mod tests {
     use crate::list_query::{ListQuery, PageSelection};
 
     #[test]
-    fn list_collections_fetches_every_page_when_requested() {
+    fn list_collections_fetches_every_page_and_preserves_server_total() {
         let transport = MockTransport::default();
         let mut first_page =
             TransportResponse::json(StatusCode::OK, &json!([collection_json(1, "First")]))
                 .expect("first page should serialize");
         first_page.headers.insert(
             HeaderName::from_static("x-next-cursor"),
-            HeaderValue::from_static("page-2"),
+            HeaderValue::from_static("page-3"),
+        );
+        first_page.headers.insert(
+            HeaderName::from_static("x-total-count"),
+            HeaderValue::from_static("500"),
         );
         transport.push_response(first_page);
         transport.push_response(
@@ -228,6 +232,7 @@ mod tests {
 
         let results = gateway
             .list_collections(&ListQuery {
+                cursor: Some("page-2".to_string()),
                 include_total: true,
                 page_selection: PageSelection::All,
                 ..ListQuery::default()
@@ -243,14 +248,22 @@ mod tests {
             ["First", "Second"]
         );
         assert_eq!(results.returned_count, 2);
-        assert_eq!(results.total_count, Some(2));
+        assert_eq!(results.total_count, Some(500));
         assert!(results.next_cursor.is_none());
         let requests = transport.requests();
         assert_eq!(requests.len(), 2);
-        assert!(requests[1]
+        assert!(requests[0]
             .url
             .query_pairs()
             .any(|(key, value)| key == "cursor" && value == "page-2"));
+        assert!(requests.iter().all(|request| request
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "include_total" && value == "true")));
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "page-3"));
     }
 
     fn collection_json(id: i32, name: &str) -> serde_json::Value {

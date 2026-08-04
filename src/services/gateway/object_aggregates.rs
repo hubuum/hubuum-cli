@@ -330,9 +330,7 @@ impl HubuumGateway {
                     .iter()
                     .map(ObjectAggregateMeasureInput::api_value),
             )
-            .include_total(
-                input.include_total && !matches!(input.page_selection, PageSelection::All),
-            );
+            .include_total(input.include_total);
 
         if let Some(sort) = input.sort {
             request = request.aggregate_sort(sort.api_value());
@@ -345,10 +343,7 @@ impl HubuumGateway {
         }
 
         if matches!(input.page_selection, PageSelection::All) {
-            Ok(PagedResult::from_complete(
-                request.all()?.into_iter().map(Into::into).collect(),
-                input.include_total,
-            ))
+            Ok(PagedResult::from_pages(request.pages(), input.include_total)?.map(Into::into))
         } else {
             Ok(PagedResult::from_page(request.page()?, Into::into))
         }

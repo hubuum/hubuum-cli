@@ -4,8 +4,8 @@ use std::mem::swap;
 use std::slice::from_ref;
 
 use hubuum_client::{
-    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, FilterOperator,
-    Object, ObjectRelation, ObjectWithPath,
+    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, Object,
+    ObjectRelation, ObjectWithPath,
 };
 
 use crate::domain::{
@@ -19,7 +19,10 @@ use crate::list_query::{
     SortFieldSpec,
 };
 
-use super::{shared::find_entities_by_ids, HubuumGateway};
+use super::{
+    shared::{fetch_entities_for_ids, find_entities_by_ids},
+    HubuumGateway,
+};
 
 #[derive(Debug, Clone)]
 pub struct RelationTarget {
@@ -438,24 +441,10 @@ impl HubuumGateway {
 
         let mut objects = HashMap::new();
         for (class_id, object_ids) in grouped {
-            let joined = object_ids
-                .into_iter()
-                .map(|object_id| object_id.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            for object in self
-                .client
-                .objects(class_id)
-                .query()
-                .filter(
-                    "id",
-                    FilterOperator::Equals { is_negated: false },
-                    joined.clone(),
-                )
-                .list()?
-            {
-                objects.insert(object.id.into(), object);
-            }
+            objects.extend(fetch_entities_for_ids(
+                &self.client.objects(class_id),
+                object_ids,
+            )?);
         }
 
         Ok(objects)
@@ -1071,5 +1060,118 @@ fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppErr
         (Some(object_a), Some(object_b)) => Ok((object_a, object_b)),
         (None, _) => Err(AppError::MissingOptions(vec!["object-a".to_string()])),
         (_, None) => Err(AppError::MissingOptions(vec!["object-b".to_string()])),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use hubuum_client::{
+        blocking::Client, ClassRelation, MockTransport, ObjectRelation, Token, TransportResponse,
+    };
+    use reqwest::{
+        header::{HeaderName, HeaderValue},
+        StatusCode,
+    };
+    use serde_json::{from_value, json};
+
+    use super::HubuumGateway;
+
+    #[test]
+    fn object_relation_resolution_chunks_filters_and_follows_pages() {
+        let transport = MockTransport::default();
+        let mut first_page = TransportResponse::json(
+            StatusCode::OK,
+            &json!([object_json(1, "First resolved object")]),
+        )
+        .expect("first object lookup page should serialize");
+        first_page.headers.insert(
+            HeaderName::from_static("x-next-cursor"),
+            HeaderValue::from_static("lookup-page-2"),
+        );
+        transport.push_response(first_page);
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([object_json(101, "Second resolved object")]),
+            )
+            .expect("second object lookup page should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &json!([]))
+                .expect("second object lookup chunk should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should be valid")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+        let class_relation: ClassRelation = from_value(json!({
+            "id": 7,
+            "from_hubuum_class_id": 42,
+            "to_hubuum_class_id": 42,
+            "forward_template_alias": null,
+            "reverse_template_alias": null,
+            "created_at": "2026-07-25T12:00:00Z",
+            "updated_at": "2026-07-25T12:00:00Z"
+        }))
+        .expect("class relation should deserialize");
+        let class_relation_map = HashMap::from([(7, class_relation)]);
+        let relations = (1..=26)
+            .map(|id| {
+                from_value::<ObjectRelation>(json!({
+                    "id": id,
+                    "from_hubuum_object_id": id,
+                    "to_hubuum_object_id": id + 100,
+                    "class_relation_id": 7,
+                    "created_at": "2026-07-25T12:00:00Z",
+                    "updated_at": "2026-07-25T12:00:00Z"
+                }))
+                .expect("object relation should deserialize")
+            })
+            .collect::<Vec<_>>();
+
+        let objects = gateway
+            .resolve_object_map_from_relations(&relations, &class_relation_map)
+            .expect("all relation object names should resolve");
+
+        assert_eq!(
+            objects.get(&1).map(|object| object.name.as_str()),
+            Some("First resolved object")
+        );
+        assert_eq!(
+            objects.get(&101).map(|object| object.name.as_str()),
+            Some("Second resolved object")
+        );
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "lookup-page-2"));
+        assert!(requests.iter().all(|request| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "id__equals")
+                .is_some_and(|(_, value)| value.split(',').count() <= 50)
+        }));
+    }
+
+    fn object_json(id: i32, name: &str) -> serde_json::Value {
+        json!({
+            "id": id,
+            "name": name,
+            "collection_id": 1,
+            "hubuum_class_id": 42,
+            "description": "",
+            "data": null,
+            "created_at": "2026-07-25T12:00:00Z",
+            "updated_at": "2026-07-25T12:00:00Z"
+        })
     }
 }

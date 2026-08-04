@@ -2,7 +2,7 @@ use chrono::{DateTime, NaiveDateTime};
 use hubuum_client::{
     client::{sync::CursorRequest, sync::QueryOp, Page},
     types::SortDirection,
-    ApiResource, FilterOperator, QueryFilter,
+    ApiError, ApiResource, FilterOperator, QueryFilter,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -229,14 +229,36 @@ impl<T> PagedResult<T> {
         }
     }
 
-    pub fn from_complete(items: Vec<T>, include_total: bool) -> Self {
+    pub fn from_pages<I>(pages: I, include_total: bool) -> Result<Self, AppError>
+    where
+        I: IntoIterator<Item = Result<Page<T>, ApiError>>,
+    {
+        let mut pages = pages.into_iter();
+        let Some(first_page) = pages.next() else {
+            return Ok(Self {
+                items: Vec::new(),
+                next_cursor: None,
+                returned_count: 0,
+                total_count: None,
+            });
+        };
+        let first_page = first_page?;
+        let total_count = if include_total {
+            first_page.total_count
+        } else {
+            None
+        };
+        let mut items = first_page.items;
+        for page in pages {
+            items.extend(page?.items);
+        }
         let returned_count = items.len();
-        Self {
+        Ok(Self {
             items,
             next_cursor: None,
             returned_count,
-            total_count: include_total.then_some(returned_count as u64),
-        }
+            total_count,
+        })
     }
 
     pub fn map<U, F>(self, map: F) -> PagedResult<U>
@@ -409,7 +431,7 @@ pub fn apply_query_paging<T>(
 where
     T: ApiResource,
 {
-    let query = query.include_total(list_query.include_total && !list_query.fetches_all());
+    let query = query.include_total(list_query.include_total);
     let query = if sorts.is_empty() {
         query
     } else {
@@ -444,10 +466,7 @@ where
 {
     let query = apply_query_paging(query, list_query, sorts);
     if list_query.fetches_all() {
-        Ok(PagedResult::from_complete(
-            query.all()?,
-            list_query.include_total,
-        ))
+        PagedResult::from_pages(query.pages(), list_query.include_total)
     } else {
         Ok(PagedResult::from_page(query.page()?, |item| item))
     }
@@ -556,7 +575,7 @@ pub fn apply_cursor_request_paging<T>(
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
 ) -> CursorRequest<T> {
-    let request = request.include_total(list_query.include_total && !list_query.fetches_all());
+    let request = request.include_total(list_query.include_total);
     let request = if sorts.is_empty() {
         request
     } else {
@@ -591,10 +610,7 @@ where
 {
     let request = apply_cursor_request_paging(request, list_query, sorts);
     if list_query.fetches_all() {
-        Ok(PagedResult::from_complete(
-            request.all()?,
-            list_query.include_total,
-        ))
+        PagedResult::from_pages(request.pages(), list_query.include_total)
     } else {
         Ok(PagedResult::from_page(request.page()?, |item| item))
     }
