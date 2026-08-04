@@ -13,6 +13,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::formatting::{append_json, OutputFormatter, TableRenderable};
+use crate::list_query::PARTIAL_PIPELINE_WARNING;
 use crate::models::OutputFormat;
 use crate::output::{add_error, add_warning, append_line, has_pipeline, set_next_page_command};
 use crate::services::{AppServices, SearchInput, SearchKind};
@@ -277,7 +278,7 @@ fn apply_next_page_state(
 
     if has_pipeline()? {
         let warning = if supports_all {
-            "Pipeline applied to the current page only; use --all for all matching results."
+            PARTIAL_PIPELINE_WARNING
         } else {
             "Pipeline applied to the current streaming page only; --all cannot be combined with --stream."
         };

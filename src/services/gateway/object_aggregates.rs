@@ -343,7 +343,7 @@ impl HubuumGateway {
         }
 
         if matches!(input.page_selection, PageSelection::All) {
-            Ok(PagedResult::from_pages(request.pages(), input.include_total)?.map(Into::into))
+            Ok(PagedResult::from_pages(request.pages())?.map(Into::into))
         } else {
             Ok(PagedResult::from_page(request.page()?, Into::into))
         }

@@ -97,7 +97,7 @@ impl HubuumGateway {
         }
         q = q.include_total(input.include_total);
         let page = if matches!(input.page_selection, PageSelection::All) {
-            PagedResult::from_pages(q.pages(), input.include_total)?
+            PagedResult::from_pages(q.pages())?
         } else {
             PagedResult::from_page(q.page()?, |task| task)
         };

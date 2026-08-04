@@ -1387,8 +1387,15 @@ mod tests {
     #[test]
     fn every_cursor_paginated_command_exposes_all() {
         let catalog = build_command_catalog();
+        let mut checked = 0;
         let mut missing = Vec::new();
-        collect_cursor_commands_without_all(&catalog.root, &mut Vec::new(), &mut missing);
+        collect_cursor_commands_without_all(
+            &catalog.root,
+            &mut Vec::new(),
+            &mut checked,
+            &mut missing,
+        );
+        assert!(checked > 0, "expected to find cursor-paginated commands");
         assert!(
             missing.is_empty(),
             "cursor-paginated commands missing --all: {}",
@@ -1778,6 +1785,7 @@ mod tests {
     fn collect_cursor_commands_without_all(
         scope: &ScopeSpec,
         path: &mut Vec<String>,
+        checked: &mut usize,
         missing: &mut Vec<String>,
     ) {
         for command in scope.commands.values() {
@@ -1785,22 +1793,25 @@ mod tests {
                 option
                     .long
                     .as_deref()
-                    .is_some_and(|long| long == "cursor" || long.starts_with("cursor-"))
+                    .is_some_and(|long| long == "--cursor" || long.starts_with("--cursor-"))
             });
             let has_all = command
                 .options
                 .iter()
-                .any(|option| option.long.as_deref() == Some("all"));
-            if has_cursor && !has_all {
-                let mut command_path = path.clone();
-                command_path.push(command.name.clone());
-                missing.push(command_path.join(" "));
+                .any(|option| option.long.as_deref() == Some("--all"));
+            if has_cursor {
+                *checked += 1;
+                if !has_all {
+                    let mut command_path = path.clone();
+                    command_path.push(command.name.clone());
+                    missing.push(command_path.join(" "));
+                }
             }
         }
 
         for nested_scope in scope.scopes.values() {
             path.push(nested_scope.name.clone());
-            collect_cursor_commands_without_all(nested_scope, path, missing);
+            collect_cursor_commands_without_all(nested_scope, path, checked, missing);
             path.pop();
         }
     }

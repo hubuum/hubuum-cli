@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Paginated collection commands now accept `--all` to fetch and buffer every
+- Paginated commands now accept `--all` to fetch and buffer every
   remaining cursor page before output pipelines run. Pipelines applied without
   `--all` warn when more server pages are available, and unified streaming
   search rejects the incompatible `--all --stream` combination.

@@ -39,6 +39,114 @@ pub struct SearchInput {
     pub search_object_data: bool,
 }
 
+impl SearchInput {
+    fn for_next_page(&self, cursors: &SearchCursorSet) -> Self {
+        let mut kinds = Vec::with_capacity(3);
+        if cursors.collections.is_some() {
+            kinds.push(SearchKind::Collection);
+        }
+        if cursors.classes.is_some() {
+            kinds.push(SearchKind::Class);
+        }
+        if cursors.objects.is_some() {
+            kinds.push(SearchKind::Object);
+        }
+
+        Self {
+            kinds,
+            cursor_collections: cursors.collections.clone(),
+            cursor_classes: cursors.classes.clone(),
+            cursor_objects: cursors.objects.clone(),
+            ..self.clone()
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SearchCursorTracker {
+    collections: HashSet<String>,
+    classes: HashSet<String>,
+    objects: HashSet<String>,
+}
+
+impl SearchCursorTracker {
+    fn new(input: &SearchInput) -> Self {
+        Self {
+            collections: input.cursor_collections.iter().cloned().collect(),
+            classes: input.cursor_classes.iter().cloned().collect(),
+            objects: input.cursor_objects.iter().cloned().collect(),
+        }
+    }
+
+    fn record(&mut self, cursors: &SearchCursorSet) -> Result<(), AppError> {
+        Self::record_cursor(
+            &mut self.collections,
+            cursors.collections.as_ref(),
+            "collections",
+        )?;
+        Self::record_cursor(&mut self.classes, cursors.classes.as_ref(), "classes")?;
+        Self::record_cursor(&mut self.objects, cursors.objects.as_ref(), "objects")
+    }
+
+    fn record_cursor(
+        seen: &mut HashSet<String>,
+        cursor: Option<&String>,
+        kind: &str,
+    ) -> Result<(), AppError> {
+        if let Some(cursor) = cursor {
+            if !seen.insert(cursor.clone()) {
+                return Err(AppError::CommandExecutionError(format!(
+                    "Automatic search pagination received repeated {kind} cursor '{cursor}'"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct SearchPaginationGuard {
+    pages: usize,
+    items: usize,
+}
+
+impl SearchPaginationGuard {
+    fn new(initial_items: usize) -> Result<Self, AppError> {
+        let guard = Self {
+            pages: 1,
+            items: initial_items,
+        };
+        guard.enforce_limits()?;
+        Ok(guard)
+    }
+
+    fn ensure_can_fetch_next(&self) -> Result<(), AppError> {
+        if self.pages >= MAX_AUTO_SEARCH_PAGES || self.items >= MAX_AUTO_SEARCH_ITEMS {
+            return Err(search_pagination_limit_error());
+        }
+        Ok(())
+    }
+
+    fn record_page(&mut self, item_count: usize) -> Result<(), AppError> {
+        self.pages = self
+            .pages
+            .checked_add(1)
+            .ok_or_else(search_pagination_limit_error)?;
+        self.items = self
+            .items
+            .checked_add(item_count)
+            .ok_or_else(search_pagination_limit_error)?;
+        self.enforce_limits()
+    }
+
+    fn enforce_limits(&self) -> Result<(), AppError> {
+        if self.pages > MAX_AUTO_SEARCH_PAGES || self.items > MAX_AUTO_SEARCH_ITEMS {
+            return Err(search_pagination_limit_error());
+        }
+        Ok(())
+    }
+}
+
 impl HubuumGateway {
     pub fn search(&self, input: &SearchInput) -> Result<SearchResponseRecord, AppError> {
         let raw = self.build_search_request(input).send()?;
@@ -52,56 +160,21 @@ impl HubuumGateway {
     pub fn search_all(&self, input: &SearchInput) -> Result<SearchResponseRecord, AppError> {
         let mut response = self.search(input)?;
         let mut next = response.next.clone();
-        let mut seen_collections = seeded_cursors(input.cursor_collections.as_ref());
-        let mut seen_classes = seeded_cursors(input.cursor_classes.as_ref());
-        let mut seen_objects = seeded_cursors(input.cursor_objects.as_ref());
-        record_search_cursor(
-            &mut seen_collections,
-            next.collections.as_ref(),
-            "collections",
-        )?;
-        record_search_cursor(&mut seen_classes, next.classes.as_ref(), "classes")?;
-        record_search_cursor(&mut seen_objects, next.objects.as_ref(), "objects")?;
-
-        let mut pages = 1;
-        let mut items = response.results.item_count();
-        enforce_search_pagination_limits(pages, items)?;
+        let mut cursor_tracker = SearchCursorTracker::new(input);
+        cursor_tracker.record(&next)?;
+        let mut pagination_guard = SearchPaginationGuard::new(response.results.item_count())?;
 
         while !next.is_empty() {
-            if pages >= MAX_AUTO_SEARCH_PAGES || items >= MAX_AUTO_SEARCH_ITEMS {
-                return Err(search_pagination_limit_error());
-            }
-
-            let active_collections = next.collections.is_some();
-            let active_classes = next.classes.is_some();
-            let active_objects = next.objects.is_some();
-            let page_input = SearchInput {
-                kinds: active_search_kinds(active_collections, active_classes, active_objects),
-                cursor_collections: next.collections.clone(),
-                cursor_classes: next.classes.clone(),
-                cursor_objects: next.objects.clone(),
-                ..input.clone()
-            };
+            pagination_guard.ensure_can_fetch_next()?;
+            let active = next;
+            let page_input = input.for_next_page(&active);
             let page = self.search(&page_input)?;
-            pages += 1;
-            items += page.results.item_count();
-            enforce_search_pagination_limits(pages, items)?;
+            pagination_guard.record_page(page.results.item_count())?;
             response.results.extend(page.results);
 
-            next = SearchCursorSet {
-                collections: active_collections
-                    .then_some(page.next.collections)
-                    .flatten(),
-                classes: active_classes.then_some(page.next.classes).flatten(),
-                objects: active_objects.then_some(page.next.objects).flatten(),
-            };
-            record_search_cursor(
-                &mut seen_collections,
-                next.collections.as_ref(),
-                "collections",
-            )?;
-            record_search_cursor(&mut seen_classes, next.classes.as_ref(), "classes")?;
-            record_search_cursor(&mut seen_objects, next.objects.as_ref(), "objects")?;
+            next = page.next;
+            next.retain_active(&active);
+            cursor_tracker.record(&next)?;
         }
 
         response.next = SearchCursorSet::default();
@@ -251,43 +324,6 @@ impl HubuumGateway {
     }
 }
 
-fn active_search_kinds(collections: bool, classes: bool, objects: bool) -> Vec<SearchKind> {
-    [
-        collections.then_some(SearchKind::Collection),
-        classes.then_some(SearchKind::Class),
-        objects.then_some(SearchKind::Object),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
-}
-
-fn seeded_cursors(cursor: Option<&String>) -> HashSet<String> {
-    cursor.cloned().into_iter().collect()
-}
-
-fn record_search_cursor(
-    seen: &mut HashSet<String>,
-    cursor: Option<&String>,
-    kind: &str,
-) -> Result<(), AppError> {
-    if let Some(cursor) = cursor {
-        if !seen.insert(cursor.clone()) {
-            return Err(AppError::CommandExecutionError(format!(
-                "Automatic search pagination received repeated {kind} cursor '{cursor}'"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn enforce_search_pagination_limits(pages: usize, items: usize) -> Result<(), AppError> {
-    if pages > MAX_AUTO_SEARCH_PAGES || items > MAX_AUTO_SEARCH_ITEMS {
-        return Err(search_pagination_limit_error());
-    }
-    Ok(())
-}
-
 fn search_pagination_limit_error() -> AppError {
     AppError::CommandExecutionError(format!(
         "Automatic search pagination exceeded its safety limit of {MAX_AUTO_SEARCH_PAGES} pages or {MAX_AUTO_SEARCH_ITEMS} items"
@@ -324,7 +360,10 @@ mod tests {
     use reqwest::StatusCode;
     use serde_json::json;
 
-    use super::{HubuumGateway, SearchInput, SearchKind};
+    use super::{
+        HubuumGateway, SearchInput, SearchKind, SearchPaginationGuard, MAX_AUTO_SEARCH_ITEMS,
+    };
+    use crate::domain::SearchCursorSet;
 
     #[test]
     fn search_kind_maps_to_client_search_kind() {
@@ -340,6 +379,61 @@ mod tests {
             UnifiedSearchKind::from(SearchKind::Object),
             UnifiedSearchKind::Object
         );
+    }
+
+    #[test]
+    fn next_page_input_and_cursors_keep_only_active_kinds() {
+        let input = SearchInput {
+            query: "needle".to_string(),
+            kinds: vec![
+                SearchKind::Collection,
+                SearchKind::Class,
+                SearchKind::Object,
+            ],
+            ..SearchInput::default()
+        };
+        let active = SearchCursorSet {
+            collections: None,
+            classes: Some("class-page-2".to_string()),
+            objects: Some("object-page-2".to_string()),
+        };
+
+        let next_input = input.for_next_page(&active);
+
+        assert_eq!(
+            next_input.kinds,
+            vec![SearchKind::Class, SearchKind::Object]
+        );
+        assert_eq!(next_input.cursor_classes.as_deref(), Some("class-page-2"));
+        assert_eq!(next_input.cursor_objects.as_deref(), Some("object-page-2"));
+        assert!(next_input.cursor_collections.is_none());
+
+        let mut returned = SearchCursorSet {
+            collections: Some("unexpected".to_string()),
+            classes: Some("class-page-3".to_string()),
+            objects: None,
+        };
+        returned.retain_active(&active);
+        assert_eq!(
+            returned,
+            SearchCursorSet {
+                collections: None,
+                classes: Some("class-page-3".to_string()),
+                objects: None,
+            }
+        );
+    }
+
+    #[test]
+    fn search_pagination_guard_stops_before_fetching_past_item_limit() {
+        let guard = SearchPaginationGuard::new(MAX_AUTO_SEARCH_ITEMS)
+            .expect("the current page may reach the item limit");
+
+        let error = guard
+            .ensure_can_fetch_next()
+            .expect_err("another page would exceed the safety limit");
+
+        assert!(error.to_string().contains("safety limit"));
     }
 
     #[test]

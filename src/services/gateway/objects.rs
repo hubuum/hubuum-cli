@@ -385,12 +385,7 @@ impl HubuumGateway {
                 &validated_sorts,
             )?;
             if page.items.is_empty() {
-                return Ok(PagedResult {
-                    items: Vec::new(),
-                    next_cursor: page.next_cursor,
-                    returned_count: 0,
-                    total_count: page.total_count,
-                });
+                return Ok(PagedResult::empty(page.next_cursor, page.total_count));
             }
 
             let classmap =
@@ -426,12 +421,7 @@ impl HubuumGateway {
             &validated_sorts,
         )?;
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let classmap = find_entities_by_ids(&self.client.classes(), page.items.iter(), |object| {

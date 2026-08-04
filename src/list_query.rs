@@ -23,6 +23,8 @@ use crate::tokenizer::CommandTokenizer;
 use hubuum_filter::OutputEnvelope;
 
 pub const SERVER_MAX_PAGE_SIZE: usize = 250;
+pub(crate) const PARTIAL_PIPELINE_WARNING: &str =
+    "Pipeline applied to the current page only; use --all for all matching results.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerPageSize {
@@ -214,7 +216,16 @@ impl SortDirectionArg {
 }
 
 impl<T> PagedResult<T> {
-    pub fn from_page<U, F>(page: Page<U>, map: F) -> Self
+    pub(crate) fn empty(next_cursor: Option<String>, total_count: Option<u64>) -> Self {
+        Self {
+            items: Vec::new(),
+            next_cursor,
+            returned_count: 0,
+            total_count,
+        }
+    }
+
+    pub(crate) fn from_page<U, F>(page: Page<U>, map: F) -> Self
     where
         F: Fn(U) -> T,
     {
@@ -229,25 +240,16 @@ impl<T> PagedResult<T> {
         }
     }
 
-    pub fn from_pages<I>(pages: I, include_total: bool) -> Result<Self, AppError>
+    pub(crate) fn from_pages<I>(pages: I) -> Result<Self, AppError>
     where
         I: IntoIterator<Item = Result<Page<T>, ApiError>>,
     {
         let mut pages = pages.into_iter();
         let Some(first_page) = pages.next() else {
-            return Ok(Self {
-                items: Vec::new(),
-                next_cursor: None,
-                returned_count: 0,
-                total_count: None,
-            });
+            return Ok(Self::empty(None, None));
         };
         let first_page = first_page?;
-        let total_count = if include_total {
-            first_page.total_count
-        } else {
-            None
-        };
+        let total_count = first_page.total_count;
         let mut items = first_page.items;
         for page in pages {
             items.extend(page?.items);
@@ -261,7 +263,7 @@ impl<T> PagedResult<T> {
         })
     }
 
-    pub fn map<U, F>(self, map: F) -> PagedResult<U>
+    pub(crate) fn map<U, F>(self, map: F) -> PagedResult<U>
     where
         F: Fn(T) -> U,
     {
@@ -275,12 +277,12 @@ impl<T> PagedResult<T> {
 }
 
 impl ListQuery {
-    pub fn page_selection(mut self, page_selection: PageSelection) -> Self {
+    pub(crate) fn page_selection(mut self, page_selection: PageSelection) -> Self {
         self.page_selection = page_selection;
         self
     }
 
-    pub const fn fetches_all(&self) -> bool {
+    pub(crate) const fn fetches_all(&self) -> bool {
         matches!(self.page_selection, PageSelection::All)
     }
 }
@@ -393,11 +395,9 @@ where
     Ok(())
 }
 
-pub fn warn_on_partial_pipeline<T>(paged: &PagedResult<T>) -> Result<(), AppError> {
+pub(crate) fn warn_on_partial_pipeline<T>(paged: &PagedResult<T>) -> Result<(), AppError> {
     if paged.next_cursor.is_some() && has_pipeline()? {
-        add_warning(
-            "Pipeline applied to the current page only; use --all for all matching results.",
-        )?;
+        add_warning(PARTIAL_PIPELINE_WARNING)?;
     }
     Ok(())
 }
@@ -423,7 +423,7 @@ where
     Ok(())
 }
 
-pub fn apply_query_paging<T>(
+fn apply_query_paging<T>(
     query: QueryOp<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -456,7 +456,7 @@ where
     }
 }
 
-pub fn fetch_query_results<T>(
+pub(crate) fn fetch_query_results<T>(
     query: QueryOp<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -466,7 +466,7 @@ where
 {
     let query = apply_query_paging(query, list_query, sorts);
     if list_query.fetches_all() {
-        PagedResult::from_pages(query.pages(), list_query.include_total)
+        PagedResult::from_pages(query.pages())
     } else {
         Ok(PagedResult::from_page(query.page()?, |item| item))
     }
@@ -570,7 +570,7 @@ pub const fn completion_sort_directions() -> &'static [&'static str] {
     &["asc", "desc"]
 }
 
-pub fn apply_cursor_request_paging<T>(
+fn apply_cursor_request_paging<T>(
     request: CursorRequest<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -600,7 +600,7 @@ pub fn apply_cursor_request_paging<T>(
     }
 }
 
-pub fn fetch_cursor_results<T>(
+pub(crate) fn fetch_cursor_results<T>(
     request: CursorRequest<T>,
     list_query: &ListQuery,
     sorts: &[ValidatedSortClause],
@@ -610,7 +610,7 @@ where
 {
     let request = apply_cursor_request_paging(request, list_query, sorts);
     if list_query.fetches_all() {
-        PagedResult::from_pages(request.pages(), list_query.include_total)
+        PagedResult::from_pages(request.pages())
     } else {
         Ok(PagedResult::from_page(request.page()?, |item| item))
     }

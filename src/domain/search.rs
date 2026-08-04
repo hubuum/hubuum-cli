@@ -13,6 +13,18 @@ impl SearchCursorSet {
     pub fn is_empty(&self) -> bool {
         self.collections.is_none() && self.classes.is_none() && self.objects.is_none()
     }
+
+    pub(crate) fn retain_active(&mut self, active: &Self) {
+        if active.collections.is_none() {
+            self.collections = None;
+        }
+        if active.classes.is_none() {
+            self.classes = None;
+        }
+        if active.objects.is_none() {
+            self.objects = None;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

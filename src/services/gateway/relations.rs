@@ -90,12 +90,7 @@ impl HubuumGateway {
             &validated_sorts,
         )?;
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_relation_ids(&page.items)?;
@@ -389,12 +384,7 @@ impl HubuumGateway {
         page: PagedResult<ObjectRelation>,
     ) -> Result<PagedResult<ResolvedObjectRelationRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_relation_map = find_entities_by_ids(
@@ -456,12 +446,7 @@ impl HubuumGateway {
         root_object: &Object,
     ) -> Result<PagedResult<ResolvedRelatedObjectRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_ids(
@@ -505,12 +490,7 @@ impl HubuumGateway {
         root_class: &Class,
     ) -> Result<PagedResult<ResolvedRelatedClassRecord>, AppError> {
         if page.items.is_empty() {
-            return Ok(PagedResult {
-                items: Vec::new(),
-                next_cursor: page.next_cursor,
-                returned_count: 0,
-                total_count: page.total_count,
-            });
+            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
         let class_map = self.class_map_from_ids(

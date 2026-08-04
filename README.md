@@ -342,7 +342,7 @@ hubuum-cli task list --include-total --output json
 Use `--all` to follow every remaining server cursor and buffer the complete
 result before output pipelines run. `--limit` remains the page size when it is
 combined with `--all`, and `--cursor <token> --all` starts from that cursor. The
-client enforces automatic-pagination safety limits and rejects repeated cursors.
+CLI and client enforce automatic-pagination safety limits and reject repeated cursors.
 Because complete results are held in memory, use `--all` deliberately for large
 datasets:
 
