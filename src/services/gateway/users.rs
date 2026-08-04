@@ -1,8 +1,5 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
-use hubuum_client::{
-    FilterOperator, HubuumDateTime, NewTokenRequest, Permissions, TokenId, UserPatch,
-};
-use std::str::FromStr;
+use chrono::NaiveDateTime;
+use hubuum_client::{FilterOperator, TokenId, UserPatch};
 
 use crate::domain::{
     CreatedUser, IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, UserRecord,
@@ -13,7 +10,10 @@ use crate::list_query::{
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
-use super::HubuumGateway;
+use super::{
+    principal_tokens::find_source_token, CloneTokenInput, CloneTokenOutcome, HubuumGateway,
+    NewTokenInput, SourceTokenRevocation,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct UserFilter {
@@ -35,14 +35,6 @@ pub struct UserUpdateInput {
     pub username: String,
     pub rename: Option<String>,
     pub email: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NewTokenInput {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub expires_at: Option<String>,
-    pub scopes: Vec<String>,
 }
 
 impl HubuumGateway {
@@ -160,6 +152,15 @@ impl HubuumGateway {
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
 
+    pub fn list_user_token_ids(&self, username: &str) -> Result<Vec<String>, AppError> {
+        let handle = self.client.users().get_by_name(username)?;
+        Ok(handle
+            .tokens()?
+            .into_iter()
+            .map(|token| token.id.to_string())
+            .collect())
+    }
+
     pub fn user_token(
         &self,
         username: &str,
@@ -175,38 +176,34 @@ impl HubuumGateway {
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
         let handle = self.client.users().get_by_name(username)?;
-        let mut req = NewTokenRequest::new();
+        Ok(handle.tokens_create_token(input.into_request()?)?.into())
+    }
 
-        if let Some(n) = input.name {
-            req = req.name(n);
-        }
-        if let Some(d) = input.description {
-            req = req.description(d);
-        }
-        if let Some(exp_str) = input.expires_at.as_deref() {
-            let dt = DateTime::parse_from_rfc3339(exp_str)
-                .map_err(|e| {
-                    AppError::CommandExecutionError(format!(
-                        "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
-                    ))
-                })?
-                .with_timezone(&Utc);
-            req = req.expires_at(HubuumDateTime(dt));
-        }
-        if !input.scopes.is_empty() {
-            let scopes: Result<Vec<_>, _> = input
-                .scopes
-                .iter()
-                .map(|s| {
-                    Permissions::from_str(s).map_err(|_| {
-                        AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
-                    })
-                })
-                .collect();
-            req = req.scopes(scopes?);
-        }
+    pub fn user_token_clone(
+        &self,
+        username: &str,
+        input: CloneTokenInput,
+    ) -> Result<CloneTokenOutcome, AppError> {
+        let handle = self.client.users().get_by_name(username)?;
+        let source_token_id = input.source_token_id();
+        let source = find_source_token(handle.tokens()?, source_token_id)?;
+        let issued_token = handle
+            .tokens_create_token(input.request_for(&source)?)?
+            .into();
+        let source_revocation = if input.should_revoke_source() {
+            match handle.token_revoke(source_token_id) {
+                Ok(()) => SourceTokenRevocation::Revoked,
+                Err(error) => SourceTokenRevocation::Failed(error.to_string()),
+            }
+        } else {
+            SourceTokenRevocation::NotRequested
+        };
 
-        Ok(handle.tokens_create_token(req)?.into())
+        Ok(CloneTokenOutcome::new(
+            issued_token,
+            source_token_id,
+            source_revocation,
+        ))
     }
 
     pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {

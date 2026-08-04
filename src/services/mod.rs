@@ -17,17 +17,17 @@ pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
 pub use gateway::{
     AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, BackupInput, ClassUpdateInput,
-    CollectionUpdateInput, ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind,
-    ComputedPatchInput, ComputedPreviewTarget, ComputedResultKind, CreateClassInput,
-    CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
-    CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, GroupUpdateInput,
-    HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
-    NewTokenInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
-    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
-    RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions,
-    RemoteAuthConfigInput, RunBackupInput, RunExportInput, SearchInput, SearchKind,
-    SubmitImportInput, TaskLookupInput, UpdateExportTemplateInput, UpdateRemoteTargetInput,
-    UserFilter, UserUpdateInput,
+    CloneTokenInput, CloneTokenOutcome, CollectionUpdateInput, ComputedDefinitionInput,
+    ComputedOperationInput, ComputedOperationKind, ComputedPatchInput, ComputedPreviewTarget,
+    ComputedResultKind, CreateClassInput, CreateCollectionInput, CreateExportTemplateInput,
+    CreateGroupInput, CreateObjectInput, CreateRemoteTargetInput, CreateServiceAccountInput,
+    CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope, HubuumGateway,
+    InvokeRemoteTargetInput, ListTasksInput, NewTokenInput, ObjectAggregateDimensionInput,
+    ObjectAggregateInput, ObjectAggregateMeasureInput, ObjectAggregateSortInput,
+    ObjectDataPatchInput, ObjectUpdateInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions, RemoteAuthConfigInput, RunBackupInput, RunExportInput, SearchInput,
+    SearchKind, SourceTokenRevocation, SubmitImportInput, TaskLookupInput,
+    UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
 };
 
 #[derive(Debug, Clone)]

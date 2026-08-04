@@ -1,6 +1,4 @@
-use chrono::{DateTime, Utc};
-use hubuum_client::{HubuumDateTime, NewTokenRequest, Permissions, TokenId};
-use std::str::FromStr;
+use hubuum_client::TokenId;
 
 use crate::domain::{
     IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, ServiceAccountRecord,
@@ -11,7 +9,10 @@ use crate::list_query::{
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
-use super::{users::NewTokenInput, HubuumGateway};
+use super::{
+    principal_tokens::find_source_token, CloneTokenInput, CloneTokenOutcome, HubuumGateway,
+    NewTokenInput, SourceTokenRevocation,
+};
 
 #[derive(Debug, Clone)]
 pub struct CreateServiceAccountInput {
@@ -106,6 +107,15 @@ impl HubuumGateway {
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
 
+    pub fn list_service_account_token_ids(&self, name: &str) -> Result<Vec<String>, AppError> {
+        let handle = self.client.service_accounts().get_by_name(name)?;
+        Ok(handle
+            .tokens()?
+            .into_iter()
+            .map(|token| token.id.to_string())
+            .collect())
+    }
+
     pub fn service_account_token(
         &self,
         name: &str,
@@ -121,38 +131,34 @@ impl HubuumGateway {
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
         let handle = self.client.service_accounts().get_by_name(name)?;
-        let mut req = NewTokenRequest::new();
+        Ok(handle.tokens_create_token(input.into_request()?)?.into())
+    }
 
-        if let Some(n) = input.name {
-            req = req.name(n);
-        }
-        if let Some(d) = input.description {
-            req = req.description(d);
-        }
-        if let Some(exp_str) = input.expires_at.as_deref() {
-            let dt = DateTime::parse_from_rfc3339(exp_str)
-                .map_err(|e| {
-                    AppError::CommandExecutionError(format!(
-                        "invalid --expires-at (expected RFC3339, e.g. 2026-12-31T23:59:59Z): {e}"
-                    ))
-                })?
-                .with_timezone(&Utc);
-            req = req.expires_at(HubuumDateTime(dt));
-        }
-        if !input.scopes.is_empty() {
-            let scopes: Result<Vec<_>, _> = input
-                .scopes
-                .iter()
-                .map(|s| {
-                    Permissions::from_str(s).map_err(|_| {
-                        AppError::CommandExecutionError(format!("unknown permission scope: {}", s))
-                    })
-                })
-                .collect();
-            req = req.scopes(scopes?);
-        }
+    pub fn service_account_token_clone(
+        &self,
+        name: &str,
+        input: CloneTokenInput,
+    ) -> Result<CloneTokenOutcome, AppError> {
+        let handle = self.client.service_accounts().get_by_name(name)?;
+        let source_token_id = input.source_token_id();
+        let source = find_source_token(handle.tokens()?, source_token_id)?;
+        let issued_token = handle
+            .tokens_create_token(input.request_for(&source)?)?
+            .into();
+        let source_revocation = if input.should_revoke_source() {
+            match handle.token_revoke(source_token_id) {
+                Ok(()) => SourceTokenRevocation::Revoked,
+                Err(error) => SourceTokenRevocation::Failed(error.to_string()),
+            }
+        } else {
+            SourceTokenRevocation::NotRequested
+        };
 
-        Ok(handle.tokens_create_token(req)?.into())
+        Ok(CloneTokenOutcome::new(
+            issued_token,
+            source_token_id,
+            source_revocation,
+        ))
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
@@ -209,3 +215,106 @@ pub(crate) const SERVICE_ACCOUNT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{Method, StatusCode};
+    use serde_json::{from_slice, json, Value};
+
+    use super::{CloneTokenInput, HubuumGateway, SourceTokenRevocation};
+
+    #[test]
+    fn clone_creates_replacement_before_revoking_source() {
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([{
+                    "id": 7,
+                    "name": "mi-ansible-facts",
+                    "description": "",
+                    "owner_group_id": 2,
+                    "created_by": 1,
+                    "disabled_at": null,
+                    "created_at": "2026-07-25T12:00:00Z",
+                    "updated_at": "2026-07-25T12:00:00Z"
+                }]),
+            )
+            .expect("service-account response should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([{
+                    "id": 20,
+                    "principal_id": 7,
+                    "name": "ansible-facts",
+                    "description": "Publish host facts",
+                    "scope": {
+                        "permissions": ["ReadObject", "UpdateObject"],
+                        "resources": [{"kind": "class", "id": 8}]
+                    },
+                    "issued": "2026-07-25T18:43:41Z",
+                    "expires_at": "2029-01-01T20:42:00Z",
+                    "last_used_at": null,
+                    "revoked_at": null
+                }]),
+            )
+            .expect("token-list response should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::CREATED,
+                &json!({
+                    "token": "replacement-secret",
+                    "expires_at": "2026-08-05T00:00:00Z"
+                }),
+            )
+            .expect("token-create response should serialize"),
+        );
+        transport.push_response(TransportResponse::empty(StatusCode::NO_CONTENT));
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should parse")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let outcome = gateway
+            .service_account_token_clone(
+                "mi-ansible-facts",
+                CloneTokenInput::new(20.into()).revoke_source(true),
+            )
+            .expect("token clone should succeed");
+
+        assert_eq!(outcome.issued_token().token(), "replacement-secret");
+        assert!(matches!(
+            outcome.source_revocation(),
+            SourceTokenRevocation::Revoked
+        ));
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[2].method, Method::POST);
+        assert_eq!(requests[2].url.path(), "/api/v1/iam/principals/7/tokens");
+        let body: Value = from_slice(requests[2].body()).expect("request body should be JSON");
+        assert_eq!(body["name"], "ansible-facts");
+        assert_eq!(body["description"], "Publish host facts");
+        assert_eq!(
+            body["scope"],
+            json!({
+                "permissions": ["ReadObject", "UpdateObject"],
+                "resources": [{"kind": "class", "id": 8}]
+            })
+        );
+        assert!(body.get("expires_at").is_none());
+        assert_eq!(requests[3].method, Method::POST);
+        assert_eq!(
+            requests[3].url.path(),
+            "/api/v1/iam/principals/7/tokens/20/revoke"
+        );
+    }
+}

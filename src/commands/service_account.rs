@@ -3,13 +3,13 @@ use hubuum_client::TokenId;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
-use crate::autocomplete::{groups, service_accounts};
+use crate::autocomplete::{groups, service_account_token_ids, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
 use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, CreateServiceAccountInput, NewTokenInput};
+use crate::services::{AppServices, CloneTokenInput, CreateServiceAccountInput, NewTokenInput};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -110,6 +110,22 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Create a token for a service account"),
                     ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["service-account", "token"],
+            catalog_command(
+                "clone",
+                ServiceAccountTokenClone::default(),
+                CommandDocs {
+                    about: Some("Clone an active service-account token's scope"),
+                    long_about: Some(
+                        "Creates a replacement token for the same service account with the source token's exact permission and resource boundaries. The source token name and description are copied unless overridden. The replacement receives the server's default lifetime unless --expires-at is supplied. With --revoke, the source is revoked only after the replacement is created.",
+                    ),
+                    examples: Some(
+                        "automation 42\n--name automation --token-id 42 --token-name replacement\n--name automation --token-id 42 --revoke",
+                    ),
                 },
             ),
         )
@@ -333,7 +349,12 @@ pub struct ServiceAccountTokenShow {
         autocomplete = "service_accounts"
     )]
     pub name: Option<String>,
-    #[option(short = "t", long = "token-id", help = "Token ID to show")]
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Token ID to show",
+        autocomplete = "service_account_token_ids"
+    )]
     pub token_id: Option<TokenId>,
 }
 
@@ -406,6 +427,67 @@ impl CliCommand for ServiceAccountTokenCreate {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ServiceAccountTokenClone {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
+    pub name: Option<String>,
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Active source token ID",
+        autocomplete = "service_account_token_ids"
+    )]
+    pub token_id: Option<TokenId>,
+    #[option(long = "token-name", help = "Replacement token name")]
+    pub token_name: Option<String>,
+    #[option(
+        short = "d",
+        long = "description",
+        help = "Replacement token description"
+    )]
+    pub description: Option<String>,
+    #[option(
+        long = "expires-at",
+        help = "Replacement expiration, RFC3339; defaults to the server lifetime"
+    )]
+    pub expires_at: Option<String>,
+    #[option(
+        long = "revoke",
+        help = "Revoke the source after creating the replacement",
+        flag = "true"
+    )]
+    pub revoke: Option<bool>,
+}
+
+impl CliCommand for ServiceAccountTokenClone {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let name_is_option = query.name.is_some();
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
+        let token_id = required_option_or_pos(
+            query.token_id,
+            tokens,
+            usize::from(!name_is_option),
+            "token-id",
+        )?;
+        let input = CloneTokenInput::new(token_id)
+            .name(query.token_name)
+            .description(query.description)
+            .expires_at(query.expires_at)
+            .revoke_source(query.revoke.unwrap_or(false));
+        let outcome = services
+            .gateway()
+            .service_account_token_clone(&name, input)?;
+
+        super::render_cloned_token(tokens, &format!("service account '{name}'"), &outcome)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ServiceAccountTokenRevoke {
     #[option(
         short = "n",
@@ -414,7 +496,12 @@ pub struct ServiceAccountTokenRevoke {
         autocomplete = "service_accounts"
     )]
     pub name: Option<String>,
-    #[option(short = "t", long = "token-id", help = "Token ID to revoke")]
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Token ID to revoke",
+        autocomplete = "service_account_token_ids"
+    )]
     pub token_id: i32,
 }
 

@@ -42,6 +42,8 @@ struct CompletionSnapshot {
     task_ids: Option<Vec<CompletionItem>>,
     audit_event_ids: Option<Vec<String>>,
     event_delivery_ids: Option<Vec<String>>,
+    user_token_ids: HashMap<String, Vec<String>>,
+    service_account_token_ids: HashMap<String, Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -120,6 +122,44 @@ impl CompletionContext {
 
     pub fn remote_targets(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::RemoteTargets)
+    }
+
+    pub fn user_token_ids(&self, prefix: &str, parts: &[String]) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        let Some(username) = token_principal_name(parts, &["--username", "-u"]) else {
+            return Vec::new();
+        };
+        let fetched = self
+            .runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_user_token_ids(self.services.gateway(), username),
+            )
+            .unwrap_or_default();
+        filter_prefix(&fetched, prefix)
+    }
+
+    pub fn service_account_token_ids(&self, prefix: &str, parts: &[String]) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+
+        let Some(name) = token_principal_name(parts, &["--name", "-n"]) else {
+            return Vec::new();
+        };
+        let fetched = self
+            .runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_service_account_token_ids(self.services.gateway(), name),
+            )
+            .unwrap_or_default();
+        filter_prefix(&fetched, prefix)
     }
 
     pub fn objects_from_class(&self, prefix: &str, parts: &[String], source: &str) -> Vec<String> {
@@ -396,6 +436,54 @@ impl CompletionStore {
 
         if let Ok(mut snapshot) = self.snapshot.write() {
             snapshot.objects_by_class.insert(cache_key, fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
+    async fn load_user_token_ids(
+        &self,
+        gateway: Arc<HubuumGateway>,
+        username: String,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.user_token_ids.get(&username) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let cache_key = username.clone();
+        let fetched = spawn_blocking(move || gateway.list_user_token_ids(&username))
+            .await
+            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.user_token_ids.insert(cache_key, fetched.clone());
+        }
+
+        Ok(fetched)
+    }
+
+    async fn load_service_account_token_ids(
+        &self,
+        gateway: Arc<HubuumGateway>,
+        name: String,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot.service_account_token_ids.get(&name) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let cache_key = name.clone();
+        let fetched = spawn_blocking(move || gateway.list_service_account_token_ids(&name))
+            .await
+            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot
+                .service_account_token_ids
+                .insert(cache_key, fetched.clone());
         }
 
         Ok(fetched)
@@ -698,6 +786,21 @@ fn option_value(parts: &[String], long: &str) -> Option<String> {
     })
 }
 
+fn token_principal_name(parts: &[String], option_names: &[&str]) -> Option<String> {
+    for option_name in option_names {
+        if let Some(value) = option_value(parts, option_name) {
+            return Some(value);
+        }
+    }
+
+    parts
+        .iter()
+        .position(|part| matches!(part.as_str(), "show" | "clone" | "revoke"))
+        .and_then(|command_index| parts.get(command_index + 1))
+        .filter(|value| !value.starts_with('-'))
+        .cloned()
+}
+
 fn class_name_from_parts(parts: &[String]) -> Option<String> {
     parts.iter().enumerate().find_map(|(index, part)| {
         if part == "--class" || part == "-c" {
@@ -778,14 +881,17 @@ fn json_record_i64(record: &JsonRecord, keys: &[&str]) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::StatusCode;
     use serde_json::json;
 
     use super::{
         filter_prefix, json_pointer_completion_candidates, merged_aggregate_data_fields,
-        merged_json_pointers, CompletionKind, CompletionStore, ObservedObjectDataFields,
-        TimedCompletion,
+        merged_json_pointers, token_principal_name, CompletionKind, CompletionStore, HubuumGateway,
+        ObservedObjectDataFields, TimedCompletion,
     };
 
     #[test]
@@ -800,6 +906,99 @@ mod tests {
             filter_prefix(&values, "al"),
             vec!["alpha".to_string(), "alpine".to_string()]
         );
+    }
+
+    #[test]
+    fn token_principal_name_accepts_options_and_positionals() {
+        assert_eq!(
+            token_principal_name(
+                &[
+                    "service-account".to_string(),
+                    "token".to_string(),
+                    "show".to_string(),
+                    "--name".to_string(),
+                    "mi-ansible-facts".to_string(),
+                    "--token-id".to_string(),
+                ],
+                &["--name", "-n"],
+            )
+            .as_deref(),
+            Some("mi-ansible-facts")
+        );
+        assert_eq!(
+            token_principal_name(
+                &[
+                    "clone".to_string(),
+                    "mi-ansible-facts".to_string(),
+                    "--token-id".to_string(),
+                ],
+                &["--name", "-n"],
+            )
+            .as_deref(),
+            Some("mi-ansible-facts")
+        );
+    }
+
+    #[test]
+    fn service_account_token_ids_are_loaded_and_cached() {
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([{
+                    "id": 7,
+                    "name": "mi-ansible-facts",
+                    "description": "",
+                    "owner_group_id": 2,
+                    "created_by": 1,
+                    "disabled_at": null,
+                    "created_at": "2026-07-25T12:00:00Z",
+                    "updated_at": "2026-07-25T12:00:00Z"
+                }]),
+            )
+            .expect("service-account response should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!([{
+                    "id": 20,
+                    "principal_id": 7,
+                    "name": "ansible-facts",
+                    "description": null,
+                    "scope": {"permissions": ["ReadObject"]},
+                    "issued": "2026-07-25T18:43:41Z",
+                    "expires_at": "2029-01-01T20:42:00Z",
+                    "last_used_at": null,
+                    "revoked_at": null
+                }]),
+            )
+            .expect("token response should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should parse")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = Arc::new(HubuumGateway::new(Arc::new(client)));
+        let store = CompletionStore::default();
+        let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
+
+        let first =
+            runtime
+                .block_on(store.load_service_account_token_ids(
+                    gateway.clone(),
+                    "mi-ansible-facts".to_string(),
+                ))
+                .expect("token IDs should load");
+        let second = runtime
+            .block_on(store.load_service_account_token_ids(gateway, "mi-ansible-facts".to_string()))
+            .expect("token IDs should be cached");
+
+        assert_eq!(first, ["20"]);
+        assert_eq!(second, ["20"]);
+        assert_eq!(transport.requests().len(), 2);
     }
 
     #[test]

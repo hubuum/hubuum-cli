@@ -2196,6 +2196,9 @@ Hosts = ["all", "S:os_version"]
         );
 
         unset_persisted_value("aliases.outdated-kernels").expect("command alias should be removed");
+        let persisted = read_to_string(&path).expect("updated config should be readable");
+        let root = parse_toml(&persisted).expect("updated config should remain valid TOML");
+        assert!(toml_get(&root, "aliases.outdated-kernels").is_none());
         let configured = load_config(Some(path)).expect("updated config should load");
         assert_eq!(
             configured.aliases.get("outdated-kernels"),
