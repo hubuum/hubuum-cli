@@ -7,7 +7,7 @@ pre-release state and under heavy development.
 
 Successful pushes to `main` publish rolling binaries in the
 [`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
-Version tags such as `v0.0.5` publish immutable, versioned GitHub releases.
+Version tags such as `v0.0.8` publish immutable, versioned GitHub releases.
 
 Each release provides four small, stripped archives and matching SHA-256 files:
 
@@ -17,7 +17,7 @@ Each release provides four small, stripped archives and matching SHA-256 files:
   Windows system DLLs remain platform dependencies.
 
 Rolling builds identify their source commit using SemVer build metadata, for example
-`v0.0.5+main.g0123456789ab`. Tagged releases use the clean package version. Show the
+`v0.0.8+main.g0123456789ab`. Tagged releases use the clean package version. Show the
 current build identity without logging in, or also query the configured server:
 
 ```sh
@@ -33,9 +33,8 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). The current development branch targets
-Hubuum server v0.0.8 through `hubuum_client` v0.8.0; Hubuum CLI v0.0.5 remains
-the latest published release and targets server v0.0.5.
+[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.8 targets Hubuum server
+v0.0.8 through `hubuum_client` v0.8.0 and is the latest published release.
 
 ## Usage
 
