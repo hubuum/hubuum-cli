@@ -48,7 +48,10 @@ pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
 pub use principal_tokens::{
     CloneTokenInput, CloneTokenOutcome, NewTokenInput, SourceTokenRevocation,
 };
-pub use relations::{RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions};
+pub use relations::{
+    CreateClassRelationInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    RelationTraversalOptions,
+};
 pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,

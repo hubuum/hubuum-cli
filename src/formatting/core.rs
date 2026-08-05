@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::Serialize;
 use serde_json::{json, to_value, Map, Value};
 
@@ -26,6 +28,10 @@ pub trait DetailRenderable {
 pub trait TableRenderable {
     fn headers() -> Vec<&'static str>;
     fn row(&self) -> Vec<String>;
+}
+
+pub(super) fn display_or_empty<T: Display>(value: Option<T>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
 }
 
 impl<T> OutputFormatter for T

@@ -4,8 +4,8 @@ use std::mem::swap;
 use std::slice::from_ref;
 
 use hubuum_client::{
-    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassWithPath, Object,
-    ObjectRelation, ObjectWithPath,
+    client::sync::Handle as SyncHandle, Class, ClassRelation, ClassRelationCreateOptions,
+    ClassWithPath, Object, ObjectRelation, ObjectRelationLimit, ObjectWithPath,
 };
 
 use crate::domain::{
@@ -30,6 +30,83 @@ pub struct RelationTarget {
     pub class_b: String,
     pub object_a: Option<String>,
     pub object_b: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateClassRelationInput {
+    class_a: ClassRelationEndpointInput,
+    class_b: ClassRelationEndpointInput,
+}
+
+#[derive(Debug, Clone)]
+struct ClassRelationEndpointInput {
+    class_name: String,
+    template_alias: Option<String>,
+    max_relations: Option<ObjectRelationLimit>,
+}
+
+impl ClassRelationEndpointInput {
+    fn new(class_name: impl Into<String>) -> Self {
+        Self {
+            class_name: class_name.into(),
+            template_alias: None,
+            max_relations: None,
+        }
+    }
+}
+
+impl CreateClassRelationInput {
+    pub fn new(class_a: impl Into<String>, class_b: impl Into<String>) -> Self {
+        Self {
+            class_a: ClassRelationEndpointInput::new(class_a),
+            class_b: ClassRelationEndpointInput::new(class_b),
+        }
+    }
+
+    pub fn with_forward_template_alias(mut self, alias: impl Into<String>) -> Self {
+        self.class_a.template_alias = Some(alias.into());
+        self
+    }
+
+    pub fn with_reverse_template_alias(mut self, alias: impl Into<String>) -> Self {
+        self.class_b.template_alias = Some(alias.into());
+        self
+    }
+
+    pub fn with_from_max_relations(mut self, limit: ObjectRelationLimit) -> Self {
+        self.class_a.max_relations = Some(limit);
+        self
+    }
+
+    pub fn with_to_max_relations(mut self, limit: ObjectRelationLimit) -> Self {
+        self.class_b.max_relations = Some(limit);
+        self
+    }
+
+    fn class_names(&self) -> (&str, &str) {
+        (&self.class_a.class_name, &self.class_b.class_name)
+    }
+
+    fn reverse_direction(&mut self) {
+        swap(&mut self.class_a, &mut self.class_b);
+    }
+
+    fn into_client_options(self) -> ClassRelationCreateOptions {
+        let mut options = ClassRelationCreateOptions::default();
+        if let Some(alias) = self.class_a.template_alias {
+            options = options.with_forward_template_alias(alias);
+        }
+        if let Some(alias) = self.class_b.template_alias {
+            options = options.with_reverse_template_alias(alias);
+        }
+        if let Some(limit) = self.class_a.max_relations {
+            options = options.with_from_max_relations(limit);
+        }
+        if let Some(limit) = self.class_b.max_relations {
+            options = options.with_to_max_relations(limit);
+        }
+        options
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -210,9 +287,9 @@ impl HubuumGateway {
 
     pub fn create_class_relation_v2(
         &self,
-        class_a: &str,
-        class_b: &str,
+        mut input: CreateClassRelationInput,
     ) -> Result<ResolvedClassRelationRecord, AppError> {
+        let (class_a, class_b) = input.class_names();
         let mut classes = (
             self.class_handle_by_name(class_a)?,
             self.class_handle_by_name(class_b)?,
@@ -221,10 +298,13 @@ impl HubuumGateway {
         let class_b_id: i32 = classes.1.id().into();
         if class_a_id > class_b_id {
             swap(&mut classes.0, &mut classes.1);
+            input.reverse_direction();
         }
-        let relation = classes.0.create_relation(classes.1.id())?;
-        let class_map =
-            self.class_map_from_ids([relation.from_hubuum_class_id, relation.to_hubuum_class_id])?;
+
+        let relation = classes
+            .0
+            .create_relation_with_options(classes.1.id(), input.into_client_options())?;
+        let class_map = self.class_map_from_classes([classes.0.resource(), classes.1.resource()]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
     }
 
@@ -1049,15 +1129,83 @@ mod tests {
     use std::sync::Arc;
 
     use hubuum_client::{
-        blocking::Client, ClassRelation, MockTransport, ObjectRelation, Token, TransportResponse,
+        blocking::Client, ClassRelation, MockTransport, ObjectRelation, ObjectRelationLimit, Token,
+        TransportResponse,
     };
     use reqwest::{
         header::{HeaderName, HeaderValue},
-        StatusCode,
+        Method, StatusCode,
     };
-    use serde_json::{from_value, json};
+    use serde_json::{from_slice, from_value, json, Value};
 
-    use super::HubuumGateway;
+    use super::{CreateClassRelationInput, HubuumGateway};
+
+    #[test]
+    fn class_relation_create_preserves_input_side_options_when_ids_are_canonicalized() {
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &class_json(9, "Hosts"))
+                .expect("class A response should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &class_json(3, "Rooms"))
+                .expect("class B response should serialize"),
+        );
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::CREATED,
+                &json!({
+                    "id": 7,
+                    "from_hubuum_class_id": 3,
+                    "to_hubuum_class_id": 9,
+                    "forward_template_alias": "hosts",
+                    "reverse_template_alias": "rooms",
+                    "from_max_relations": 2,
+                    "to_max_relations": 1,
+                    "created_at": "2026-08-05T12:00:00Z",
+                    "updated_at": "2026-08-05T12:00:00Z"
+                }),
+            )
+            .expect("relation response should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should be valid")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let relation = gateway
+            .create_class_relation_v2(
+                CreateClassRelationInput::new("Hosts", "Rooms")
+                    .with_forward_template_alias("rooms")
+                    .with_reverse_template_alias("hosts")
+                    .with_from_max_relations(
+                        ObjectRelationLimit::new(1).expect("positive limit should be valid"),
+                    )
+                    .with_to_max_relations(
+                        ObjectRelationLimit::new(2).expect("positive limit should be valid"),
+                    ),
+            )
+            .expect("class relation should be created");
+
+        assert_eq!(relation.class_a, "Rooms");
+        assert_eq!(relation.class_b, "Hosts");
+        assert_eq!(relation.from_max_relations, Some(2));
+        assert_eq!(relation.to_max_relations, Some(1));
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2].method, Method::POST);
+        assert_eq!(requests[2].url.path(), "/api/v1/classes/3/relations");
+        let body: Value =
+            from_slice(requests[2].body()).expect("relation request body should be JSON");
+        assert_eq!(body["to_hubuum_class_id"], 9);
+        assert_eq!(body["forward_template_alias"], "hosts");
+        assert_eq!(body["reverse_template_alias"], "rooms");
+        assert_eq!(body["from_max_relations"], 2);
+        assert_eq!(body["to_max_relations"], 1);
+    }
 
     #[test]
     fn object_relation_resolution_chunks_filters_and_follows_pages() {
@@ -1152,6 +1300,26 @@ mod tests {
             "data": null,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
+        })
+    }
+
+    fn class_json(id: i32, name: &str) -> serde_json::Value {
+        json!({
+            "id": id,
+            "name": name,
+            "description": "",
+            "collection": {
+                "id": 1,
+                "name": "default",
+                "description": "",
+                "parent_collection_id": null,
+                "created_at": "2026-08-05T12:00:00Z",
+                "updated_at": "2026-08-05T12:00:00Z"
+            },
+            "json_schema": null,
+            "validate_schema": false,
+            "created_at": "2026-08-05T12:00:00Z",
+            "updated_at": "2026-08-05T12:00:00Z"
         })
     }
 }

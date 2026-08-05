@@ -5,13 +5,26 @@ use crate::domain::{
 use crate::errors::AppError;
 use crate::output::{append_key_value, append_line};
 
-use super::{DetailRenderable, TableRenderable};
+use super::{core::display_or_empty, DetailRenderable, TableRenderable};
 
 impl DetailRenderable for ResolvedClassRelationRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
         vec![
             ("ClassA", self.class_a.clone()),
             ("ClassB", self.class_b.clone()),
+            (
+                "Forward Alias",
+                display_or_empty(self.forward_template_alias.as_deref()),
+            ),
+            (
+                "Reverse Alias",
+                display_or_empty(self.reverse_template_alias.as_deref()),
+            ),
+            (
+                "From Max Relations",
+                display_or_empty(self.from_max_relations),
+            ),
+            ("To Max Relations", display_or_empty(self.to_max_relations)),
             ("Created", self.created_at.to_string()),
             ("Updated", self.updated_at.to_string()),
         ]
@@ -20,7 +33,17 @@ impl DetailRenderable for ResolvedClassRelationRecord {
 
 impl TableRenderable for ResolvedClassRelationRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["id", "ClassA", "ClassB", "Created", "Updated"]
+        vec![
+            "id",
+            "ClassA",
+            "ClassB",
+            "Forward Alias",
+            "Reverse Alias",
+            "From Max",
+            "To Max",
+            "Created",
+            "Updated",
+        ]
     }
 
     fn row(&self) -> Vec<String> {
@@ -28,6 +51,10 @@ impl TableRenderable for ResolvedClassRelationRecord {
             self.id.to_string(),
             self.class_a.clone(),
             self.class_b.clone(),
+            display_or_empty(self.forward_template_alias.as_deref()),
+            display_or_empty(self.reverse_template_alias.as_deref()),
+            display_or_empty(self.from_max_relations),
+            display_or_empty(self.to_max_relations),
             self.created_at.to_string(),
             self.updated_at.to_string(),
         ]
