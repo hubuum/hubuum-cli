@@ -5,7 +5,7 @@ use crate::domain::{
 use crate::errors::AppError;
 use crate::output::{append_key_value, append_line};
 
-use super::{DetailRenderable, TableRenderable};
+use super::{core::display_or_empty, DetailRenderable, TableRenderable};
 
 impl DetailRenderable for ResolvedClassRelationRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
@@ -14,22 +14,17 @@ impl DetailRenderable for ResolvedClassRelationRecord {
             ("ClassB", self.class_b.clone()),
             (
                 "Forward Alias",
-                self.forward_template_alias.clone().unwrap_or_default(),
+                display_or_empty(self.forward_template_alias.as_deref()),
             ),
             (
                 "Reverse Alias",
-                self.reverse_template_alias.clone().unwrap_or_default(),
+                display_or_empty(self.reverse_template_alias.as_deref()),
             ),
             (
                 "From Max Relations",
-                self.from_max_relations
-                    .map_or_else(String::new, |v| v.to_string()),
+                display_or_empty(self.from_max_relations),
             ),
-            (
-                "To Max Relations",
-                self.to_max_relations
-                    .map_or_else(String::new, |v| v.to_string()),
-            ),
+            ("To Max Relations", display_or_empty(self.to_max_relations)),
             ("Created", self.created_at.to_string()),
             ("Updated", self.updated_at.to_string()),
         ]
@@ -56,12 +51,10 @@ impl TableRenderable for ResolvedClassRelationRecord {
             self.id.to_string(),
             self.class_a.clone(),
             self.class_b.clone(),
-            self.forward_template_alias.clone().unwrap_or_default(),
-            self.reverse_template_alias.clone().unwrap_or_default(),
-            self.from_max_relations
-                .map_or_else(String::new, |v| v.to_string()),
-            self.to_max_relations
-                .map_or_else(String::new, |v| v.to_string()),
+            display_or_empty(self.forward_template_alias.as_deref()),
+            display_or_empty(self.reverse_template_alias.as_deref()),
+            display_or_empty(self.from_max_relations),
+            display_or_empty(self.to_max_relations),
             self.created_at.to_string(),
             self.updated_at.to_string(),
         ]

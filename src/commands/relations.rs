@@ -325,25 +325,29 @@ pub struct ClassRelationCreate {
     pub to_max_relations: Option<i32>,
 }
 
+impl ClassRelationCreate {
+    fn into_relation_input(self) -> Result<CreateClassRelationInput, AppError> {
+        let mut input = CreateClassRelationInput::new(self.class_a, self.class_b);
+        if let Some(alias) = self.forward_template_alias {
+            input = input.with_forward_template_alias(alias);
+        }
+        if let Some(alias) = self.reverse_template_alias {
+            input = input.with_reverse_template_alias(alias);
+        }
+        if let Some(limit) = self.from_max_relations {
+            input = input.with_from_max_relations(ObjectRelationLimit::new(limit)?);
+        }
+        if let Some(limit) = self.to_max_relations {
+            input = input.with_to_max_relations(ObjectRelationLimit::new(limit)?);
+        }
+        Ok(input)
+    }
+}
+
 impl CliCommand for ClassRelationCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
-        let relation = services
-            .gateway()
-            .create_class_relation_v2(CreateClassRelationInput {
-                class_a: query.class_a,
-                class_b: query.class_b,
-                forward_template_alias: query.forward_template_alias,
-                reverse_template_alias: query.reverse_template_alias,
-                from_max_relations: query
-                    .from_max_relations
-                    .map(ObjectRelationLimit::new)
-                    .transpose()?,
-                to_max_relations: query
-                    .to_max_relations
-                    .map(ObjectRelationLimit::new)
-                    .transpose()?,
-            })?;
+        let input = Self::parse_tokens(tokens)?.into_relation_input()?;
+        let relation = services.gateway().create_class_relation_v2(input)?;
 
         match desired_format(tokens) {
             OutputFormat::Json => relation.format_json_noreturn()?,
@@ -921,8 +925,11 @@ fn render_related_class_graph(
 
 #[cfg(test)]
 mod tests {
+    use hubuum_client::ApiError;
+
     use super::ClassRelationCreate;
     use crate::commands::command_options;
+    use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
 
     #[test]
@@ -942,5 +949,22 @@ mod tests {
         assert_eq!(query.reverse_template_alias.as_deref(), Some("hosts"));
         assert_eq!(query.from_max_relations, Some(1));
         assert_eq!(query.to_max_relations, Some(2));
+    }
+
+    #[test]
+    fn class_relation_create_rejects_non_positive_cardinality_limits() {
+        let query = ClassRelationCreate {
+            class_a: "Hosts".to_string(),
+            class_b: "Rooms".to_string(),
+            from_max_relations: Some(0),
+            ..ClassRelationCreate::default()
+        };
+
+        assert!(matches!(
+            query.into_relation_input(),
+            Err(AppError::ApiError(ApiError::InvalidObjectRelationLimit {
+                value: 0
+            }))
+        ));
     }
 }

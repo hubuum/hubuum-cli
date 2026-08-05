@@ -1,6 +1,6 @@
 use crate::domain::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 
-use super::{DetailRenderable, TableRenderable};
+use super::{core::display_or_empty, DetailRenderable, TableRenderable};
 
 impl DetailRenderable for TaskRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
@@ -9,25 +9,11 @@ impl DetailRenderable for TaskRecord {
             ("ID", task.id.to_string()),
             ("Kind", task.kind.to_string()),
             ("Status", task.status.to_string()),
-            (
-                "Submitted By",
-                task.submitted_by
-                    .map_or_else(String::new, |value| value.to_string()),
-            ),
+            ("Submitted By", display_or_empty(task.submitted_by)),
             ("Summary", task.summary.clone().unwrap_or_default()),
             ("Created", task.created_at.to_string()),
-            (
-                "Started",
-                task.started_at
-                    .as_ref()
-                    .map_or_else(String::new, |value| value.to_string()),
-            ),
-            (
-                "Finished",
-                task.finished_at
-                    .as_ref()
-                    .map_or_else(String::new, |value| value.to_string()),
-            ),
+            ("Started", display_or_empty(task.started_at.as_ref())),
+            ("Finished", display_or_empty(task.finished_at.as_ref())),
             ("Total Items", task.progress.total_items.to_string()),
             ("Processed", task.progress.processed_items.to_string()),
             ("Succeeded", task.progress.success_items.to_string()),
@@ -52,27 +38,19 @@ impl DetailRenderable for TaskRecord {
             rows.extend([
                 (
                     "Total Duration (ms)",
-                    export
-                        .total_duration_ms
-                        .map_or_else(String::new, |value| value.to_string()),
+                    display_or_empty(export.total_duration_ms),
                 ),
                 (
                     "Query Duration (ms)",
-                    export
-                        .query_duration_ms
-                        .map_or_else(String::new, |value| value.to_string()),
+                    display_or_empty(export.query_duration_ms),
                 ),
                 (
                     "Hydration Duration (ms)",
-                    export
-                        .hydration_duration_ms
-                        .map_or_else(String::new, |value| value.to_string()),
+                    display_or_empty(export.hydration_duration_ms),
                 ),
                 (
                     "Render Duration (ms)",
-                    export
-                        .render_duration_ms
-                        .map_or_else(String::new, |value| value.to_string()),
+                    display_or_empty(export.render_duration_ms),
                 ),
             ]);
         }
@@ -104,7 +82,6 @@ impl DetailRenderable for TaskQueueStateRecord {
             ),
             ("Cancelled", state.cancelled_tasks.to_string()),
             ("Import Tasks", state.import_tasks.to_string()),
-            ("Export Tasks", state.export_tasks.to_string()),
             ("Export Tasks", state.export_tasks.to_string()),
             ("Reindex Tasks", state.reindex_tasks.to_string()),
             ("Task Events", state.total_task_events.to_string()),
@@ -176,44 +153,26 @@ mod tests {
                 "id": 5,
                 "kind": "export",
                 "status": "succeeded",
-                "submitted_by": 1,
                 "created_at": "2026-08-05T12:00:00Z",
-                "started_at": "2026-08-05T12:00:01Z",
-                "finished_at": "2026-08-05T12:00:02Z",
                 "progress": {
                     "total_items": 1,
                     "processed_items": 1,
                     "success_items": 1,
                     "failed_items": 0
                 },
-                "summary": "Export complete",
-                "request_redacted_at": null,
                 "links": {
                     "task": "/api/v1/tasks/5",
-                    "events": "/api/v1/tasks/5/events",
-                    "import": null,
-                    "import_results": null,
-                    "export": "/api/v1/exports/5",
-                    "export_output": "/api/v1/exports/5/output",
-                    "backup": null,
-                    "backup_output": null
+                    "events": "/api/v1/tasks/5/events"
                 },
                 "details": {
-                    "import": null,
-                    "backup": null,
                     "export": {
                         "output_url": "/api/v1/exports/5/output",
                         "output_available": true,
                         "output_expired": false,
-                        "output_content_type": "application/json",
-                        "output_expires_at": null,
-                        "template_name": null,
                         "total_duration_ms": 12,
                         "query_duration_ms": 3,
                         "hydration_duration_ms": 4,
-                        "render_duration_ms": 5,
-                        "truncated": false,
-                        "warning_count": 0
+                        "render_duration_ms": 5
                     }
                 }
             }))

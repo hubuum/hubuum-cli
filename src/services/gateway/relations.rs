@@ -34,12 +34,79 @@ pub struct RelationTarget {
 
 #[derive(Debug, Clone)]
 pub struct CreateClassRelationInput {
-    pub class_a: String,
-    pub class_b: String,
-    pub forward_template_alias: Option<String>,
-    pub reverse_template_alias: Option<String>,
-    pub from_max_relations: Option<ObjectRelationLimit>,
-    pub to_max_relations: Option<ObjectRelationLimit>,
+    class_a: ClassRelationEndpointInput,
+    class_b: ClassRelationEndpointInput,
+}
+
+#[derive(Debug, Clone)]
+struct ClassRelationEndpointInput {
+    class_name: String,
+    template_alias: Option<String>,
+    max_relations: Option<ObjectRelationLimit>,
+}
+
+impl ClassRelationEndpointInput {
+    fn new(class_name: impl Into<String>) -> Self {
+        Self {
+            class_name: class_name.into(),
+            template_alias: None,
+            max_relations: None,
+        }
+    }
+}
+
+impl CreateClassRelationInput {
+    pub fn new(class_a: impl Into<String>, class_b: impl Into<String>) -> Self {
+        Self {
+            class_a: ClassRelationEndpointInput::new(class_a),
+            class_b: ClassRelationEndpointInput::new(class_b),
+        }
+    }
+
+    pub fn with_forward_template_alias(mut self, alias: impl Into<String>) -> Self {
+        self.class_a.template_alias = Some(alias.into());
+        self
+    }
+
+    pub fn with_reverse_template_alias(mut self, alias: impl Into<String>) -> Self {
+        self.class_b.template_alias = Some(alias.into());
+        self
+    }
+
+    pub fn with_from_max_relations(mut self, limit: ObjectRelationLimit) -> Self {
+        self.class_a.max_relations = Some(limit);
+        self
+    }
+
+    pub fn with_to_max_relations(mut self, limit: ObjectRelationLimit) -> Self {
+        self.class_b.max_relations = Some(limit);
+        self
+    }
+
+    fn class_names(&self) -> (&str, &str) {
+        (&self.class_a.class_name, &self.class_b.class_name)
+    }
+
+    fn reverse_direction(&mut self) {
+        swap(&mut self.class_a, &mut self.class_b);
+    }
+
+    fn into_client_options(self) -> ClassRelationCreateOptions {
+        let mut options = ClassRelationCreateOptions::default();
+        if let Some(alias) = self.class_a.template_alias {
+            options = options.with_forward_template_alias(alias);
+        }
+        if let Some(alias) = self.class_b.template_alias {
+            options = options.with_reverse_template_alias(alias);
+        }
+        if let Some(limit) = self.class_a.max_relations {
+            options = options.with_from_max_relations(limit);
+        }
+        if let Some(limit) = self.class_b.max_relations {
+            options = options.with_to_max_relations(limit);
+        }
+        options
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -220,41 +287,23 @@ impl HubuumGateway {
 
     pub fn create_class_relation_v2(
         &self,
-        input: CreateClassRelationInput,
+        mut input: CreateClassRelationInput,
     ) -> Result<ResolvedClassRelationRecord, AppError> {
+        let (class_a, class_b) = input.class_names();
         let mut classes = (
-            self.class_handle_by_name(&input.class_a)?,
-            self.class_handle_by_name(&input.class_b)?,
+            self.class_handle_by_name(class_a)?,
+            self.class_handle_by_name(class_b)?,
         );
-        let mut forward_template_alias = input.forward_template_alias;
-        let mut reverse_template_alias = input.reverse_template_alias;
-        let mut from_max_relations = input.from_max_relations;
-        let mut to_max_relations = input.to_max_relations;
         let class_a_id: i32 = classes.0.id().into();
         let class_b_id: i32 = classes.1.id().into();
         if class_a_id > class_b_id {
             swap(&mut classes.0, &mut classes.1);
-            swap(&mut forward_template_alias, &mut reverse_template_alias);
-            swap(&mut from_max_relations, &mut to_max_relations);
-        }
-
-        let mut options = ClassRelationCreateOptions::default();
-        if let Some(alias) = forward_template_alias {
-            options = options.with_forward_template_alias(alias);
-        }
-        if let Some(alias) = reverse_template_alias {
-            options = options.with_reverse_template_alias(alias);
-        }
-        if let Some(limit) = from_max_relations {
-            options = options.with_from_max_relations(limit);
-        }
-        if let Some(limit) = to_max_relations {
-            options = options.with_to_max_relations(limit);
+            input.reverse_direction();
         }
 
         let relation = classes
             .0
-            .create_relation_with_options(classes.1.id(), options)?;
+            .create_relation_with_options(classes.1.id(), input.into_client_options())?;
         let class_map = self.class_map_from_classes([classes.0.resource(), classes.1.resource()]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
     }
@@ -1128,14 +1177,17 @@ mod tests {
         let gateway = HubuumGateway::new(Arc::new(client));
 
         let relation = gateway
-            .create_class_relation_v2(CreateClassRelationInput {
-                class_a: "Hosts".to_string(),
-                class_b: "Rooms".to_string(),
-                forward_template_alias: Some("rooms".to_string()),
-                reverse_template_alias: Some("hosts".to_string()),
-                from_max_relations: Some(ObjectRelationLimit::new(1).unwrap()),
-                to_max_relations: Some(ObjectRelationLimit::new(2).unwrap()),
-            })
+            .create_class_relation_v2(
+                CreateClassRelationInput::new("Hosts", "Rooms")
+                    .with_forward_template_alias("rooms")
+                    .with_reverse_template_alias("hosts")
+                    .with_from_max_relations(
+                        ObjectRelationLimit::new(1).expect("positive limit should be valid"),
+                    )
+                    .with_to_max_relations(
+                        ObjectRelationLimit::new(2).expect("positive limit should be valid"),
+                    ),
+            )
             .expect("class relation should be created");
 
         assert_eq!(relation.class_a, "Rooms");

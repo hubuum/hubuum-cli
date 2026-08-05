@@ -16,7 +16,7 @@ that every CLI command is available against other server versions.
 | 0.0.2 | 0.5.1 | 0.0.2 | Previous declared target |
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
-The unreleased v0.0.8 target is tested by `hubuum_client` against the immutable
+The current development target is tested by `hubuum_client` against the immutable
 Hubuum server v0.0.8 image
 `ghcr.io/hubuum/hubuum-server@sha256:850bfd95a2802485f93c1700fbff5a33465cbc7855cbc94962982c1074fd96f6`.
 The v0.0.5 target is tested by `hubuum_client` against the immutable

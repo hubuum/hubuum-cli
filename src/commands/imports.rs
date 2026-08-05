@@ -334,6 +334,7 @@ mod tests {
     use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
     use hubuum_client::{ImportAtomicity, ImportCollisionPolicy, ImportPermissionPolicy};
+    use serde_json::json;
     use tempfile::tempdir;
 
     const EMPTY_IMPORT: &str = r#"{"version":1,"dry_run":null,"mode":null,"graph":{}}"#;
@@ -432,64 +433,51 @@ mod tests {
 
     #[test]
     fn import_request_preserves_core_timestamps_and_relation_limits() {
-        let timestamps = r#"{
+        let timestamps = json!({
             "created_at": "2026-08-05T08:00:00",
             "updated_at": "2026-08-05T08:00:01"
-        }"#;
-        let body = format!(
-            r#"{{
-                "version": 1,
-                "dry_run": null,
-                "mode": null,
-                "graph": {{
-                    "collections": [{{
-                        "ref": "collection",
-                        "name": "Inventory",
-                        "description": "",
-                        "parent_collection_ref": null,
-                        "parent_collection_key": null,
-                        "timestamps": {timestamps}
-                    }}],
-                    "classes": [{{
-                        "ref": "class-a",
-                        "name": "Hosts",
-                        "description": "",
-                        "json_schema": null,
-                        "validate_schema": null,
-                        "collection_ref": "collection",
-                        "collection_key": null,
-                        "timestamps": {timestamps}
-                    }}],
-                    "objects": [{{
-                        "ref": "object-a",
-                        "name": "host-1",
-                        "description": "",
-                        "data": {{}},
-                        "class_ref": "class-a",
-                        "class_key": null,
-                        "timestamps": {timestamps}
-                    }}],
-                    "class_relations": [{{
-                        "ref": "class-relation",
-                        "from_class_ref": "class-a",
-                        "from_class_key": null,
-                        "to_class_ref": "class-a",
-                        "to_class_key": null,
-                        "from_max_relations": 1,
-                        "to_max_relations": 2,
-                        "timestamps": {timestamps}
-                    }}],
-                    "object_relations": [{{
-                        "ref": "object-relation",
-                        "from_object_ref": "object-a",
-                        "from_object_key": null,
-                        "to_object_ref": "object-a",
-                        "to_object_key": null,
-                        "timestamps": {timestamps}
-                    }}]
-                }}
-            }}"#
-        );
+        });
+        let body = json!({
+            "version": 1,
+            "graph": {
+                "collections": [{
+                    "ref": "collection",
+                    "name": "Inventory",
+                    "description": "",
+                    "timestamps": timestamps.clone()
+                }],
+                "classes": [{
+                    "ref": "class-a",
+                    "name": "Hosts",
+                    "description": "",
+                    "collection_ref": "collection",
+                    "timestamps": timestamps.clone()
+                }],
+                "objects": [{
+                    "ref": "object-a",
+                    "name": "host-1",
+                    "description": "",
+                    "data": {},
+                    "class_ref": "class-a",
+                    "timestamps": timestamps.clone()
+                }],
+                "class_relations": [{
+                    "ref": "class-relation",
+                    "from_class_ref": "class-a",
+                    "to_class_ref": "class-a",
+                    "from_max_relations": 1,
+                    "to_max_relations": 2,
+                    "timestamps": timestamps.clone()
+                }],
+                "object_relations": [{
+                    "ref": "object-relation",
+                    "from_object_ref": "object-a",
+                    "to_object_ref": "object-a",
+                    "timestamps": timestamps
+                }]
+            }
+        })
+        .to_string();
         let query = ImportSubmit {
             http: Some(body),
             ..ImportSubmit::default()
