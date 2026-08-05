@@ -1,4 +1,5 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::ObjectRelationLimit;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -18,7 +19,9 @@ use crate::errors::AppError;
 use crate::formatting::{append_json, append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, RelatedObjectOptions, RelationRoot, RelationTarget};
+use crate::services::{
+    AppServices, CreateClassRelationInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+};
 use crate::tokenizer::CommandTokenizer;
 
 const DEFAULT_RELATED_OBJECT_MAX_DEPTH: i32 = 2;
@@ -300,6 +303,26 @@ pub struct ClassRelationCreate {
         autocomplete = "classes"
     )]
     pub class_b: String,
+    #[option(
+        long = "forward-template-alias",
+        help = "Template alias when traversing from class A to class B"
+    )]
+    pub forward_template_alias: Option<String>,
+    #[option(
+        long = "reverse-template-alias",
+        help = "Template alias when traversing from class B to class A"
+    )]
+    pub reverse_template_alias: Option<String>,
+    #[option(
+        long = "from-max-relations",
+        help = "Maximum object relations allowed for each class A object"
+    )]
+    pub from_max_relations: Option<i32>,
+    #[option(
+        long = "to-max-relations",
+        help = "Maximum object relations allowed for each class B object"
+    )]
+    pub to_max_relations: Option<i32>,
 }
 
 impl CliCommand for ClassRelationCreate {
@@ -307,7 +330,20 @@ impl CliCommand for ClassRelationCreate {
         let query = Self::parse_tokens(tokens)?;
         let relation = services
             .gateway()
-            .create_class_relation_v2(&query.class_a, &query.class_b)?;
+            .create_class_relation_v2(CreateClassRelationInput {
+                class_a: query.class_a,
+                class_b: query.class_b,
+                forward_template_alias: query.forward_template_alias,
+                reverse_template_alias: query.reverse_template_alias,
+                from_max_relations: query
+                    .from_max_relations
+                    .map(ObjectRelationLimit::new)
+                    .transpose()?,
+                to_max_relations: query
+                    .to_max_relations
+                    .map(ObjectRelationLimit::new)
+                    .transpose()?,
+            })?;
 
         match desired_format(tokens) {
             OutputFormat::Json => relation.format_json_noreturn()?,
@@ -881,4 +917,30 @@ fn render_related_class_graph(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClassRelationCreate;
+    use crate::commands::command_options;
+    use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    fn class_relation_create_parses_aliases_and_cardinality_limits() {
+        let tokens = CommandTokenizer::new(
+            "relation class create --class-a Hosts --class-b Rooms --forward-template-alias rooms --reverse-template-alias hosts --from-max-relations 1 --to-max-relations 2",
+            "create",
+            &command_options::<ClassRelationCreate>(),
+        )
+        .expect("relation create options should tokenize");
+
+        let query = ClassRelationCreate::parse_tokens(&tokens)
+            .expect("relation create options should parse");
+        assert_eq!(query.class_a, "Hosts");
+        assert_eq!(query.class_b, "Rooms");
+        assert_eq!(query.forward_template_alias.as_deref(), Some("rooms"));
+        assert_eq!(query.reverse_template_alias.as_deref(), Some("hosts"));
+        assert_eq!(query.from_max_relations, Some(1));
+        assert_eq!(query.to_max_relations, Some(2));
+    }
 }

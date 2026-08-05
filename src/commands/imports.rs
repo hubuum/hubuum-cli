@@ -431,6 +431,90 @@ mod tests {
     }
 
     #[test]
+    fn import_request_preserves_core_timestamps_and_relation_limits() {
+        let timestamps = r#"{
+            "created_at": "2026-08-05T08:00:00",
+            "updated_at": "2026-08-05T08:00:01"
+        }"#;
+        let body = format!(
+            r#"{{
+                "version": 1,
+                "dry_run": null,
+                "mode": null,
+                "graph": {{
+                    "collections": [{{
+                        "ref": "collection",
+                        "name": "Inventory",
+                        "description": "",
+                        "parent_collection_ref": null,
+                        "parent_collection_key": null,
+                        "timestamps": {timestamps}
+                    }}],
+                    "classes": [{{
+                        "ref": "class-a",
+                        "name": "Hosts",
+                        "description": "",
+                        "json_schema": null,
+                        "validate_schema": null,
+                        "collection_ref": "collection",
+                        "collection_key": null,
+                        "timestamps": {timestamps}
+                    }}],
+                    "objects": [{{
+                        "ref": "object-a",
+                        "name": "host-1",
+                        "description": "",
+                        "data": {{}},
+                        "class_ref": "class-a",
+                        "class_key": null,
+                        "timestamps": {timestamps}
+                    }}],
+                    "class_relations": [{{
+                        "ref": "class-relation",
+                        "from_class_ref": "class-a",
+                        "from_class_key": null,
+                        "to_class_ref": "class-a",
+                        "to_class_key": null,
+                        "from_max_relations": 1,
+                        "to_max_relations": 2,
+                        "timestamps": {timestamps}
+                    }}],
+                    "object_relations": [{{
+                        "ref": "object-relation",
+                        "from_object_ref": "object-a",
+                        "from_object_key": null,
+                        "to_object_ref": "object-a",
+                        "to_object_key": null,
+                        "timestamps": {timestamps}
+                    }}]
+                }}
+            }}"#
+        );
+        let query = ImportSubmit {
+            http: Some(body),
+            ..ImportSubmit::default()
+        };
+
+        let request = import_request(&query).expect("v0.8 import request should parse");
+        let graph = serde_json::to_value(request.graph).expect("import graph should serialize");
+
+        for collection in [
+            "collections",
+            "classes",
+            "objects",
+            "class_relations",
+            "object_relations",
+        ] {
+            assert_eq!(
+                graph[collection][0]["timestamps"]["updated_at"],
+                "2026-08-05T08:00:01"
+            );
+        }
+        assert_eq!(graph["class_relations"][0]["from_max_relations"], 1);
+        assert_eq!(graph["class_relations"][0]["to_max_relations"], 2);
+    }
+
+    #[test]
     fn import_request_rewrites_to_existing_collection_override() {
         let body = r#"{
             "version": 1,

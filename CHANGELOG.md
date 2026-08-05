@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Updated `hubuum_client` to 0.8.0 for Hubuum server v0.0.8. Class relation
+  creation now accepts forward/reverse template aliases and validated per-side
+  object-relation limits; relation output includes both aliases and limits.
+  Core graph imports preserve collection, class, object, class-relation, and
+  object-relation timestamps and class-relation limits, while export task
+  details expose total, query, hydration, and render timings. Typed relation ID
+  filters also use the server's canonical query keys.
 - Paginated commands now accept `--all` to fetch and buffer every
   remaining cursor page before output pipelines run. Pipelines applied without
   `--all` warn when more server pages are available, and unified streaming

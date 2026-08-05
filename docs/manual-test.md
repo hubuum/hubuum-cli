@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
 This checklist targets the current Hubuum CLI command surface and Hubuum server
-v0.0.5 using `hubuum_client` 0.7.2. It intentionally uses the current
+v0.0.8 using `hubuum_client` 0.8.0. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -264,6 +264,9 @@ Expected results:
 
 - `--collection` rewrites import collection references to an existing collection.
 - Policy flags override the mode in the import request body.
+- Core collection, class, object, class-relation, and object-relation
+  `timestamps` values are preserved, as are class-relation
+  `from_max_relations` and `to_max_relations` values.
 - Import results can be listed and sorted with `--sort`.
 
 ## Search
@@ -288,7 +291,7 @@ Create a second class and class relation:
 
 ```text
 class create --name SmokeService --collection cli-smoke --description "Smoke services"
-relation class create --class-a SmokeHost --class-b SmokeService
+relation class create --class-a SmokeHost --class-b SmokeService --forward-template-alias services --reverse-template-alias hosts --from-max-relations 2 --to-max-relations 1
 relation class list --root-class SmokeHost
 relation class direct --root-class SmokeHost
 relation class graph --root-class SmokeHost --max-depth 2
@@ -307,6 +310,9 @@ relation object graph --root-class SmokeHost --root-object smoke-1 --max-depth 2
 Expected results:
 
 - Relation list, direct, and graph views resolve class and object names.
+- Class relation output includes template aliases and per-side cardinality limits.
+- Creating more object relations than either side's configured positive limit
+  is rejected by the server.
 - Class/object `show` includes relation summaries.
 
 ## Tasks And Background Jobs
@@ -328,7 +334,7 @@ Inspect server tasks directly:
 ```text
 task queue
 task list --kind export --status succeeded --limit 5
-task show <task-id>
+task show <export-task-id>
 task events <task-id> --sort created_at desc
 task output <task-id>
 ```
@@ -336,6 +342,8 @@ task output <task-id>
 Expected results:
 
 - `jobs` and `bg` aliases behave the same.
+- Completed export task details show total, query, hydration, and render
+  durations in milliseconds.
 - `task output` renders export output and import result summaries.
 - Remote-call task output may be unavailable if the server/client endpoint does not expose it.
 

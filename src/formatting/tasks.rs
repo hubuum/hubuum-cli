@@ -5,7 +5,7 @@ use super::{DetailRenderable, TableRenderable};
 impl DetailRenderable for TaskRecord {
     fn detail_rows(&self) -> Vec<(&'static str, String)> {
         let task = &self.0;
-        vec![
+        let mut rows = vec![
             ("ID", task.id.to_string()),
             ("Kind", task.kind.to_string()),
             ("Status", task.status.to_string()),
@@ -42,7 +42,42 @@ impl DetailRenderable for TaskRecord {
                 "Import Results",
                 task.links.import_results.clone().unwrap_or_default(),
             ),
-        ]
+        ];
+
+        if let Some(export) = task
+            .details
+            .as_ref()
+            .and_then(|details| details.export.as_ref())
+        {
+            rows.extend([
+                (
+                    "Total Duration (ms)",
+                    export
+                        .total_duration_ms
+                        .map_or_else(String::new, |value| value.to_string()),
+                ),
+                (
+                    "Query Duration (ms)",
+                    export
+                        .query_duration_ms
+                        .map_or_else(String::new, |value| value.to_string()),
+                ),
+                (
+                    "Hydration Duration (ms)",
+                    export
+                        .hydration_duration_ms
+                        .map_or_else(String::new, |value| value.to_string()),
+                ),
+                (
+                    "Render Duration (ms)",
+                    export
+                        .render_duration_ms
+                        .map_or_else(String::new, |value| value.to_string()),
+                ),
+            ]);
+        }
+
+        rows
     }
 }
 
@@ -124,5 +159,71 @@ impl TableRenderable for TaskEventRecord {
             event.message.clone(),
             event.created_at.to_string(),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hubuum_client::TaskResponse;
+    use serde_json::{from_value, json};
+
+    use super::{DetailRenderable, TaskRecord};
+
+    #[test]
+    fn export_task_details_include_stage_timings() {
+        let task = TaskRecord(
+            from_value::<TaskResponse>(json!({
+                "id": 5,
+                "kind": "export",
+                "status": "succeeded",
+                "submitted_by": 1,
+                "created_at": "2026-08-05T12:00:00Z",
+                "started_at": "2026-08-05T12:00:01Z",
+                "finished_at": "2026-08-05T12:00:02Z",
+                "progress": {
+                    "total_items": 1,
+                    "processed_items": 1,
+                    "success_items": 1,
+                    "failed_items": 0
+                },
+                "summary": "Export complete",
+                "request_redacted_at": null,
+                "links": {
+                    "task": "/api/v1/tasks/5",
+                    "events": "/api/v1/tasks/5/events",
+                    "import": null,
+                    "import_results": null,
+                    "export": "/api/v1/exports/5",
+                    "export_output": "/api/v1/exports/5/output",
+                    "backup": null,
+                    "backup_output": null
+                },
+                "details": {
+                    "import": null,
+                    "backup": null,
+                    "export": {
+                        "output_url": "/api/v1/exports/5/output",
+                        "output_available": true,
+                        "output_expired": false,
+                        "output_content_type": "application/json",
+                        "output_expires_at": null,
+                        "template_name": null,
+                        "total_duration_ms": 12,
+                        "query_duration_ms": 3,
+                        "hydration_duration_ms": 4,
+                        "render_duration_ms": 5,
+                        "truncated": false,
+                        "warning_count": 0
+                    }
+                }
+            }))
+            .expect("task fixture should deserialize"),
+        );
+
+        let rows = task.detail_rows();
+        assert!(rows.contains(&("Total Duration (ms)", "12".to_string())));
+        assert!(rows.contains(&("Query Duration (ms)", "3".to_string())));
+        assert!(rows.contains(&("Hydration Duration (ms)", "4".to_string())));
+        assert!(rows.contains(&("Render Duration (ms)", "5".to_string())));
     }
 }

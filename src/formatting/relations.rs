@@ -12,6 +12,24 @@ impl DetailRenderable for ResolvedClassRelationRecord {
         vec![
             ("ClassA", self.class_a.clone()),
             ("ClassB", self.class_b.clone()),
+            (
+                "Forward Alias",
+                self.forward_template_alias.clone().unwrap_or_default(),
+            ),
+            (
+                "Reverse Alias",
+                self.reverse_template_alias.clone().unwrap_or_default(),
+            ),
+            (
+                "From Max Relations",
+                self.from_max_relations
+                    .map_or_else(String::new, |v| v.to_string()),
+            ),
+            (
+                "To Max Relations",
+                self.to_max_relations
+                    .map_or_else(String::new, |v| v.to_string()),
+            ),
             ("Created", self.created_at.to_string()),
             ("Updated", self.updated_at.to_string()),
         ]
@@ -20,7 +38,17 @@ impl DetailRenderable for ResolvedClassRelationRecord {
 
 impl TableRenderable for ResolvedClassRelationRecord {
     fn headers() -> Vec<&'static str> {
-        vec!["id", "ClassA", "ClassB", "Created", "Updated"]
+        vec![
+            "id",
+            "ClassA",
+            "ClassB",
+            "Forward Alias",
+            "Reverse Alias",
+            "From Max",
+            "To Max",
+            "Created",
+            "Updated",
+        ]
     }
 
     fn row(&self) -> Vec<String> {
@@ -28,6 +56,12 @@ impl TableRenderable for ResolvedClassRelationRecord {
             self.id.to_string(),
             self.class_a.clone(),
             self.class_b.clone(),
+            self.forward_template_alias.clone().unwrap_or_default(),
+            self.reverse_template_alias.clone().unwrap_or_default(),
+            self.from_max_relations
+                .map_or_else(String::new, |v| v.to_string()),
+            self.to_max_relations
+                .map_or_else(String::new, |v| v.to_string()),
             self.created_at.to_string(),
             self.updated_at.to_string(),
         ]

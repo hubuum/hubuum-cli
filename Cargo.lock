@@ -1010,9 +1010,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0b9b6e994e58e05174b48cf8818b33f429d3a30773926bc33f578a8080426d6"
+checksum = "7879e984772a76d1d43079ffc6df9f9255afd9fd89968edbba2a794e334a4b29"
 dependencies = [
  "chrono",
  "fastrand",

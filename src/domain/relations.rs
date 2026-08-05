@@ -11,6 +11,10 @@ pub struct ResolvedClassRelationRecord {
     pub id: i32,
     pub class_a: String,
     pub class_b: String,
+    pub forward_template_alias: Option<String>,
+    pub reverse_template_alias: Option<String>,
+    pub from_max_relations: Option<i32>,
+    pub to_max_relations: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -30,6 +34,10 @@ impl ResolvedClassRelationRecord {
             id: class_relation.id.into(),
             class_a,
             class_b,
+            forward_template_alias: class_relation.forward_template_alias.clone(),
+            reverse_template_alias: class_relation.reverse_template_alias.clone(),
+            from_max_relations: class_relation.from_max_relations.map(|limit| limit.get()),
+            to_max_relations: class_relation.to_max_relations.map(|limit| limit.get()),
             created_at: class_relation.created_at.to_string(),
             updated_at: class_relation.updated_at.to_string(),
         }
