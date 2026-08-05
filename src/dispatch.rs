@@ -566,7 +566,7 @@ mod tests {
     #[serial]
     fn outdated_kernel_example_is_one_valid_object_pipeline() {
         reset_output().expect("buffer should reset");
-        let example = include_str!("../examples/show-outdated-kernels.hubuum").trim();
+        let example = include_str!("../examples/aliases/outdated-kernels.hubuum").trim();
         let (command, pipeline, suffix) = process_filter(example).expect("example should parse");
         let catalog = build_command_catalog();
         let parts = invocation_parts(&command).expect("command should tokenize");

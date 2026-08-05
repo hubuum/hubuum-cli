@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source-path=SCRIPTDIR
+source "$SCRIPT_DIR/hubuum-common.sh"
+
+usage() {
+    command cat <<'EOF'
+Usage: hubuum-move [OPTIONS] HOST DESTINATION
+       hubuum-move [OPTIONS] --from HOST --to DESTINATION
+
+Move a Hubuum Host to a Jack, Room, or another Host's Jack. Use destination
+"none" to remove all of the Host's Jack relations.
+
+Options:
+  --from HOST             Host to move
+  --to DESTINATION        Jack, Room, Host, or "none"
+  --target-type TYPE      auto, host, jack, or room (default: auto)
+  --jack JACK             Jack to use when the destination is a Room
+  --mode MODE             add or switch when the target Jack is occupied
+  --swap-with HOST        Host to exchange with in switch mode
+  --dry-run               Show the relation plan without changing it
+  -y, --yes               Apply an unambiguous plan without confirmation
+  -h, --help              Show this help
+EOF
+}
+
+require_value() {
+    if [[ $# -lt 2 ]]; then
+        printf 'hubuum-move: %s requires a value\n' "$1" >&2
+        exit 2
+    fi
+}
+
+choose() {
+    local prompt=$1
+    shift
+    local labels=("$@")
+    local index
+    local answer
+    if [[ ! -t 0 ]]; then
+        hubuum_die "selection requires a terminal; use an explicit option"
+        return 1
+    fi
+    for ((index = 0; index < ${#labels[@]}; index++)); do
+        printf '  %d) %s\n' "$((index + 1))" "${labels[$index]}"
+    done
+    read -r -p "$prompt [0 cancels]: " answer || {
+        hubuum_die "move cancelled"
+        return 1
+    }
+    if [[ -z $answer || $answer == 0 ]]; then
+        hubuum_die "move cancelled"
+        return 1
+    fi
+    case $answer in
+        *[!0-9]*) hubuum_die "invalid selection: $answer"; return 1 ;;
+    esac
+    if [[ $answer -lt 1 || $answer -gt ${#labels[@]} ]]; then
+        hubuum_die "selection must be between 1 and ${#labels[@]}"
+        return 1
+    fi
+    CHOICE_INDEX=$((answer - 1))
+}
+
+resolve_destination() {
+    local identifier=$1
+    local requested_type=$2
+    local types=(jack room host)
+    local matches=0
+    local candidate_type
+    local candidate
+    local status
+    local error_file=$HUBUUM_WRAPPER_TMP/resolve-error
+
+    if [[ $requested_type != auto ]]; then
+        case $requested_type in
+            host) DESTINATION_JSON=$(hubuum_resolve_host "$identifier") || return ;;
+            jack) DESTINATION_JSON=$(hubuum_resolve_object "$HUBUUM_JACKS_CLASS" "$identifier") || return ;;
+            room) DESTINATION_JSON=$(hubuum_resolve_object "$HUBUUM_ROOMS_CLASS" "$identifier") || return ;;
+        esac
+        DESTINATION_TYPE=$requested_type
+        return 0
+    fi
+
+    for candidate_type in "${types[@]}"; do
+        if [[ $candidate_type == host ]]; then
+            if candidate=$(hubuum_resolve_host "$identifier" 2>"$error_file"); then
+                status=0
+            else
+                status=$?
+            fi
+        elif [[ $candidate_type == jack ]]; then
+            if candidate=$(hubuum_resolve_object \
+                "$HUBUUM_JACKS_CLASS" "$identifier" 2>"$error_file"); then
+                status=0
+            else
+                status=$?
+            fi
+        else
+            if candidate=$(hubuum_resolve_object \
+                "$HUBUUM_ROOMS_CLASS" "$identifier" 2>"$error_file"); then
+                status=0
+            else
+                status=$?
+            fi
+        fi
+        if [[ $status -eq 0 ]]; then
+            matches=$((matches + 1))
+            DESTINATION_TYPE=$candidate_type
+            DESTINATION_JSON=$candidate
+        elif [[ $status -ne 3 ]]; then
+            command cat "$error_file" >&2
+            rm -f "$error_file"
+            return "$status"
+        fi
+    done
+    rm -f "$error_file"
+    if [[ $matches -eq 0 ]]; then
+        hubuum_die "unable to resolve destination $identifier as a Host, Jack, or Room"
+        return 1
+    fi
+    if [[ $matches -gt 1 ]]; then
+        hubuum_die "destination $identifier exists in multiple classes; use --target-type"
+        return 1
+    fi
+}
+
+source_option=
+destination_option=
+target_type=auto
+requested_jack=
+mode=
+swap_with=
+dry_run=0
+assume_yes=0
+positionals=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --from)
+            require_value "$@"
+            source_option=$2
+            shift 2
+            ;;
+        --to)
+            require_value "$@"
+            destination_option=$2
+            shift 2
+            ;;
+        --target-type)
+            require_value "$@"
+            target_type=$2
+            case $target_type in auto|host|jack|room) ;; *)
+                printf 'hubuum-move: invalid target type: %s\n' "$target_type" >&2
+                exit 2
+            esac
+            shift 2
+            ;;
+        --jack)
+            require_value "$@"
+            requested_jack=$2
+            shift 2
+            ;;
+        --mode)
+            require_value "$@"
+            mode=$2
+            case $mode in add|switch) ;; *)
+                printf 'hubuum-move: invalid mode: %s\n' "$mode" >&2
+                exit 2
+            esac
+            shift 2
+            ;;
+        --swap-with)
+            require_value "$@"
+            swap_with=$2
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        --yes|-y)
+            assume_yes=1
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do positionals+=("$1"); shift; done
+            ;;
+        -*)
+            printf 'hubuum-move: unknown option: %s\n' "$1" >&2
+            exit 2
+            ;;
+        *)
+            positionals+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ -n $source_option ]]; then
+    source_host=$source_option
+else
+    [[ ${#positionals[@]} -ge 1 ]] || { printf '%s\n' "hubuum-move: missing Host" >&2; exit 2; }
+    source_host=${positionals[0]}
+    positionals=("${positionals[@]:1}")
+fi
+if [[ -n $destination_option ]]; then
+    destination=$destination_option
+else
+    [[ ${#positionals[@]} -ge 1 ]] || { printf '%s\n' "hubuum-move: missing destination" >&2; exit 2; }
+    destination=${positionals[0]}
+    positionals=("${positionals[@]:1}")
+fi
+if [[ ${#positionals[@]} -ne 0 ]]; then
+    printf '%s\n' "hubuum-move: unexpected extra argument" >&2
+    exit 2
+fi
+
+hubuum_init
+source_json=$(hubuum_resolve_host "$source_host") || exit $?
+source_name=$(jq -r '.name' <<<"$source_json")
+
+if [[ $(printf '%s' "$destination" | tr '[:upper:]' '[:lower:]') == none ]]; then
+    if [[ -n $requested_jack || -n $mode || -n $swap_with ]]; then
+        hubuum_die "--jack, --mode, and --swap-with do not apply to none"
+        exit 2
+    fi
+    hubuum_move_host "$source_name" '' add '' "$assume_yes" "$dry_run"
+    exit $?
+fi
+
+resolve_destination "$destination" "$target_type"
+destination_name=$(jq -r '.name' <<<"$DESTINATION_JSON")
+destination_host=
+
+if [[ $DESTINATION_TYPE == room ]]; then
+    room_jacks=$(hubuum_related_names \
+        "$HUBUUM_ROOMS_CLASS" "$destination_name" "$HUBUUM_JACKS_CLASS")
+    room_jack_count=$(jq 'length' <<<"$room_jacks")
+    if [[ $room_jack_count -eq 0 ]]; then
+        hubuum_die "Room $destination_name has no related Jacks"
+        exit 1
+    fi
+    if [[ -n $requested_jack ]]; then
+        requested_jack_json=$(hubuum_resolve_object "$HUBUUM_JACKS_CLASS" "$requested_jack")
+        target_jack=$(jq -r '.name' <<<"$requested_jack_json")
+        if ! jq -e --arg jack "$target_jack" 'index($jack) != null' \
+            <<<"$room_jacks" >/dev/null; then
+            hubuum_die "Jack $target_jack is not related to Room $destination_name"
+            exit 1
+        fi
+    elif [[ $room_jack_count -eq 1 ]]; then
+        target_jack=$(jq -r '.[0]' <<<"$room_jacks")
+    else
+        jack_names=()
+        jack_labels=()
+        while IFS= read -r jack; do
+            jack_names+=("$jack")
+            jack_occupants=$(hubuum_related_names \
+                "$HUBUUM_JACKS_CLASS" "$jack" "$HUBUUM_HOSTS_CLASS")
+            occupant_label=$(jq -r 'if length == 0 then "free" else join(", ") end' \
+                <<<"$jack_occupants")
+            jack_labels+=("$jack ($occupant_label)")
+        done < <(jq -r '.[]' <<<"$room_jacks")
+        choose "Select a Jack in Room $destination_name" "${jack_labels[@]}"
+        target_jack=${jack_names[$CHOICE_INDEX]}
+    fi
+else
+    if [[ -n $requested_jack ]]; then
+        hubuum_die "--jack only applies when the destination is a Room"
+        exit 2
+    fi
+    if [[ $DESTINATION_TYPE == jack ]]; then
+        target_jack=$destination_name
+    else
+        if [[ $destination_name == "$source_name" ]]; then
+            hubuum_die "a Host cannot use itself as a destination"
+            exit 1
+        fi
+        destination_host=$destination_name
+        destination_jacks=$(hubuum_related_names \
+            "$HUBUUM_HOSTS_CLASS" "$destination_name" "$HUBUUM_JACKS_CLASS")
+        if [[ $(jq 'length' <<<"$destination_jacks") -ne 1 ]]; then
+            hubuum_die "destination Host $destination_name must have exactly one Jack"
+            exit 1
+        fi
+        target_jack=$(jq -r '.[0]' <<<"$destination_jacks")
+    fi
+fi
+
+current_jacks=$(hubuum_related_names \
+    "$HUBUUM_HOSTS_CLASS" "$source_name" "$HUBUUM_JACKS_CLASS")
+if [[ $(jq 'length' <<<"$current_jacks") -eq 1 \
+    && $(jq -r '.[0]' <<<"$current_jacks") == "$target_jack" ]]; then
+    hubuum_move_host "$source_name" "$target_jack" add '' "$assume_yes" "$dry_run"
+    exit $?
+fi
+
+occupants=$(hubuum_related_names \
+    "$HUBUUM_JACKS_CLASS" "$target_jack" "$HUBUUM_HOSTS_CLASS")
+occupants=$(jq -c --arg source "$source_name" 'map(select(. != $source))' <<<"$occupants")
+occupant_count=$(jq 'length' <<<"$occupants")
+
+if [[ -z $mode ]]; then
+    if [[ $occupant_count -eq 0 ]]; then
+        mode=add
+    else
+        occupant_label=$(jq -r 'join(", ")' <<<"$occupants")
+        choose "Jack $target_jack is occupied by $occupant_label; select an action" \
+            "add the Host to the same Jack" \
+            "switch two Hosts' Jacks"
+        if [[ $CHOICE_INDEX -eq 0 ]]; then mode=add; else mode=switch; fi
+    fi
+fi
+
+if [[ $mode == add ]]; then
+    if [[ -n $swap_with ]]; then
+        hubuum_die "--swap-with requires --mode switch"
+        exit 2
+    fi
+    selected_swap=
+else
+    if [[ $occupant_count -eq 0 ]]; then
+        hubuum_die "cannot switch: Jack $target_jack has no other Host"
+        exit 1
+    fi
+    if [[ -n $destination_host ]]; then
+        selected_swap=$destination_host
+        if [[ -n $swap_with ]]; then
+            swap_json=$(hubuum_resolve_host "$swap_with")
+            if [[ $(jq -r '.name' <<<"$swap_json") != "$selected_swap" ]]; then
+                hubuum_die "--swap-with must name the destination Host"
+                exit 1
+            fi
+        fi
+    elif [[ -n $swap_with ]]; then
+        swap_json=$(hubuum_resolve_host "$swap_with")
+        selected_swap=$(jq -r '.name' <<<"$swap_json")
+    elif [[ $occupant_count -eq 1 ]]; then
+        selected_swap=$(jq -r '.[0]' <<<"$occupants")
+    else
+        occupant_names=()
+        while IFS= read -r occupant; do occupant_names+=("$occupant"); done \
+            < <(jq -r '.[]' <<<"$occupants")
+        choose "Select the Host to switch with" "${occupant_names[@]}"
+        selected_swap=${occupant_names[$CHOICE_INDEX]}
+    fi
+    if ! jq -e --arg host "$selected_swap" 'index($host) != null' \
+        <<<"$occupants" >/dev/null; then
+        hubuum_die "Host $selected_swap is not on Jack $target_jack"
+        exit 1
+    fi
+fi
+
+hubuum_move_host \
+    "$source_name" \
+    "$target_jack" \
+    "$mode" \
+    "$selected_swap" \
+    "$assume_yes" \
+    "$dry_run"
