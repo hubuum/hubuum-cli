@@ -58,7 +58,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     ),
                     examples: Some(
                         r#"--name hosts --command 'object list --class Hosts | P Name'
---name outdated-kernels --command file://examples/show-outdated-kernels.hubuum"#,
+--name outdated-kernels --description 'Show hosts with kernels older than the newest observed for their OS release' --command file://examples/aliases/outdated-kernels.hubuum"#,
                     ),
                 },
             ),

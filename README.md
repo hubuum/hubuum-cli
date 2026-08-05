@@ -102,18 +102,16 @@ hosts whose kernel is older than the newest numeric kernel version observed in
 the same OS major version:
 
 ```sh
-hubuum-cli script examples/show-outdated-kernels.hubuum
+hubuum-cli script examples/aliases/outdated-kernels.hubuum
 hubuum-cli alias set --name outdated-kernels \
-  --description 'Find hosts running an outdated kernel' \
-  --command file://examples/show-outdated-kernels.hubuum
+  --description 'Show hosts with kernels older than the newest observed for their OS release' \
+  --command file://examples/aliases/outdated-kernels.hubuum
 hubuum-cli outdated-kernels
 ```
 
 The example converts each kernel into an array of numeric components, so
-`553.16` becomes `[553, 16]` rather than `55316`. Its computed `S:dual_stack`
-sort intentionally makes `object list` fetch the complete matching set before
-the local pipe runs; replace it with an enabled computed field available on the
-target `Hosts` class if needed.
+`553.16` becomes `[553, 16]` rather than `55316`. The example uses `--all` so
+`object list` fetches the complete matching set before the local pipe runs.
 
 `help`, `help --tree`, `version`, `config show`, and `config paths` run from the local
 command catalog and configuration files without logging in. `version --server`,

@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source-path=SCRIPTDIR
+source "$SCRIPT_DIR/hubuum-common.sh"
+
+usage() {
+    command cat <<'EOF'
+Usage: hubuum-host-new [OPTIONS] [HOSTNAME [SERIAL]]
+
+Create a Hubuum Host with a conservative data.facts payload. Existing Hosts
+are never overwritten.
+
+Options:
+  --serial SERIAL         Hardware serial number
+  --name NAME             Object name (default: canonical DNS name)
+  --fqdn FQDN             Explicit canonical FQDN
+  --collection NAME       Target collection (or HUBUUM_HOST_COLLECTION;
+                          inferred when exactly one grants CreateObject)
+  --description TEXT      Object description
+  --ipv4 ADDRESS          Explicit default IPv4 address
+  --ipv6 ADDRESS          Explicit default IPv6 address
+  --no-dns                Skip forward DNS lookup
+  --to DESTINATION        Place using hubuum-move after creation
+  --no-place              Ignore HUBUUM_DEFAULT_JACK
+  --target-type TYPE      auto, host, jack, or room
+  --jack JACK             Specific Jack when --to is a Room
+  --mode MODE             add or switch for an occupied Jack
+  --swap-with HOST        Host to exchange with in switch mode
+  -y, --yes               Skip creation and move confirmations
+  -h, --help              Show this help
+EOF
+}
+
+require_value() {
+    if [[ $# -lt 2 ]]; then
+        printf 'hubuum-host-new: %s requires a value\n' "$1" >&2
+        exit 2
+    fi
+}
+
+validate_ipv4() {
+    local address=$1
+    awk -F. '
+        NF != 4 { exit 1 }
+        {
+            for (i = 1; i <= 4; i++) {
+                if ($i !~ /^[0-9]+$/ || $i < 0 || $i > 255) exit 1
+            }
+        }
+    ' <<<"$address" || hubuum_die "invalid IPv4 address: $address"
+}
+
+validate_ipv6() {
+    local address=$1
+    if [[ $address != *:* || $address == *[!0-9A-Fa-f:.]* ]]; then
+        hubuum_die "invalid IPv6 address: $address"
+        return 1
+    fi
+}
+
+ensure_new_identifier() {
+    local identifier=$1
+    local existing
+    local status
+    local error_file=$HUBUUM_WRAPPER_TMP/resolve-error
+    [[ -n $identifier ]] || return 0
+    if existing=$(hubuum_resolve_host "$identifier" 2>"$error_file"); then
+        hubuum_die "refusing to overwrite existing Host $(jq -r '.name' <<<"$existing"); matched by $identifier"
+        return 1
+    else
+        status=$?
+    fi
+    if [[ $status -ne 3 ]]; then
+        command cat "$error_file" >&2
+        return "$status"
+    fi
+    rm -f "$error_file"
+}
+
+hostname_value=
+serial_option=
+serial_argument=
+object_name=
+fqdn_option=
+collection=${HUBUUM_HOST_COLLECTION:-}
+description='Created by hubuum-host-new'
+ipv4_option=
+ipv6_option=
+no_dns=0
+target=
+no_place=0
+target_type=auto
+requested_jack=
+mode=
+swap_with=
+assume_yes=0
+positionals=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --serial) require_value "$@"; serial_option=$2; shift 2 ;;
+        --name) require_value "$@"; object_name=$2; shift 2 ;;
+        --fqdn) require_value "$@"; fqdn_option=${2%.}; shift 2 ;;
+        --collection) require_value "$@"; collection=$2; shift 2 ;;
+        --description) require_value "$@"; description=$2; shift 2 ;;
+        --ipv4) require_value "$@"; ipv4_option=$2; shift 2 ;;
+        --ipv6) require_value "$@"; ipv6_option=$2; shift 2 ;;
+        --no-dns) no_dns=1; shift ;;
+        --to) require_value "$@"; target=$2; shift 2 ;;
+        --no-place) no_place=1; shift ;;
+        --target-type)
+            require_value "$@"
+            target_type=$2
+            case $target_type in auto|host|jack|room) ;; *)
+                printf 'hubuum-host-new: invalid target type: %s\n' "$target_type" >&2
+                exit 2
+            esac
+            shift 2
+            ;;
+        --jack) require_value "$@"; requested_jack=$2; shift 2 ;;
+        --mode)
+            require_value "$@"
+            mode=$2
+            case $mode in add|switch) ;; *)
+                printf 'hubuum-host-new: invalid mode: %s\n' "$mode" >&2
+                exit 2
+            esac
+            shift 2
+            ;;
+        --swap-with) require_value "$@"; swap_with=$2; shift 2 ;;
+        --yes|-y) assume_yes=1; shift ;;
+        --help|-h) usage; exit 0 ;;
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do positionals+=("$1"); shift; done
+            ;;
+        -*)
+            printf 'hubuum-host-new: unknown option: %s\n' "$1" >&2
+            exit 2
+            ;;
+        *) positionals+=("$1"); shift ;;
+    esac
+done
+
+if [[ ${#positionals[@]} -gt 2 ]]; then
+    printf '%s\n' "hubuum-host-new: expected at most HOSTNAME and SERIAL" >&2
+    exit 2
+fi
+hostname_value=${positionals[0]:-}
+serial_argument=${positionals[1]:-}
+if [[ -n $serial_option && -n $serial_argument ]]; then
+    printf '%s\n' "hubuum-host-new: specify the serial positionally or with --serial" >&2
+    exit 2
+fi
+serial=${serial_option:-$serial_argument}
+
+if [[ -z $hostname_value && ! -t 0 ]]; then
+    printf '%s\n' "hubuum-host-new: missing HOSTNAME" >&2
+    exit 2
+fi
+if [[ $no_place -eq 1 && -n $target ]]; then
+    printf '%s\n' "hubuum-host-new: --to and --no-place cannot be combined" >&2
+    exit 2
+fi
+if [[ $no_place -eq 1 ]]; then
+    if [[ -n $requested_jack || -n $mode || -n $swap_with || $target_type != auto ]]; then
+        printf '%s\n' "hubuum-host-new: placement options cannot be combined with --no-place" >&2
+        exit 2
+    fi
+elif [[ -z $target && -n ${HUBUUM_DEFAULT_JACK:-} ]]; then
+    target=$HUBUUM_DEFAULT_JACK
+    target_type=jack
+elif [[ -z $target \
+    && ( -n $requested_jack || -n $mode || -n $swap_with || $target_type != auto ) ]]; then
+    printf '%s\n' \
+        "hubuum-host-new: placement options require --to or HUBUUM_DEFAULT_JACK" >&2
+    exit 2
+fi
+
+hubuum_init
+if [[ -z $hostname_value ]]; then
+    read -r -p "Hostname: " hostname_value
+fi
+hostname_value=${hostname_value%.}
+[[ -n $hostname_value ]] || { printf '%s\n' "hubuum-host-new: HOSTNAME must not be empty" >&2; exit 2; }
+if [[ -z $serial && -t 0 ]]; then
+    read -r -p "Serial (optional): " serial
+fi
+if [[ -z $collection ]]; then
+    collection=$(hubuum_infer_create_collection "$HUBUUM_HOSTS_CLASS") || exit
+    printf 'Inferred collection: %s\n' "$collection"
+fi
+
+ipv4=$ipv4_option
+ipv6=$ipv6_option
+canonical_name=$hostname_value
+if [[ $no_dns -eq 0 ]]; then
+    hubuum_require_command host
+    if ! dns_output=$(host "$hostname_value" 2>&1); then
+        printf 'hubuum-host-new: DNS lookup failed for %s: %s\n' \
+            "$hostname_value" "$dns_output" >&2
+        printf '%s\n' "Use --no-dns to create without a successful lookup." >&2
+        exit 1
+    fi
+    dns_name=$(awk '
+        / is an alias for / { value=$NF; sub(/\.$/, "", value); print value; exit }
+        / has address / || / has IPv6 address / { value=$1; sub(/\.$/, "", value); print value; exit }
+    ' <<<"$dns_output")
+    [[ -z $dns_name ]] || canonical_name=$dns_name
+    if [[ -z $ipv4 ]]; then
+        ipv4=$(awk '/ has address / { print $NF; exit }' <<<"$dns_output")
+    fi
+    if [[ -z $ipv6 ]]; then
+        ipv6=$(awk '/ has IPv6 address / { print $NF; exit }' <<<"$dns_output")
+    fi
+fi
+fqdn=${fqdn_option:-$canonical_name}
+object_name=${object_name:-$fqdn}
+[[ -n $object_name && -n $fqdn ]] || {
+    printf '%s\n' "hubuum-host-new: object name and FQDN must not be empty" >&2
+    exit 2
+}
+[[ -z $ipv4 ]] || validate_ipv4 "$ipv4"
+[[ -z $ipv6 ]] || validate_ipv6 "$ipv6"
+
+ensure_new_identifier "$object_name"
+ensure_new_identifier "$hostname_value"
+ensure_new_identifier "$fqdn"
+ensure_new_identifier "$serial"
+ensure_new_identifier "$ipv4"
+ensure_new_identifier "$ipv6"
+
+short_hostname=${hostname_value%%.*}
+collected_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+data=$(jq -n \
+    --arg hostname "$short_hostname" \
+    --arg fqdn "$fqdn" \
+    --arg serial "$serial" \
+    --arg ipv4 "$ipv4" \
+    --arg ipv6 "$ipv6" \
+    --arg collected_at "$collected_at" '
+    {
+        facts: {
+            schema_version: 1,
+            source: "hubuum-host-new",
+            collected_at: $collected_at,
+            identity: {hostname: $hostname, fqdn: $fqdn}
+        }
+    }
+    | if $serial != "" then .facts.hardware = {serial_number: $serial} else . end
+    | if $ipv4 != "" then .facts.network.default_ipv4 = {address: $ipv4} else . end
+    | if $ipv6 != "" then .facts.network.default_ipv6 = {address: $ipv6} else . end
+')
+
+printf '%s\n' "Host to create:"
+printf '  %-12s %s\n' object "$object_name"
+printf '  %-12s %s\n' collection "$collection"
+printf '  %-12s %s\n' fqdn "$fqdn"
+printf '  %-12s %s\n' serial "${serial:-<none>}"
+printf '  %-12s %s\n' IPv4 "${ipv4:-<none>}"
+printf '  %-12s %s\n' IPv6 "${ipv6:-<none>}"
+if [[ $assume_yes -ne 1 ]]; then
+    if [[ ! -t 0 ]]; then
+        hubuum_die "refusing to create without a terminal; pass --yes"
+        exit 1
+    fi
+    read -r -p "Create this Host? [y/N] " answer || exit 1
+    case $(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]') in
+        y|yes) ;;
+        *) hubuum_die "creation cancelled"; exit 1 ;;
+    esac
+fi
+
+hubuum_json object create \
+    --name "$object_name" \
+    --class "$HUBUUM_HOSTS_CLASS" \
+    --collection "$collection" \
+    --description "$description" \
+    --data "$data" >/dev/null
+printf 'Created Host %s.\n' "$object_name"
+
+if [[ -z $target ]]; then
+    printf '%s\n' "Host is unplaced; use hubuum-move when its Jack is known."
+    exit 0
+fi
+
+move_command=(
+    "$SCRIPT_DIR/hubuum-move"
+    --from "$object_name"
+    --to "$target"
+    --target-type "$target_type"
+)
+[[ -z $requested_jack ]] || move_command+=(--jack "$requested_jack")
+[[ -z $mode ]] || move_command+=(--mode "$mode")
+[[ -z $swap_with ]] || move_command+=(--swap-with "$swap_with")
+[[ $assume_yes -ne 1 ]] || move_command+=(--yes)
+
+if ! "${move_command[@]}"; then
+    hubuum_die "Host $object_name was created, but placement failed; it remains unplaced"
+    exit 1
+fi
