@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-08-05
+
 - Updated `hubuum_client` to 0.8.0 for Hubuum server v0.0.8. Class relation
   creation now accepts forward/reverse template aliases and validated per-side
   object-relation limits; relation output includes both aliases and limits.
@@ -13,12 +15,19 @@
   remaining cursor page before output pipelines run. Pipelines applied without
   `--all` warn when more server pages are available, and unified streaming
   search rejects the incompatible `--all --stream` combination.
-- Personal command aliases now accept an optional one-line description. Alias
+- Added personal command aliases for complete command lines, including pipe
+  stages and redirects. Aliases accept an optional one-line description; alias
   lists, root help, and effective-config output use the description instead of
   printing long command pipelines, while `alias show` retains the full command.
   Structured map and list values in text `config show` output are now rendered
   as sorted, indented trees instead of dense JSON strings. Existing
   string-valued aliases remain compatible.
+- Added scope-preserving token cloning for users and service accounts, with
+  optional expiry overrides and post-create source revocation. Active token IDs
+  are available through contextual completion.
+- Added configurable grouped, full, or hidden table headers. Automatically
+  sized tables now stay within terminal width and wrap aligned cell content,
+  including compact dense-table rendering.
 - Added `object aggregate`, exposing the server's permission-scoped object
   aggregation with ordered data or computed dimensions, numeric measures,
   pre-aggregation filters, aggregate sorting, cursor pagination, and optional
@@ -31,6 +40,9 @@
   `--include-where-results false` to retain the configured data-column layout.
   REPL completion also resumes normal option suggestions immediately after a
   complete `--where` or `--sort` clause.
+- Added tested Bash wrapper examples for Host inventory creation, lookup, and
+  placement workflows, plus a loadable personal-alias example for finding
+  hosts with outdated kernels.
 
 ## [0.0.5] - 2026-07-26
 
