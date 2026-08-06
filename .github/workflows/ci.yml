@@ -73,7 +73,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Build binary
-        uses: houseabsolute/actions-rust-cross@f481cb5e0110765615313e2177ce12a99bf26bbd # v1
+        uses: houseabsolute/actions-rust-cross@85826e468eac832e251ac58f6191ba784db237c8 # v1
         with:
           command: build
           target: ${{ matrix.platform.target }}
@@ -82,7 +82,7 @@ jobs:
 
       - name: Run tests
         if: ${{ !matrix.platform.skip_tests }}
-        uses: houseabsolute/actions-rust-cross@f481cb5e0110765615313e2177ce12a99bf26bbd # v1
+        uses: houseabsolute/actions-rust-cross@85826e468eac832e251ac58f6191ba784db237c8 # v1
         with:
           command: test
           target: ${{ matrix.platform.target }}
