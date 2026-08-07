@@ -10,9 +10,10 @@ use crate::list_query::{
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
+use super::shared::required_entity_tag;
 use super::{
     principal_tokens::find_source_token, CloneTokenInput, CloneTokenOutcome, HubuumGateway,
-    NewTokenInput, SourceTokenRevocation,
+    NewTokenInput, RenewTokenInput, SourceTokenRevocation, TokenStateFilter,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -146,9 +147,16 @@ impl HubuumGateway {
         Ok(UserRecord::from(updated))
     }
 
-    pub fn user_tokens(&self, username: &str) -> Result<Vec<PrincipalTokenRecord>, AppError> {
+    pub fn user_tokens(
+        &self,
+        username: &str,
+        state: Option<TokenStateFilter>,
+    ) -> Result<Vec<PrincipalTokenRecord>, AppError> {
         let handle = self.client.users().get_by_name(username)?;
-        let tokens = handle.tokens()?;
+        let tokens = match state {
+            Some(state) => handle.tokens_request_state(state.into()).all()?,
+            None => handle.tokens()?,
+        };
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
 
@@ -179,6 +187,16 @@ impl HubuumGateway {
         Ok(handle.tokens_create_token(input.into_request()?)?.into())
     }
 
+    pub fn user_token_renew(
+        &self,
+        username: &str,
+        token_id: TokenId,
+        input: RenewTokenInput,
+    ) -> Result<IssuedTokenRecord, AppError> {
+        let handle = self.client.users().get_by_name(username)?;
+        Ok(handle.token_renew(token_id, input.into_request())?.into())
+    }
+
     pub fn user_token_clone(
         &self,
         username: &str,
@@ -191,7 +209,14 @@ impl HubuumGateway {
             .tokens_create_token(input.request_for(&source)?)?
             .into();
         let source_revocation = if input.should_revoke_source() {
-            match handle.token_revoke(source_token_id) {
+            let revoke_result = (|| -> Result<(), AppError> {
+                let current = handle.token(source_token_id)?;
+                let etag = required_entity_tag(current.etag(), "user token")?;
+                handle
+                    .token_revoke_if_match(source_token_id, &etag)
+                    .map_err(AppError::from)
+            })();
+            match revoke_result {
                 Ok(()) => SourceTokenRevocation::Revoked,
                 Err(error) => SourceTokenRevocation::Failed(error.to_string()),
             }
@@ -208,7 +233,9 @@ impl HubuumGateway {
 
     pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {
         let handle = self.client.users().get_by_name(username)?;
-        handle.token_revoke(token_id)?;
+        let current = handle.token(token_id)?;
+        let etag = required_entity_tag(current.etag(), "user token")?;
+        handle.token_revoke_if_match(token_id, &etag)?;
         Ok(())
     }
 

@@ -1,3 +1,5 @@
+use hubuum_client::Class;
+
 use crate::domain::ClassRecord;
 
 use super::{DetailRenderable, TableRenderable};
@@ -10,7 +12,7 @@ impl DetailRenderable for ClassRecord {
         vec![
             ("Name", class.name.clone()),
             ("Description", class.description.clone()),
-            ("Collection", class.collection.name.clone()),
+            ("Collection", collection_label(class)),
             ("Schema", schema),
             (
                 "Validate",
@@ -44,7 +46,7 @@ impl TableRenderable for ClassRecord {
             class.id.to_string(),
             class.name.clone(),
             class.description.clone(),
-            class.collection.name.clone(),
+            collection_label(class),
             schema_label(class.json_schema.as_ref()),
             class
                 .validate_schema
@@ -53,6 +55,15 @@ impl TableRenderable for ClassRecord {
             class.updated_at.to_string(),
         ]
     }
+}
+
+fn collection_label(class: &Class) -> String {
+    class
+        .collection
+        .as_ref()
+        .map(|collection| collection.name.clone())
+        .or_else(|| class.collection_id.map(|id| format!("#{id}")))
+        .unwrap_or_else(|| "<unknown>".to_string())
 }
 
 fn schema_label(schema: Option<&Value>) -> String {

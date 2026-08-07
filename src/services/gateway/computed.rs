@@ -3,7 +3,7 @@ use std::str::FromStr;
 use hubuum_client::{
     blocking::Handle, Class, ComputedFieldDefinitionPatch, ComputedFieldDefinitionRequest,
     ComputedFieldOperation, ComputedFieldPreviewRequest, ComputedResultType,
-    PersonalComputedFieldDefinitionRequest,
+    PersonalComputedFieldDefinitionRequest, ResourceRevision,
 };
 use serde_json::Value;
 
@@ -14,7 +14,7 @@ use crate::domain::{
 use crate::errors::AppError;
 use crate::list_query::{fetch_cursor_results, ListQuery, PagedResult};
 
-use super::HubuumGateway;
+use super::{shared::required_entity_tag, HubuumGateway};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputedOperationKind {
@@ -243,8 +243,12 @@ impl ComputedPatchInput {
             && self.enabled.is_none()
     }
 
+    fn expected_revision(&self) -> i64 {
+        self.expected_revision
+    }
+
     fn into_api(self) -> ComputedFieldDefinitionPatch {
-        let mut patch = ComputedFieldDefinitionPatch::new(self.expected_revision);
+        let mut patch = ComputedFieldDefinitionPatch::new();
         if let Some(key) = self.key {
             patch = patch.key(key);
         }
@@ -317,7 +321,12 @@ impl HubuumGateway {
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("shared", class_name, field_key))?;
-        Ok(fields.update(definition.id, input.into_api())?.into())
+        let current = fields.get(definition.id)?;
+        ensure_expected_revision(current.revision, input.expected_revision())?;
+        let etag = required_entity_tag(current.etag(), "shared computed field")?;
+        Ok(fields
+            .update_if_match(definition.id, input.into_api(), &etag)?
+            .into())
     }
 
     pub fn delete_shared_computed_field(
@@ -334,7 +343,10 @@ impl HubuumGateway {
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("shared", class_name, field_key))?;
-        Ok(fields.delete(definition.id, expected_revision)?.into())
+        let current = fields.get(definition.id)?;
+        ensure_expected_revision(current.revision, expected_revision)?;
+        let etag = required_entity_tag(current.etag(), "shared computed field")?;
+        Ok(fields.delete_if_match(definition.id, &etag)?.into())
     }
 
     pub fn preview_shared_computed_field(
@@ -406,7 +418,12 @@ impl HubuumGateway {
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
-        Ok(fields.update(definition.id, input.into_api())?.into())
+        let current = fields.get(definition.id)?;
+        ensure_expected_revision(current.revision, input.expected_revision())?;
+        let etag = required_entity_tag(current.etag(), "personal computed field")?;
+        Ok(fields
+            .update_if_match(definition.id, input.into_api(), &etag)?
+            .into())
     }
 
     pub fn delete_personal_computed_field(
@@ -423,7 +440,10 @@ impl HubuumGateway {
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
-        fields.delete(definition.id, expected_revision)?;
+        let current = fields.get(definition.id)?;
+        ensure_expected_revision(current.revision, expected_revision)?;
+        let etag = required_entity_tag(current.etag(), "personal computed field")?;
+        fields.delete_if_match(definition.id, &etag)?;
         Ok(definition.into())
     }
 
@@ -465,6 +485,20 @@ impl HubuumGateway {
             request
         })
     }
+}
+
+fn ensure_expected_revision(actual: ResourceRevision, expected: i64) -> Result<(), AppError> {
+    if expected <= 0 {
+        return Err(AppError::InvalidOption(
+            "revision must be a positive integer".to_string(),
+        ));
+    }
+    if actual.get() != expected {
+        return Err(AppError::CommandExecutionError(format!(
+            "computed field revision changed: expected {expected}, current revision is {actual}"
+        )));
+    }
+    Ok(())
 }
 
 fn computed_field_not_found(visibility: &str, class_name: &str, field_key: &str) -> AppError {

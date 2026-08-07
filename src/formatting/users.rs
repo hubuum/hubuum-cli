@@ -21,8 +21,14 @@ impl DetailRenderable for UserRecord {
                 optional_display(user.proper_name.as_ref(), "<none>"),
             ),
             ("Email", optional_display(user.email.as_ref(), "<none>")),
-            ("Identity Scope", user.identity_scope.clone()),
-            ("Provider Kind", user.provider_kind.clone()),
+            (
+                "Identity Scope",
+                optional_display(user.identity_scope.as_ref(), "<unknown>"),
+            ),
+            (
+                "Provider Kind",
+                optional_display(user.provider_kind.as_ref(), "<unknown>"),
+            ),
             (
                 "Provider Managed",
                 if user.provider_managed { "yes" } else { "no" }.to_string(),
@@ -64,8 +70,8 @@ impl TableRenderable for UserRecord {
             user.name.clone(),
             optional_display(user.proper_name.as_ref(), ""),
             optional_display(user.email.as_ref(), ""),
-            user.identity_scope.clone(),
-            user.provider_kind.clone(),
+            optional_display(user.identity_scope.as_ref(), ""),
+            optional_display(user.provider_kind.as_ref(), ""),
             if user.provider_managed { "yes" } else { "no" }.to_string(),
             optional_display(user.last_sync_success_at.as_ref(), ""),
             user.created_at.to_string(),
@@ -92,7 +98,8 @@ mod tests {
             "created_at": "2026-07-17T10:00:00Z",
             "updated_at": "2026-07-18T11:00:00Z",
             "last_sync_attempted_at": "2026-07-18T10:59:00Z",
-            "last_sync_success_at": "2026-07-18T10:59:01Z"
+            "last_sync_success_at": "2026-07-18T10:59:01Z",
+            "revision": 5
         }))
         .expect("provider user should deserialize")
     }

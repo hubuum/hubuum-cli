@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use hubuum_client::{
     client::{sync::Handle as SyncHandle, sync::Resource, GetID},
-    ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, FilterOperator,
-    Object, ObjectRelation, QueryFilter, ResourceId,
+    ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, CollectionId,
+    EntityTag, FilterOperator, Object, ObjectRelation, QueryFilter, ResourceId,
 };
 
 use crate::errors::AppError;
@@ -14,6 +14,23 @@ use crate::list_query::{
 use super::HubuumGateway;
 
 const MAX_EQUALS_FILTER_VALUES: usize = 50;
+
+pub(super) fn class_collection_id(class: &Class) -> Option<CollectionId> {
+    class
+        .collection_id
+        .or_else(|| class.collection.as_ref().map(|collection| collection.id))
+}
+
+pub(super) fn required_entity_tag(
+    etag: Option<&EntityTag>,
+    resource: &str,
+) -> Result<EntityTag, AppError> {
+    etag.cloned().ok_or_else(|| {
+        AppError::CommandExecutionError(format!(
+            "server omitted the ETag required to modify the {resource} safely"
+        ))
+    })
+}
 
 impl HubuumGateway {
     pub(super) fn class_pair(
@@ -302,6 +319,7 @@ mod tests {
                 "name": "First",
                 "description": "",
                 "parent_collection_id": null,
+                "revision": 1,
                 "created_at": "2026-07-25T12:00:00Z",
                 "updated_at": "2026-07-25T12:00:00Z"
             }]),
@@ -320,6 +338,7 @@ mod tests {
                     "name": "Second",
                     "description": "",
                     "parent_collection_id": null,
+                    "revision": 1,
                     "created_at": "2026-07-25T12:00:00Z",
                     "updated_at": "2026-07-25T12:00:00Z"
                 }]),

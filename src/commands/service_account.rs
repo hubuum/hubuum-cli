@@ -9,7 +9,10 @@ use crate::errors::AppError;
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, CloneTokenInput, CreateServiceAccountInput, NewTokenInput};
+use crate::services::{
+    AppServices, CloneTokenInput, CreateServiceAccountInput, NewTokenInput, RenewTokenInput,
+    TokenStateFilter,
+};
 use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -125,6 +128,22 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     ),
                     examples: Some(
                         "automation 42\n--name automation --token-id 42 --token-name replacement\n--name automation --token-id 42 --revoke",
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["service-account", "token"],
+            catalog_command(
+                "renew",
+                ServiceAccountTokenRenew::default(),
+                CommandDocs {
+                    about: Some("Renew a service-account token into a replacement"),
+                    long_about: Some(
+                        "Mints a replacement with the source token's metadata and exact scope. The source token is not modified or reactivated. The replacement receives the server's default lifetime unless --expires-at is supplied.",
+                    ),
+                    examples: Some(
+                        "automation 42\n--name automation --token-id 42 --expires-at 2026-12-31T23:59:59Z",
                     ),
                 },
             ),
@@ -325,6 +344,11 @@ pub struct ServiceAccountTokenList {
         autocomplete = "service_accounts"
     )]
     pub name: Option<String>,
+    #[option(
+        long = "state",
+        help = "Lifecycle state: active, expired, revoked, or all"
+    )]
+    pub state: Option<TokenStateFilter>,
 }
 
 impl CliCommand for ServiceAccountTokenList {
@@ -332,7 +356,9 @@ impl CliCommand for ServiceAccountTokenList {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
 
-        let token_list = services.gateway().service_account_tokens(&name)?;
+        let token_list = services
+            .gateway()
+            .service_account_tokens(&name, query.state)?;
 
         match desired_format(tokens) {
             OutputFormat::Json => {
@@ -491,6 +517,50 @@ impl CliCommand for ServiceAccountTokenClone {
             .service_account_token_clone(&name, input)?;
 
         super::render_cloned_token(tokens, &format!("service account '{name}'"), &outcome)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct ServiceAccountTokenRenew {
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the service account",
+        autocomplete = "service_accounts"
+    )]
+    pub name: Option<String>,
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Source token ID",
+        autocomplete = "service_account_token_ids"
+    )]
+    pub token_id: Option<TokenId>,
+    #[option(
+        long = "expires-at",
+        help = "Replacement expiration, RFC3339; defaults to the server lifetime"
+    )]
+    pub expires_at: Option<String>,
+}
+
+impl CliCommand for ServiceAccountTokenRenew {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let name_is_option = query.name.is_some();
+        let name = required_option_or_pos(query.name, tokens, 0, "name")?;
+        let token_id = required_option_or_pos(
+            query.token_id,
+            tokens,
+            usize::from(!name_is_option),
+            "token-id",
+        )?;
+        let issued_token = services.gateway().service_account_token_renew(
+            &name,
+            token_id,
+            RenewTokenInput::new(query.expires_at)?,
+        )?;
+
+        super::render_issued_token(tokens, &format!("service account '{name}'"), &issued_token)
     }
 }
 

@@ -8,7 +8,10 @@ use hubuum_client::{
 use crate::domain::{PrincipalTokenDetailsRecord, ResolvedTokenResource, TokenResourceParent};
 use crate::errors::AppError;
 
-use super::{shared::fetch_entities_for_ids, HubuumGateway};
+use super::{
+    shared::{class_collection_id, fetch_entities_for_ids},
+    HubuumGateway,
+};
 
 const MAX_FILTERED_OBJECT_IDS_PER_CLASS: usize = 50;
 
@@ -38,7 +41,7 @@ impl TokenScopeIds {
         objects: impl IntoIterator<Item = &'a Object>,
     ) {
         self.collections
-            .extend(classes.into_iter().map(|class| class.collection.id));
+            .extend(classes.into_iter().filter_map(class_collection_id));
         self.collections
             .extend(objects.into_iter().map(|object| object.collection_id));
     }
@@ -212,14 +215,20 @@ fn resolve_token_resources(
             ),
             TokenResourceScope::Class(id) => classes.get(id).map_or_else(
                 || ResolvedTokenResource::unresolved_class(*id),
-                |class| {
-                    let collection = TokenResourceParent::new(
-                        class.collection.id,
-                        collections
-                            .get(&class.collection.id)
-                            .map(|collection| collection.name.clone()),
-                    );
-                    ResolvedTokenResource::resolved_class(*id, class.name.clone(), collection)
+                |class| match class_collection_id(class) {
+                    Some(collection_id) => {
+                        let collection = TokenResourceParent::new(
+                            collection_id,
+                            collections
+                                .get(&collection_id)
+                                .map(|collection| collection.name.clone()),
+                        );
+                        ResolvedTokenResource::resolved_class(*id, class.name.clone(), collection)
+                    }
+                    None => ResolvedTokenResource::resolved_class_without_collection(
+                        *id,
+                        class.name.clone(),
+                    ),
                 },
             ),
             TokenResourceScope::Object(id) => objects.get(id).map_or_else(
@@ -268,6 +277,7 @@ mod tests {
             "name": name,
             "description": "",
             "parent_collection_id": null,
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         }))
@@ -282,6 +292,7 @@ mod tests {
             "collection": collection,
             "json_schema": null,
             "validate_schema": null,
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         }))
@@ -296,6 +307,7 @@ mod tests {
             "hubuum_class_id": class_id,
             "description": "",
             "data": {},
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         }))

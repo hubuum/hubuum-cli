@@ -91,11 +91,17 @@ impl TableRenderable for PrincipalMemberRecord {
 
     fn row(&self) -> Vec<String> {
         let member = &self.0;
-        vec![
-            member.principal_id.to_string(),
-            member.kind.clone(),
-            member.name.clone(),
-        ]
+        let kind = member
+            .principal
+            .as_ref()
+            .map(|principal| principal.kind.clone())
+            .unwrap_or_else(|| "<unavailable>".to_string());
+        let name = member
+            .principal
+            .as_ref()
+            .map(|principal| principal.name.clone())
+            .unwrap_or_else(|| "<unavailable>".to_string());
+        vec![member.principal_id.to_string(), kind, name]
     }
 }
 
@@ -115,6 +121,7 @@ mod tests {
             "external_key": "cn=operators,ou=groups,dc=example,dc=com",
             "last_sync_attempted_at": "2026-07-18T10:59:00Z",
             "last_sync_success_at": "2026-07-18T10:59:01Z",
+            "revision": 3,
             "created_at": "2026-07-17T10:00:00Z",
             "updated_at": "2026-07-18T11:00:00Z"
         }))

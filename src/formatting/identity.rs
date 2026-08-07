@@ -1,3 +1,5 @@
+use hubuum_client::PrincipalTokenMetadata;
+
 use crate::domain::{
     MeRecord, PrincipalPermissionsRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord,
 };
@@ -35,6 +37,7 @@ impl DetailRenderable for MeRecord {
         }
 
         rows.push(("Token Issued", me.token.issued.to_string()));
+        rows.push(("Token Revision", me.token.revision.to_string()));
 
         if let Some(expires_at) = &me.token.expires_at {
             rows.push(("Token Expires", expires_at.to_string()));
@@ -58,6 +61,8 @@ impl TableRenderable for PrincipalTokenRecord {
             "Expires",
             "Last Used",
             "Revoked",
+            "State",
+            "Revision",
         ]
     }
 
@@ -83,6 +88,8 @@ impl TableRenderable for PrincipalTokenRecord {
                 .as_ref()
                 .map(|t| t.to_string())
                 .unwrap_or_default(),
+            token_lifecycle(token).to_string(),
+            token.revision.to_string(),
         ]
     }
 }
@@ -163,7 +170,21 @@ impl DetailRenderable for PrincipalTokenDetailsRecord {
                     .map(ToString::to_string)
                     .unwrap_or_else(|| "<none>".to_string()),
             ),
+            ("State", token_lifecycle(token).to_string()),
+            ("Revision", token.revision.to_string()),
         ]
+    }
+}
+
+fn token_lifecycle(token: &PrincipalTokenMetadata) -> &'static str {
+    if token.revoked_at.is_some() {
+        "revoked"
+    } else if token.expired {
+        "expired"
+    } else if token.active {
+        "active"
+    } else {
+        "inactive"
     }
 }
 
@@ -260,8 +281,9 @@ mod tests {
                 "identity_scope": "example-directory",
                 "kind": "human",
                 "name": "admin",
-                "created_at": null,
-                "updated_at": null
+                "created_at": "2026-07-11T08:00:00Z",
+                "updated_at": "2026-07-11T08:00:00Z",
+                "revision": 1
             },
             "token": {
                 "id": 9,
@@ -271,7 +293,8 @@ mod tests {
                 "scopes": null,
                 "issued": "2026-07-11T08:47:51Z",
                 "expires_at": null,
-                "last_used_at": null
+                "last_used_at": null,
+                "revision": 2
             }
         }))
         .expect("me response should deserialize");
@@ -297,7 +320,10 @@ mod tests {
             "issued": "2026-07-25T08:47:51Z",
             "expires_at": "2026-12-31T23:59:59Z",
             "last_used_at": null,
-            "revoked_at": null
+            "revoked_at": null,
+            "active": true,
+            "expired": false,
+            "revision": 4
         }))
         .expect("token should deserialize");
         let details = PrincipalTokenDetailsRecord::new(

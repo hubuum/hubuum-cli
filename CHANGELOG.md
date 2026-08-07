@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+- Updated `hubuum_client` to 0.9.0 for Hubuum server v0.0.9. The CLI now
+  handles revisioned resources, optional point/list projections, both SQL and
+  expanded collection-permission responses, and the revised identity and group
+  membership shapes. Token lists accept lifecycle-state filters and token
+  output includes lifecycle state and revision. User and service-account tokens
+  can be renewed into replacement credentials without mutating the source.
+- Computed-field updates and deletes retain their `--revision` safety contract
+  by resolving the canonical point resource and sending its strong ETag with
+  `If-Match`. Collection ACL grants and token revocations also use conditional
+  requests when the server exposes a revisioned resource.
+- Portable preference export now applies one bounded RFC 6902 operation to the
+  authenticated principal's `hubuum-cli` settings namespace. This atomically
+  replaces the CLI snapshot without reading and replacing settings owned by
+  other clients. `config remote` displays the stored CLI snapshot and its server
+  revision without importing or modifying it.
+- Import v2 requests preserve per-item write conditions and computed-field
+  inputs. `import submit --collection` also rewrites computed-field class keys
+  to the selected existing collection.
+
 ## [0.0.8] - 2026-08-05
 
 - Updated `hubuum_client` to 0.8.0 for Hubuum server v0.0.8. Class relation

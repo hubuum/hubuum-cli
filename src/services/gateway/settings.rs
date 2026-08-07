@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
+use hubuum_client::{PrincipalSettingsPatchDocument, PrincipalSettingsPatchOperation};
+
 use crate::config::UserPreferences;
 use crate::errors::AppError;
 
@@ -15,31 +17,59 @@ struct StoredUserPreferences {
     preferences: UserPreferences,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerUserPreferences {
+    namespace: String,
+    revision: i64,
+    version: u32,
+    preferences: UserPreferences,
+}
+
+impl ServerUserPreferences {
+    fn new(revision: i64, stored: StoredUserPreferences) -> Self {
+        Self {
+            namespace: SETTINGS_NAMESPACE.to_string(),
+            revision,
+            version: stored.version,
+            preferences: stored.preferences,
+        }
+    }
+
+    pub fn into_preferences(self) -> UserPreferences {
+        self.preferences
+    }
+}
+
 impl HubuumGateway {
     pub fn load_user_preferences(&self) -> Result<UserPreferences, AppError> {
+        Ok(self.server_user_preferences()?.into_preferences())
+    }
+
+    pub fn server_user_preferences(&self) -> Result<ServerUserPreferences, AppError> {
         let settings = self.client.settings().get()?;
-        let stored = settings.get(SETTINGS_NAMESPACE).ok_or_else(|| {
+        let stored = settings.settings.get(SETTINGS_NAMESPACE).ok_or_else(|| {
             AppError::EntityNotFound(format!(
                 "no settings are stored under the '{SETTINGS_NAMESPACE}' namespace"
             ))
         })?;
-        decode_preferences(stored.clone())
+        let stored = decode_stored_preferences(stored.clone())?;
+        Ok(ServerUserPreferences::new(settings.revision.get(), stored))
     }
 
     pub fn store_user_preferences(
         &self,
         preferences: &UserPreferences,
     ) -> Result<UserPreferences, AppError> {
-        let mut settings = self.client.settings().get()?;
-        settings.insert(
-            SETTINGS_NAMESPACE,
-            to_value(StoredUserPreferences {
-                version: SETTINGS_VERSION,
-                preferences: preferences.clone(),
-            })?,
-        );
-        let updated = self.client.settings().replace(&settings)?;
-        let stored = updated.get(SETTINGS_NAMESPACE).ok_or_else(|| {
+        let stored = to_value(StoredUserPreferences {
+            version: SETTINGS_VERSION,
+            preferences: preferences.clone(),
+        })?;
+        let patch = PrincipalSettingsPatchDocument::new([PrincipalSettingsPatchOperation::Add {
+            path: format!("/{SETTINGS_NAMESPACE}"),
+            value: stored,
+        }])?;
+        let updated = self.client.settings().json_patch(&patch)?;
+        let stored = updated.settings.get(SETTINGS_NAMESPACE).ok_or_else(|| {
             AppError::GeneralConfigError(
                 "server response omitted the stored Hubuum CLI settings".to_string(),
             )
@@ -49,6 +79,10 @@ impl HubuumGateway {
 }
 
 fn decode_preferences(value: serde_json::Value) -> Result<UserPreferences, AppError> {
+    Ok(decode_stored_preferences(value)?.preferences)
+}
+
+fn decode_stored_preferences(value: serde_json::Value) -> Result<StoredUserPreferences, AppError> {
     let stored: StoredUserPreferences = serde_json::from_value(value)?;
     if stored.version != SETTINGS_VERSION {
         return Err(AppError::GeneralConfigError(format!(
@@ -56,16 +90,19 @@ fn decode_preferences(value: serde_json::Value) -> Result<UserPreferences, AppEr
             stored.version
         )));
     }
-    Ok(stored.preferences)
+    Ok(stored)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{header::CONTENT_TYPE, Method, StatusCode};
     use serde_json::json;
 
-    use super::{decode_preferences, SETTINGS_VERSION};
+    use super::{decode_preferences, HubuumGateway, SETTINGS_NAMESPACE, SETTINGS_VERSION};
     use crate::config::{AppConfig, UserPreferences};
     use crate::domain::ComputedFieldSet;
 
@@ -172,5 +209,100 @@ mod tests {
         assert!(error
             .to_string()
             .contains("unsupported Hubuum CLI settings version"));
+    }
+
+    #[test]
+    fn storing_preferences_atomically_replaces_only_the_cli_namespace() {
+        let preferences = UserPreferences::from_config(&AppConfig::default());
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!({
+                    "revision": 2,
+                    "settings": {
+                        "another-client": {"keep": true},
+                        "hubuum-cli": {
+                            "version": SETTINGS_VERSION,
+                            "preferences": preferences.clone()
+                        }
+                    }
+                }),
+            )
+            .expect("settings response should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should parse")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let stored = gateway
+            .store_user_preferences(&preferences)
+            .expect("preferences should be stored");
+
+        assert_eq!(stored.output.theme, preferences.output.theme);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::PATCH);
+        assert_eq!(requests[0].url.path(), "/api/v1/iam/me/settings");
+        assert_eq!(
+            requests[0]
+                .headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json-patch+json")
+        );
+        let body: serde_json::Value =
+            serde_json::from_slice(requests[0].body()).expect("patch body should be JSON");
+        assert_eq!(body[0]["op"], "add");
+        assert_eq!(body[0]["path"], "/hubuum-cli");
+        assert_eq!(body[0]["value"]["version"], SETTINGS_VERSION);
+        assert!(body[0]["value"].get("another-client").is_none());
+    }
+
+    #[test]
+    fn server_preferences_expose_the_namespace_and_revision_without_mutation() {
+        let preferences = UserPreferences::from_config(&AppConfig::default());
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::OK,
+                &json!({
+                    "revision": 7,
+                    "settings": {
+                        "another-client": {"private": true},
+                        "hubuum-cli": {
+                            "version": SETTINGS_VERSION,
+                            "preferences": preferences
+                        }
+                    }
+                }),
+            )
+            .expect("settings response should serialize"),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .expect("base URL should parse")
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("client should build")
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+
+        let snapshot = gateway
+            .server_user_preferences()
+            .expect("server preferences should load");
+        let snapshot = serde_json::to_value(snapshot).expect("snapshot should serialize");
+
+        assert_eq!(snapshot["namespace"], SETTINGS_NAMESPACE);
+        assert_eq!(snapshot["revision"], 7);
+        assert_eq!(snapshot["version"], SETTINGS_VERSION);
+        assert!(snapshot.get("another-client").is_none());
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::GET);
+        assert_eq!(requests[0].url.path(), "/api/v1/iam/me/settings");
     }
 }

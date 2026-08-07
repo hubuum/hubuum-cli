@@ -1,11 +1,49 @@
 use chrono::{DateTime, Utc};
 use hubuum_client::{
-    HubuumDateTime, NewTokenRequest, Permissions, PrincipalTokenMetadata, TokenId,
+    HubuumDateTime, NewTokenRequest, Permissions, PrincipalTokenMetadata, RenewTokenRequest,
+    TokenId, TokenListState,
 };
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::domain::IssuedTokenRecord;
 use crate::errors::AppError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenStateFilter {
+    Active,
+    Expired,
+    Revoked,
+    All,
+}
+
+impl FromStr for TokenStateFilter {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "active" => Ok(Self::Active),
+            "expired" => Ok(Self::Expired),
+            "revoked" => Ok(Self::Revoked),
+            "all" => Ok(Self::All),
+            _ => Err(format!(
+                "unknown token state '{value}'; expected active, expired, revoked, or all"
+            )),
+        }
+    }
+}
+
+impl From<TokenStateFilter> for TokenListState {
+    fn from(value: TokenStateFilter) -> Self {
+        match value {
+            TokenStateFilter::Active => Self::Active,
+            TokenStateFilter::Expired => Self::Expired,
+            TokenStateFilter::Revoked => Self::Revoked,
+            TokenStateFilter::All => Self::All,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct NewTokenInput {
@@ -44,6 +82,25 @@ impl NewTokenInput {
         }
 
         Ok(request)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RenewTokenInput {
+    expires_at: Option<HubuumDateTime>,
+}
+
+impl RenewTokenInput {
+    pub fn new(expires_at: Option<String>) -> Result<Self, AppError> {
+        Ok(Self {
+            expires_at: expires_at.as_deref().map(parse_expiry).transpose()?,
+        })
+    }
+
+    pub(super) fn into_request(self) -> RenewTokenRequest {
+        RenewTokenRequest {
+            expires_at: self.expires_at,
+        }
     }
 }
 
@@ -181,10 +238,36 @@ fn parse_expiry(value: &str) -> Result<HubuumDateTime, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use hubuum_client::PrincipalTokenMetadata;
+    use hubuum_client::{PrincipalTokenMetadata, TokenListState};
     use serde_json::{from_value, json, to_value};
 
-    use super::CloneTokenInput;
+    use super::{CloneTokenInput, RenewTokenInput, TokenStateFilter};
+
+    #[test]
+    fn token_state_filters_accept_the_server_vocabulary() {
+        assert_eq!(
+            TokenListState::from(
+                "expired"
+                    .parse::<TokenStateFilter>()
+                    .expect("state should parse")
+            ),
+            TokenListState::Expired
+        );
+        assert!("inactive".parse::<TokenStateFilter>().is_err());
+    }
+
+    #[test]
+    fn renewal_expiry_is_validated_and_serialized() {
+        let request = RenewTokenInput::new(Some("2026-12-31T23:59:59Z".to_string()))
+            .expect("expiry should parse")
+            .into_request();
+
+        assert_eq!(
+            to_value(request).expect("request should serialize"),
+            json!({"expires_at": "2026-12-31T23:59:59"})
+        );
+        assert!(RenewTokenInput::new(Some("tomorrow".to_string())).is_err());
+    }
 
     #[test]
     fn clone_request_preserves_exact_scope_and_uses_fresh_default_expiry() {
@@ -204,7 +287,10 @@ mod tests {
             "issued": "2026-07-25T18:43:41Z",
             "expires_at": "2029-01-01T20:42:00Z",
             "last_used_at": null,
-            "revoked_at": null
+            "revoked_at": null,
+            "active": true,
+            "expired": false,
+            "revision": 1
         }))
         .expect("source token should deserialize");
 
@@ -233,7 +319,10 @@ mod tests {
             "issued": "2026-07-25T18:43:41Z",
             "expires_at": "2029-01-01T20:42:00Z",
             "last_used_at": null,
-            "revoked_at": null
+            "revoked_at": null,
+            "active": true,
+            "expired": false,
+            "revision": 1
         }))
         .expect("source token should deserialize");
 

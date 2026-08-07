@@ -1,4 +1,7 @@
-use hubuum_client::{CollectionPatch, CollectionPost};
+use hubuum_client::{
+    CollectionPatch, CollectionPermissionsResponse, CollectionPost, GroupPermissionsResult,
+    GroupResult,
+};
 
 use crate::domain::{
     CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
@@ -10,7 +13,7 @@ use crate::list_query::{
     FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult, SortFieldSpec,
 };
 
-use super::HubuumGateway;
+use super::{shared::fetch_entities_for_ids, HubuumGateway};
 
 #[derive(Debug, Clone)]
 pub struct CreateCollectionInput {
@@ -103,6 +106,7 @@ impl HubuumGateway {
         name: &str,
     ) -> Result<CollectionPermissionsView, AppError> {
         let permissions = self.client.collections().get_by_name(name)?.permissions()?;
+        let permissions = self.expand_collection_permissions(permissions)?;
         let entries = permissions
             .iter()
             .cloned()
@@ -124,13 +128,19 @@ impl HubuumGateway {
     ) -> Result<(), AppError> {
         let collection = self.client.collections().get_by_name(collection_name)?;
         let group = self.client.groups().get_by_name(group_name)?;
-        collection.grant_permissions(
-            group.id(),
-            permissions
-                .iter()
-                .map(|permission| permission.api_name())
-                .collect(),
-        )?;
+        let permissions = permissions
+            .iter()
+            .map(|permission| permission.api_name())
+            .collect();
+        let current = collection.permissions_revisioned()?;
+        match current.etag() {
+            Some(etag) => {
+                collection.grant_permissions_if_match(group.id(), permissions, etag)?;
+            }
+            None => {
+                collection.grant_permissions(group.id(), permissions)?;
+            }
+        }
         Ok(())
     }
 
@@ -145,6 +155,51 @@ impl HubuumGateway {
             .into_iter()
             .map(GroupPermissionsRecord::from)
             .collect())
+    }
+
+    fn expand_collection_permissions(
+        &self,
+        permissions: CollectionPermissionsResponse,
+    ) -> Result<Vec<GroupPermissionsResult>, AppError> {
+        match permissions {
+            CollectionPermissionsResponse::Expanded(rows) => Ok(rows),
+            CollectionPermissionsResponse::Revisioned(permission_set) => {
+                let groups = fetch_entities_for_ids(
+                    &self.client.groups(),
+                    permission_set
+                        .permissions
+                        .iter()
+                        .map(|permission| permission.group_id),
+                )?;
+
+                permission_set
+                    .permissions
+                    .into_iter()
+                    .map(|permission| {
+                        let group_id: i32 = permission.group_id.into();
+                        let group = groups.get(&group_id).ok_or_else(|| {
+                            AppError::EntityNotFound(format!(
+                                "group {group_id} referenced by collection permissions"
+                            ))
+                        })?;
+                        Ok(GroupPermissionsResult {
+                            group: GroupResult {
+                                id: group.id,
+                                groupname: group.groupname.clone(),
+                                description: group.description.clone(),
+                                created_at: group.created_at.clone(),
+                                updated_at: group.updated_at.clone(),
+                                revision: group.revision,
+                            },
+                            permission,
+                        })
+                    })
+                    .collect()
+            }
+            _ => Err(AppError::CommandExecutionError(
+                "unsupported collection-permissions response from the server".to_string(),
+            )),
+        }
     }
 }
 
@@ -272,6 +327,7 @@ mod tests {
             "name": name,
             "description": "",
             "parent_collection_id": null,
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         })
