@@ -20,7 +20,7 @@ use crate::list_query::{
 };
 
 use super::{
-    shared::{fetch_entities_for_ids, find_entities_by_ids},
+    shared::{class_collection_id, fetch_entities_for_ids, find_entities_by_ids},
     HubuumGateway,
 };
 
@@ -203,7 +203,7 @@ impl HubuumGateway {
                 .classes
                 .iter()
                 .map(|related_class| related_class.collection_id)
-                .chain(once(class.resource().collection.id))
+                .chain(class_collection_id(class.resource()))
                 .collect::<Vec<_>>(),
         )?;
 
@@ -584,7 +584,7 @@ impl HubuumGateway {
             page.items
                 .iter()
                 .map(|class| class.collection_id)
-                .chain(once(root_class.collection.id))
+                .chain(class_collection_id(root_class))
                 .collect::<Vec<_>>(),
         )?;
 
@@ -1162,6 +1162,7 @@ mod tests {
                     "reverse_template_alias": "rooms",
                     "from_max_relations": 2,
                     "to_max_relations": 1,
+                    "revision": 1,
                     "created_at": "2026-08-05T12:00:00Z",
                     "updated_at": "2026-08-05T12:00:00Z"
                 }),
@@ -1244,6 +1245,7 @@ mod tests {
             "to_hubuum_class_id": 42,
             "forward_template_alias": null,
             "reverse_template_alias": null,
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         }))
@@ -1256,6 +1258,7 @@ mod tests {
                     "from_hubuum_object_id": id,
                     "to_hubuum_object_id": id + 100,
                     "class_relation_id": 7,
+                    "revision": 1,
                     "created_at": "2026-07-25T12:00:00Z",
                     "updated_at": "2026-07-25T12:00:00Z"
                 }))
@@ -1298,6 +1301,7 @@ mod tests {
             "hubuum_class_id": 42,
             "description": "",
             "data": null,
+            "revision": 1,
             "created_at": "2026-07-25T12:00:00Z",
             "updated_at": "2026-07-25T12:00:00Z"
         })
@@ -1313,11 +1317,13 @@ mod tests {
                 "name": "default",
                 "description": "",
                 "parent_collection_id": null,
+                "revision": 1,
                 "created_at": "2026-08-05T12:00:00Z",
                 "updated_at": "2026-08-05T12:00:00Z"
             },
             "json_schema": null,
             "validate_schema": false,
+            "revision": 1,
             "created_at": "2026-08-05T12:00:00Z",
             "updated_at": "2026-08-05T12:00:00Z"
         })

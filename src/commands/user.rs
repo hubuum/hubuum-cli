@@ -20,7 +20,8 @@ use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
 use crate::services::{
-    AppServices, CloneTokenInput, CreateUserInput, NewTokenInput, UserFilter, UserUpdateInput,
+    AppServices, CloneTokenInput, CreateUserInput, NewTokenInput, RenewTokenInput,
+    TokenStateFilter, UserFilter, UserUpdateInput,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -158,6 +159,22 @@ set-password alice --password-file /run/secrets/alice-password"#,
                     ),
                     examples: Some(
                         "alice 42\n--username alice --token-id 42 --name replacement\n--username alice --token-id 42 --revoke",
+                    ),
+                },
+            ),
+        )
+        .add_command(
+            &["user", "token"],
+            catalog_command(
+                "renew",
+                UserTokenRenew::default(),
+                CommandDocs {
+                    about: Some("Renew a user token into a replacement"),
+                    long_about: Some(
+                        "Mints a replacement with the source token's metadata and exact scope. The source token is not modified or reactivated. The replacement receives the server's default lifetime unless --expires-at is supplied.",
+                    ),
+                    examples: Some(
+                        "alice 42\n--username alice --token-id 42 --expires-at 2026-12-31T23:59:59Z",
                     ),
                 },
             ),
@@ -490,6 +507,11 @@ pub struct UserTokenList {
         autocomplete = "users"
     )]
     pub username: Option<String>,
+    #[option(
+        long = "state",
+        help = "Lifecycle state: active, expired, revoked, or all"
+    )]
+    pub state: Option<TokenStateFilter>,
 }
 
 impl CliCommand for UserTokenList {
@@ -497,7 +519,7 @@ impl CliCommand for UserTokenList {
         let query = Self::parse_tokens(tokens)?;
         let username = required_option_or_pos(query.username, tokens, 0, "username")?;
 
-        let token_list = services.gateway().user_tokens(&username)?;
+        let token_list = services.gateway().user_tokens(&username, query.state)?;
 
         match desired_format(tokens) {
             OutputFormat::Json => {
@@ -654,6 +676,50 @@ impl CliCommand for UserTokenClone {
         let outcome = services.gateway().user_token_clone(&username, input)?;
 
         super::render_cloned_token(tokens, &format!("user '{username}'"), &outcome)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct UserTokenRenew {
+    #[option(
+        short = "u",
+        long = "username",
+        help = "Username of the user",
+        autocomplete = "users"
+    )]
+    pub username: Option<String>,
+    #[option(
+        short = "t",
+        long = "token-id",
+        help = "Source token ID",
+        autocomplete = "user_token_ids"
+    )]
+    pub token_id: Option<TokenId>,
+    #[option(
+        long = "expires-at",
+        help = "Replacement expiration, RFC3339; defaults to the server lifetime"
+    )]
+    pub expires_at: Option<String>,
+}
+
+impl CliCommand for UserTokenRenew {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let username_is_option = query.username.is_some();
+        let username = required_option_or_pos(query.username, tokens, 0, "username")?;
+        let token_id = required_option_or_pos(
+            query.token_id,
+            tokens,
+            usize::from(!username_is_option),
+            "token-id",
+        )?;
+        let issued_token = services.gateway().user_token_renew(
+            &username,
+            token_id,
+            RenewTokenInput::new(query.expires_at)?,
+        )?;
+
+        super::render_issued_token(tokens, &format!("user '{username}'"), &issued_token)
     }
 }
 

@@ -514,6 +514,7 @@ mod tests {
                         "name": name,
                         "description": "",
                         "parent_collection_id": null,
+                        "revision": 1,
                         "created_at": "2026-07-25T12:00:00Z",
                         "updated_at": "2026-07-25T12:00:00Z"
                     }],

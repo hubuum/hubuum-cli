@@ -194,6 +194,16 @@ impl ResolvedTokenResource {
         }
     }
 
+    pub(crate) fn resolved_class_without_collection(id: ClassId, name: impl Into<String>) -> Self {
+        Self::Class {
+            id,
+            name: Some(name.into()),
+            collection_id: None,
+            collection_name: None,
+            resolution: TokenResourceResolution::Resolved,
+        }
+    }
+
     pub(crate) fn resolved_object(
         id: ObjectId,
         name: impl Into<String>,

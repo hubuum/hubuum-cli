@@ -1,6 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::Serialize;
-use serde_json::{json, to_string_pretty, Map, Value};
+use serde_json::{json, to_string_pretty, to_value, Map, Value};
 
 use hubuum_filter::OutputEnvelope;
 
@@ -81,6 +81,20 @@ show --key server.hostname"#,
                         "Remove a configuration value from the active writable config file so lower-precedence sources can take effect again, then reload the current CLI session.",
                     ),
                     examples: Some("--key repl.enter_fetches_next_page"),
+                },
+            ),
+        )
+        .add_command(
+            &["config"],
+            catalog_command(
+                "remote",
+                ConfigRemote::default(),
+                CommandDocs {
+                    about: Some("Show preferences stored on the server"),
+                    long_about: Some(
+                        "Read the authenticated principal's portable CLI preferences from the 'hubuum-cli' settings namespace without changing local or server configuration. Output includes the server revision and stored settings version.",
+                    ),
+                    examples: Some("remote\nremote --output json"),
                 },
             ),
         )
@@ -273,6 +287,17 @@ impl CliCommand for ConfigUnset {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Clone, CommandArgs, Default)]
+pub struct ConfigRemote {}
+
+impl CliCommand for ConfigRemote {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let _query = Self::parse_tokens(tokens)?;
+        let stored = services.gateway().server_user_preferences()?;
+        super::admin::render_structured_value(to_value(stored)?, desired_format(tokens))
     }
 }
 

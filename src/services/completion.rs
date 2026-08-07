@@ -952,6 +952,7 @@ mod tests {
                     "owner_group_id": 2,
                     "created_by": 1,
                     "disabled_at": null,
+                    "revision": 1,
                     "created_at": "2026-07-25T12:00:00Z",
                     "updated_at": "2026-07-25T12:00:00Z"
                 }]),
@@ -970,7 +971,10 @@ mod tests {
                     "issued": "2026-07-25T18:43:41Z",
                     "expires_at": "2029-01-01T20:42:00Z",
                     "last_used_at": null,
-                    "revoked_at": null
+                    "revoked_at": null,
+                    "active": true,
+                    "expired": false,
+                    "revision": 1
                 }]),
             )
             .expect("token response should serialize"),

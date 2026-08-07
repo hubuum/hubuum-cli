@@ -46,7 +46,8 @@ pub use object_aggregates::{
 };
 pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
 pub use principal_tokens::{
-    CloneTokenInput, CloneTokenOutcome, NewTokenInput, SourceTokenRevocation,
+    CloneTokenInput, CloneTokenOutcome, NewTokenInput, RenewTokenInput, SourceTokenRevocation,
+    TokenStateFilter,
 };
 pub use relations::{
     CreateClassRelationInput, RelatedObjectOptions, RelationRoot, RelationTarget,

@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
 This checklist targets the current Hubuum CLI command surface and Hubuum server
-v0.0.8 using `hubuum_client` 0.8.0. It intentionally uses the current
+v0.0.9 using `hubuum_client` 0.9.0. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -174,6 +174,35 @@ Expected results:
 - Computed path completion prefers the class schema and only samples object data
   when the class has no schema.
 
+## Portable User Settings
+
+Export portable preferences to the authenticated principal, change one local
+value, and import the server copy again:
+
+```text
+config remote
+config remote --output json
+config export
+config set --key repl.enter_fetches_next_page --value false
+config import
+config store --enabled true
+config set --key repl.enter_fetches_next_page --value true
+config store --enabled false
+```
+
+Expected results:
+
+- `config remote` displays the `hubuum-cli` namespace, server revision, stored
+  settings version, and portable preferences without changing local or server
+  configuration. It does not expose unrelated settings namespaces.
+- Export and automatic storage update only the `hubuum-cli` principal-settings
+  namespace; unrelated settings remain unchanged.
+- Import writes portable preferences to the active local config and reloads the
+  current session. Credentials, server selection, and `settings.store_on_server`
+  remain local.
+- Repeated exports replace the complete CLI snapshot, so locally removed aliases
+  and per-class defaults do not survive in stale server settings.
+
 ## Pipe DSL And Redirects
 
 Run semantic pipeline checks against real object output:
@@ -263,6 +292,8 @@ import results <task-id>
 Expected results:
 
 - `--collection` rewrites import collection references to an existing collection.
+- Import v2 per-item `condition` values and `computed_fields` are preserved;
+  computed-field class keys are also rewritten by `--collection`.
 - Policy flags override the mode in the import request body.
 - Core collection, class, object, class-relation, and object-relation
   `timestamps` values are preserved, as are class-relation
@@ -358,13 +389,17 @@ me groups
 me permissions
 me tokens
 user token list <username>
+user token list <username> --state all
 user token show <username> <token-id>
 user token show --username <username> --token-id <token-id> --output json
 user token clone --username <username> --token-id <token-id> --name replacement
+user token renew --username <username> --token-id <token-id>
 service-account token list <service-account>
+service-account token list <service-account> --state revoked
 service-account token show <service-account> <token-id>
 service-account token show --name <service-account> --token-id <token-id> --output json
 service-account token clone --name <service-account> --token-id <token-id> --token-name replacement
+service-account token renew --name <service-account> --token-id <token-id>
 ```
 
 In the interactive shell, type `--token-id` followed by a space after selecting
@@ -394,10 +429,14 @@ Expected results:
 
 - Permission command names use `collection`.
 - User rename is rejected explicitly if the server/client model does not expose it.
-- Token create/list/show/clone/revoke commands work for supported principals.
+- Token create/list/show/clone/renew/revoke commands work for supported
+  principals, and lists can select `active`, `expired`, `revoked`, or `all`
+  lifecycle states.
 - Token cloning preserves both permission and resource boundaries, receives a
   fresh server-default expiry unless overridden, and revokes the source only
   after replacement creation when `--revoke` is supplied.
+- Token renewal mints a replacement with the source metadata and exact scope;
+  the source remains unchanged and is not reactivated.
 - Token detail output includes all server metadata and the complete permission
   and resource boundaries. JSON output preserves the raw scope and adds
   `resolved_resources`.

@@ -762,6 +762,7 @@ mod tests {
             "name": "Infrastructure",
             "description": "",
             "parent_collection_id": null,
+            "revision": 1,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:00Z"
         });
@@ -772,6 +773,7 @@ mod tests {
             "collection": collection.clone(),
             "json_schema": null,
             "validate_schema": null,
+            "revision": 1,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:00Z"
         });
@@ -782,6 +784,7 @@ mod tests {
             "hubuum_class_id": 9,
             "description": "",
             "data": {},
+            "revision": 1,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:00Z"
         });
@@ -792,6 +795,7 @@ mod tests {
             "collection": collection.clone(),
             "json_schema": null,
             "validate_schema": null,
+            "revision": 1,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:00Z"
         });
@@ -802,6 +806,7 @@ mod tests {
             "hubuum_class_id": 10,
             "description": "",
             "data": {},
+            "revision": 2,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:01Z"
         });
@@ -870,6 +875,7 @@ mod tests {
             "hubuum_class_id": 9,
             "description": "Managed by Ansible",
             "data": {"facts": {"os": "Fedora"}},
+            "revision": 2,
             "created_at": "2026-07-21T12:00:00Z",
             "updated_at": "2026-07-21T12:00:01Z"
         })

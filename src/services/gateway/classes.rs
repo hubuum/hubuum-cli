@@ -111,10 +111,15 @@ impl HubuumGateway {
     pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
         let class = self.client.classes().get_by_name(&input.name)?;
 
-        let collection_id = match input.collection {
-            Some(collection) => self.client.collections().get_by_name(&collection)?.id(),
-            None => class.resource().collection.id,
-        };
+        let collection_id = input
+            .collection
+            .map(|collection| {
+                self.client
+                    .collections()
+                    .get_by_name(&collection)
+                    .map(|collection| collection.id())
+            })
+            .transpose()?;
 
         let updated = self.client.classes().update_raw(
             class.id(),

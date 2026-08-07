@@ -214,7 +214,7 @@ impl From<ComputedFieldDefinition> for ComputedFieldRecord {
             paths: value.operation.paths().to_vec(),
             result_type: result_type_name(value.result_type).to_string(),
             enabled: value.enabled,
-            revision: value.revision,
+            revision: value.revision.into(),
             semantics_version: value.semantics_version,
             created_by: value.created_by.map(Into::into),
             updated_by: value.updated_by.map(Into::into),

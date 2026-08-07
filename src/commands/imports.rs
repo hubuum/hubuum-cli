@@ -197,6 +197,11 @@ fn apply_existing_collection_override(request: &mut ImportRequest, collection: &
             rewrite_class_key_collection(class_key, collection_key.clone());
         }
     }
+    for computed_field in &mut request.graph.computed_fields {
+        if let Some(class_key) = &mut computed_field.class_key {
+            rewrite_class_key_collection(class_key, collection_key.clone());
+        }
+    }
     for relation in &mut request.graph.class_relations {
         for class_key in [&mut relation.from_class_key, &mut relation.to_class_key]
             .into_iter()
@@ -337,7 +342,7 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    const EMPTY_IMPORT: &str = r#"{"version":1,"dry_run":null,"mode":null,"graph":{}}"#;
+    const EMPTY_IMPORT: &str = r#"{"version":2,"dry_run":null,"mode":null,"graph":{}}"#;
 
     #[test]
     fn import_request_reads_file_source() {
@@ -350,7 +355,7 @@ mod tests {
             ..ImportSubmit::default()
         };
 
-        assert_eq!(import_request(&query).expect("file should load").version, 1);
+        assert_eq!(import_request(&query).expect("file should load").version, 2);
     }
 
     #[test]
@@ -364,7 +369,7 @@ mod tests {
             import_request(&query)
                 .expect("http body should be used")
                 .version,
-            1
+            2
         );
     }
 
@@ -438,7 +443,7 @@ mod tests {
             "updated_at": "2026-08-05T08:00:01"
         });
         let body = json!({
-            "version": 1,
+            "version": 2,
             "graph": {
                 "collections": [{
                     "ref": "collection",
@@ -483,7 +488,7 @@ mod tests {
             ..ImportSubmit::default()
         };
 
-        let request = import_request(&query).expect("v0.8 import request should parse");
+        let request = import_request(&query).expect("v0.9 import request should parse");
         let graph = serde_json::to_value(request.graph).expect("import graph should serialize");
 
         for collection in [
@@ -505,7 +510,7 @@ mod tests {
     #[test]
     fn import_request_rewrites_to_existing_collection_override() {
         let body = r#"{
-            "version": 1,
+            "version": 2,
             "dry_run": null,
             "mode": null,
             "graph": {
@@ -539,6 +544,29 @@ mod tests {
                             "collection_ref": "ns:math",
                             "collection_key": null
                         }
+                    }
+                ],
+                "computed_fields": [
+                    {
+                        "ref": "hostname-field",
+                        "class_ref": null,
+                        "class_key": {
+                            "name": "Hosts",
+                            "collection_ref": "ns:math",
+                            "collection_key": null
+                        },
+                        "visibility": "shared",
+                        "owner_ref": null,
+                        "owner_key": null,
+                        "key": "hostname",
+                        "label": "Hostname",
+                        "operation": {
+                            "kind": "first_non_null",
+                            "paths": ["/hostname"]
+                        },
+                        "result_type": "string",
+                        "enabled": true,
+                        "condition": {"mode": "create_only"}
                     }
                 ],
                 "collection_permissions": [
@@ -579,6 +607,21 @@ mod tests {
         );
         assert_eq!(
             request.graph.objects[0]
+                .class_key
+                .as_ref()
+                .and_then(|key| key.collection_key.as_ref())
+                .map(|key| key.name.as_str()),
+            Some("Math")
+        );
+        assert_eq!(
+            request.graph.computed_fields[0]
+                .class_key
+                .as_ref()
+                .and_then(|key| key.collection_ref.as_ref()),
+            None
+        );
+        assert_eq!(
+            request.graph.computed_fields[0]
                 .class_key
                 .as_ref()
                 .and_then(|key| key.collection_key.as_ref())

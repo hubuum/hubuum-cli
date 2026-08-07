@@ -394,6 +394,7 @@ mod tests {
             "id": id,
             "name": name,
             "description": "",
+            "revision": 1,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z"
         }))
@@ -409,11 +410,13 @@ mod tests {
                 "id": collection_id,
                 "name": "default",
                 "description": "",
+                "revision": 1,
                 "created_at": "2024-01-01T00:00:00Z",
                 "updated_at": "2024-01-01T00:00:00Z"
             },
             "json_schema": {},
             "validate_schema": false,
+            "revision": 1,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z"
         }))
@@ -434,6 +437,7 @@ mod tests {
             "collection_id": collection_id,
             "hubuum_class_id": class_id,
             "data": {},
+            "revision": 1,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z",
             "path": path
@@ -449,6 +453,7 @@ mod tests {
             "collection_id": collection_id,
             "json_schema": {},
             "validate_schema": false,
+            "revision": 1,
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-01T00:00:00Z",
             "path": path
