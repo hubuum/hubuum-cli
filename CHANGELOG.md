@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-08-07
+
 - Updated `hubuum_client` to 0.9.0 for Hubuum server v0.0.9. The CLI now
   handles revisioned resources, optional point/list projections, both SQL and
   expanded collection-permission responses, and the revised identity and group
