@@ -24,7 +24,7 @@ use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, rend
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::files::get_history_file;
 use crate::json_schema::schema_paths;
-use crate::output::print_rendered;
+use crate::output::{print_rendered, OutputSnapshot};
 use crate::redirection::{redirect_completion_context, write_output};
 use crate::services::CompletionContext;
 
@@ -150,14 +150,32 @@ async fn execute_repl_line(
 ) -> Result<CommandOutcome, AppError> {
     execute_with_reauthentication(
         || execute_line(app.clone(), session, line),
-        || async {
-            session.set_next_page_command(None);
-            let client = reauthenticate(app.config.clone()).await?;
-            app.services.replace_authenticated_client(client);
-            Ok(())
+        |request| {
+            let app = app.clone();
+            let session = session.clone();
+            async move {
+                print_reauthentication_warning(&request)?;
+                session.set_next_page_command(None);
+                let client = reauthenticate(app.config.clone()).await?;
+                app.services.replace_authenticated_client(client);
+                Ok(())
+            }
         },
     )
     .await
+}
+
+fn print_reauthentication_warning(request: &str) -> Result<(), AppError> {
+    print_rendered(&reauthentication_warning(request).render())
+}
+
+fn reauthentication_warning(request: &str) -> OutputSnapshot {
+    OutputSnapshot {
+        warnings: vec![format!(
+            "Session expired or the token was revoked during {request}; signing in again."
+        )],
+        ..OutputSnapshot::default()
+    }
 }
 
 async fn execute_with_reauthentication<Execute, ExecuteFuture, Reauthenticate, ReauthFuture>(
@@ -167,7 +185,7 @@ async fn execute_with_reauthentication<Execute, ExecuteFuture, Reauthenticate, R
 where
     Execute: FnMut() -> ExecuteFuture,
     ExecuteFuture: Future<Output = Result<CommandOutcome, AppError>>,
-    Reauthenticate: FnMut() -> ReauthFuture,
+    Reauthenticate: FnMut(String) -> ReauthFuture,
     ReauthFuture: Future<Output = Result<(), AppError>>,
 {
     let error = match execute().await {
@@ -180,7 +198,7 @@ where
         .reauthentication_retry()
         .unwrap_or(ReauthenticationRetry::Unsafe);
 
-    reauthenticate()
+    reauthenticate(request.clone())
         .await
         .map_err(|source| AppError::ReauthenticationFailed {
             request: request.clone(),
@@ -188,16 +206,7 @@ where
         })?;
 
     match retry {
-        ReauthenticationRetry::Safe => {
-            let mut outcome = execute().await?;
-            outcome.output.warnings.insert(
-                0,
-                format!(
-                    "Session expired during {request}; signed in again and retried the command."
-                ),
-            );
-            Ok(outcome)
-        }
+        ReauthenticationRetry::Safe => execute().await,
         ReauthenticationRetry::Unsafe => Err(AppError::CommandNotRetried { request }),
     }
 }
@@ -1413,7 +1422,7 @@ fn clause_active_token_offset(clause: &str, ends_with_space: bool) -> usize {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use hubuum_client::ApiError;
     use reqwest::{Method, StatusCode};
@@ -1433,7 +1442,6 @@ mod tests {
     use crate::commands::build_command_catalog;
     use crate::errors::{AppError, ReauthenticationRetry};
 
-    use super::execute_with_reauthentication;
     use super::{
         clause_active_token_offset, clause_option_context, completion_context_parts,
         dynamic_value_suggestion, handle_host_signal, id_completion_context,
@@ -1441,12 +1449,24 @@ mod tests {
         pipe_completion_context, quoted_where_context, safe_prefix_end, where_suggestion,
         IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
     };
+    use super::{execute_with_reauthentication, reauthentication_warning};
     use crate::json_schema::schema_paths;
+
+    #[test]
+    fn reauthentication_warning_explains_the_prompt_before_retrying() {
+        let output = reauthentication_warning("GET /api/v1/iam/me/settings");
+
+        assert_eq!(
+            output.warnings,
+            ["Session expired or the token was revoked during GET /api/v1/iam/me/settings; signing in again."]
+        );
+    }
 
     #[tokio::test]
     async fn expired_session_reauthenticates_and_retries_safe_command_once() {
         let attempts = Arc::new(AtomicUsize::new(0));
         let authentications = Arc::new(AtomicUsize::new(0));
+        let warned_request = Arc::new(Mutex::new(None));
 
         let outcome = execute_with_reauthentication(
             {
@@ -1464,8 +1484,10 @@ mod tests {
             },
             {
                 let authentications = authentications.clone();
-                move || {
+                let warned_request = warned_request.clone();
+                move |request| {
                     authentications.fetch_add(1, Ordering::SeqCst);
+                    *warned_request.lock().expect("request lock should work") = Some(request);
                     async { Ok(()) }
                 }
             },
@@ -1475,9 +1497,14 @@ mod tests {
 
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert_eq!(authentications.load(Ordering::SeqCst), 1);
-        assert_eq!(outcome.output.warnings.len(), 1);
-        assert!(outcome.output.warnings[0].contains("GET /api/v0/classes"));
-        assert!(!outcome.output.warnings[0].contains("secret"));
+        assert!(outcome.output.warnings.is_empty());
+        assert_eq!(
+            warned_request
+                .lock()
+                .expect("request lock should work")
+                .as_deref(),
+            Some("GET /api/v0/classes")
+        );
     }
 
     #[tokio::test]
@@ -1495,7 +1522,7 @@ mod tests {
             },
             {
                 let authentications = authentications.clone();
-                move || {
+                move |_request| {
                     authentications.fetch_add(1, Ordering::SeqCst);
                     async { Ok(()) }
                 }
@@ -1525,7 +1552,7 @@ mod tests {
             },
             {
                 let authentications = authentications.clone();
-                move || {
+                move |_request| {
                     authentications.fetch_add(1, Ordering::SeqCst);
                     async { Ok(()) }
                 }
@@ -1543,7 +1570,7 @@ mod tests {
     async fn failed_reauthentication_preserves_failed_request_context() {
         let error = execute_with_reauthentication(
             || async { Err(unauthorized_error(ReauthenticationRetry::Safe)) },
-            || async {
+            |_request| async {
                 Err(AppError::CommandExecutionError(
                     "login rejected".to_string(),
                 ))
