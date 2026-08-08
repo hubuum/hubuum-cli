@@ -30,7 +30,7 @@ use crate::domain::{
     ObjectShowRecord, ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH,
     DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{
     append_json_message, data_preview, render_related_object_tree_with_key, OutputFormatter,
 };
@@ -355,6 +355,8 @@ pub struct ObjectInfo {
 }
 
 impl CliCommand for ObjectInfo {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = option_or_pos(query.name, tokens, 0, "name")?;
@@ -1358,6 +1360,8 @@ pub struct ObjectAggregate {
 }
 
 impl CliCommand for ObjectAggregate {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let dimensions = query
@@ -1488,6 +1492,8 @@ pub struct ObjectList {
 }
 
 impl CliCommand for ObjectList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;
         let computed_selection =
@@ -1561,6 +1567,8 @@ pub struct ObjectFields {
 }
 
 impl CliCommand for ObjectFields {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, _tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(_tokens)?;
         let sample_limit =

@@ -12,7 +12,7 @@ use crate::catalog::CommandCatalogBuilder;
 use crate::autocomplete::{bool, class_sort, class_where, classes, collections};
 use crate::config::get_config;
 use crate::domain::ClassShowRecord;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, render_related_class_tree_with_key, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
@@ -158,6 +158,8 @@ pub struct ClassInfo {
 }
 
 impl CliCommand for ClassInfo {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
@@ -329,6 +331,8 @@ pub struct ClassList {
 }
 
 impl CliCommand for ClassList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(

@@ -10,7 +10,7 @@ use super::{
 };
 use crate::autocomplete::{event_sink_kinds, event_sinks};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json_message;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
@@ -87,6 +87,8 @@ pub struct EventSinkList {
 }
 
 impl CliCommand for EventSinkList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -109,6 +111,8 @@ pub struct EventSinkShow {
 }
 
 impl CliCommand for EventSinkShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);

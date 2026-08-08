@@ -11,7 +11,7 @@ use crate::domain::{
     SearchBatchRecord, SearchCursorSet, SearchResponseRecord, SearchResultsRecord,
     SearchStreamEvent,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json, OutputFormatter, TableRenderable};
 use crate::list_query::PARTIAL_PIPELINE_WARNING;
 use crate::models::OutputFormat;
@@ -98,6 +98,8 @@ pub struct SearchCommand {
 }
 
 impl CliCommand for SearchCommand {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.query = option_or_pos(query.query, tokens, 0, "query")?;

@@ -9,7 +9,7 @@ use super::{
 };
 use crate::autocomplete::event_delivery_ids;
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -89,6 +89,8 @@ pub struct EventDeliveryList {
 }
 
 impl CliCommand for EventDeliveryList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -115,6 +117,8 @@ pub struct EventDeliveryShow {
 }
 
 impl CliCommand for EventDeliveryShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let id = required_option_or_pos(query.id, tokens, 0, "id")?;
@@ -126,6 +130,8 @@ impl CliCommand for EventDeliveryShow {
 pub struct EventDeliveryHealth {}
 
 impl CliCommand for EventDeliveryHealth {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_json_record(tokens, &services.gateway().event_delivery_health()?)
     }

@@ -9,7 +9,7 @@ use super::{
 };
 use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -82,6 +82,8 @@ pub struct TaskShow {
 }
 
 impl CliCommand for TaskShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
@@ -125,6 +127,8 @@ pub struct TaskEvents {
 }
 
 impl CliCommand for TaskEvents {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
@@ -153,6 +157,8 @@ impl CliCommand for TaskEvents {
 pub struct TaskQueue {}
 
 impl CliCommand for TaskQueue {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let state = services.gateway().task_queue_state()?;
 
@@ -198,6 +204,8 @@ pub struct TaskList {
 }
 
 impl CliCommand for TaskList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let tasks = services.gateway().list_tasks(ListTasksInput {
@@ -219,6 +227,8 @@ pub struct TaskOutputCmd {
 }
 
 impl CliCommand for TaskOutputCmd {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;

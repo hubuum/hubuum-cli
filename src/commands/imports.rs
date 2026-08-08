@@ -16,7 +16,7 @@ use super::{
 };
 use crate::autocomplete::{collections, file_paths, import_result_sort};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::CompletionContext;
 use crate::services::{AppServices, SubmitImportInput};
 use crate::tokenizer::CommandTokenizer;
@@ -265,6 +265,8 @@ pub struct ImportShow {
 }
 
 impl CliCommand for ImportShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
@@ -308,6 +310,8 @@ pub struct ImportResults {
 }
 
 impl CliCommand for ImportResults {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;

@@ -8,7 +8,7 @@ use hubuum_filter::{help_topics, topic_help, verb_summaries, PipeStage};
 
 use crate::app::AppRuntime;
 use crate::commands::{AutoCompleter, CliOption};
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::redirection::OutputRedirect;
@@ -54,6 +54,7 @@ pub struct CommandSpec {
     pub long_about: Option<String>,
     pub examples: Option<String>,
     pub options: Vec<OptionSpec>,
+    pub reauthentication_retry: ReauthenticationRetry,
     pub handler: Arc<dyn AsyncCommandHandler>,
 }
 
@@ -65,6 +66,7 @@ impl Debug for CommandSpec {
             .field("long_about", &self.long_about)
             .field("examples", &self.examples)
             .field("options", &self.options)
+            .field("reauthentication_retry", &self.reauthentication_retry)
             .finish()
     }
 }
@@ -895,7 +897,7 @@ mod tests {
 
     use crate::commands::build_command_catalog;
     use crate::config::{get_config, init_config};
-    use crate::errors::AppError;
+    use crate::errors::{AppError, ReauthenticationRetry};
     use crate::models::OutputColor;
     use crate::theme::paint_command;
 
@@ -923,6 +925,7 @@ mod tests {
             long_about: None,
             examples: None,
             options: Vec::new(),
+            reauthentication_retry: ReauthenticationRetry::Unsafe,
             handler: Arc::new(NoopHandler),
         }
     }

@@ -16,7 +16,7 @@ pub struct SubmitImportInput {
 
 impl HubuumGateway {
     pub fn submit_import(&self, input: SubmitImportInput) -> Result<TaskRecord, AppError> {
-        let submit = self.client.imports().submit(input.request);
+        let submit = self.client().imports().submit(input.request);
         let task = match input.idempotency_key {
             Some(key) => submit.idempotency_key(key).send()?,
             None => submit.send()?,
@@ -26,7 +26,7 @@ impl HubuumGateway {
     }
 
     pub fn import_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord::from(self.client.imports().get(task_id)?))
+        Ok(TaskRecord::from(self.client().imports().get(task_id)?))
     }
 
     pub fn import_results(
@@ -36,7 +36,7 @@ impl HubuumGateway {
     ) -> Result<PagedResult<ImportResultRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, IMPORT_RESULT_SORT_SPECS)?;
         let page = fetch_cursor_results(
-            self.client.imports().results(task_id),
+            self.client().imports().results(task_id),
             query,
             &validated_sorts,
         )?;

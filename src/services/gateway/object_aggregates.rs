@@ -314,7 +314,7 @@ impl HubuumGateway {
     ) -> Result<PagedResult<ObjectAggregateRecord>, AppError> {
         let filters = self.resolve_object_aggregate_filters(&input.filters)?;
         let mut request = self
-            .client
+            .client()
             .class_by_name(input.class_name.clone())
             .object_aggregates()
             .filters(filters)

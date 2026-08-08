@@ -13,7 +13,7 @@ use super::{desired_format, option_or_pos, render_task_record, CliCommand};
 use crate::autocomplete::{bool, file_paths};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::{BackupArtifact, RestoreReceipt};
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line, set_semantic_output};
 use crate::services::{AppServices, BackupInput, RunBackupInput};
@@ -193,6 +193,8 @@ pub struct BackupShow {
 }
 
 impl CliCommand for BackupShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.task = option_or_pos(query.task, tokens, 0, "task")?;
@@ -225,6 +227,8 @@ pub struct BackupDownload {
 }
 
 impl CliCommand for BackupDownload {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.task = option_or_pos(query.task, tokens, 0, "task")?;
@@ -286,6 +290,8 @@ pub struct RestoreStatus {
 }
 
 impl CliCommand for RestoreStatus {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let receipt = load_receipt(&query.receipt)?;

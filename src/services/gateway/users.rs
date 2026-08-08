@@ -54,7 +54,7 @@ impl HubuumGateway {
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
         // Create user with name/email/password
         let mut create = self
-            .client
+            .client()
             .users()
             .create_checked()
             .name(input.username.clone())
@@ -71,7 +71,7 @@ impl HubuumGateway {
     }
 
     pub fn find_user(&self, filter: UserFilter) -> Result<UserRecord, AppError> {
-        let mut search = self.client.users().query();
+        let mut search = self.client().users().query();
         if let Some(username) = filter.username {
             search = search.filter(
                 "name",
@@ -108,7 +108,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut query_op = self.client.users().query();
+        let mut query_op = self.client().users().query();
         for filter in filters {
             query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }
@@ -118,8 +118,8 @@ impl HubuumGateway {
     }
 
     pub fn delete_user(&self, username: &str) -> Result<(), AppError> {
-        let user = self.client.users().get_by_name(username)?;
-        self.client.users().delete(user.id())?;
+        let user = self.client().users().get_by_name(username)?;
+        self.client().users().delete(user.id())?;
         Ok(())
     }
 
@@ -133,9 +133,9 @@ impl HubuumGateway {
             ));
         }
 
-        let handle = self.client.users().get_by_name(&input.username)?;
+        let handle = self.client().users().get_by_name(&input.username)?;
         let updated = self
-            .client
+            .client()
             .users()
             .update(handle.id())
             .params(UserPatch {
@@ -152,7 +152,7 @@ impl HubuumGateway {
         username: &str,
         state: Option<TokenStateFilter>,
     ) -> Result<Vec<PrincipalTokenRecord>, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         let tokens = match state {
             Some(state) => handle.tokens_request_state(state.into()).all()?,
             None => handle.tokens()?,
@@ -161,7 +161,7 @@ impl HubuumGateway {
     }
 
     pub fn list_user_token_ids(&self, username: &str) -> Result<Vec<String>, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         Ok(handle
             .tokens()?
             .into_iter()
@@ -174,7 +174,7 @@ impl HubuumGateway {
         username: &str,
         token_id: TokenId,
     ) -> Result<PrincipalTokenDetailsRecord, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         self.principal_token_details(handle.tokens()?, token_id)
     }
 
@@ -183,7 +183,7 @@ impl HubuumGateway {
         username: &str,
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         Ok(handle.tokens_create_token(input.into_request()?)?.into())
     }
 
@@ -193,7 +193,7 @@ impl HubuumGateway {
         token_id: TokenId,
         input: RenewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         Ok(handle.token_renew(token_id, input.into_request())?.into())
     }
 
@@ -202,7 +202,7 @@ impl HubuumGateway {
         username: &str,
         input: CloneTokenInput,
     ) -> Result<CloneTokenOutcome, AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         let source_token_id = input.source_token_id();
         let source = find_source_token(handle.tokens()?, source_token_id)?;
         let issued_token = handle
@@ -232,7 +232,7 @@ impl HubuumGateway {
     }
 
     pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         let current = handle.token(token_id)?;
         let etag = required_entity_tag(current.etag(), "user token")?;
         handle.token_revoke_if_match(token_id, &etag)?;
@@ -240,7 +240,7 @@ impl HubuumGateway {
     }
 
     pub fn set_user_password(&self, username: &str, password: &str) -> Result<(), AppError> {
-        let handle = self.client.users().get_by_name(username)?;
+        let handle = self.client().users().get_by_name(username)?;
         handle.set_password(password)?;
         Ok(())
     }

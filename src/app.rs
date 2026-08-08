@@ -113,6 +113,25 @@ pub fn load_app_config(matches: &ArgMatches) -> Result<Arc<AppConfig>, AppError>
 }
 
 pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
+    login_with_cached_token(config, CachedToken::Allow).await
+}
+
+pub async fn reauthenticate(
+    config: Arc<AppConfig>,
+) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
+    login_with_cached_token(config, CachedToken::Skip).await
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CachedToken {
+    Allow,
+    Skip,
+}
+
+async fn login_with_cached_token(
+    config: Arc<AppConfig>,
+    cached_token: CachedToken,
+) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
     spawn_blocking(move || {
         let baseurl = BaseUrl::from_str(&format!(
             "{}://{}:{}",
@@ -130,6 +149,7 @@ pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenti
             config.server.username.as_str(),
             config.server.password.clone(),
             config.server.token_file.as_deref(),
+            cached_token,
         )
         .map(Arc::new)
     })
@@ -144,17 +164,20 @@ fn authenticate(
     username: &str,
     password: Option<String>,
     token_file: Option<&str>,
+    cached_token: CachedToken,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
     if let Some(token_file) = token_file {
         let token = BearerTokenFile::new(token_file)?.read()?;
         return client.login_with_token(token).map_err(AppError::from);
     }
 
-    let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
-    if let Some(token) = token {
-        debug!("Found existing token, testing validity...");
-        if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
-            return Ok(client);
+    if matches!(cached_token, CachedToken::Allow) {
+        let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
+        if let Some(token) = token {
+            debug!("Found existing token, testing validity...");
+            if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
+                return Ok(client);
+            }
         }
     }
 

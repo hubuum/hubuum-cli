@@ -9,7 +9,7 @@ use super::{
 };
 use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::{AppServices, HistoryInput, HistoryScope};
 use crate::tokenizer::CommandTokenizer;
 
@@ -77,6 +77,8 @@ enum HistorySelector {
 }
 
 impl CliCommand for HistoryShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
@@ -143,6 +145,8 @@ pub struct ClassHistory {
 }
 
 impl CliCommand for ClassHistory {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.class = query
@@ -200,6 +204,8 @@ pub struct ObjectHistory {
 }
 
 impl CliCommand for ObjectHistory {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         let positionals = tokens.get_positionals();

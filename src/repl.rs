@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::path::MAIN_SEPARATOR;
 use std::sync::Arc;
 use std::thread::spawn;
@@ -14,13 +15,13 @@ use reedline::{
 use shlex::split;
 use tokio::runtime::Handle;
 
-use crate::app::{AppRuntime, SharedSession};
+use crate::app::{reauthenticate, AppRuntime, SharedSession};
 use crate::autocomplete::{complete_sort_clause, complete_where_clause, file_paths};
 use crate::background::BackgroundManager;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::config::get_config;
 use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, render_error};
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::files::get_history_file;
 use crate::json_schema::schema_paths;
 use crate::output::print_rendered;
@@ -113,7 +114,8 @@ fn run_thread(
                 } else {
                     line
                 };
-                let result = runtime.block_on(execute_line(app.clone(), &session, &effective_line));
+                let result =
+                    runtime.block_on(execute_repl_line(app.clone(), &session, &effective_line));
                 match result {
                     Ok(outcome) => {
                         let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
@@ -139,6 +141,65 @@ fn run_thread(
     }
 
     Ok(())
+}
+
+async fn execute_repl_line(
+    app: Arc<AppRuntime>,
+    session: &SharedSession,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
+    execute_with_reauthentication(
+        || execute_line(app.clone(), session, line),
+        || async {
+            session.set_next_page_command(None);
+            let client = reauthenticate(app.config.clone()).await?;
+            app.services.replace_authenticated_client(client);
+            Ok(())
+        },
+    )
+    .await
+}
+
+async fn execute_with_reauthentication<Execute, ExecuteFuture, Reauthenticate, ReauthFuture>(
+    mut execute: Execute,
+    mut reauthenticate: Reauthenticate,
+) -> Result<CommandOutcome, AppError>
+where
+    Execute: FnMut() -> ExecuteFuture,
+    ExecuteFuture: Future<Output = Result<CommandOutcome, AppError>>,
+    Reauthenticate: FnMut() -> ReauthFuture,
+    ReauthFuture: Future<Output = Result<(), AppError>>,
+{
+    let error = match execute().await {
+        Ok(outcome) => return Ok(outcome),
+        Err(error) if error.is_unauthorized() => error,
+        Err(error) => return Err(error),
+    };
+    let request = error.unauthorized_request();
+    let retry = error
+        .reauthentication_retry()
+        .unwrap_or(ReauthenticationRetry::Unsafe);
+
+    reauthenticate()
+        .await
+        .map_err(|source| AppError::ReauthenticationFailed {
+            request: request.clone(),
+            source: Box::new(source),
+        })?;
+
+    match retry {
+        ReauthenticationRetry::Safe => {
+            let mut outcome = execute().await?;
+            outcome.output.warnings.insert(
+                0,
+                format!(
+                    "Session expired during {request}; signed in again and retried the command."
+                ),
+            );
+            Ok(outcome)
+        }
+        ReauthenticationRetry::Unsafe => Err(AppError::CommandNotRetried { request }),
+    }
 }
 
 fn handle_host_signal(signal: &Signal, session: &SharedSession) -> bool {
@@ -1351,6 +1412,11 @@ fn clause_active_token_offset(clause: &str, ends_with_space: bool) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use hubuum_client::ApiError;
+    use reqwest::{Method, StatusCode};
     use serde_json::json;
     use std::any::TypeId;
 
@@ -1363,8 +1429,11 @@ mod tests {
     };
 
     use crate::app::SharedSession;
-    use crate::catalog::{CompletionSpec, OptionSpec};
+    use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec};
+    use crate::commands::build_command_catalog;
+    use crate::errors::{AppError, ReauthenticationRetry};
 
+    use super::execute_with_reauthentication;
     use super::{
         clause_active_token_offset, clause_option_context, completion_context_parts,
         dynamic_value_suggestion, handle_host_signal, id_completion_context,
@@ -1373,6 +1442,151 @@ mod tests {
         IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
     };
     use crate::json_schema::schema_paths;
+
+    #[tokio::test]
+    async fn expired_session_reauthenticates_and_retries_safe_command_once() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let authentications = Arc::new(AtomicUsize::new(0));
+
+        let outcome = execute_with_reauthentication(
+            {
+                let attempts = attempts.clone();
+                move || {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        if attempt == 0 {
+                            Err(unauthorized_error(ReauthenticationRetry::Safe))
+                        } else {
+                            Ok(CommandOutcome::default())
+                        }
+                    }
+                }
+            },
+            {
+                let authentications = authentications.clone();
+                move || {
+                    authentications.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(()) }
+                }
+            },
+        )
+        .await
+        .expect("read-only command should succeed after reauthentication");
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert_eq!(authentications.load(Ordering::SeqCst), 1);
+        assert_eq!(outcome.output.warnings.len(), 1);
+        assert!(outcome.output.warnings[0].contains("GET /api/v0/classes"));
+        assert!(!outcome.output.warnings[0].contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn expired_session_does_not_replay_potentially_mutating_command() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let authentications = Arc::new(AtomicUsize::new(0));
+
+        let error = execute_with_reauthentication(
+            {
+                let attempts = attempts.clone();
+                move || {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    async { Err(unauthorized_error(ReauthenticationRetry::Unsafe)) }
+                }
+            },
+            {
+                let authentications = authentications.clone();
+                move || {
+                    authentications.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(()) }
+                }
+            },
+        )
+        .await
+        .expect_err("potentially mutating command should not be replayed");
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(authentications.load(Ordering::SeqCst), 1);
+        assert!(matches!(error, AppError::CommandNotRetried { .. }));
+        assert!(error.to_string().contains("GET /api/v0/classes"));
+    }
+
+    #[tokio::test]
+    async fn second_unauthorized_response_is_returned_without_another_login() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let authentications = Arc::new(AtomicUsize::new(0));
+
+        let error = execute_with_reauthentication(
+            {
+                let attempts = attempts.clone();
+                move || {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    async { Err(unauthorized_error(ReauthenticationRetry::Safe)) }
+                }
+            },
+            {
+                let authentications = authentications.clone();
+                move || {
+                    authentications.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(()) }
+                }
+            },
+        )
+        .await
+        .expect_err("a second unauthorized response should stop the retry");
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert_eq!(authentications.load(Ordering::SeqCst), 1);
+        assert!(error.is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn failed_reauthentication_preserves_failed_request_context() {
+        let error = execute_with_reauthentication(
+            || async { Err(unauthorized_error(ReauthenticationRetry::Safe)) },
+            || async {
+                Err(AppError::CommandExecutionError(
+                    "login rejected".to_string(),
+                ))
+            },
+        )
+        .await
+        .expect_err("failed login should stop command recovery");
+
+        assert!(matches!(error, AppError::ReauthenticationFailed { .. }));
+        assert!(error.to_string().contains("GET /api/v0/classes"));
+        assert!(error.to_string().contains("login rejected"));
+    }
+
+    #[test]
+    fn command_catalog_marks_reads_safe_and_writes_unsafe() {
+        let catalog = build_command_catalog();
+        let read = catalog
+            .resolve_command(&[], &["object".to_string(), "list".to_string()])
+            .expect("object list should resolve");
+        let write = catalog
+            .resolve_command(&[], &["object".to_string(), "create".to_string()])
+            .expect("object create should resolve");
+
+        assert_eq!(
+            read.command.reauthentication_retry,
+            ReauthenticationRetry::Safe
+        );
+        assert_eq!(
+            write.command.reauthentication_retry,
+            ReauthenticationRetry::Unsafe
+        );
+    }
+
+    fn unauthorized_error(retry: ReauthenticationRetry) -> AppError {
+        AppError::ApiError(ApiError::HttpWithBody {
+            method: Method::GET,
+            url: "https://example.invalid/api/v0/classes?token=secret".to_string(),
+            status: StatusCode::UNAUTHORIZED,
+            message: "expired".to_string(),
+            body: r#"{"message":"expired"}"#.to_string(),
+        })
+        .for_command(retry)
+    }
 
     #[test]
     fn esc_cancels_only_when_pagination_is_pending() {

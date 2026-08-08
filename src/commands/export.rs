@@ -15,7 +15,7 @@ use crate::autocomplete::{
     export_sort, export_templates, export_where, objects_from_class,
 };
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -132,6 +132,8 @@ pub struct ExportList {
 }
 
 impl CliCommand for ExportList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -160,6 +162,8 @@ pub struct ExportShow {
 }
 
 impl CliCommand for ExportShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;

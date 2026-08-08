@@ -48,7 +48,11 @@ use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
 use crate::services::{CloneTokenOutcome, CompletionContext, SourceTokenRevocation};
 use crate::suggestions::did_you_mean_message;
-use crate::{errors::AppError, services::AppServices, tokenizer::CommandTokenizer};
+use crate::{
+    errors::{AppError, ReauthenticationRetry},
+    services::AppServices,
+    tokenizer::CommandTokenizer,
+};
 use crate::{
     formatting::{OutputFormatter, TableRenderable},
     list_query::{
@@ -96,6 +100,8 @@ pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
 }
 
 pub trait CliCommand: CommandArgs + Send + Sync {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Unsafe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError>;
 }
 

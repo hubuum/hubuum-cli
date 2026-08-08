@@ -14,7 +14,7 @@ use crate::domain::{
     ClassComputationStateRecord, ComputedFieldMutationRecord, ComputedFieldPreviewRecord,
     ComputedFieldRecord, SharedComputedFieldListRecord,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
@@ -176,6 +176,8 @@ pub struct SharedComputedList {
 }
 
 impl CliCommand for SharedComputedList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let fields = services
@@ -549,6 +551,8 @@ preview_args!(SharedComputedPreview);
 preview_args!(PersonalComputedPreview);
 
 impl CliCommand for SharedComputedPreview {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let class = query.class().to_string();
@@ -562,6 +566,8 @@ impl CliCommand for SharedComputedPreview {
 }
 
 impl CliCommand for PersonalComputedPreview {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let class = query.class().to_string();
@@ -627,6 +633,8 @@ pub struct PersonalComputedList {
 }
 
 impl CliCommand for PersonalComputedList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(

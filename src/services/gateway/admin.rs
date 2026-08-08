@@ -6,6 +6,6 @@ use super::HubuumGateway;
 
 impl HubuumGateway {
     pub fn server_config(&self) -> Result<Value, AppError> {
-        Ok(to_value(self.client.admin_config()?)?)
+        Ok(to_value(self.client().admin_config()?)?)
     }
 }

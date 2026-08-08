@@ -5,7 +5,7 @@ use serde_json::to_string_pretty;
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -78,6 +78,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct MeShow {}
 
 impl CliCommand for MeShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let me = services.gateway().me()?;
 
@@ -94,6 +96,8 @@ impl CliCommand for MeShow {
 pub struct MeGroups {}
 
 impl CliCommand for MeGroups {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let groups = services.gateway().me_groups()?;
 
@@ -110,6 +114,8 @@ impl CliCommand for MeGroups {
 pub struct MeTokens {}
 
 impl CliCommand for MeTokens {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let token_list = services.gateway().me_tokens()?;
 
@@ -126,6 +132,8 @@ impl CliCommand for MeTokens {
 pub struct MePermissions {}
 
 impl CliCommand for MePermissions {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let permissions = services.gateway().me_permissions()?;
 

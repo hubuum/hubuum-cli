@@ -14,7 +14,7 @@ use crate::autocomplete::{
     collection_sort, collection_where, collections, groups, principal_kinds, principal_names,
 };
 use crate::domain::CollectionPermission;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
@@ -217,6 +217,8 @@ pub struct CollectionList {
 }
 
 impl CliCommand for CollectionList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -262,6 +264,8 @@ pub struct CollectionInfo {
 }
 
 impl CliCommand for CollectionInfo {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
@@ -357,6 +361,8 @@ pub struct CollectionPermissions {
 }
 
 impl CliCommand for CollectionPermissions {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
@@ -674,6 +680,8 @@ pub struct CollectionPrincipalPermissions {
 }
 
 impl CliCommand for CollectionPrincipalPermissions {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(new.name, tokens, 0, "collection")?;

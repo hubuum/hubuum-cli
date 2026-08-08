@@ -5,7 +5,7 @@ use serde_json::to_string_pretty;
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -81,6 +81,8 @@ fn register_group(builder: &mut CommandCatalogBuilder, prefix: &'static str) {
 pub struct JobsList {}
 
 impl CliCommand for JobsList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let jobs = services.background().list_jobs();
@@ -108,6 +110,8 @@ pub struct JobsShow {
 }
 
 impl CliCommand for JobsShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
@@ -145,6 +149,8 @@ pub struct JobsOutput {
 }
 
 impl CliCommand for JobsOutput {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;
@@ -176,6 +182,8 @@ pub struct JobsWatch {
 }
 
 impl CliCommand for JobsWatch {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
         let mut query = Self::parse_tokens(tokens)?;

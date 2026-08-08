@@ -183,7 +183,7 @@ pub struct HistoryInput {
 impl HubuumGateway {
     pub fn list_event_sink_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
-            .client
+            .client()
             .event_sinks()
             .query()
             .list()?
@@ -193,7 +193,7 @@ impl HubuumGateway {
     }
 
     pub fn event_sink_id_by_name(&self, name: &str) -> Result<EventSinkId, AppError> {
-        Ok(self.client.event_sinks().get_by_name(name)?.id())
+        Ok(self.client().event_sinks().get_by_name(name)?.id())
     }
 
     pub fn list_event_subscription_names_for_collection(
@@ -202,7 +202,7 @@ impl HubuumGateway {
     ) -> Result<Vec<String>, AppError> {
         let collection_id = self.collection_id(collection)?;
         Ok(self
-            .client
+            .client()
             .event_subscriptions(collection_id)
             .query()
             .limit(200)
@@ -218,7 +218,7 @@ impl HubuumGateway {
     }
 
     pub fn user_id_by_name(&self, name: &str) -> Result<UserId, AppError> {
-        Ok(self.client.users().get_by_name(name)?.id())
+        Ok(self.client().users().get_by_name(name)?.id())
     }
 
     pub fn audit_scope_by_name(
@@ -245,16 +245,16 @@ impl HubuumGateway {
                 })
             }
             AuditResourceKind::User => Ok(AuditScope::User(
-                self.client.users().get_by_name(name)?.id(),
+                self.client().users().get_by_name(name)?.id(),
             )),
             AuditResourceKind::Group => Ok(AuditScope::Group(
-                self.client.groups().get_by_name(name)?.id(),
+                self.client().groups().get_by_name(name)?.id(),
             )),
             AuditResourceKind::Template => Ok(AuditScope::Template(
-                self.client.export_templates().get_by_name(name)?.id(),
+                self.client().export_templates().get_by_name(name)?.id(),
             )),
             AuditResourceKind::RemoteTarget => Ok(AuditScope::RemoteTarget(
-                self.client.remote_targets().get_by_name(name)?.id(),
+                self.client().remote_targets().get_by_name(name)?.id(),
             )),
         }
     }
@@ -265,17 +265,17 @@ impl HubuumGateway {
         input: AuditListInput,
     ) -> Result<PagedResult<AuditEventRecord>, AppError> {
         let request = match scope {
-            AuditScope::Global => self.client.events(),
-            AuditScope::Collection(id) => self.client.collection_events(id),
-            AuditScope::Class(id) => self.client.class_events(id),
+            AuditScope::Global => self.client().events(),
+            AuditScope::Collection(id) => self.client().collection_events(id),
+            AuditScope::Class(id) => self.client().class_events(id),
             AuditScope::Object {
                 class_id,
                 object_id,
-            } => self.client.object_events(class_id, object_id),
-            AuditScope::Template(id) => self.client.template_events(id),
-            AuditScope::RemoteTarget(id) => self.client.remote_target_events(id),
-            AuditScope::User(id) => self.client.user_events(id),
-            AuditScope::Group(id) => self.client.group_events(id),
+            } => self.client().object_events(class_id, object_id),
+            AuditScope::Template(id) => self.client().template_events(id),
+            AuditScope::RemoteTarget(id) => self.client().remote_target_events(id),
+            AuditScope::User(id) => self.client().user_events(id),
+            AuditScope::Group(id) => self.client().group_events(id),
         };
 
         let request = apply_audit_input(request, &input)?;
@@ -327,7 +327,7 @@ impl HubuumGateway {
 
     fn resolve_audit_resource_names(&self, record: JsonRecord) -> JsonRecord {
         let actor_user = record.audit_actor_user_id().and_then(|id| {
-            self.client
+            self.client()
                 .users()
                 .get(id)
                 .map(|user| user.resource().name.clone())
@@ -337,7 +337,7 @@ impl HubuumGateway {
                 .ok()
         });
         let collection = record.audit_collection_id().and_then(|id| {
-            self.client
+            self.client()
                 .collections()
                 .get(id)
                 .map(|collection| collection.resource().name.clone())
@@ -368,7 +368,7 @@ impl HubuumGateway {
 
         match scope {
             HistoryScope::Class(id) => {
-                let request = apply_history_input(self.client.class_history(id), &input)?;
+                let request = apply_history_input(self.client().class_history(id), &input)?;
                 history_results(request, &input)
             }
             HistoryScope::Object {
@@ -376,7 +376,7 @@ impl HubuumGateway {
                 object_id,
             } => {
                 let request =
-                    apply_history_input(self.client.object_history(class_id, object_id), &input)?;
+                    apply_history_input(self.client().object_history(class_id, object_id), &input)?;
                 history_results(request, &input)
             }
             HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
@@ -438,14 +438,15 @@ impl HubuumGateway {
     ) -> Result<JsonRecord, AppError> {
         match scope {
             HistoryScope::Class(id) => {
-                JsonRecord::from_serializable(self.client.class_history_as_of(id, at)?)
+                JsonRecord::from_serializable(self.client().class_history_as_of(id, at)?)
                     .map_err(AppError::from)
             }
             HistoryScope::Object {
                 class_id,
                 object_id,
             } => JsonRecord::from_serializable(
-                self.client.object_history_as_of(class_id, object_id, at)?,
+                self.client()
+                    .object_history_as_of(class_id, object_id, at)?,
             )
             .map_err(AppError::from),
             HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
@@ -481,7 +482,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
         let page = fetch_query_results(
-            self.client.event_sinks().query().filters(filters),
+            self.client().event_sinks().query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -490,7 +491,7 @@ impl HubuumGateway {
 
     pub fn event_sink_by_name(&self, name: &str) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
-            self.client
+            self.client()
                 .event_sinks()
                 .get_by_name(name)?
                 .resource()
@@ -500,7 +501,7 @@ impl HubuumGateway {
     }
 
     pub fn create_event_sink(&self, input: NewEventSink) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_sinks().create_raw(input)?)
+        JsonRecord::from_serializable(self.client().event_sinks().create_raw(input)?)
             .map_err(AppError::from)
     }
 
@@ -509,14 +510,14 @@ impl HubuumGateway {
         name: &str,
         input: UpdateEventSink,
     ) -> Result<JsonRecord, AppError> {
-        let sink = self.client.event_sinks().get_by_name(name)?;
-        JsonRecord::from_serializable(self.client.event_sinks().update_raw(sink.id(), input)?)
+        let sink = self.client().event_sinks().get_by_name(name)?;
+        JsonRecord::from_serializable(self.client().event_sinks().update_raw(sink.id(), input)?)
             .map_err(AppError::from)
     }
 
     pub fn delete_event_sink_by_name(&self, name: &str) -> Result<(), AppError> {
-        let sink = self.client.event_sinks().get_by_name(name)?;
-        self.client.event_sinks().delete(sink.id())?;
+        let sink = self.client().event_sinks().get_by_name(name)?;
+        self.client().event_sinks().delete(sink.id())?;
         Ok(())
     }
 
@@ -529,7 +530,7 @@ impl HubuumGateway {
         let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_SUBSCRIPTION_SORT_SPECS)?;
         let filters = self.resolve_event_filters(&validated)?;
         let page = fetch_cursor_results(
-            self.client
+            self.client()
                 .event_subscriptions(collection_id)
                 .query()
                 .filters(filters),
@@ -545,7 +546,7 @@ impl HubuumGateway {
         subscription_id: EventSubscriptionId,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
-            self.client
+            self.client()
                 .event_subscriptions(collection_id)
                 .get(subscription_id)?,
         )
@@ -567,7 +568,7 @@ impl HubuumGateway {
         input: NewEventSubscription,
     ) -> Result<JsonRecord, AppError> {
         JsonRecord::from_serializable(
-            self.client
+            self.client()
                 .event_subscriptions(collection_id)
                 .create(input)?,
         )
@@ -583,7 +584,7 @@ impl HubuumGateway {
         let subscription_id =
             self.event_subscription_id_by_name(collection_id, subscription_name)?;
         JsonRecord::from_serializable(
-            self.client
+            self.client()
                 .event_subscriptions(collection_id)
                 .update(subscription_id, input)?,
         )
@@ -595,7 +596,7 @@ impl HubuumGateway {
         collection_id: CollectionId,
         subscription_id: EventSubscriptionId,
     ) -> Result<(), AppError> {
-        self.client
+        self.client()
             .event_subscriptions(collection_id)
             .delete(subscription_id)?;
         Ok(())
@@ -617,7 +618,7 @@ impl HubuumGateway {
         name: &str,
     ) -> Result<EventSubscriptionId, AppError> {
         let page = self
-            .client
+            .client()
             .event_subscriptions(collection_id)
             .query()
             .filter("name", FilterOperator::Equals { is_negated: false }, name)
@@ -639,7 +640,7 @@ impl HubuumGateway {
         let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_DELIVERY_SORT_SPECS)?;
         let filters = self.resolve_event_filters(&validated)?;
         let page = fetch_cursor_results(
-            self.client.event_deliveries().query().filters(filters),
+            self.client().event_deliveries().query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -647,22 +648,22 @@ impl HubuumGateway {
     }
 
     pub fn event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_deliveries().get(id)?)
+        JsonRecord::from_serializable(self.client().event_deliveries().get(id)?)
             .map_err(AppError::from)
     }
 
     pub fn event_delivery_health(&self) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_deliveries().health()?)
+        JsonRecord::from_serializable(self.client().event_deliveries().health()?)
             .map_err(AppError::from)
     }
 
     pub fn retry_event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_deliveries().retry(id)?)
+        JsonRecord::from_serializable(self.client().event_deliveries().retry(id)?)
             .map_err(AppError::from)
     }
 
     pub fn dead_event_delivery(&self, id: EventDeliveryId) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(self.client.event_deliveries().mark_dead(id)?)
+        JsonRecord::from_serializable(self.client().event_deliveries().mark_dead(id)?)
             .map_err(AppError::from)
     }
 

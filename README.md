@@ -118,6 +118,14 @@ command catalog and configuration files without logging in. `version --server`,
 `auth providers`, and `metrics` make unauthenticated requests. Other API-backed
 commands authenticate before execution.
 
+If an API-backed command receives `401 Unauthorized` in the interactive REPL,
+Hubuum CLI immediately renews the session. It rereads `--token-file` credentials,
+uses a configured password without prompting, or prompts for the password when
+needed. Read-only commands are retried once after a successful login. Commands
+that may have changed server state are not replayed; the error identifies the
+first failed HTTP method and path so the current state can be reviewed safely.
+One-shot commands and scripts never start this interactive recovery flow.
+
 Global configuration flags go before the command:
 
 ```sh

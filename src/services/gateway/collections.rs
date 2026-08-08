@@ -32,7 +32,7 @@ pub struct CollectionUpdateInput {
 impl HubuumGateway {
     pub fn list_collection_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
-            .client
+            .client()
             .collections()
             .query()
             .list()?
@@ -45,8 +45,8 @@ impl HubuumGateway {
         &self,
         input: CreateCollectionInput,
     ) -> Result<CollectionRecord, AppError> {
-        let group = self.client.groups().get_by_name(&input.owner)?;
-        let collection = self.client.collections().create_raw(CollectionPost {
+        let group = self.client().groups().get_by_name(&input.owner)?;
+        let collection = self.client().collections().create_raw(CollectionPost {
             name: input.name,
             description: input.description,
             group_id: group.id(),
@@ -67,7 +67,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = fetch_query_results(
-            self.client.collections().query().filters(filters),
+            self.client().collections().query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -75,13 +75,13 @@ impl HubuumGateway {
     }
 
     pub fn get_collection(&self, name: &str) -> Result<CollectionRecord, AppError> {
-        let collection = self.client.collections().get_by_name(name)?;
+        let collection = self.client().collections().get_by_name(name)?;
         Ok(CollectionRecord::from(collection.resource()))
     }
 
     pub fn delete_collection(&self, name: &str) -> Result<(), AppError> {
-        let collection = self.client.collections().get_by_name(name)?;
-        self.client.collections().delete(collection.id())?;
+        let collection = self.client().collections().get_by_name(name)?;
+        self.client().collections().delete(collection.id())?;
         Ok(())
     }
 
@@ -89,8 +89,8 @@ impl HubuumGateway {
         &self,
         input: CollectionUpdateInput,
     ) -> Result<CollectionRecord, AppError> {
-        let collection = self.client.collections().get_by_name(&input.name)?;
-        let updated = self.client.collections().update_raw(
+        let collection = self.client().collections().get_by_name(&input.name)?;
+        let updated = self.client().collections().update_raw(
             collection.id(),
             CollectionPatch {
                 name: input.rename,
@@ -105,7 +105,11 @@ impl HubuumGateway {
         &self,
         name: &str,
     ) -> Result<CollectionPermissionsView, AppError> {
-        let permissions = self.client.collections().get_by_name(name)?.permissions()?;
+        let permissions = self
+            .client()
+            .collections()
+            .get_by_name(name)?
+            .permissions()?;
         let permissions = self.expand_collection_permissions(permissions)?;
         let entries = permissions
             .iter()
@@ -126,8 +130,8 @@ impl HubuumGateway {
         group_name: &str,
         permissions: &[CollectionPermission],
     ) -> Result<(), AppError> {
-        let collection = self.client.collections().get_by_name(collection_name)?;
-        let group = self.client.groups().get_by_name(group_name)?;
+        let collection = self.client().collections().get_by_name(collection_name)?;
+        let group = self.client().groups().get_by_name(group_name)?;
         let permissions = permissions
             .iter()
             .map(|permission| permission.api_name())
@@ -149,7 +153,7 @@ impl HubuumGateway {
         collection: &str,
         principal_id: i32,
     ) -> Result<Vec<GroupPermissionsRecord>, AppError> {
-        let collection = self.client.collections().get_by_name(collection)?;
+        let collection = self.client().collections().get_by_name(collection)?;
         Ok(collection
             .principal_permissions(principal_id)?
             .into_iter()
@@ -165,7 +169,7 @@ impl HubuumGateway {
             CollectionPermissionsResponse::Expanded(rows) => Ok(rows),
             CollectionPermissionsResponse::Revisioned(permission_set) => {
                 let groups = fetch_entities_for_ids(
-                    &self.client.groups(),
+                    &self.client().groups(),
                     permission_set
                         .permissions
                         .iter()

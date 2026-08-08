@@ -391,7 +391,7 @@ impl HubuumGateway {
             .map(|object| Ok((i32::from(object.id), object_from_path(object)?)))
             .collect::<Result<HashMap<_, _>, AppError>>()?;
         let class_relation_map = find_entities_by_ids(
-            &self.client.class_relation(),
+            &self.client().class_relation(),
             graph.relations.iter(),
             |relation| relation.class_relation_id,
         )?;
@@ -437,7 +437,7 @@ impl HubuumGateway {
         relation: &ObjectRelation,
     ) -> Result<ResolvedObjectRelationRecord, AppError> {
         let class_relation = self
-            .client
+            .client()
             .class_relation()
             .get(relation.class_relation_id)?
             .resource()
@@ -468,7 +468,7 @@ impl HubuumGateway {
         }
 
         let class_relation_map = find_entities_by_ids(
-            &self.client.class_relation(),
+            &self.client().class_relation(),
             page.items.iter(),
             |relation| relation.class_relation_id,
         )?;
@@ -512,7 +512,7 @@ impl HubuumGateway {
         let mut objects = HashMap::new();
         for (class_id, object_ids) in grouped {
             objects.extend(fetch_entities_for_ids(
-                &self.client.objects(class_id),
+                &self.client().objects(class_id),
                 object_ids,
             )?);
         }

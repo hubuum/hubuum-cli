@@ -27,6 +27,8 @@ use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 
 use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
+use super::AuthenticatedClient;
+
 pub use backups::{BackupInput, RunBackupInput};
 pub use classes::{ClassUpdateInput, CreateClassInput};
 pub use collections::{CollectionUpdateInput, CreateCollectionInput};
@@ -64,12 +66,27 @@ pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 
 #[derive(Clone)]
 pub struct HubuumGateway {
-    pub(super) client: Arc<BlockingClient<Authenticated>>,
+    client: AuthenticatedClient,
 }
 
 impl HubuumGateway {
+    #[cfg(test)]
     pub fn new(client: Arc<BlockingClient<Authenticated>>) -> Self {
+        Self {
+            client: AuthenticatedClient::new(client),
+        }
+    }
+
+    pub(super) fn new_with_authenticated_client(client: AuthenticatedClient) -> Self {
         Self { client }
+    }
+
+    pub(super) fn replace_authenticated_client(&self, client: Arc<BlockingClient<Authenticated>>) {
+        self.client.replace(client);
+    }
+
+    pub(super) fn client(&self) -> Arc<BlockingClient<Authenticated>> {
+        self.client.current()
     }
 }
 
