@@ -5,12 +5,12 @@ use super::HubuumGateway;
 
 impl HubuumGateway {
     pub fn me(&self) -> Result<MeRecord, AppError> {
-        Ok(MeRecord(self.client.me()?))
+        Ok(MeRecord(self.client().me()?))
     }
 
     pub fn me_groups(&self) -> Result<Vec<GroupRecord>, AppError> {
         Ok(self
-            .client
+            .client()
             .me_groups()?
             .into_iter()
             .map(|h| GroupRecord::from(h.resource().clone()))
@@ -19,7 +19,7 @@ impl HubuumGateway {
 
     pub fn me_tokens(&self) -> Result<Vec<PrincipalTokenRecord>, AppError> {
         Ok(self
-            .client
+            .client()
             .me_tokens()?
             .into_iter()
             .map(PrincipalTokenRecord::from)
@@ -28,7 +28,7 @@ impl HubuumGateway {
 
     pub fn me_permissions(&self) -> Result<Vec<PrincipalPermissionsRecord>, AppError> {
         Ok(self
-            .client
+            .client()
             .me_permissions()?
             .into_iter()
             .map(PrincipalPermissionsRecord::from)

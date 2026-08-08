@@ -131,7 +131,12 @@ async fn execute_line_inner(
     };
     let ctx = CommandContext { app: app.clone() };
 
-    resolved.command.handler.execute(ctx, invocation).await
+    resolved
+        .command
+        .handler
+        .execute(ctx, invocation)
+        .await
+        .map_err(|error| error.for_command(resolved.command.reauthentication_retry))
 }
 
 fn is_help_alias(parts: &[String]) -> bool {
@@ -309,6 +314,10 @@ pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
 
 pub fn render_error(err: AppError) -> OutputSnapshot {
     reset_output().expect("reset output buffer for errors");
+    let err = match err {
+        AppError::UnauthorizedCommand { source, .. } => *source,
+        other => other,
+    };
     match err {
         AppError::Quiet => {}
         AppError::EntityNotFound(entity) => {

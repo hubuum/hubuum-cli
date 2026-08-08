@@ -94,7 +94,7 @@ impl HubuumGateway {
         input: ObjectDataPatchInput,
     ) -> Result<ObjectDataMutationRecord, AppError> {
         let objects = self
-            .client
+            .client()
             .class_by_name(input.class_name.clone())
             .objects();
         let object = objects.by_name(input.object_name.clone());
@@ -137,9 +137,9 @@ impl HubuumGateway {
         sample_limit: usize,
         max_depth: usize,
     ) -> Result<ObservedObjectDataFields, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let objects = self
-            .client
+            .client()
             .objects(class.id())
             .query()
             .limit(sample_limit)
@@ -151,9 +151,9 @@ impl HubuumGateway {
     }
 
     pub fn list_object_names_for_class(&self, class_name: &str) -> Result<Vec<String>, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         Ok(self
-            .client
+            .client()
             .objects(class.id())
             .query()
             .list()?
@@ -167,9 +167,9 @@ impl HubuumGateway {
         class_name: &str,
         prefix: &str,
     ) -> Result<Vec<String>, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         Ok(self
-            .client
+            .client()
             .objects(class.id())
             .query()
             .filter(
@@ -188,10 +188,10 @@ impl HubuumGateway {
         &self,
         input: CreateObjectInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let collection = self.client.collections().get_by_name(&input.collection)?;
-        let class = self.client.classes().get_by_name(&input.class_name)?;
+        let collection = self.client().collections().get_by_name(&input.collection)?;
+        let class = self.client().classes().get_by_name(&input.class_name)?;
 
-        let object = self.client.objects(class.id()).create_raw(ObjectPost {
+        let object = self.client().objects(class.id()).create_raw(ObjectPost {
             name: input.name,
             hubuum_class_id: Some(class.id()),
             collection_id: Some(collection.id()),
@@ -215,10 +215,10 @@ impl HubuumGateway {
         class_name: &str,
         object_name: &str,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
         let collection = self
-            .client
+            .client()
             .collections()
             .get(object.resource().collection_id)?;
 
@@ -240,10 +240,10 @@ impl HubuumGateway {
         options: &RelationTraversalOptions,
         include_computed: bool,
     ) -> Result<ObjectShowRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
         let collection = self
-            .client
+            .client()
             .collections()
             .get(object.resource().collection_id)?;
 
@@ -253,7 +253,7 @@ impl HubuumGateway {
         let mut object_record =
             ResolvedObjectRecord::new(object.resource(), &classmap, &collectionmap);
         if include_computed {
-            let computed = self.client.computed_object(class.id(), object.id())?;
+            let computed = self.client().computed_object(class.id(), object.id())?;
             object_record = object_record.with_computed(serde_json::to_value(computed.computed)?);
         }
         let related_graph = object
@@ -293,9 +293,9 @@ impl HubuumGateway {
     }
 
     pub fn delete_object(&self, class_name: &str, object_name: &str) -> Result<(), AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let object = class.object_by_name(object_name)?;
-        self.client.objects(class.id()).delete(object.id())?;
+        self.client().objects(class.id()).delete(object.id())?;
         Ok(())
     }
 
@@ -331,7 +331,7 @@ impl HubuumGateway {
             .iter()
             .find(|clause| clause.spec.public_name == "class")
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let class = self.client.classes().get_by_name(&class_filter.value)?;
+        let class = self.client().classes().get_by_name(&class_filter.value)?;
 
         let filters = validated
             .iter()
@@ -341,16 +341,16 @@ impl HubuumGateway {
 
         if has_computed_sort {
             let fetched = self
-                .client
+                .client()
                 .computed_objects(class.id())
                 .filters(filters)
                 .all()?;
             let classmap =
-                find_entities_by_ids(&self.client.classes(), fetched.iter(), |object| {
+                find_entities_by_ids(&self.client().classes(), fetched.iter(), |object| {
                     object.object.hubuum_class_id
                 })?;
             let collectionmap =
-                find_entities_by_ids(&self.client.collections(), fetched.iter(), |object| {
+                find_entities_by_ids(&self.client().collections(), fetched.iter(), |object| {
                     object.object.collection_id
                 })?;
             let mut items = fetched
@@ -380,7 +380,7 @@ impl HubuumGateway {
 
         if include_computed {
             let page = fetch_cursor_results(
-                self.client.computed_objects(class.id()).filters(filters),
+                self.client().computed_objects(class.id()).filters(filters),
                 query,
                 &validated_sorts,
             )?;
@@ -389,11 +389,11 @@ impl HubuumGateway {
             }
 
             let classmap =
-                find_entities_by_ids(&self.client.classes(), page.items.iter(), |object| {
+                find_entities_by_ids(&self.client().classes(), page.items.iter(), |object| {
                     object.object.hubuum_class_id
                 })?;
             let collectionmap =
-                find_entities_by_ids(&self.client.collections(), page.items.iter(), |object| {
+                find_entities_by_ids(&self.client().collections(), page.items.iter(), |object| {
                     object.object.collection_id
                 })?;
             let returned_count = page.items.len();
@@ -416,7 +416,7 @@ impl HubuumGateway {
         }
 
         let page = fetch_query_results(
-            self.client.objects(class.id()).query().filters(filters),
+            self.client().objects(class.id()).query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -424,11 +424,12 @@ impl HubuumGateway {
             return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
-        let classmap = find_entities_by_ids(&self.client.classes(), page.items.iter(), |object| {
-            object.hubuum_class_id
-        })?;
+        let classmap =
+            find_entities_by_ids(&self.client().classes(), page.items.iter(), |object| {
+                object.hubuum_class_id
+            })?;
         let collectionmap =
-            find_entities_by_ids(&self.client.collections(), page.items.iter(), |object| {
+            find_entities_by_ids(&self.client().collections(), page.items.iter(), |object| {
                 object.collection_id
             })?;
 
@@ -439,7 +440,7 @@ impl HubuumGateway {
         &self,
         input: ObjectUpdateInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client.classes().get_by_name(&input.class_name)?;
+        let class = self.client().classes().get_by_name(&input.class_name)?;
         let object = class.object_by_name(&input.name)?;
         let mut result_class = class.resource().clone();
 
@@ -449,11 +450,11 @@ impl HubuumGateway {
         };
 
         if let Some(collection) = input.collection {
-            let collection = self.client.collections().get_by_name(&collection)?;
+            let collection = self.client().collections().get_by_name(&collection)?;
             patch.collection_id = Some(collection.id());
         }
         if let Some(reclass) = input.reclass {
-            let reclass = self.client.classes().get_by_name(&reclass)?;
+            let reclass = self.client().classes().get_by_name(&reclass)?;
             patch.hubuum_class_id = Some(reclass.id());
             result_class = reclass.resource().clone();
         }
@@ -465,10 +466,10 @@ impl HubuumGateway {
         }
 
         let result = self
-            .client
+            .client()
             .objects(class.id())
             .update_raw(object.id(), patch)?;
-        let collection = self.client.collections().get(result.collection_id)?;
+        let collection = self.client().collections().get(result.collection_id)?;
 
         let classmap = HashMap::from([(result_class.id.into(), result_class)]);
         let collectionmap =

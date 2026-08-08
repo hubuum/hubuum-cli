@@ -282,8 +282,8 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<SharedComputedFieldListRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        let response = self.client.computed_fields(class.id()).list()?;
+        let class = self.client().classes().get_by_name(class_name)?;
+        let response = self.client().computed_fields(class.id()).list()?;
         Ok(SharedComputedFieldListRecord {
             definitions: response
                 .definitions
@@ -299,9 +299,9 @@ impl HubuumGateway {
         class_name: &str,
         input: ComputedDefinitionInput,
     ) -> Result<ComputedFieldMutationRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         Ok(self
-            .client
+            .client()
             .computed_fields(class.id())
             .create(input.into_api())?
             .into())
@@ -313,8 +313,8 @@ impl HubuumGateway {
         field_key: &str,
         input: ComputedPatchInput,
     ) -> Result<ComputedFieldMutationRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        let fields = self.client.computed_fields(class.id());
+        let class = self.client().classes().get_by_name(class_name)?;
+        let fields = self.client().computed_fields(class.id());
         let definition = fields
             .list()?
             .definitions
@@ -335,8 +335,8 @@ impl HubuumGateway {
         field_key: &str,
         expected_revision: i64,
     ) -> Result<ComputedFieldDeleteRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        let fields = self.client.computed_fields(class.id());
+        let class = self.client().classes().get_by_name(class_name)?;
+        let fields = self.client().computed_fields(class.id());
         let definition = fields
             .list()?
             .definitions
@@ -355,10 +355,10 @@ impl HubuumGateway {
         definition: ComputedDefinitionInput,
         target: ComputedPreviewTarget,
     ) -> Result<ComputedFieldPreviewRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let request = self.computed_preview_request(&class, definition, target, false)?;
         Ok(self
-            .client
+            .client()
             .computed_fields(class.id())
             .preview(request)?
             .into())
@@ -368,8 +368,8 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<ClassComputationStateRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        Ok(self.client.computed_fields(class.id()).rebuild()?.into())
+        let class = self.client().classes().get_by_name(class_name)?;
+        Ok(self.client().computed_fields(class.id()).rebuild()?.into())
     }
 
     pub fn list_personal_computed_fields(
@@ -379,10 +379,12 @@ impl HubuumGateway {
     ) -> Result<PagedResult<ComputedFieldRecord>, AppError> {
         let request = match class_name {
             Some(class_name) => {
-                let class = self.client.classes().get_by_name(class_name)?;
-                self.client.personal_computed_fields().for_class(class.id())
+                let class = self.client().classes().get_by_name(class_name)?;
+                self.client()
+                    .personal_computed_fields()
+                    .for_class(class.id())
             }
-            None => self.client.personal_computed_fields().query(),
+            None => self.client().personal_computed_fields().query(),
         };
         let page = fetch_cursor_results(request, query, &[])?;
         Ok(page.map(Into::into))
@@ -393,9 +395,9 @@ impl HubuumGateway {
         class_name: &str,
         input: ComputedDefinitionInput,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         Ok(self
-            .client
+            .client()
             .personal_computed_fields()
             .create(PersonalComputedFieldDefinitionRequest::new(
                 class.id(),
@@ -410,8 +412,8 @@ impl HubuumGateway {
         field_key: &str,
         input: ComputedPatchInput,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        let fields = self.client.personal_computed_fields();
+        let class = self.client().classes().get_by_name(class_name)?;
+        let fields = self.client().personal_computed_fields();
         let definition = fields
             .for_class(class.id())
             .all()?
@@ -432,8 +434,8 @@ impl HubuumGateway {
         field_key: &str,
         expected_revision: i64,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
-        let fields = self.client.personal_computed_fields();
+        let class = self.client().classes().get_by_name(class_name)?;
+        let fields = self.client().personal_computed_fields();
         let definition = fields
             .for_class(class.id())
             .all()?
@@ -453,10 +455,10 @@ impl HubuumGateway {
         definition: ComputedDefinitionInput,
         target: ComputedPreviewTarget,
     ) -> Result<ComputedFieldPreviewRecord, AppError> {
-        let class = self.client.classes().get_by_name(class_name)?;
+        let class = self.client().classes().get_by_name(class_name)?;
         let request = self.computed_preview_request(&class, definition, target, true)?;
         Ok(self
-            .client
+            .client()
             .personal_computed_fields()
             .preview(request)?
             .into())

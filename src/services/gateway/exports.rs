@@ -121,7 +121,7 @@ fn parse_include_related_spec_parts(spec: &str) -> Result<(String, String, Optio
 impl HubuumGateway {
     pub fn list_export_template_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
-            .client
+            .client()
             .export_templates()
             .query()
             .list()?
@@ -141,7 +141,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
         let page = fetch_query_results(
-            self.client.export_templates().query().filters(filters),
+            self.client().export_templates().query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -149,18 +149,19 @@ impl HubuumGateway {
             return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
-        let collectionmap =
-            find_entities_by_ids(&self.client.collections(), page.items.iter(), |template| {
-                template.collection_id
-            })?;
+        let collectionmap = find_entities_by_ids(
+            &self.client().collections(),
+            page.items.iter(),
+            |template| template.collection_id,
+        )?;
 
         Ok(page.map(|template| ExportTemplateRecord::new(&template, &collectionmap)))
     }
 
     pub fn export_template(&self, name: &str) -> Result<ExportTemplateRecord, AppError> {
-        let template = self.client.export_templates().get_by_name(name)?;
+        let template = self.client().export_templates().get_by_name(name)?;
         let collection = self
-            .client
+            .client()
             .collections()
             .get(template.resource().collection_id)?;
         let collectionmap =
@@ -176,13 +177,13 @@ impl HubuumGateway {
         &self,
         input: CreateExportTemplateInput,
     ) -> Result<ExportTemplateRecord, AppError> {
-        let collection = self.client.collections().get_by_name(&input.collection)?;
+        let collection = self.client().collections().get_by_name(&input.collection)?;
         let content_type = ExportContentType::from_str(&input.content_type).map_err(|_| {
             AppError::ParseError(format!("Invalid content type: {}", input.content_type))
         })?;
 
         let template = self
-            .client
+            .client()
             .export_templates()
             .create_checked()
             .collection_id(collection.id())
@@ -202,14 +203,14 @@ impl HubuumGateway {
         &self,
         input: UpdateExportTemplateInput,
     ) -> Result<ExportTemplateRecord, AppError> {
-        let template = self.client.export_templates().get_by_name(&input.name)?;
+        let template = self.client().export_templates().get_by_name(&input.name)?;
         let collection_id = match input.collection {
-            Some(collection) => Some(self.client.collections().get_by_name(&collection)?.id()),
+            Some(collection) => Some(self.client().collections().get_by_name(&collection)?.id()),
             None => None,
         };
 
         let updated = self
-            .client
+            .client()
             .export_templates()
             .update(template.id())
             .params(ExportTemplatePatch {
@@ -228,15 +229,15 @@ impl HubuumGateway {
             })
             .send()?;
 
-        let collection = self.client.collections().get(updated.collection_id)?;
+        let collection = self.client().collections().get(updated.collection_id)?;
         let collectionmap =
             HashMap::from([(collection.id().into(), collection.resource().clone())]);
         Ok(ExportTemplateRecord::new(&updated, &collectionmap))
     }
 
     pub fn delete_export_template(&self, name: &str) -> Result<(), AppError> {
-        let template = self.client.export_templates().get_by_name(name)?;
-        self.client.export_templates().delete(template.id())?;
+        let template = self.client().export_templates().get_by_name(name)?;
+        self.client().export_templates().delete(template.id())?;
         Ok(())
     }
 
@@ -246,13 +247,13 @@ impl HubuumGateway {
         })?;
 
         let class_id = match &input.class_name {
-            Some(name) => Some(self.client.classes().get_by_name(name)?.id()),
+            Some(name) => Some(self.client().classes().get_by_name(name)?.id()),
             None => None,
         };
 
         let object_id = match (&input.class_name, &input.object_name) {
             (Some(class_name), Some(object_name)) => {
-                let class = self.client.classes().get_by_name(class_name)?;
+                let class = self.client().classes().get_by_name(class_name)?;
                 Some(class.object_by_name(object_name)?.id())
             }
             (None, Some(_)) => {
@@ -310,9 +311,12 @@ impl HubuumGateway {
 
     pub fn submit_export(&self, input: RunExportInput) -> Result<TaskRecord, AppError> {
         if let Some(template_name) = &input.template {
-            let template = self.client.export_templates().get_by_name(template_name)?;
+            let template = self
+                .client()
+                .export_templates()
+                .get_by_name(template_name)?;
             let class = match &input.class_name {
-                Some(class_name) => Some(self.client.classes().get_by_name(class_name)?),
+                Some(class_name) => Some(self.client().classes().get_by_name(class_name)?),
                 None => None,
             };
             let object_id = match (&class, &input.object_name) {
@@ -341,7 +345,7 @@ impl HubuumGateway {
                 limits,
             };
             return Ok(TaskRecord(
-                self.client
+                self.client()
                     .export_templates()
                     .submit_export(template.id(), request)
                     .send()?,
@@ -349,7 +353,7 @@ impl HubuumGateway {
         }
 
         let request = self.build_export_request(&input)?;
-        Ok(TaskRecord(self.client.exports().submit(request).send()?))
+        Ok(TaskRecord(self.client().exports().submit(request).send()?))
     }
 }
 

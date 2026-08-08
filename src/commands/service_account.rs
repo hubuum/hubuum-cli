@@ -5,7 +5,7 @@ use serde_json::to_string_pretty;
 
 use crate::autocomplete::{groups, service_account_token_ids, service_accounts};
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -226,6 +226,8 @@ pub struct ServiceAccountList {
 }
 
 impl CliCommand for ServiceAccountList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -262,6 +264,8 @@ pub struct ServiceAccountShow {
 }
 
 impl CliCommand for ServiceAccountShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
@@ -352,6 +356,8 @@ pub struct ServiceAccountTokenList {
 }
 
 impl CliCommand for ServiceAccountTokenList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
@@ -392,6 +398,8 @@ pub struct ServiceAccountTokenShow {
 }
 
 impl CliCommand for ServiceAccountTokenShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name_is_option = query.name.is_some();

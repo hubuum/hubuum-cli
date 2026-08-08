@@ -12,7 +12,7 @@ use crate::autocomplete::{
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::AuditEventId;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::{AppServices, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope};
 use crate::tokenizer::CommandTokenizer;
 
@@ -103,6 +103,8 @@ pub struct AuditList {
 }
 
 impl CliCommand for AuditList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let input = AuditListInput {
@@ -143,6 +145,8 @@ pub struct AuditShow {
 }
 
 impl CliCommand for AuditShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let id = required_option_or_pos(query.id, tokens, 0, "id")?;
@@ -201,6 +205,8 @@ pub struct AuditResource {
 }
 
 impl CliCommand for AuditResource {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let resource = required_option(query.resource, "resource")?;

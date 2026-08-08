@@ -16,7 +16,7 @@ use crate::autocomplete::{
     collections, event_actions, event_entity_types, event_sinks, event_subscriptions,
 };
 use crate::catalog::CommandCatalogBuilder;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json_message;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
@@ -103,6 +103,8 @@ pub struct EventSubscriptionList {
 }
 
 impl CliCommand for EventSubscriptionList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let collection_id = resolve_collection_id(services, query.collection)?;
@@ -141,6 +143,8 @@ pub struct EventSubscriptionShow {
 }
 
 impl CliCommand for EventSubscriptionShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);

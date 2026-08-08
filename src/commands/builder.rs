@@ -90,6 +90,7 @@ where
         long_about: docs.long_about.map(str::to_string),
         examples: docs.examples.map(str::to_string),
         options,
+        reauthentication_retry: C::REAUTHENTICATION_RETRY,
         handler: Arc::new(CommandHandler {
             command: Arc::new(command),
         }) as Arc<dyn AsyncCommandHandler>,

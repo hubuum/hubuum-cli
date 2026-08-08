@@ -10,6 +10,12 @@ use regex::Error as RegexError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReauthenticationRetry {
+    Safe,
+    Unsafe,
+}
+
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Command not found: {0}")]
@@ -79,6 +85,25 @@ pub enum AppError {
     #[error("API error: {0}")]
     ApiError(#[from] ApiError),
 
+    #[error("{source}")]
+    UnauthorizedCommand {
+        retry: ReauthenticationRetry,
+        #[source]
+        source: Box<AppError>,
+    },
+
+    #[error("Session reauthentication failed after {request}: {source}")]
+    ReauthenticationFailed {
+        request: String,
+        #[source]
+        source: Box<AppError>,
+    },
+
+    #[error(
+        "Session renewed after {request}, but the command was not retried because it may have changed server state before authentication failed. Review the current state, then run it again if appropriate."
+    )]
+    CommandNotRetried { request: String },
+
     #[allow(dead_code)]
     #[error("Multiple entities found: {0}")]
     MultipleEntitiesFound(String),
@@ -99,4 +124,60 @@ pub enum AppError {
 
     #[error("Configuration error: {0}")]
     GeneralConfigError(String),
+}
+
+impl AppError {
+    pub fn for_command(self, retry: ReauthenticationRetry) -> Self {
+        if self.is_unauthorized() {
+            Self::UnauthorizedCommand {
+                retry,
+                source: Box::new(self),
+            }
+        } else {
+            self
+        }
+    }
+
+    pub fn is_unauthorized(&self) -> bool {
+        self.api_error()
+            .and_then(ApiError::status)
+            .is_some_and(|status| status == reqwest::StatusCode::UNAUTHORIZED)
+    }
+
+    pub fn reauthentication_retry(&self) -> Option<ReauthenticationRetry> {
+        match self {
+            Self::UnauthorizedCommand { retry, .. } => Some(*retry),
+            _ => None,
+        }
+    }
+
+    pub fn unauthorized_request(&self) -> String {
+        let Some(error) = self.api_error() else {
+            return "an authenticated request".to_string();
+        };
+        let method = error
+            .request_method()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "request".to_string());
+        let target = error
+            .request_url()
+            .map(redacted_request_target)
+            .unwrap_or_else(|| "the Hubuum API".to_string());
+        format!("{method} {target}")
+    }
+
+    pub fn api_error(&self) -> Option<&ApiError> {
+        match self {
+            Self::ApiError(error) => Some(error),
+            Self::UnauthorizedCommand { source, .. } => source.api_error(),
+            _ => None,
+        }
+    }
+}
+
+fn redacted_request_target(url: &str) -> String {
+    reqwest::Url::parse(url).map_or_else(
+        |_| url.split('?').next().unwrap_or(url).to_string(),
+        |url| url.path().to_string(),
+    )
 }

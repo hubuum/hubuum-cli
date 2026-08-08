@@ -15,7 +15,7 @@ use crate::autocomplete::{
 };
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::{ResolvedRelatedClassGraph, ResolvedRelatedObjectGraph};
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json, append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -232,6 +232,8 @@ pub struct RelatedClassList {
 }
 
 impl CliCommand for RelatedClassList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -273,6 +275,8 @@ pub struct ClassRelationShow {
 }
 
 impl CliCommand for ClassRelationShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let relation = services.gateway().get_class_relation_by_pair(
@@ -430,6 +434,8 @@ pub struct RelatedClassRelationList {
 }
 
 impl CliCommand for RelatedClassRelationList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -467,6 +473,8 @@ pub struct RelatedClassGraphCommand {
 }
 
 impl CliCommand for RelatedClassGraphCommand {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let graph = services.gateway().related_class_graph(
@@ -520,6 +528,8 @@ pub struct ObjectRelationShowV2 {
 }
 
 impl CliCommand for ObjectRelationShowV2 {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let relation = services.gateway().get_object_relation_v2(
@@ -694,6 +704,8 @@ pub struct RelatedRelationList {
 }
 
 impl CliCommand for RelatedRelationList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -776,6 +788,8 @@ pub struct RelatedObjectList {
 }
 
 impl CliCommand for RelatedObjectList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -833,6 +847,8 @@ pub struct RelatedObjectGraphCommand {
 }
 
 impl CliCommand for RelatedObjectGraphCommand {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let graph = services.gateway().related_object_graph(

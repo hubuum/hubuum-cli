@@ -14,7 +14,7 @@ use rpassword::prompt_password;
 use crate::autocomplete::{file_paths, user_sort, user_token_ids, user_where, users};
 use crate::catalog::CommandCatalogBuilder;
 use crate::domain::CreatedUser;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
@@ -270,6 +270,8 @@ pub struct UserInfo {
 }
 
 impl CliCommand for UserInfo {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.username = Some(required_option_or_pos(
@@ -338,6 +340,8 @@ pub struct UserList {
 }
 
 impl CliCommand for UserList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -515,6 +519,8 @@ pub struct UserTokenList {
 }
 
 impl CliCommand for UserTokenList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let username = required_option_or_pos(query.username, tokens, 0, "username")?;
@@ -553,6 +559,8 @@ pub struct UserTokenShow {
 }
 
 impl CliCommand for UserTokenShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let username_is_option = query.username.is_some();

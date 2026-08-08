@@ -62,7 +62,7 @@ impl RunBackupInput {
 
 impl HubuumGateway {
     pub fn submit_backup(&self, input: BackupInput) -> Result<TaskRecord, AppError> {
-        let mut operation = self.client.backups().submit(input.request());
+        let mut operation = self.client().backups().submit(input.request());
         if let Some(idempotency_key) = input.idempotency_key {
             operation = operation.idempotency_key(idempotency_key);
         }
@@ -70,15 +70,15 @@ impl HubuumGateway {
     }
 
     pub fn backup_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord(self.client.backups().get(task_id)?))
+        Ok(TaskRecord(self.client().backups().get(task_id)?))
     }
 
     pub fn backup_output(&self, task_id: i32) -> Result<BackupArtifact, AppError> {
-        BackupArtifact::from_document(self.client.backups().output(task_id)?)
+        BackupArtifact::from_document(self.client().backups().output(task_id)?)
     }
 
     pub fn run_backup(&self, input: RunBackupInput) -> Result<BackupArtifact, AppError> {
-        let mut operation = self.client.backups().run(input.backup.request());
+        let mut operation = self.client().backups().run(input.backup.request());
         if let Some(idempotency_key) = input.backup.idempotency_key {
             operation = operation.idempotency_key(idempotency_key);
         }
@@ -100,7 +100,7 @@ impl HubuumGateway {
                 document.backup_version
             )));
         }
-        let mut response = self.client.restores().stage(&document)?;
+        let mut response = self.client().restores().stage(&document)?;
         let capability = response.restore_capability.take().ok_or_else(|| {
             AppError::CommandExecutionError(
                 "Restore stage did not return its one-time capability".to_string(),
@@ -115,7 +115,7 @@ impl HubuumGateway {
     }
 
     pub fn restore_status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
-        let response = self.client.restores().status(
+        let response = self.client().restores().status(
             RestoreId::from(receipt.restore_id()),
             &RestoreCapability::new(receipt.capability()),
         )?;
@@ -128,7 +128,7 @@ impl HubuumGateway {
             receipt.sha256(),
         );
         let response = self
-            .client
+            .client()
             .restores()
             .confirm(RestoreId::from(receipt.restore_id()), request)?;
         RestoreRecord::from_response(response)

@@ -13,7 +13,7 @@ use crate::config::{
     persist_user_preferences, reload_runtime_config, set_persisted_value, unset_persisted_value,
     ConfigEntry, ConfigSource, UserPreferences,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line, set_semantic_output};
 use crate::services::AppServices;
@@ -294,6 +294,8 @@ impl CliCommand for ConfigUnset {
 pub struct ConfigRemote {}
 
 impl CliCommand for ConfigRemote {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
         let stored = services.gateway().server_user_preferences()?;
@@ -317,6 +319,8 @@ impl CliCommand for ConfigExport {
 pub struct ConfigImport {}
 
 impl CliCommand for ConfigImport {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
         let preferences = services.gateway().load_user_preferences()?;

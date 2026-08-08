@@ -33,7 +33,7 @@ pub struct ClassUpdateInput {
 impl HubuumGateway {
     pub fn list_class_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
-            .client
+            .client()
             .classes()
             .query()
             .list()?
@@ -44,7 +44,7 @@ impl HubuumGateway {
 
     pub fn class_schema(&self, name: &str) -> Result<Option<Value>, AppError> {
         Ok(self
-            .client
+            .client()
             .classes()
             .get_by_name(name)?
             .resource()
@@ -53,8 +53,8 @@ impl HubuumGateway {
     }
 
     pub fn create_class(&self, input: CreateClassInput) -> Result<ClassRecord, AppError> {
-        let collection = self.client.collections().get_by_name(&input.collection)?;
-        let class = self.client.classes().create_raw(ClassPost {
+        let collection = self.client().collections().get_by_name(&input.collection)?;
+        let class = self.client().classes().create_raw(ClassPost {
             name: input.name,
             collection_id: collection.id(),
             description: input.description,
@@ -69,7 +69,7 @@ impl HubuumGateway {
         name: &str,
         options: &RelationTraversalOptions,
     ) -> Result<ClassShowRecord, AppError> {
-        let class = self.client.classes().get_by_name(name)?;
+        let class = self.client().classes().get_by_name(name)?;
         let objects = class
             .objects()?
             .into_iter()
@@ -104,24 +104,24 @@ impl HubuumGateway {
     }
 
     pub fn delete_class(&self, name: &str) -> Result<(), AppError> {
-        self.client.classes().get_by_name(name)?.delete()?;
+        self.client().classes().get_by_name(name)?.delete()?;
         Ok(())
     }
 
     pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
-        let class = self.client.classes().get_by_name(&input.name)?;
+        let class = self.client().classes().get_by_name(&input.name)?;
 
         let collection_id = input
             .collection
             .map(|collection| {
-                self.client
+                self.client()
                     .collections()
                     .get_by_name(&collection)
                     .map(|collection| collection.id())
             })
             .transpose()?;
 
-        let updated = self.client.classes().update_raw(
+        let updated = self.client().classes().update_raw(
             class.id(),
             ClassPatch {
                 name: input.rename,
@@ -144,7 +144,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = fetch_query_results(
-            self.client.classes().query().filters(filters),
+            self.client().classes().query().filters(filters),
             query,
             &validated_sorts,
         )?;

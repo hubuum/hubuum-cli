@@ -39,12 +39,12 @@ impl HubuumGateway {
         class_to: &str,
     ) -> Result<(Class, Class), AppError> {
         Ok((
-            self.client
+            self.client()
                 .classes()
                 .get_by_name(class_from)?
                 .resource()
                 .clone(),
-            self.client
+            self.client()
                 .classes()
                 .get_by_name(class_to)?
                 .resource()
@@ -70,7 +70,7 @@ impl HubuumGateway {
         I: IntoIterator<Item = Id>,
         Id: Into<i32>,
     {
-        fetch_entities_for_ids(&self.client.classes(), unique_ids(class_ids))
+        fetch_entities_for_ids(&self.client().classes(), unique_ids(class_ids))
     }
 
     pub(super) fn class_map_from_relation_ids(
@@ -78,7 +78,7 @@ impl HubuumGateway {
         relations: &[ClassRelation],
     ) -> Result<HashMap<i32, Class>, AppError> {
         fetch_entities_for_ids(
-            &self.client.classes(),
+            &self.client().classes(),
             relations
                 .iter()
                 .flat_map(|relation| [relation.from_hubuum_class_id, relation.to_hubuum_class_id]),
@@ -97,11 +97,11 @@ impl HubuumGateway {
             }));
         let mut objects = HashMap::new();
         objects.extend(fetch_entities_for_ids(
-            &self.client.objects(from_class_id),
+            &self.client().objects(from_class_id),
             object_ids.iter().copied(),
         )?);
         objects.extend(fetch_entities_for_ids(
-            &self.client.objects(to_class_id),
+            &self.client().objects(to_class_id),
             object_ids,
         )?);
 
@@ -114,7 +114,7 @@ impl HubuumGateway {
         class_to_id: i32,
     ) -> Result<ClassRelation, AppError> {
         Ok(self
-            .client
+            .client()
             .class_relation()
             .query()
             .filter(
@@ -148,7 +148,7 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<SyncHandle<Class>, AppError> {
-        Ok(self.client.classes().get_by_name(class_name)?)
+        Ok(self.client().classes().get_by_name(class_name)?)
     }
 
     pub(super) fn object_handle_by_name(
@@ -161,7 +161,7 @@ impl HubuumGateway {
             Ok(object) => Ok(object),
             Err(error) if is_missing_api_error(&error) => {
                 let matches = self
-                    .client
+                    .client()
                     .objects(class.id())
                     .query()
                     .filter(
@@ -186,7 +186,7 @@ impl HubuumGateway {
     }
 
     pub(super) fn collection_id(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client.collections().get_by_name(name)?.id().into())
+        Ok(self.client().collections().get_by_name(name)?.id().into())
     }
 
     pub(super) fn collection_map_from_ids<I, Id>(
@@ -197,7 +197,7 @@ impl HubuumGateway {
         I: IntoIterator<Item = Id>,
         Id: Into<i32>,
     {
-        fetch_entities_for_ids(&self.client.collections(), unique_ids(collection_ids))
+        fetch_entities_for_ids(&self.client().collections(), unique_ids(collection_ids))
     }
 
     pub(super) fn resolve_validated_filter(

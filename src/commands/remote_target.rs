@@ -17,7 +17,7 @@ use crate::autocomplete::{
 };
 use crate::catalog::CommandCatalogBuilder;
 
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
@@ -231,6 +231,8 @@ pub struct RemoteTargetList {
 }
 
 impl CliCommand for RemoteTargetList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let list_query = build_list_query(
@@ -259,6 +261,8 @@ pub struct RemoteTargetShow {
 }
 
 impl CliCommand for RemoteTargetShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;
         let name = required_option_or_pos(new.name, tokens, 0, "name")?;

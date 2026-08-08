@@ -31,11 +31,11 @@ pub struct ListTasksInput {
 
 impl HubuumGateway {
     pub fn task_queue_state(&self) -> Result<TaskQueueStateRecord, AppError> {
-        Ok(TaskQueueStateRecord::from(self.client.meta_tasks()?))
+        Ok(TaskQueueStateRecord::from(self.client().meta_tasks()?))
     }
 
     pub fn task(&self, input: TaskLookupInput) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord::from(self.client.tasks().get(input.task_id)?))
+        Ok(TaskRecord::from(self.client().tasks().get(input.task_id)?))
     }
 
     pub fn task_events(
@@ -45,7 +45,7 @@ impl HubuumGateway {
     ) -> Result<PagedResult<TaskEventRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, TASK_EVENT_SORT_SPECS)?;
         let page = fetch_cursor_results(
-            self.client.tasks().events(input.task_id),
+            self.client().tasks().events(input.task_id),
             query,
             &validated_sorts,
         )?;
@@ -53,12 +53,12 @@ impl HubuumGateway {
     }
 
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
-        let task = self.client.tasks().get(task_id)?;
+        let task = self.client().tasks().get(task_id)?;
         Ok(match task.kind {
-            TaskKind::Export => TaskOutput::Export(self.client.exports().output(task_id)?.into()),
+            TaskKind::Export => TaskOutput::Export(self.client().exports().output(task_id)?.into()),
             TaskKind::Import => {
                 let results: Vec<ImportResultRecord> = self
-                    .client
+                    .client()
                     .imports()
                     .results(task_id)
                     .list()?
@@ -73,7 +73,7 @@ impl HubuumGateway {
     }
 
     pub fn wait_task(&self, input: WaitTaskInput) -> Result<TaskRecord, AppError> {
-        let mut op = self.client.tasks().wait(input.task_id);
+        let mut op = self.client().tasks().wait(input.task_id);
         if let Some(p) = input.poll_interval_secs {
             op = op.poll_interval(Duration::from_secs(p));
         }
@@ -82,7 +82,7 @@ impl HubuumGateway {
     }
 
     pub fn list_tasks(&self, input: ListTasksInput) -> Result<PagedResult<TaskRecord>, AppError> {
-        let mut q = self.client.tasks().query();
+        let mut q = self.client().tasks().query();
         if let Some(k) = input.kind.as_deref() {
             q = q.kind(parse_task_kind(k)?);
         }

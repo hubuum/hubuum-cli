@@ -239,7 +239,7 @@ impl HubuumGateway {
             timeout_ms: input.timeout_ms,
         };
 
-        let target = self.client.remote_targets().create_raw(new_target)?;
+        let target = self.client().remote_targets().create_raw(new_target)?;
         Ok(RemoteTargetRecord::from(target))
     }
 
@@ -255,7 +255,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         let page = fetch_query_results(
-            self.client.remote_targets().query().filters(filters),
+            self.client().remote_targets().query().filters(filters),
             query,
             &validated_sorts,
         )?;
@@ -263,7 +263,7 @@ impl HubuumGateway {
     }
 
     pub fn remote_target(&self, name: &str) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client.remote_targets().get_by_name(name)?;
+        let target = self.client().remote_targets().get_by_name(name)?;
         Ok(RemoteTargetRecord::from(target.resource()))
     }
 
@@ -271,7 +271,7 @@ impl HubuumGateway {
         &self,
         input: UpdateRemoteTargetInput,
     ) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client.remote_targets().get_by_name(&input.name)?;
+        let target = self.client().remote_targets().get_by_name(&input.name)?;
 
         let method = input.method.as_ref().map(|m| parse_method(m)).transpose()?;
         let allowed_subject_types = input
@@ -310,7 +310,7 @@ impl HubuumGateway {
         };
 
         let updated = self
-            .client
+            .client()
             .remote_targets()
             .update(target.id())
             .params(update)
@@ -319,8 +319,8 @@ impl HubuumGateway {
     }
 
     pub fn delete_remote_target(&self, name: &str) -> Result<(), AppError> {
-        let target = self.client.remote_targets().get_by_name(name)?;
-        self.client.remote_targets().delete(target.id())?;
+        let target = self.client().remote_targets().get_by_name(name)?;
+        self.client().remote_targets().delete(target.id())?;
         Ok(())
     }
 
@@ -329,7 +329,7 @@ impl HubuumGateway {
         name: &str,
         input: InvokeRemoteTargetInput,
     ) -> Result<TaskRecord, AppError> {
-        let handle = self.client.remote_targets().get_by_name(name)?;
+        let handle = self.client().remote_targets().get_by_name(name)?;
         let subject = build_invocation_subject(self, &input)?;
         let mut req = RemoteTargetInvokeRequest::new(subject);
         if let Some(p) = input.parameters {

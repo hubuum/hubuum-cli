@@ -213,7 +213,7 @@ impl HubuumGateway {
     }
 
     fn build_search_request(&self, input: &SearchInput) -> UnifiedSearchRequest {
-        let mut request = self.client.search(input.query.clone());
+        let mut request = self.client().search(input.query.clone());
 
         if !input.kinds.is_empty() {
             request = request.kinds(input.kinds.iter().copied().map(Into::into));
@@ -299,7 +299,7 @@ impl HubuumGateway {
             .count();
         if missing_class_ids > 0 {
             class_map.extend(find_entities_by_ids(
-                &self.client.classes(),
+                &self.client().classes(),
                 objects.iter(),
                 |object| object.hubuum_class_id,
             )?);
@@ -311,7 +311,7 @@ impl HubuumGateway {
             .count();
         if missing_collection_ids > 0 {
             collection_map.extend(find_entities_by_ids(
-                &self.client.collections(),
+                &self.client().collections(),
                 objects.iter(),
                 |object| object.collection_id,
             )?);

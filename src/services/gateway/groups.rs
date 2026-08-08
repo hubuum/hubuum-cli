@@ -23,7 +23,7 @@ pub struct GroupUpdateInput {
 impl HubuumGateway {
     pub fn list_group_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
-            .client
+            .client()
             .groups()
             .query()
             .list()?
@@ -33,12 +33,12 @@ impl HubuumGateway {
     }
 
     pub fn group_id_by_name(&self, group_name: &str) -> Result<i32, AppError> {
-        Ok(self.client.groups().get_by_name(group_name)?.id().into())
+        Ok(self.client().groups().get_by_name(group_name)?.id().into())
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
         let group = self
-            .client
+            .client()
             .groups()
             .create_checked()
             .groupname(input.groupname)
@@ -48,15 +48,15 @@ impl HubuumGateway {
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().get_by_name(group_name)?;
-        let principal_id = self.client.users().get_by_name(username)?.id();
+        let group = self.client().groups().get_by_name(group_name)?;
+        let principal_id = self.client().users().get_by_name(username)?.id();
         group.add_member(principal_id)?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client.groups().get_by_name(group_name)?;
-        let principal_id = self.client.users().get_by_name(username)?.id();
+        let group = self.client().groups().get_by_name(group_name)?;
+        let principal_id = self.client().users().get_by_name(username)?.id();
         group.remove_member(principal_id)?;
         Ok(())
     }
@@ -66,9 +66,9 @@ impl HubuumGateway {
         group_name: &str,
         service_account_name: &str,
     ) -> Result<(), AppError> {
-        let group = self.client.groups().get_by_name(group_name)?;
+        let group = self.client().groups().get_by_name(group_name)?;
         let principal_id = self
-            .client
+            .client()
             .service_accounts()
             .get_by_name(service_account_name)?
             .id();
@@ -81,9 +81,9 @@ impl HubuumGateway {
         group_name: &str,
         service_account_name: &str,
     ) -> Result<(), AppError> {
-        let group = self.client.groups().get_by_name(group_name)?;
+        let group = self.client().groups().get_by_name(group_name)?;
         let principal_id = self
-            .client
+            .client()
             .service_accounts()
             .get_by_name(service_account_name)?
             .id();
@@ -92,7 +92,7 @@ impl HubuumGateway {
     }
 
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
-        let handle = self.client.groups().get_by_name(group_name)?;
+        let handle = self.client().groups().get_by_name(group_name)?;
         let members = handle
             .members()?
             .into_iter()
@@ -106,9 +106,9 @@ impl HubuumGateway {
     }
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
-        let handle = self.client.groups().get_by_name(&input.groupname)?;
+        let handle = self.client().groups().get_by_name(&input.groupname)?;
         let updated = self
-            .client
+            .client()
             .groups()
             .update(handle.id())
             .params(GroupPatch {
@@ -128,7 +128,7 @@ impl HubuumGateway {
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut query_op = self.client.groups().query();
+        let mut query_op = self.client().groups().query();
         for filter in filters {
             query_op = query_op.filter(&filter.key, filter.operator, &filter.value);
         }

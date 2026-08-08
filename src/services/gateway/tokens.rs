@@ -113,7 +113,7 @@ impl<'a> TokenScopeResolver<'a> {
             .filter(|id| !self.probed_collection_ids.contains(id))
             .collect::<HashSet<_>>();
         let found = fetch_entities_for_ids(
-            &self.gateway.client.collections(),
+            &self.gateway.client().collections(),
             unprobed_ids.iter().copied(),
         )?;
 
@@ -132,8 +132,10 @@ impl<'a> TokenScopeResolver<'a> {
             .copied()
             .filter(|id| !self.probed_class_ids.contains(id))
             .collect::<HashSet<_>>();
-        let found =
-            fetch_entities_for_ids(&self.gateway.client.classes(), unprobed_ids.iter().copied())?;
+        let found = fetch_entities_for_ids(
+            &self.gateway.client().classes(),
+            unprobed_ids.iter().copied(),
+        )?;
 
         self.probed_class_ids.extend(unprobed_ids);
         self.classes
@@ -176,7 +178,7 @@ impl<'a> TokenScopeResolver<'a> {
 
             if unprobed_ids.len() <= MAX_FILTERED_OBJECT_IDS_PER_CLASS {
                 let found = fetch_entities_for_ids(
-                    &self.gateway.client.objects(*class_id),
+                    &self.gateway.client().objects(*class_id),
                     unprobed_ids.iter().copied(),
                 )?;
                 self.probed_object_ids_by_class
@@ -186,7 +188,7 @@ impl<'a> TokenScopeResolver<'a> {
                 self.objects
                     .extend(found.into_values().map(|object| (object.id, object)));
             } else {
-                let found = self.gateway.client.objects(*class_id).query().all()?;
+                let found = self.gateway.client().objects(*class_id).query().all()?;
                 self.fully_scanned_object_classes.insert(*class_id);
                 self.probed_object_ids_by_class.remove(class_id);
                 self.objects
