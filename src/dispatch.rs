@@ -104,19 +104,17 @@ async fn execute_line_inner(
     }
 
     let resolved = catalog.resolve_command(&current_scope, &parts)?;
-    let cmd_name = resolved
-        .command_path
-        .last()
-        .cloned()
-        .ok_or_else(|| AppError::CommandExecutionError("Missing command name".to_string()))?;
     let option_defs = resolved
         .command
         .options
         .iter()
         .map(|option| option.to_cli_option())
         .collect::<Vec<_>>();
-    let tokens =
-        CommandTokenizer::new_without_value_source_resolution(&line, &cmd_name, &option_defs)?;
+    let tokens = CommandTokenizer::new_without_value_source_resolution_at(
+        &line,
+        resolved.command_index,
+        &option_defs,
+    )?;
     set_render_format(render_format(&tokens)?)?;
     set_table_headers(table_headers(&tokens)?)?;
     let options = tokens.get_options();
@@ -129,6 +127,7 @@ async fn execute_line_inner(
     }
     let invocation = CommandInvocation {
         raw_line: line.clone(),
+        command_index: resolved.command_index,
         command_path: resolved.command_path.clone(),
         pipeline,
         pipeline_suffix,
@@ -308,6 +307,7 @@ async fn execute_offline_line_inner(
         }
         let invocation = CommandInvocation {
             raw_line: line,
+            command_index: resolved.command_index,
             command_path: resolved.command_path,
             pipeline,
             pipeline_suffix,
@@ -344,10 +344,24 @@ pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
 
 pub fn render_error(err: AppError) -> OutputSnapshot {
     reset_output().expect("reset output buffer for errors");
-    let err = match err {
-        AppError::UnauthorizedCommand { source, .. } => *source,
-        other => other,
+    let mut warnings = Vec::new();
+    let mut err = err;
+    let err = loop {
+        match err {
+            AppError::UnauthorizedCommand { source, .. } => err = *source,
+            AppError::WithWarnings {
+                warnings: attached,
+                source,
+            } => {
+                warnings.extend(attached);
+                err = *source;
+            }
+            other => break other,
+        }
     };
+    for warning in warnings {
+        add_warning(warning).expect("attached warning should be added");
+    }
     match err {
         AppError::Quiet => {}
         AppError::EntityNotFound(entity) => {
@@ -514,18 +528,17 @@ fn tokenizer_for_resolved(
     line: &str,
     resolved: &ResolvedCommand<'_>,
 ) -> Result<CommandTokenizer, AppError> {
-    let cmd_name = resolved
-        .command_path
-        .last()
-        .cloned()
-        .ok_or_else(|| AppError::CommandExecutionError("Missing command name".to_string()))?;
     let option_defs = resolved
         .command
         .options
         .iter()
         .map(|option| option.to_cli_option())
         .collect::<Vec<_>>();
-    CommandTokenizer::new_without_value_source_resolution(line, &cmd_name, &option_defs)
+    CommandTokenizer::new_without_value_source_resolution_at(
+        line,
+        resolved.command_index,
+        &option_defs,
+    )
 }
 
 #[cfg(test)]
@@ -537,12 +550,13 @@ mod tests {
 
     use super::{
         apply_output_state, can_execute_offline, execute_offline_line, invocation_parts,
-        is_help_alias, parent_scope_action, prepare_redirect, process_filter,
+        is_help_alias, parent_scope_action, prepare_redirect, process_filter, render_error,
         tokenizer_for_resolved,
     };
     use crate::app::SharedSession;
     use crate::catalog::{CatalogStore, ScopeAction};
     use crate::commands::build_command_catalog;
+    use crate::errors::AppError;
     use crate::output::{append_line, reset_output, take_output, OutputSnapshot};
     use crate::redirection::RedirectTarget;
 
@@ -654,6 +668,25 @@ mod tests {
 
         apply_output_state(&session, &OutputSnapshot::default());
         assert!(session.next_page_command().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn render_error_preserves_extension_response_warnings() {
+        let snapshot = render_error(
+            AppError::ExtensionCommand {
+                pack: "demo".to_string(),
+                command: "run".to_string(),
+                code: "expected_failure".to_string(),
+                message: "fixture failed".to_string(),
+                details: String::new(),
+            }
+            .with_warnings(vec!["partial work was retained".to_string()]),
+        );
+
+        assert_eq!(snapshot.warnings, ["partial work was retained"]);
+        assert_eq!(snapshot.errors.len(), 1);
+        assert!(snapshot.errors[0].contains("fixture failed"));
     }
 
     #[test]

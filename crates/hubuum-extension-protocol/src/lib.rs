@@ -15,6 +15,7 @@ const RESERVED_PACK_NAMES: &[&str] = &[
 ];
 const RESERVED_LONG_OPTIONS: &[&str] = &["help", "json", "output", "table-headers"];
 const RESERVED_SHORT_OPTIONS: &[char] = &['h', 'j', 'o'];
+const RESERVED_OPTION_KEYS: &[&str] = &["h", "help", "j", "json", "o", "output", "table-headers"];
 
 #[derive(Debug, Error)]
 pub enum ProtocolError {
@@ -52,6 +53,8 @@ pub enum ProtocolError {
     },
     #[error("duplicate command path '{0}'")]
     DuplicateCommandPath(String),
+    #[error("command path '{prefix}' cannot prefix command path '{command}'")]
+    CommandPathPrefix { prefix: String, command: String },
     #[error("response output is invalid: {0}")]
     InvalidOutput(String),
     #[error("invalid diagnostic code '{0}': use lowercase ASCII snake_case")]
@@ -205,11 +208,29 @@ impl ExtensionManifest {
         let executable = ExecutablePath::new(raw.executable)?;
 
         let mut command_paths = HashSet::new();
-        let mut commands = Vec::with_capacity(raw.commands.len());
+        let mut commands: Vec<CommandDeclaration> = Vec::with_capacity(raw.commands.len());
         for command in raw.commands {
             let command = CommandDeclaration::try_from(command)?;
             if !command_paths.insert(command.path.clone()) {
                 return Err(ProtocolError::DuplicateCommandPath(command.path.display()));
+            }
+            for existing in &commands {
+                let existing_path = existing.path().segments();
+                let command_path = command.path().segments();
+                let conflict = if existing_path.len() < command_path.len()
+                    && command_path.starts_with(existing_path)
+                {
+                    Some((existing.path().display(), command.path().display()))
+                } else if command_path.len() < existing_path.len()
+                    && existing_path.starts_with(command_path)
+                {
+                    Some((command.path().display(), existing.path().display()))
+                } else {
+                    None
+                };
+                if let Some((prefix, command)) = conflict {
+                    return Err(ProtocolError::CommandPathPrefix { prefix, command });
+                }
             }
             commands.push(command);
         }
@@ -312,8 +333,7 @@ impl TryFrom<RawCommand> for CommandDeclaration {
         }
 
         let mut names = HashSet::new();
-        let mut shorts = HashSet::new();
-        let mut longs = HashSet::new();
+        let mut aliases = HashSet::new();
         let mut options = Vec::with_capacity(raw.options.len());
         let mut optional_positional_seen = false;
         let positional_count = raw
@@ -333,20 +353,20 @@ impl TryFrom<RawCommand> for CommandDeclaration {
                 ));
             }
             if let Some(short) = declaration.short {
-                if !shorts.insert(short) {
+                if !aliases.insert(short.to_string()) {
                     return Err(invalid_option(
                         &path,
                         &declaration.name,
-                        "duplicate short option",
+                        "option aliases must be unique after removing dashes",
                     ));
                 }
             }
             if let Some(long) = &declaration.long {
-                if !longs.insert(long.clone()) {
+                if !aliases.insert(long.clone()) {
                     return Err(invalid_option(
                         &path,
                         &declaration.name,
-                        "duplicate long option",
+                        "option aliases must be unique after removing dashes",
                     ));
                 }
             }
@@ -484,7 +504,7 @@ impl OptionDeclaration {
             .transpose()?;
         if long
             .as_deref()
-            .is_some_and(|long| RESERVED_LONG_OPTIONS.contains(&long))
+            .is_some_and(|long| RESERVED_OPTION_KEYS.contains(&long))
         {
             return Err(invalid_option(
                 command,
@@ -903,6 +923,35 @@ long = "verbose"
             .expect_err("manifest should fail")
             .to_string()
             .contains("final positional"));
+    }
+
+    #[test]
+    fn rejects_command_paths_that_prefix_other_commands() {
+        let manifest =
+            format!("{MANIFEST}\n[[commands]]\npath = [\"host\"]\nabout = \"Host commands\"\n");
+        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
+
+        assert!(matches!(error, ProtocolError::CommandPathPrefix { .. }));
+        assert!(error.to_string().contains("'host'"));
+        assert!(error.to_string().contains("'host show'"));
+    }
+
+    #[test]
+    fn rejects_aliases_that_collide_after_removing_dashes() {
+        let manifest = format!(
+            "{MANIFEST}\n[[commands.options]]\nname = \"view\"\nkind = \"string\"\nlong = \"v\"\n"
+        );
+        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
+
+        assert!(error.to_string().contains("unique after removing dashes"));
+    }
+
+    #[test]
+    fn rejects_long_aliases_that_collide_with_host_short_options() {
+        let manifest = MANIFEST.replace("long = \"target-type\"", "long = \"h\"");
+        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
+
+        assert!(error.to_string().contains("reserved by the host"));
     }
 
     #[test]

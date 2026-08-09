@@ -140,9 +140,27 @@ pub enum AppError {
         message: String,
         details: String,
     },
+
+    #[error("{source}")]
+    WithWarnings {
+        warnings: Vec<String>,
+        #[source]
+        source: Box<AppError>,
+    },
 }
 
 impl AppError {
+    pub fn with_warnings(self, warnings: Vec<String>) -> Self {
+        if warnings.is_empty() {
+            self
+        } else {
+            Self::WithWarnings {
+                warnings,
+                source: Box::new(self),
+            }
+        }
+    }
+
     pub fn for_command(self, retry: ReauthenticationRetry) -> Self {
         if self.is_unauthorized() {
             Self::UnauthorizedCommand {
@@ -185,7 +203,9 @@ impl AppError {
     pub fn api_error(&self) -> Option<&ApiError> {
         match self {
             Self::ApiError(error) => Some(error),
-            Self::UnauthorizedCommand { source, .. } => source.api_error(),
+            Self::UnauthorizedCommand { source, .. } | Self::WithWarnings { source, .. } => {
+                source.api_error()
+            }
             _ => None,
         }
     }

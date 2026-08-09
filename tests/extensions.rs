@@ -49,6 +49,16 @@ protocol = "hubuum-cli.extension/v1"
 executable = "bin/demo"
 
 [[commands]]
+path = ["demo"]
+about = "Run a command sharing the pack name"
+
+[[commands.options]]
+name = "target"
+kind = "string"
+positional = true
+required = true
+
+[[commands]]
 path = ["inventory", "list"]
 arguments = ["inventory", "list"]
 about = "List demo inventory"
@@ -145,6 +155,22 @@ fn extension_commands_are_first_class_and_lifecycle_managed() {
     );
     assert_eq!(installed["status"], "installed");
     assert_eq!(installed["name"], "demo");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "demo",
+            "demo",
+            "target-1",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        read_to_string(user_root.join("demo/invocation")).expect("recorded invocation"),
+        "target-1\n"
+    );
 
     cargo_bin_cmd!("hubuum-cli")
         .args([
@@ -333,7 +359,7 @@ fn protocol_failures_are_actionable() {
     write_response_pack(
         &user_root,
         "reported-error",
-        r#"{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"expected_failure","message":"fixture failed","details":{"step":2}}}"#,
+        r#"{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"expected_failure","message":"fixture failed","details":{"step":2}},"warnings":["partial work was retained"]}"#,
         3,
     );
     let config = temporary.path().join("config.toml");
@@ -373,6 +399,7 @@ fn protocol_failures_are_actionable() {
         ])
         .assert()
         .failure()
+        .stdout(contains("Warning: partial work was retained"))
         .stdout(contains("[expected_failure]: fixture failed"))
         .stdout(contains("details: {\"step\":2}"));
 }

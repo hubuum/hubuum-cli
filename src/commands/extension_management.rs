@@ -243,9 +243,6 @@ fn prepare_output(
     reset_output()?;
     set_pipeline(invocation.pipeline.clone())?;
     set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
-    let name = invocation.command_path.last().ok_or_else(|| {
-        AppError::CommandExecutionError("missing extension management command".to_string())
-    })?;
     let catalog = ctx.catalog.snapshot();
     let resolved = catalog.resolve_command(&[], &invocation.command_path)?;
     let options = resolved
@@ -254,9 +251,9 @@ fn prepare_output(
         .iter()
         .map(OptionSpec::to_cli_option)
         .collect::<Vec<_>>();
-    let tokens = CommandTokenizer::new_without_value_source_resolution(
+    let tokens = CommandTokenizer::new_without_value_source_resolution_at(
         &invocation.raw_line,
-        name,
+        invocation.command_index,
         &options,
     )?;
     set_render_format(render_format(&tokens)?)?;

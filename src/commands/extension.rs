@@ -154,18 +154,16 @@ impl AsyncCommandHandler for ExternalCommandHandler {
         reset_output()?;
         set_pipeline(invocation.pipeline.clone())?;
         set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
-        let command_name = invocation.command_path.last().ok_or_else(|| {
-            AppError::CommandExecutionError("Missing extension command name".to_string())
-        })?;
         let option_defs = extension_cli_options(&self.declaration);
-        let tokens = CommandTokenizer::new(&invocation.raw_line, command_name, &option_defs)?;
+        let tokens =
+            CommandTokenizer::new_at(&invocation.raw_line, invocation.command_index, &option_defs)?;
         set_render_format(render_format(&tokens)?)?;
         set_table_headers(table_headers(&tokens)?)?;
         validate_invocation(&tokens, &self.declaration)?;
 
         let mut child = Command::new(&self.executable);
         child.args(self.declaration.arguments());
-        child.args(forwarded_arguments(&tokens, invocation.command_path.len()));
+        child.args(forwarded_arguments(&tokens, invocation.command_index + 1));
         child.stdout(Stdio::piped()).stderr(Stdio::inherit());
         if self.declaration.interactive() && std::io::stdin().is_terminal() {
             child.stdin(Stdio::inherit());
@@ -231,9 +229,6 @@ impl AsyncCommandHandler for ExternalCommandHandler {
                         "error response used exit status 0".to_string(),
                     ));
                 }
-                for warning in warnings {
-                    add_warning(warning)?;
-                }
                 let details = if error.details().is_null() {
                     String::new()
                 } else {
@@ -245,7 +240,8 @@ impl AsyncCommandHandler for ExternalCommandHandler {
                     code: error.code().to_string(),
                     message: error.message().to_string(),
                     details,
-                })
+                }
+                .with_warnings(warnings))
             }
         }
     }
@@ -371,10 +367,10 @@ fn validate_value(option: &OptionDeclaration, value: &str) -> Result<(), AppErro
     Ok(())
 }
 
-fn forwarded_arguments(tokens: &CommandTokenizer, command_path_len: usize) -> Vec<String> {
+fn forwarded_arguments(tokens: &CommandTokenizer, argument_start: usize) -> Vec<String> {
     let raw = tokens.raw_tokens();
     let mut forwarded = Vec::new();
-    let mut index = command_path_len;
+    let mut index = argument_start;
     while let Some(argument) = raw.get(index) {
         let name = argument.split('=').next().unwrap_or(argument);
         match name {
@@ -495,4 +491,52 @@ fn output_status(status: &std::process::ExitStatus) -> String {
         || "terminated by signal".to_string(),
         |code| code.to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use hubuum_extension_protocol::ExtensionManifest;
+
+    use super::{extension_cli_options, forwarded_arguments};
+    use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    fn scoped_invocations_forward_every_entered_extension_argument() {
+        let manifest = ExtensionManifest::parse(
+            r#"
+schema_version = 1
+name = "demo"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+executable = "bin/demo"
+
+[[commands]]
+path = ["inventory", "list"]
+
+[[commands.options]]
+name = "target"
+kind = "string"
+positional = true
+
+[[commands.options]]
+name = "state"
+kind = "string"
+long = "state"
+"#,
+        )
+        .expect("manifest");
+        let declaration = &manifest.commands()[0];
+        let tokens = CommandTokenizer::new_at(
+            "list target-1 --state active --output json",
+            0,
+            &extension_cli_options(declaration),
+        )
+        .expect("scoped invocation should tokenize");
+
+        assert_eq!(
+            forwarded_arguments(&tokens, 1),
+            ["target-1", "--state", "active"]
+        );
+    }
 }

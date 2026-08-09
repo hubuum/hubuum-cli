@@ -445,6 +445,51 @@ impl Completer for ReplCompleter {
                     }
                 }
 
+                if let Some(context) = positional_value_context(
+                    &parts,
+                    resolved.command_index,
+                    options,
+                    start,
+                    pos,
+                    word,
+                    ends_with_space,
+                ) {
+                    let positional = options
+                        .iter()
+                        .filter(|option| option.short.is_none() && option.long.is_none())
+                        .nth(context.declaration_index);
+                    if let Some(option) = positional {
+                        match option.completion.clone() {
+                            CompletionSpec::Dynamic(completion) => {
+                                return completion(&self.completion, context.prefix, &parts)
+                                    .into_iter()
+                                    .map(|value| {
+                                        dynamic_value_suggestion(
+                                            value,
+                                            context.replacement_start,
+                                            context.replacement_end,
+                                        )
+                                    })
+                                    .collect();
+                            }
+                            CompletionSpec::Static(values) => {
+                                return values
+                                    .into_iter()
+                                    .filter(|value| value.starts_with(context.prefix))
+                                    .map(|value| {
+                                        dynamic_value_suggestion(
+                                            value,
+                                            context.replacement_start,
+                                            context.replacement_end,
+                                        )
+                                    })
+                                    .collect();
+                            }
+                            CompletionSpec::None => {}
+                        }
+                    }
+                }
+
                 if last.starts_with('-') || prefix_line.ends_with(' ') {
                     return options
                         .iter()
@@ -840,6 +885,14 @@ struct OptionValueContext<'a> {
     replacement_end: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PositionalValueContext<'a> {
+    declaration_index: usize,
+    prefix: &'a str,
+    replacement_start: usize,
+    replacement_end: usize,
+}
+
 fn option_value_context<'a>(
     parts: &'a [String],
     start: usize,
@@ -876,6 +929,99 @@ fn option_value_context<'a>(
         option_name: option_token_name(previous),
         prefix: word,
         replacement_start: start,
+        replacement_end: pos,
+    })
+}
+
+fn positional_value_context<'a>(
+    parts: &'a [String],
+    command_index: usize,
+    options: &[OptionSpec],
+    start: usize,
+    pos: usize,
+    word: &'a str,
+    ends_with_space: bool,
+) -> Option<PositionalValueContext<'a>> {
+    let argument_start = command_index.checked_add(1)?;
+    let cursor_index = if ends_with_space {
+        parts.len()
+    } else {
+        parts.len().checked_sub(1)?
+    };
+    if cursor_index < argument_start {
+        return None;
+    }
+
+    let mut index = argument_start;
+    let mut positional_count = 0;
+    while index < cursor_index {
+        let token = parts.get(index)?;
+        if token.starts_with('-') {
+            let option_name = option_token_name(token);
+            let option = options.iter().find(|option| {
+                option.short.as_deref() == Some(option_name)
+                    || option.long.as_deref() == Some(option_name)
+            })?;
+            if option.flag {
+                index += 1;
+                continue;
+            }
+
+            let has_inline_value = token.contains('=');
+            let value_count = if let Some(nargs) = option.nargs {
+                nargs.saturating_sub(usize::from(has_inline_value))
+            } else if option.greedy {
+                let mut count = 0;
+                while let Some(value) = parts.get(index + count + 1) {
+                    let is_option = value.starts_with('-')
+                        && options.iter().any(|candidate| {
+                            candidate.short.as_deref() == Some(option_token_name(value))
+                                || candidate.long.as_deref() == Some(option_token_name(value))
+                        });
+                    if is_option {
+                        break;
+                    }
+                    count += 1;
+                }
+                if index + count + 1 >= cursor_index {
+                    return None;
+                }
+                count
+            } else if has_inline_value {
+                0
+            } else {
+                1
+            };
+            index += value_count + 1;
+            if index > cursor_index {
+                return None;
+            }
+        } else {
+            positional_count += 1;
+            index += 1;
+        }
+    }
+
+    if index != cursor_index || (!ends_with_space && word.starts_with('-')) {
+        return None;
+    }
+
+    let positionals = options
+        .iter()
+        .filter(|option| option.short.is_none() && option.long.is_none())
+        .collect::<Vec<_>>();
+    let declaration_index = if positional_count < positionals.len() {
+        positional_count
+    } else if positionals.last().is_some_and(|option| option.repeatable) {
+        positionals.len().checked_sub(1)?
+    } else {
+        return None;
+    };
+
+    Some(PositionalValueContext {
+        declaration_index,
+        prefix: if ends_with_space { "" } else { word },
+        replacement_start: if ends_with_space { pos } else { start },
         replacement_end: pos,
     })
 }
@@ -1463,8 +1609,9 @@ mod tests {
         clause_active_token_offset, clause_option_context, completion_context_parts,
         dynamic_value_suggestion, handle_host_signal, id_completion_context,
         is_completing_option_value, option_suggestion, option_value_context,
-        pipe_completion_context, quoted_where_context, safe_prefix_end, where_suggestion,
-        IdCompletionKind, PaginationEditMode, PipeCompletionKind, CANCEL_PAGINATION_HOST_COMMAND,
+        pipe_completion_context, positional_value_context, quoted_where_context, safe_prefix_end,
+        where_suggestion, IdCompletionKind, PaginationEditMode, PipeCompletionKind,
+        CANCEL_PAGINATION_HOST_COMMAND,
     };
     use super::{execute_with_reauthentication, reauthentication_warning};
     use crate::json_schema::schema_paths;
@@ -1723,6 +1870,79 @@ mod tests {
         assert_eq!(context.option_name, "--id");
         assert_eq!(context.prefix, "12");
         assert_eq!(context.replacement_start, "task show --id=".len());
+    }
+
+    #[test]
+    fn positional_value_context_uses_the_resolved_command_offset() {
+        let positionals = vec![test_option(None, None, false, "Pack")];
+        let scoped_parts = vec!["show".to_string(), "de".to_string()];
+        let scoped = positional_value_context(
+            &scoped_parts,
+            0,
+            &positionals,
+            "show ".len(),
+            "show de".len(),
+            "de",
+            false,
+        )
+        .expect("scoped positional context");
+        assert_eq!(scoped.declaration_index, 0);
+        assert_eq!(scoped.prefix, "de");
+
+        let root_parts = vec![
+            "extension".to_string(),
+            "show".to_string(),
+            "de".to_string(),
+        ];
+        let root = positional_value_context(
+            &root_parts,
+            1,
+            &positionals,
+            "extension show ".len(),
+            "extension show de".len(),
+            "de",
+            false,
+        )
+        .expect("root positional context");
+        assert_eq!(root.declaration_index, 0);
+        assert_eq!(root.prefix, "de");
+    }
+
+    #[test]
+    fn positional_value_context_skips_named_option_values() {
+        let named = test_option(None, Some("--state"), false, "State");
+        let positional = test_option(None, None, false, "Target");
+        let options = vec![named, positional];
+        let option_value_parts = vec!["run".to_string(), "--state".to_string(), "act".to_string()];
+        assert!(positional_value_context(
+            &option_value_parts,
+            0,
+            &options,
+            "run --state ".len(),
+            "run --state act".len(),
+            "act",
+            false,
+        )
+        .is_none());
+
+        let positional_parts = vec![
+            "run".to_string(),
+            "--state".to_string(),
+            "active".to_string(),
+            "tar".to_string(),
+        ];
+        let context = positional_value_context(
+            &positional_parts,
+            0,
+            &options,
+            "run --state active ".len(),
+            "run --state active tar".len(),
+            "tar",
+            false,
+        )
+        .expect("positional after named option");
+        assert_eq!(context.declaration_index, 0);
+        assert_eq!(context.prefix, "tar");
     }
 
     #[test]

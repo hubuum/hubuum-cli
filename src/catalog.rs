@@ -103,6 +103,7 @@ pub struct CommandContext {
 #[derive(Debug, Clone)]
 pub struct CommandInvocation {
     pub raw_line: String,
+    pub command_index: usize,
     pub command_path: Vec<String>,
     pub pipeline: Vec<PipeStage>,
     pub pipeline_suffix: Option<String>,
@@ -231,7 +232,7 @@ impl CommandCatalog {
         let mut effective_scope = scope.to_vec();
         let mut traversed = current_scope;
 
-        for part in parts {
+        for (command_index, part) in parts.iter().enumerate() {
             if let Some(next_scope) = traversed.scopes.get(part) {
                 effective_scope.push(part.clone());
                 traversed = next_scope;
@@ -244,6 +245,7 @@ impl CommandCatalog {
                 return Ok(ResolvedCommand {
                     scope_path: effective_scope,
                     command_path,
+                    command_index,
                     command,
                 });
             }
@@ -933,6 +935,7 @@ fn render_tree_scope(scope: &ScopeSpec, prefix: String, lines: &mut Vec<String>)
 pub struct ResolvedCommand<'a> {
     pub scope_path: Vec<String>,
     pub command_path: Vec<String>,
+    pub command_index: usize,
     pub command: &'a CommandSpec,
 }
 
@@ -1004,6 +1007,13 @@ mod tests {
             resolved.command_path,
             vec!["class".to_string(), "list".to_string()]
         );
+        assert_eq!(resolved.command_index, 1);
+
+        let scoped = catalog
+            .resolve_command(&["class".to_string()], &["list".to_string()])
+            .expect("scoped command should resolve");
+        assert_eq!(scoped.command_path, resolved.command_path);
+        assert_eq!(scoped.command_index, 0);
         assert!(catalog.resolve_scope(&[], &["class".to_string()]).is_some());
     }
 

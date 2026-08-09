@@ -136,11 +136,11 @@ where
             reset_output()?;
             set_pipeline(pipeline)?;
             set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
-            let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
-                AppError::CommandExecutionError("Missing command name".to_string())
-            })?;
-
-            let tokens = CommandTokenizer::new(&raw_line, &cmd_name, &command_options::<C>())?;
+            let tokens = CommandTokenizer::new_at(
+                &raw_line,
+                invocation.command_index,
+                &command_options::<C>(),
+            )?;
             set_render_format(render_format(&tokens)?)?;
             set_table_headers(table_headers(&tokens)?)?;
 

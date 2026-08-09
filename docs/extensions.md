@@ -94,6 +94,9 @@ kebab-case. The executable path must remain within the package. Supported
 option kinds are `string`, `integer`, `number`, `boolean`, and `flag`.
 Positionals are ordered; only the final positional may be repeatable. The
 `values` list provides validation and static completion.
+One command path cannot be a prefix of another command path in the same pack.
+Short and long option aliases share one namespace after removing their dashes,
+and aliases reserved by host rendering options are rejected.
 
 The CLI validates the complete invocation before starting the process. It then
 executes the declared executable directly, without a shell, followed by the
