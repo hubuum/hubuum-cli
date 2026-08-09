@@ -22,6 +22,8 @@ mod event_delivery;
 mod event_sink;
 mod event_subscription;
 mod export;
+mod extension;
+mod extension_management;
 mod group;
 mod help;
 mod history;

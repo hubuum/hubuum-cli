@@ -124,6 +124,22 @@ pub enum AppError {
 
     #[error("Configuration error: {0}")]
     GeneralConfigError(String),
+
+    #[error("Extension protocol error for {pack} ({command}): {message}")]
+    ExtensionProtocol {
+        pack: String,
+        command: String,
+        message: String,
+    },
+
+    #[error("Extension {pack} command {command} failed [{code}]: {message}{details}")]
+    ExtensionCommand {
+        pack: String,
+        command: String,
+        code: String,
+        message: String,
+        details: String,
+    },
 }
 
 impl AppError {

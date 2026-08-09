@@ -8,12 +8,17 @@ use crate::catalog::{
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
 use crate::commands::{self, command_options, render_format, table_headers, CliCommand};
+use crate::config::get_config;
 use crate::errors::AppError;
+use crate::extensions::ExtensionRegistry;
 use crate::output::{
     reset_output, set_pipeline, set_pipeline_suffix, set_render_format, set_table_headers,
     take_output,
 };
 use crate::tokenizer::CommandTokenizer;
+
+use super::extension::register_external_commands;
+use super::extension_management::register_commands as register_extension_management_commands;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct CommandDocs {
@@ -24,6 +29,8 @@ pub(crate) struct CommandDocs {
 
 pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
+    let extensions = Arc::new(ExtensionRegistry::discover(&get_config()));
+    builder.set_extensions(extensions.clone());
 
     commands::admin::register_commands(&mut builder);
     commands::alias::register_commands(&mut builder);
@@ -54,6 +61,8 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);
+    register_extension_management_commands(&mut builder);
+    register_external_commands(&mut builder, &extensions);
 
     builder.build()
 }
@@ -115,7 +124,11 @@ where
         invocation: CommandInvocation,
     ) -> Result<CommandOutcome, AppError> {
         let command = self.command.clone();
-        let services = ctx.app.services.clone();
+        let services = ctx.services.clone().ok_or_else(|| {
+            AppError::CommandExecutionError(
+                "This command requires an authenticated Hubuum session".to_string(),
+            )
+        })?;
         let raw_line = invocation.raw_line.clone();
         let pipeline = invocation.pipeline.clone();
 

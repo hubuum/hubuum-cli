@@ -35,6 +35,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      - name: Run Host extension wrapper tests
+        run: examples/hubuum-wrappers/tests/test_wrappers.sh
+
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24
         with:

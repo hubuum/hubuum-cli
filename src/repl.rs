@@ -89,7 +89,8 @@ fn run_thread(
         .with_quick_completions(true)
         .with_ansi_colors(true);
 
-    let _ = print_rendered(&format!("{}\n", app.catalog.render_scope_help(&[])));
+    let catalog = app.catalog.snapshot();
+    let _ = print_rendered(&format!("{}\n", catalog.render_scope_help(&[])));
 
     loop {
         let prompt = ReplPrompt {
@@ -358,12 +359,13 @@ impl Completer for ReplCompleter {
         }
 
         let scope = self.session.scope();
+        let catalog = self.app.catalog.snapshot();
 
         if parts[0] == "help" || parts[0] == "?" {
             return self.scope_suggestions(start, word, &parts[1..], ends_with_space);
         }
 
-        if let Ok(resolved) = self.app.catalog.resolve_command(&scope, &parts) {
+        if let Ok(resolved) = catalog.resolve_command(&scope, &parts) {
             let options = &resolved.command.options;
             let options_seen: Vec<String> = parts
                 .iter()
@@ -412,17 +414,33 @@ impl Completer for ReplCompleter {
                         option.short.as_deref() == Some(context.option_name)
                             || option.long.as_deref() == Some(context.option_name)
                     }) {
-                        if let CompletionSpec::Dynamic(completion) = option.completion.clone() {
-                            return completion(&self.completion, context.prefix, &parts)
-                                .into_iter()
-                                .map(|value| {
-                                    dynamic_value_suggestion(
-                                        value,
-                                        context.replacement_start,
-                                        context.replacement_end,
-                                    )
-                                })
-                                .collect();
+                        match option.completion.clone() {
+                            CompletionSpec::Dynamic(completion) => {
+                                return completion(&self.completion, context.prefix, &parts)
+                                    .into_iter()
+                                    .map(|value| {
+                                        dynamic_value_suggestion(
+                                            value,
+                                            context.replacement_start,
+                                            context.replacement_end,
+                                        )
+                                    })
+                                    .collect();
+                            }
+                            CompletionSpec::Static(values) => {
+                                return values
+                                    .into_iter()
+                                    .filter(|value| value.starts_with(context.prefix))
+                                    .map(|value| {
+                                        dynamic_value_suggestion(
+                                            value,
+                                            context.replacement_start,
+                                            context.replacement_end,
+                                        )
+                                    })
+                                    .collect();
+                            }
+                            CompletionSpec::None => {}
                         }
                     }
                 }
@@ -454,7 +472,8 @@ impl ReplCompleter {
         let quoted = quoted_where_context(prefix_line)?;
         let parts = split(quoted.command_prefix)?;
         let scope = self.session.scope();
-        let resolved = self.app.catalog.resolve_command(&scope, &parts).ok()?;
+        let catalog = self.app.catalog.snapshot();
+        let resolved = catalog.resolve_command(&scope, &parts).ok()?;
         let replacement_start = quoted.start
             + clause_active_token_offset(quoted.clause_prefix, quoted.clause_ends_with_space);
         Some(
@@ -599,11 +618,8 @@ impl ReplCompleter {
 
         let command_parts = split(context.command_prefix.trim())?;
         let scope = self.session.scope();
-        let resolved = self
-            .app
-            .catalog
-            .resolve_command(&scope, &command_parts)
-            .ok()?;
+        let catalog = self.app.catalog.snapshot();
+        let resolved = catalog.resolve_command(&scope, &command_parts).ok()?;
         let fields =
             projection_fields_for_command(&self.completion, &resolved.command_path, &command_parts);
         if fields.is_empty() {
@@ -711,10 +727,11 @@ impl ReplCompleter {
         ends_with_space: bool,
     ) -> Vec<Suggestion> {
         let scope = self.session.scope();
+        let catalog = self.app.catalog.snapshot();
         let context_parts = completion_context_parts(parts, ends_with_space);
         let scope_words = if context_parts.is_empty() {
-            self.app.catalog.list_words(&scope)
-        } else if let Some(scope_spec) = self.app.catalog.resolve_scope(&scope, context_parts) {
+            catalog.list_words(&scope)
+        } else if let Some(scope_spec) = catalog.resolve_scope(&scope, context_parts) {
             scope_spec
                 .commands
                 .keys()
@@ -722,7 +739,7 @@ impl ReplCompleter {
                 .cloned()
                 .collect()
         } else {
-            self.app.catalog.list_words(&scope)
+            catalog.list_words(&scope)
         };
 
         let mut scope_words = scope_words;

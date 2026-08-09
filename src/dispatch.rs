@@ -3,10 +3,12 @@ use std::sync::Arc;
 use hubuum_client::ApiError;
 use hubuum_filter::{split_pipeline, PipeStage};
 use shlex::split;
+use tokio::task::spawn_blocking;
 
 use crate::app::{AppRuntime, SharedSession};
 use crate::catalog::{
-    CommandCatalog, CommandContext, CommandInvocation, CommandOutcome, ResolvedCommand, ScopeAction,
+    CatalogStore, CommandCatalog, CommandContext, CommandInvocation, CommandOutcome,
+    ResolvedCommand, ScopeAction,
 };
 use crate::commands::auth::render_auth_providers;
 use crate::commands::config::{render_config_paths, render_config_show};
@@ -29,10 +31,11 @@ pub async fn execute_line(
     session: &SharedSession,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
+    let catalog = app.catalog.snapshot();
     let scope = session.scope();
     let aliases = get_config();
-    let expansion = expand_command_aliases(&app.catalog, &scope, &aliases.aliases, line)?;
-    let (line, redirect) = prepare_redirect(&app.catalog, &scope, expansion.line())?;
+    let expansion = expand_command_aliases(&catalog, &scope, &aliases.aliases, line)?;
+    let (line, redirect) = prepare_redirect(&catalog, &scope, expansion.line())?;
     let mut outcome = execute_line_inner(app, session, &line).await?;
     outcome.redirect = redirect;
     Ok(outcome)
@@ -43,6 +46,7 @@ async fn execute_line_inner(
     session: &SharedSession,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
+    let catalog = app.catalog.snapshot();
     reset_output()?;
     let (mut line, mut pipeline, mut pipeline_suffix) = process_filter(line)?;
     let mut parts =
@@ -89,7 +93,7 @@ async fn execute_line_inner(
         });
     }
 
-    if app.catalog.resolve_scope(&current_scope, &parts).is_some() {
+    if catalog.resolve_scope(&current_scope, &parts).is_some() {
         let mut next_scope = current_scope;
         next_scope.extend(parts);
         return Ok(CommandOutcome {
@@ -99,7 +103,7 @@ async fn execute_line_inner(
         });
     }
 
-    let resolved = app.catalog.resolve_command(&current_scope, &parts)?;
+    let resolved = catalog.resolve_command(&current_scope, &parts)?;
     let cmd_name = resolved
         .command_path
         .last()
@@ -129,7 +133,11 @@ async fn execute_line_inner(
         pipeline,
         pipeline_suffix,
     };
-    let ctx = CommandContext { app: app.clone() };
+    let ctx = CommandContext {
+        config: get_config(),
+        services: Some(app.services.clone()),
+        catalog: app.catalog.clone(),
+    };
 
     resolved
         .command
@@ -169,6 +177,7 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
     parts
         .first()
         .is_some_and(|part| part == "help" || part == "?")
+        || parts.first().is_some_and(|part| part == "extension")
         || command_path_is(&parts, &["config", "show"])
         || command_path_is(&parts, &["config", "paths"])
         || command_path_is(&parts, &["theme", "list"])
@@ -177,26 +186,31 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
         || command_path_is(&parts, &["auth", "providers"])
         || command_path_is(&parts, &["metrics"])
         || command_path_is(&parts, &["version"])
+        || catalog
+            .resolve_command(&[], &parts)
+            .is_ok_and(|resolved| !resolved.command.handler.requires_authentication())
 }
 
-pub fn execute_offline_line(
-    catalog: &CommandCatalog,
+pub async fn execute_offline_line(
+    catalog_store: Arc<CatalogStore>,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
+    let catalog = catalog_store.snapshot();
     let aliases = get_config();
-    let expansion = expand_command_aliases(catalog, &[], &aliases.aliases, line)?;
-    let (line, redirect) = prepare_redirect(catalog, &[], expansion.line())?;
-    let mut outcome = execute_offline_line_inner(catalog, &line)?;
+    let expansion = expand_command_aliases(&catalog, &[], &aliases.aliases, line)?;
+    let (line, redirect) = prepare_redirect(&catalog, &[], expansion.line())?;
+    let mut outcome = execute_offline_line_inner(catalog_store, &catalog, &line).await?;
     outcome.redirect = redirect;
     Ok(outcome)
 }
 
-fn execute_offline_line_inner(
+async fn execute_offline_line_inner(
+    catalog_store: Arc<CatalogStore>,
     catalog: &CommandCatalog,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    let (line, _pipeline, _pipeline_suffix) = process_filter(line)?;
+    let (line, pipeline, pipeline_suffix) = process_filter(line)?;
     let parts = invocation_parts(&line)?;
     if parts.is_empty() {
         return Ok(CommandOutcome::default());
@@ -278,7 +292,9 @@ fn execute_offline_line_inner(
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         set_render_format(render_format(&tokens)?)?;
         set_table_headers(table_headers(&tokens)?)?;
-        render_metrics(&tokens)?;
+        spawn_blocking(move || render_metrics(&tokens))
+            .await
+            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -286,8 +302,22 @@ fn execute_offline_line_inner(
         set_table_headers(table_headers(&tokens)?)?;
         render_version(&tokens)?;
     } else {
-        catalog.resolve_command(&[], &parts)?;
-        return Err(AppError::CommandNotFound(parts.join(" ")));
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        if resolved.command.handler.requires_authentication() {
+            return Err(AppError::CommandNotFound(parts.join(" ")));
+        }
+        let invocation = CommandInvocation {
+            raw_line: line,
+            command_path: resolved.command_path,
+            pipeline,
+            pipeline_suffix,
+        };
+        let ctx = CommandContext {
+            config: get_config(),
+            services: None,
+            catalog: catalog_store,
+        };
+        return resolved.command.handler.execute(ctx, invocation).await;
     }
 
     Ok(CommandOutcome {
@@ -345,7 +375,8 @@ fn render_help(
     parts: &[String],
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
-    render_help_from_catalog(app.catalog.as_ref(), scope, parts)
+    let catalog = app.catalog.snapshot();
+    render_help_from_catalog(&catalog, scope, parts)
 }
 
 fn render_help_from_catalog(
@@ -500,6 +531,7 @@ fn tokenizer_for_resolved(
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use serial_test::serial;
 
@@ -509,7 +541,7 @@ mod tests {
         tokenizer_for_resolved,
     };
     use crate::app::SharedSession;
-    use crate::catalog::ScopeAction;
+    use crate::catalog::{CatalogStore, ScopeAction};
     use crate::commands::build_command_catalog;
     use crate::output::{append_line, reset_output, take_output, OutputSnapshot};
     use crate::redirection::RedirectTarget;
@@ -643,6 +675,8 @@ mod tests {
         ));
         assert!(can_execute_offline(&catalog, "version"));
         assert!(can_execute_offline(&catalog, "version --server"));
+        assert!(can_execute_offline(&catalog, "extension doctor"));
+        assert!(can_execute_offline(&catalog, "extension unknown command"));
         assert!(!can_execute_offline(&catalog, "theme use hubuum-dark"));
         assert!(!can_execute_offline(
             &catalog,
@@ -651,21 +685,23 @@ mod tests {
         assert!(!can_execute_offline(&catalog, "object list --limit 5"));
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn offline_unknown_commands_include_catalog_suggestion() {
-        let catalog = build_command_catalog();
-        let err = execute_offline_line(&catalog, "clas list")
+    async fn offline_unknown_commands_include_catalog_suggestion() {
+        let catalog = Arc::new(CatalogStore::new(build_command_catalog()));
+        let err = execute_offline_line(catalog, "clas list")
+            .await
             .expect_err("mistyped offline command should fail");
 
         assert!(err.to_string().contains("Did you mean 'class'?"));
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn offline_command_help_does_not_execute_the_command() {
-        let catalog = build_command_catalog();
-        let outcome = execute_offline_line(&catalog, "metrics --help")
+    async fn offline_command_help_does_not_execute_the_command() {
+        let catalog = Arc::new(CatalogStore::new(build_command_catalog()));
+        let outcome = execute_offline_line(catalog, "metrics --help")
+            .await
             .expect("offline command help should render without a server");
 
         assert!(outcome
@@ -675,11 +711,12 @@ mod tests {
             .any(|line| line.contains("Fetch Prometheus server metrics")));
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn offline_redirect_is_attached_and_removed_from_command() {
-        let catalog = build_command_catalog();
-        let outcome = execute_offline_line(&catalog, "help > help.txt")
+    async fn offline_redirect_is_attached_and_removed_from_command() {
+        let catalog = Arc::new(CatalogStore::new(build_command_catalog()));
+        let outcome = execute_offline_line(catalog, "help > help.txt")
+            .await
             .expect("offline redirect should execute");
 
         assert_eq!(

@@ -97,6 +97,23 @@ command = "object list --class Hosts | P Name"
 description = "List known hosts"
 ```
 
+Larger site workflows can be installed as manifest-driven external command
+packs. They live under the reserved `extension <pack> ...` namespace and join
+the normal help tree, validation, completion, semantic output, pipeline, and
+redirect machinery:
+
+```sh
+hubuum-cli extension install ./site-inventory
+hubuum-cli extension list
+hubuum-cli extension site-inventory host show server-01
+hubuum-cli extension doctor
+```
+
+Packs are trusted local executables with a small versioned JSON process
+protocol; they are not native plugins and are not sandboxed. See the
+[external command pack guide](docs/extensions.md) for manifests, discovery,
+configuration, lifecycle operations, security boundaries, and troubleshooting.
+
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in
 the same OS major version:

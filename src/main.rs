@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app::{init_logging, load_app_config, login, AppRuntime, SharedSession};
-use catalog::{CommandCatalog, CommandOutcome};
+use catalog::{CatalogStore, CommandCatalog, CommandOutcome};
 use cli::{build_cli, execution_mode, split_startup_args, StartupMode};
 use commands::build_command_catalog;
 use dispatch::{
@@ -18,7 +18,6 @@ use repl::run;
 use services::AppServices;
 use tokio::fs::read_to_string;
 use tokio::runtime::Handle;
-use tokio::task::spawn_blocking;
 
 mod app;
 mod autocomplete;
@@ -33,6 +32,7 @@ mod defaults;
 mod dispatch;
 mod domain;
 mod errors;
+mod extensions;
 mod files;
 mod formatting;
 mod json_schema;
@@ -52,23 +52,21 @@ async fn main() -> Result<(), AppError> {
     let startup_args = split_startup_args(args());
     let matches = build_cli().get_matches_from(startup_args.clap_args);
     let config = load_app_config(&matches)?;
-    let catalog = Arc::new(build_command_catalog());
+    let catalog = Arc::new(CatalogStore::new(build_command_catalog()));
     let mode = execution_mode(&matches, startup_args.mode);
 
     match &mode {
-        StartupMode::Command(command) if can_execute_offline(catalog.as_ref(), command) => {
-            let catalog = catalog.clone();
-            let command = command.clone();
-            let outcome = spawn_blocking(move || execute_offline_line(catalog.as_ref(), &command))
-                .await
-                .map_err(|err| AppError::CommandExecutionError(err.to_string()))?;
+        StartupMode::Command(command)
+            if can_execute_offline(catalog.snapshot().as_ref(), command) =>
+        {
+            let outcome = execute_offline_line(catalog.clone(), command).await;
             if !render_dispatch_result(&sessionless(), outcome) {
                 exit(1);
             }
             return Ok(());
         }
         StartupMode::Script(filename)
-            if can_execute_script_offline(catalog.as_ref(), filename).await? =>
+            if can_execute_script_offline(catalog.snapshot().as_ref(), filename).await? =>
         {
             let session = SharedSession::new();
             if !execute_offline_script(catalog.clone(), &session, filename).await? {
@@ -152,17 +150,13 @@ async fn can_execute_script_offline(
 }
 
 async fn execute_offline_script(
-    catalog: Arc<CommandCatalog>,
+    catalog: Arc<CatalogStore>,
     session: &SharedSession,
     filename: &str,
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        let catalog = catalog.clone();
-        let line = line.to_string();
-        let outcome = spawn_blocking(move || execute_offline_line(catalog.as_ref(), &line))
-            .await
-            .map_err(|err| AppError::CommandExecutionError(err.to_string()))?;
+        let outcome = execute_offline_line(catalog.clone(), line).await;
         if !render_dispatch_result(session, outcome) {
             return Ok(false);
         }

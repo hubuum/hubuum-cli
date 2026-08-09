@@ -1,18 +1,20 @@
 use std::any::TypeId;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use hubuum_filter::{help_topics, topic_help, verb_summaries, PipeStage};
 
-use crate::app::AppRuntime;
 use crate::commands::{AutoCompleter, CliOption};
+use crate::config::AppConfig;
 use crate::errors::{AppError, ReauthenticationRetry};
+use crate::extensions::ExtensionRegistry;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::redirection::OutputRedirect;
 use crate::services::filter_specs_for_command_path;
+use crate::services::AppServices;
 use crate::suggestions::did_you_mean_message;
 use crate::terminal::terminal_width;
 use crate::theme::{paint, paint_command, ThemeRole};
@@ -38,6 +40,7 @@ pub struct OptionSpec {
 pub enum CompletionSpec {
     None,
     Dynamic(AutoCompleter),
+    Static(Vec<String>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,16 +81,23 @@ pub trait AsyncCommandHandler: Send + Sync {
         ctx: CommandContext,
         invocation: CommandInvocation,
     ) -> Result<CommandOutcome, AppError>;
+
+    fn requires_authentication(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone)]
 pub struct CommandCatalog {
     root: ScopeSpec,
+    extensions: Arc<ExtensionRegistry>,
 }
 
 #[derive(Clone)]
 pub struct CommandContext {
-    pub app: Arc<AppRuntime>,
+    pub config: Arc<AppConfig>,
+    pub services: Option<Arc<AppServices>>,
+    pub catalog: Arc<CatalogStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +127,33 @@ pub enum ScopeAction {
 #[derive(Default)]
 pub struct CommandCatalogBuilder {
     root: ScopeSpec,
+    extensions: Arc<ExtensionRegistry>,
+}
+
+pub struct CatalogStore {
+    current: RwLock<Arc<CommandCatalog>>,
+}
+
+impl CatalogStore {
+    pub fn new(catalog: CommandCatalog) -> Self {
+        Self {
+            current: RwLock::new(Arc::new(catalog)),
+        }
+    }
+
+    pub fn snapshot(&self) -> Arc<CommandCatalog> {
+        self.current
+            .read()
+            .expect("catalog lock should not be poisoned")
+            .clone()
+    }
+
+    pub fn replace(&self, catalog: CommandCatalog) {
+        *self
+            .current
+            .write()
+            .expect("catalog lock should not be poisoned") = Arc::new(catalog);
+    }
 }
 
 impl ScopeSpec {
@@ -133,7 +170,17 @@ impl CommandCatalogBuilder {
     pub fn new() -> Self {
         Self {
             root: ScopeSpec::new("root"),
+            extensions: Arc::new(ExtensionRegistry::default()),
         }
+    }
+
+    pub fn set_extensions(&mut self, extensions: Arc<ExtensionRegistry>) -> &mut Self {
+        self.extensions = extensions;
+        self
+    }
+
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        self.extensions.as_ref()
     }
 
     pub fn add_command(&mut self, path: &[&str], command: CommandSpec) -> &mut Self {
@@ -149,11 +196,17 @@ impl CommandCatalogBuilder {
     }
 
     pub fn build(self) -> CommandCatalog {
-        CommandCatalog { root: self.root }
+        CommandCatalog {
+            root: self.root,
+            extensions: self.extensions,
+        }
     }
 }
 
 impl CommandCatalog {
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        self.extensions.as_ref()
+    }
     pub fn scope(&self, path: &[String]) -> Option<&ScopeSpec> {
         let mut current = &self.root;
         for segment in path {
@@ -860,6 +913,7 @@ impl OptionSpec {
             autocomplete: match self.completion {
                 CompletionSpec::None => None,
                 CompletionSpec::Dynamic(function) => Some(function),
+                CompletionSpec::Static(_) => None,
             },
         }
     }

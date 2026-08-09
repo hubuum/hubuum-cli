@@ -1,0 +1,413 @@
+#![cfg(unix)]
+
+use std::fs::{create_dir_all, read_to_string, set_permissions, write, Permissions};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::str::contains;
+use serde_json::Value;
+use tempfile::tempdir;
+
+fn write_pack(root: &Path, version: &str) -> PathBuf {
+    let package = root.join(format!("demo-{version}"));
+    create_dir_all(package.join("bin")).expect("package directory");
+    let executable = package.join("bin/demo");
+    write(
+        &executable,
+        r#"#!/bin/sh
+set -eu
+if [ "${HUBUUM_CLI__SERVER__PASSWORD+x}" = x ]; then
+    printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"password_leaked","message":"password environment leaked","details":{}}}'
+    exit 1
+fi
+if [ "${HUBUUM_CLI__CACHE__TIME+x}" = x ]; then
+    printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"config_leaked","message":"unrelated CLI config environment leaked","details":{}}}'
+    exit 1
+fi
+case "${HUBUUM_EXTENSION_CONFIG_JSON:-}" in
+    *configured*) ;;
+    *)
+        printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"config_missing","message":"pack config missing","details":{}}}'
+        exit 1
+        ;;
+esac
+printf '%s\n' "$*" >"$(dirname "$0")/../invocation"
+printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"rows","value":[{"name":"alpha","state":"active"},{"name":"beta","state":"active"}],"columns":["name","state"]},"warnings":[]}'
+"#,
+    )
+    .expect("extension executable");
+    set_permissions(&executable, Permissions::from_mode(0o755)).expect("executable permissions");
+    write(
+        package.join("hubuum-extension.toml"),
+        format!(
+            r#"schema_version = 1
+name = "demo"
+version = "{version}"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+executable = "bin/demo"
+
+[[commands]]
+path = ["inventory", "list"]
+arguments = ["inventory", "list"]
+about = "List demo inventory"
+
+[[commands.options]]
+name = "state"
+kind = "string"
+long = "state"
+help = "Inventory state"
+values = ["active", "retired"]
+"#
+        ),
+    )
+    .expect("extension manifest");
+    package
+}
+
+fn write_config(path: &Path, user_root: &Path) {
+    write(
+        path,
+        format!(
+            r#"[extensions]
+system_roots = []
+user_roots = ["{}"]
+
+[extensions.config.demo]
+label = "configured"
+"#,
+            user_root.display()
+        ),
+    )
+    .expect("extension config");
+}
+
+fn write_response_pack(root: &Path, name: &str, response: &str, exit_code: u8) {
+    let package = root.join(name);
+    create_dir_all(package.join("bin")).expect("package directory");
+    let executable = package.join("bin/run");
+    write(
+        &executable,
+        format!("#!/bin/sh\nprintf '%s\\n' '{response}'\nexit {exit_code}\n"),
+    )
+    .expect("extension executable");
+    set_permissions(&executable, Permissions::from_mode(0o755)).expect("executable permissions");
+    write(
+        package.join("hubuum-extension.toml"),
+        format!(
+            r#"schema_version = 1
+name = "{name}"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+executable = "bin/run"
+
+[[commands]]
+path = ["run"]
+about = "Run protocol fixture"
+"#
+        ),
+    )
+    .expect("extension manifest");
+}
+
+fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
+    let output = assertion.success().get_output().stdout.clone();
+    serde_json::from_slice(&output).expect("JSON command output")
+}
+
+#[test]
+fn extension_commands_are_first_class_and_lifecycle_managed() {
+    let temporary = tempdir().expect("temporary directory");
+    let sources = temporary.path().join("sources");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&sources).expect("source root");
+    let source_v1 = write_pack(&sources, "0.1.0");
+    let source_v2 = write_pack(&sources, "0.2.0");
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let installed = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .env("HUBUUM_CLI__SERVER__PASSWORD", "must-not-leak")
+            .env("HUBUUM_CLI__CACHE__TIME", "123")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "install",
+                source_v1.to_str().expect("source path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(installed["status"], "installed");
+    assert_eq!(installed["name"], "demo");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
+            "extension",
+            "demo",
+            "inventory",
+            "list",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("List demo inventory"))
+        .stdout(contains("--state"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .env("HUBUUM_CLI__SERVER__PASSWORD", "must-not-leak")
+        .env("HUBUUM_CLI__CACHE__TIME", "123")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "demo",
+            "inventory",
+            "list",
+            "--state",
+            "active",
+            "|",
+            "C",
+        ])
+        .assert()
+        .success()
+        .stdout("2\n");
+    assert_eq!(
+        read_to_string(user_root.join("demo/invocation")).expect("recorded invocation"),
+        "inventory list --state active\n"
+    );
+
+    write(user_root.join("demo/invocation"), "not-called\n").expect("reset invocation");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "demo",
+            "inventory",
+            "list",
+            "--state",
+            "unknown",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("unsupported value"));
+    assert_eq!(
+        read_to_string(user_root.join("demo/invocation")).expect("untouched invocation"),
+        "not-called\n"
+    );
+
+    let upgraded = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "upgrade",
+                source_v2.to_str().expect("source path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(upgraded["status"], "upgraded");
+    assert_eq!(upgraded["from"], "0.1.0");
+    assert_eq!(upgraded["to"], "0.2.0");
+
+    let disabled = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "disable",
+                "demo",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(disabled["state"], "disabled");
+
+    let list = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "list",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(list[0]["state"], "disabled");
+
+    let enabled = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "enable",
+                "demo",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(enabled["state"], "enabled");
+
+    let removed = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "remove",
+                "demo",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(removed["status"], "removed");
+    assert!(!user_root.join("demo").exists());
+    assert!(user_root.join(".trash").is_dir());
+}
+
+#[test]
+fn doctor_reports_invalid_manifests_without_loading_them() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    let broken = user_root.join("broken");
+    create_dir_all(&broken).expect("broken package");
+    write(
+        broken.join("hubuum-extension.toml"),
+        "schema_version = 999\nname = 'broken'\n",
+    )
+    .expect("broken manifest");
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let doctor = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "doctor",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(doctor[0]["code"], "manifest_invalid");
+    assert_eq!(doctor[0]["severity"], "error");
+}
+
+#[test]
+fn protocol_failures_are_actionable() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_response_pack(
+        &user_root,
+        "malformed",
+        r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"rows","value":{},"columns":[]}}"#,
+        0,
+    );
+    write_response_pack(
+        &user_root,
+        "bad-exit",
+        r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"done","columns":[]}}"#,
+        7,
+    );
+    write_response_pack(
+        &user_root,
+        "reported-error",
+        r#"{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"expected_failure","message":"fixture failed","details":{"step":2}}}"#,
+        3,
+    );
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "malformed",
+            "run",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("shape 'Rows' has an incompatible JSON value"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "bad-exit",
+            "run",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("success response used nonzero exit status 7"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "reported-error",
+            "run",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("[expected_failure]: fixture failed"))
+        .stdout(contains("details: {\"step\":2}"));
+}
+
+#[test]
+fn host_pilot_appears_in_the_real_command_catalog() {
+    let temporary = tempdir().expect("temporary directory");
+    let config = temporary.path().join("config.toml");
+    let example_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    write_config(&config, &example_root);
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
+            "extension",
+            "host",
+            "show",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Show a Host and its physical placement"))
+        .stdout(contains("--verbose"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
+            "--tree",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("extension host show"))
+        .stdout(contains("extension host create"))
+        .stdout(contains("extension host move"));
+}
