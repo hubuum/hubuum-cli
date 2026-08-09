@@ -58,6 +58,7 @@ pub struct CommandSpec {
     pub examples: Option<String>,
     pub options: Vec<OptionSpec>,
     pub reauthentication_retry: ReauthenticationRetry,
+    pub composable: bool,
     pub handler: Arc<dyn AsyncCommandHandler>,
 }
 
@@ -70,6 +71,7 @@ impl Debug for CommandSpec {
             .field("examples", &self.examples)
             .field("options", &self.options)
             .field("reauthentication_retry", &self.reauthentication_retry)
+            .field("composable", &self.composable)
             .finish()
     }
 }
@@ -194,6 +196,15 @@ impl CommandCatalogBuilder {
         }
         current.commands.insert(command.name.clone(), command);
         self
+    }
+
+    pub fn command(&self, path: &[String]) -> Option<&CommandSpec> {
+        let (name, scope) = path.split_last()?;
+        let mut current = &self.root;
+        for segment in scope {
+            current = current.scopes.get(segment)?;
+        }
+        current.commands.get(name)
     }
 
     pub fn build(self) -> CommandCatalog {
@@ -983,6 +994,7 @@ mod tests {
             examples: None,
             options: Vec::new(),
             reauthentication_retry: ReauthenticationRetry::Unsafe,
+            composable: false,
             handler: Arc::new(NoopHandler),
         }
     }

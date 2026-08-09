@@ -173,10 +173,16 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
     let Ok(parts) = invocation_parts(&line) else {
         return false;
     };
+    let extension_offline = parts.first().is_some_and(|part| part == "extension")
+        && catalog
+            .resolve_command(&[], &parts)
+            .map_or(true, |resolved| {
+                !resolved.command.handler.requires_authentication()
+            });
     parts
         .first()
         .is_some_and(|part| part == "help" || part == "?")
-        || parts.first().is_some_and(|part| part == "extension")
+        || extension_offline
         || command_path_is(&parts, &["config", "show"])
         || command_path_is(&parts, &["config", "paths"])
         || command_path_is(&parts, &["theme", "list"])

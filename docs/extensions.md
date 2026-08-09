@@ -1,10 +1,12 @@
-# External command packs
+# Extension command packs
 
-External command packs add trusted, site-specific workflows to the Hubuum CLI
-command catalog without compiling them into the CLI. A pack may use Bash,
-Python, Rust, or any other executable implementation. Its commands participate
-in help, REPL scopes, declared option validation, static completion, semantic
-pipelines, output formats, and redirects.
+Extension packs add trusted, site-specific workflows to the Hubuum CLI command
+catalog without compiling them into the CLI. A manifest-only workflow invokes
+composable built-in commands in-process and needs no runtime other than
+`hubuum-cli`. Packs may also declare executable-backed commands implemented in
+Bash, Python, Rust, or another language. Both forms participate in help, REPL
+scopes, declared option validation, static completion, semantic pipelines,
+output formats, and redirects.
 
 Extension commands use a reserved namespace:
 
@@ -49,7 +51,15 @@ pack. The complete effective application configuration is never exposed.
 
 ## Package manifest
 
-A package contains a manifest and an executable referenced relative to it:
+A manifest-only package contains one file:
+
+```text
+site-inventory/
+└── hubuum-extension.toml
+```
+
+An executable-backed package also contains the executable referenced relative
+to the manifest:
 
 ```text
 site-inventory/
@@ -58,7 +68,7 @@ site-inventory/
     └── site-inventory
 ```
 
-The v1 manifest is TOML:
+The v1 executable-backed manifest is TOML:
 
 ```toml
 schema_version = 1
@@ -97,6 +107,74 @@ Positionals are ordered; only the final positional may be repeatable. The
 One command path cannot be a prefix of another command path in the same pack.
 Short and long option aliases share one namespace after removing their dashes,
 and aliases reserved by host rendering options are rejected.
+
+## In-process workflows
+
+A workflow command declares sequential actions instead of an executable
+argument vector. Each action resolves an existing built-in CLI command and
+uses its semantic output directly; it does not render JSON and parse it again.
+The action values are composed into one detail object keyed by action ID.
+
+```toml
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+about = "Collect Hosts and Rooms"
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "hosts"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "hosts_class"
+default = "Hosts"
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"
+
+[[commands.workflow.actions]]
+id = "rooms"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "rooms_class"
+default = "Rooms"
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"
+```
+
+Action arguments are structured entries. `literal` supplies a fixed token,
+`config` reads a scalar from `extensions.config.<pack>` and may declare a
+`default`, and `option` forwards a required, non-repeatable workflow command
+option by name. The CLI never joins these tokens into a shell command.
+
+Workflow packs need no `executable`. During catalog construction, every action
+must resolve to a built-in command explicitly marked as composable and
+read-only. Unknown, mutating, non-semantic, or recursive extension actions
+quarantine the pack and appear in `extension doctor`. Actions must return one
+semantic value and must select all pages or an explicit page; warnings are
+preserved and the caller's pipeline and output format apply to the composed
+result.
+
+See the dependency-free
+[`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack for a
+complete example.
+
+## Executable commands
 
 The CLI validates the complete invocation before starting the process. It then
 executes the declared executable directly, without a shell, followed by the

@@ -35,6 +35,10 @@ pub enum ProtocolError {
     InvalidCommandPath(String),
     #[error("invalid executable path '{0}': use a relative path confined to the pack")]
     InvalidExecutablePath(String),
+    #[error("command '{0}' requires an executable or a workflow")]
+    MissingCommandImplementation(String),
+    #[error("command '{command}' has an invalid workflow: {message}")]
+    InvalidWorkflow { command: String, message: String },
     #[error("invalid extension version '{value}': {source}")]
     InvalidVersion {
         value: String,
@@ -181,7 +185,7 @@ pub struct ExtensionManifest {
     version: Version,
     requires_cli: VersionReq,
     protocol: ProtocolVersion,
-    executable: ExecutablePath,
+    executable: Option<ExecutablePath>,
     commands: Vec<CommandDeclaration>,
 }
 
@@ -205,12 +209,17 @@ impl ExtensionManifest {
             }
         })?;
         let protocol = ProtocolVersion::new(raw.protocol)?;
-        let executable = ExecutablePath::new(raw.executable)?;
+        let executable = raw.executable.map(ExecutablePath::new).transpose()?;
 
         let mut command_paths = HashSet::new();
         let mut commands: Vec<CommandDeclaration> = Vec::with_capacity(raw.commands.len());
         for command in raw.commands {
             let command = CommandDeclaration::try_from(command)?;
+            if command.workflow().is_none() && executable.is_none() {
+                return Err(ProtocolError::MissingCommandImplementation(
+                    command.path().display(),
+                ));
+            }
             if !command_paths.insert(command.path.clone()) {
                 return Err(ProtocolError::DuplicateCommandPath(command.path.display()));
             }
@@ -270,8 +279,8 @@ impl ExtensionManifest {
         &self.protocol
     }
 
-    pub fn executable(&self) -> &ExecutablePath {
-        &self.executable
+    pub fn executable(&self) -> Option<&ExecutablePath> {
+        self.executable.as_ref()
     }
 
     pub fn commands(&self) -> &[CommandDeclaration] {
@@ -288,6 +297,7 @@ pub struct CommandDeclaration {
     examples: Vec<String>,
     interactive: bool,
     options: Vec<OptionDeclaration>,
+    workflow: Option<WorkflowDeclaration>,
 }
 
 impl CommandDeclaration {
@@ -317,6 +327,10 @@ impl CommandDeclaration {
 
     pub fn options(&self) -> &[OptionDeclaration] {
         &self.options
+    }
+
+    pub fn workflow(&self) -> Option<&WorkflowDeclaration> {
+        self.workflow.as_ref()
     }
 }
 
@@ -392,6 +406,23 @@ impl TryFrom<RawCommand> for CommandDeclaration {
             options.push(declaration);
         }
 
+        let workflow = raw
+            .workflow
+            .map(|workflow| WorkflowDeclaration::validate(workflow, &path, &options))
+            .transpose()?;
+        if workflow.is_some() && !raw.arguments.is_empty() {
+            return Err(invalid_workflow(
+                &path,
+                "workflow commands cannot declare executable arguments",
+            ));
+        }
+        if workflow.is_some() && raw.interactive {
+            return Err(invalid_workflow(
+                &path,
+                "workflow commands cannot be interactive",
+            ));
+        }
+
         Ok(Self {
             path,
             arguments: raw.arguments,
@@ -400,7 +431,218 @@ impl TryFrom<RawCommand> for CommandDeclaration {
             examples: raw.examples,
             interactive: raw.interactive,
             options,
+            workflow,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowDeclaration {
+    actions: Vec<WorkflowAction>,
+}
+
+impl WorkflowDeclaration {
+    fn validate(
+        raw: RawWorkflow,
+        command: &CommandPath,
+        options: &[OptionDeclaration],
+    ) -> Result<Self, ProtocolError> {
+        if raw.actions.is_empty() {
+            return Err(invalid_workflow(command, "at least one action is required"));
+        }
+
+        let mut ids = HashSet::new();
+        let mut actions = Vec::with_capacity(raw.actions.len());
+        for raw_action in raw.actions {
+            let id = WorkflowActionId::new(raw_action.id).map_err(|message| {
+                invalid_workflow(command, &format!("invalid action id: {message}"))
+            })?;
+            if !ids.insert(id.clone()) {
+                return Err(invalid_workflow(
+                    command,
+                    &format!("duplicate action id '{}'", id.as_str()),
+                ));
+            }
+            let action_path = CommandPath::new(raw_action.command).map_err(|error| {
+                invalid_workflow(command, &format!("action '{}': {error}", id.as_str()))
+            })?;
+            if action_path
+                .segments()
+                .first()
+                .is_some_and(|part| part == "extension")
+            {
+                return Err(invalid_workflow(
+                    command,
+                    &format!("action '{}' cannot invoke extension commands", id.as_str()),
+                ));
+            }
+            let arguments = raw_action
+                .arguments
+                .into_iter()
+                .map(|argument| WorkflowArgument::validate(argument, command, options))
+                .collect::<Result<Vec<_>, _>>()?;
+            actions.push(WorkflowAction {
+                id,
+                command: action_path,
+                arguments,
+            });
+        }
+        Ok(Self { actions })
+    }
+
+    pub fn actions(&self) -> &[WorkflowAction] {
+        &self.actions
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WorkflowActionId(String);
+
+impl WorkflowActionId {
+    fn new(value: String) -> Result<Self, String> {
+        if is_snake_word(&value) {
+            Ok(Self(value))
+        } else {
+            Err(format!("'{value}'; use lowercase ASCII snake_case"))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowAction {
+    id: WorkflowActionId,
+    command: CommandPath,
+    arguments: Vec<WorkflowArgument>,
+}
+
+impl WorkflowAction {
+    pub fn id(&self) -> &WorkflowActionId {
+        &self.id
+    }
+
+    pub fn command(&self) -> &CommandPath {
+        &self.command
+    }
+
+    pub fn arguments(&self) -> &[WorkflowArgument] {
+        &self.arguments
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowArgumentKind {
+    Literal,
+    OptionValue,
+    ConfigValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowArgument {
+    kind: WorkflowArgumentKind,
+    value: String,
+    default: Option<String>,
+}
+
+impl WorkflowArgument {
+    fn validate(
+        raw: RawWorkflowArgument,
+        command: &CommandPath,
+        options: &[OptionDeclaration],
+    ) -> Result<Self, ProtocolError> {
+        let sources = [
+            raw.literal.is_some(),
+            raw.option.is_some(),
+            raw.config.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count();
+        if sources != 1 {
+            return Err(invalid_workflow(
+                command,
+                "each action argument must declare exactly one of literal, option, or config",
+            ));
+        }
+        if raw.default.is_some() && raw.config.is_none() {
+            return Err(invalid_workflow(
+                command,
+                "an action argument default is only valid with config",
+            ));
+        }
+        if raw
+            .default
+            .as_deref()
+            .is_some_and(|value| value.contains('\0'))
+        {
+            return Err(invalid_workflow(
+                command,
+                "action argument defaults cannot contain NUL",
+            ));
+        }
+
+        let (kind, value) = if let Some(literal) = raw.literal {
+            if literal.contains('\0') {
+                return Err(invalid_workflow(
+                    command,
+                    "action argument literals cannot contain NUL",
+                ));
+            }
+            (WorkflowArgumentKind::Literal, literal)
+        } else if let Some(option) = raw.option {
+            let Some(declaration) = options.iter().find(|candidate| candidate.name() == option)
+            else {
+                return Err(invalid_workflow(
+                    command,
+                    &format!("action argument references unknown option '{option}'"),
+                ));
+            };
+            if declaration.kind() == OptionKind::Flag || declaration.repeatable() {
+                return Err(invalid_workflow(
+                    command,
+                    &format!("action argument option '{option}' must be a non-repeatable value"),
+                ));
+            }
+            if !declaration.required() {
+                return Err(invalid_workflow(
+                    command,
+                    &format!("action argument option '{option}' must be required"),
+                ));
+            }
+            (WorkflowArgumentKind::OptionValue, option)
+        } else {
+            let config = raw.config.expect("one argument source was present");
+            if !is_option_word(&config) {
+                return Err(invalid_workflow(
+                    command,
+                    &format!(
+                        "config key '{config}' must use lowercase ASCII letters, numbers, '-' or '_'"
+                    ),
+                ));
+            }
+            (WorkflowArgumentKind::ConfigValue, config)
+        };
+
+        Ok(Self {
+            kind,
+            value,
+            default: raw.default,
+        })
+    }
+
+    pub fn kind(&self) -> WorkflowArgumentKind {
+        self.kind
+    }
+
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    pub fn default(&self) -> Option<&str> {
+        self.default.as_deref()
     }
 }
 
@@ -613,7 +855,7 @@ struct RawManifest {
     version: String,
     requires_cli: String,
     protocol: String,
-    executable: String,
+    executable: Option<String>,
     #[serde(default)]
     commands: Vec<RawCommand>,
 }
@@ -631,6 +873,29 @@ struct RawCommand {
     interactive: bool,
     #[serde(default)]
     options: Vec<RawOption>,
+    workflow: Option<RawWorkflow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawWorkflow {
+    #[serde(default)]
+    actions: Vec<RawWorkflowAction>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawWorkflowAction {
+    id: String,
+    command: Vec<String>,
+    #[serde(default)]
+    arguments: Vec<RawWorkflowArgument>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawWorkflowArgument {
+    literal: Option<String>,
+    option: Option<String>,
+    config: Option<String>,
+    default: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -819,6 +1084,13 @@ fn invalid_option(command: &CommandPath, option: &str, message: &str) -> Protoco
     }
 }
 
+fn invalid_workflow(command: &CommandPath, message: &str) -> ProtocolError {
+    ProtocolError::InvalidWorkflow {
+        command: command.display(),
+        message: message.to_string(),
+    }
+}
+
 fn nonempty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
 }
@@ -902,6 +1174,82 @@ long = "verbose"
         assert!(manifest.supports_cli(&Version::new(0, 0, 9)));
         assert_eq!(manifest.commands()[0].path().display(), "host show");
         assert_eq!(manifest.commands()[0].options()[1].values().len(), 4);
+    }
+
+    #[test]
+    fn parses_manifest_only_workflows() {
+        let manifest = ExtensionManifest::parse(
+            r#"
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "hosts"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "hosts_class"
+default = "Hosts"
+"#,
+        )
+        .expect("workflow manifest should parse");
+
+        assert!(manifest.executable().is_none());
+        let action = &manifest.commands()[0]
+            .workflow()
+            .expect("workflow")
+            .actions()[0];
+        assert_eq!(action.id().as_str(), "hosts");
+        assert_eq!(action.command().display(), "object list");
+    }
+
+    #[test]
+    fn requires_an_implementation_for_each_command() {
+        let manifest = MANIFEST
+            .replace("executable = \"bin/site-inventory\"\n", "")
+            .replace("arguments = [\"host\", \"show\"]\n", "");
+        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
+
+        assert!(matches!(
+            error,
+            ProtocolError::MissingCommandImplementation(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_extension_recursion_in_workflows() {
+        let manifest = r#"
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "again"
+command = ["extension", "inventory", "snapshot"]
+"#;
+        let error = ExtensionManifest::parse(manifest).expect_err("manifest should fail");
+
+        assert!(error
+            .to_string()
+            .contains("cannot invoke extension commands"));
     }
 
     #[test]

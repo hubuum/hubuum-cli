@@ -7,6 +7,12 @@ Bash wrappers and the `host` pilot for the
 operation invokes `hubuum-cli`; the wrappers do not use a Hubuum API client
 library.
 
+For a dependency-free, manifest-only example that runs built-in commands
+in-process, see
+[`examples/hubuum-inventory`](../hubuum-inventory/README.md). The shell-backed
+wrappers remain as the richer Host placement pilot while the workflow action
+surface is deliberately read-only.
+
 Keep the manifest, protocol dispatcher, wrappers, and common file in this
 directory together. Put the directory on `PATH` for standalone use, or install
 the directory as a local command pack:

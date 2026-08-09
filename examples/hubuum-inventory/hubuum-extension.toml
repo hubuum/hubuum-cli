@@ -1,0 +1,59 @@
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1.0"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+about = "Collect Hosts, Jacks, and Rooms in one response"
+long_about = "Run three built-in object list commands in-process and compose their semantic JSON output."
+examples = [
+  "extension inventory snapshot",
+  "extension inventory snapshot --output json",
+  "extension inventory snapshot | JQ '.hosts | length'",
+]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "hosts"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "hosts_class"
+default = "Hosts"
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"
+
+[[commands.workflow.actions]]
+id = "jacks"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "jacks_class"
+default = "Jacks"
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"
+
+[[commands.workflow.actions]]
+id = "rooms"
+command = ["object", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--class"
+
+[[commands.workflow.actions.arguments]]
+config = "rooms_class"
+default = "Rooms"
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"

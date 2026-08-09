@@ -122,6 +122,38 @@ about = "Run protocol fixture"
     .expect("extension manifest");
 }
 
+fn write_workflow_pack(root: &Path, name: &str, action: &[&str]) {
+    let package = root.join(name);
+    create_dir_all(&package).expect("package directory");
+    let command = action
+        .iter()
+        .map(|segment| format!("\"{segment}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    write(
+        package.join("hubuum-extension.toml"),
+        format!(
+            r#"schema_version = 1
+name = "{name}"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+about = "Compose built-in commands"
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "items"
+command = [{command}]
+"#
+        ),
+    )
+    .expect("workflow manifest");
+}
+
 fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
     let output = assertion.success().get_output().stdout.clone();
     serde_json::from_slice(&output).expect("JSON command output")
@@ -340,6 +372,91 @@ fn doctor_reports_invalid_manifests_without_loading_them() {
 }
 
 #[test]
+fn manifest_only_workflows_need_no_executable() {
+    let temporary = tempdir().expect("temporary directory");
+    let source_root = temporary.path().join("sources");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&source_root).expect("source root");
+    create_dir_all(&user_root).expect("extension root");
+    write_workflow_pack(&source_root, "inventory", &["object", "list"]);
+    let source = source_root.join("inventory");
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let installed = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "install",
+                source.to_str().expect("source path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(installed["status"], "installed");
+
+    let shown = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "show",
+                "inventory",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(shown["state"], "enabled");
+    assert!(shown["executable"].is_null());
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
+            "extension",
+            "inventory",
+            "snapshot",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Compose built-in commands"));
+}
+
+#[test]
+fn doctor_quarantines_unsafe_workflow_actions() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_workflow_pack(&user_root, "unsafe-flow", &["object", "create"]);
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let doctor = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "doctor",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(doctor[0]["code"], "workflow_action_invalid");
+    assert!(doctor[0]["message"]
+        .as_str()
+        .expect("diagnostic message")
+        .contains("not declared read-only"));
+}
+
+#[test]
 fn protocol_failures_are_actionable() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
@@ -436,5 +553,6 @@ fn host_pilot_appears_in_the_real_command_catalog() {
         .success()
         .stdout(contains("extension host show"))
         .stdout(contains("extension host create"))
-        .stdout(contains("extension host move"));
+        .stdout(contains("extension host move"))
+        .stdout(contains("extension inventory snapshot"));
 }

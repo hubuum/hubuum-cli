@@ -29,8 +29,7 @@ pub(crate) struct CommandDocs {
 
 pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
-    let extensions = Arc::new(ExtensionRegistry::discover(&get_config()));
-    builder.set_extensions(extensions.clone());
+    let mut extensions = ExtensionRegistry::discover(&get_config());
 
     commands::admin::register_commands(&mut builder);
     commands::alias::register_commands(&mut builder);
@@ -61,6 +60,20 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);
+    extensions.validate_workflow_actions(|path| {
+        let command = builder
+            .command(path)
+            .ok_or_else(|| "command was not found in the built-in catalog".to_string())?;
+        if command.reauthentication_retry != crate::errors::ReauthenticationRetry::Safe {
+            return Err("command is not declared read-only".to_string());
+        }
+        if !command.composable {
+            return Err("command does not expose composable semantic output".to_string());
+        }
+        Ok(())
+    });
+    let extensions = Arc::new(extensions);
+    builder.set_extensions(extensions.clone());
     register_extension_management_commands(&mut builder);
     register_external_commands(&mut builder, &extensions);
 
@@ -100,6 +113,7 @@ where
         examples: docs.examples.map(str::to_string),
         options,
         reauthentication_retry: C::REAUTHENTICATION_RETRY,
+        composable: C::COMPOSABLE,
         handler: Arc::new(CommandHandler {
             command: Arc::new(command),
         }) as Arc<dyn AsyncCommandHandler>,

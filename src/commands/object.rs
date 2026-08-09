@@ -1493,6 +1493,7 @@ pub struct ObjectList {
 
 impl CliCommand for ObjectList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const COMPOSABLE: bool = true;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;

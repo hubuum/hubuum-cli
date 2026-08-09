@@ -239,6 +239,42 @@ impl ExtensionRegistry {
         names
     }
 
+    pub(crate) fn validate_workflow_actions<F>(&mut self, validate: F)
+    where
+        F: Fn(&[String]) -> Result<(), String>,
+    {
+        for pack in &mut self.packs {
+            if !pack.is_enabled() {
+                continue;
+            }
+            let Some(manifest) = pack.manifest.clone() else {
+                continue;
+            };
+            let invalid = manifest.commands().iter().find_map(|command| {
+                command.workflow().and_then(|workflow| {
+                    workflow.actions().iter().find_map(|action| {
+                        validate(action.command().segments()).err().map(|message| {
+                            format!(
+                                "workflow command '{}' action '{}' cannot invoke '{}': {message}",
+                                command.path().display(),
+                                action.id().as_str(),
+                                action.command().display()
+                            )
+                        })
+                    })
+                })
+            });
+            if let Some(message) = invalid {
+                pack.quarantine(ExtensionDiagnostic::error(
+                    "workflow_action_invalid",
+                    Some(manifest.name().as_str().to_string()),
+                    pack.manifest_path.clone(),
+                    message,
+                ));
+            }
+        }
+    }
+
     fn discover_root(
         &mut self,
         root: &Path,
@@ -406,15 +442,17 @@ fn load_pack(
         ));
     }
 
-    let executable = pack.package_root.join(manifest.executable().as_path());
-    match executable_status(&executable) {
-        Ok(()) => pack.executable = Some(executable),
-        Err(message) => pack.diagnostics.push(ExtensionDiagnostic::error(
-            "executable_invalid",
-            Some(name.clone()),
-            &executable,
-            message,
-        )),
+    if let Some(executable_path) = manifest.executable() {
+        let executable = pack.package_root.join(executable_path.as_path());
+        match executable_status(&executable) {
+            Ok(()) => pack.executable = Some(executable),
+            Err(message) => pack.diagnostics.push(ExtensionDiagnostic::error(
+                "executable_invalid",
+                Some(name.clone()),
+                &executable,
+                message,
+            )),
+        }
     }
 
     pack.state = if pack.diagnostics.is_empty() {

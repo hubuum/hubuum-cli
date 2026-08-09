@@ -8,16 +8,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hubuum_extension_protocol::{
     CommandDeclaration, ExtensionManifest, ExtensionResponse, OptionDeclaration, OptionKind,
-    SemanticOutput, SemanticOutputShape, PROTOCOL_V1,
+    SemanticOutput, SemanticOutputShape, WorkflowArgument, WorkflowArgumentKind,
+    WorkflowDeclaration, PROTOCOL_V1,
 };
 use hubuum_filter::OutputEnvelope;
-use serde_json::{to_string, Value};
+use serde_json::{to_string, Map, Value};
 use tokio::process::Command;
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
     CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
+use crate::command_line::shell_escape;
 use crate::commands::{render_format, standard_options, table_headers};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::extensions::{ExtensionPack, ExtensionRegistry};
@@ -35,11 +37,18 @@ pub(crate) fn register_external_commands(
         let Some(manifest) = pack.manifest_arc() else {
             continue;
         };
-        let Some(executable) = pack.executable().map(PathBuf::from) else {
-            continue;
-        };
         for command in manifest.commands() {
-            register_external_command(builder, pack, manifest.clone(), executable.clone(), command);
+            if let Some(workflow) = command.workflow() {
+                register_workflow_command(
+                    builder,
+                    pack,
+                    manifest.clone(),
+                    command,
+                    workflow.clone(),
+                );
+            } else if let Some(executable) = pack.executable().map(PathBuf::from) {
+                register_external_command(builder, pack, manifest.clone(), executable, command);
+            }
         }
     }
 }
@@ -103,7 +112,72 @@ fn register_external_command(
             examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
             options,
             reauthentication_retry: ReauthenticationRetry::Unsafe,
+            composable: false,
             handler: Arc::new(handler),
+        },
+    );
+}
+
+fn register_workflow_command(
+    builder: &mut CommandCatalogBuilder,
+    pack: &ExtensionPack,
+    manifest: Arc<ExtensionManifest>,
+    command: &CommandDeclaration,
+    workflow: WorkflowDeclaration,
+) {
+    let segments = command.path().segments();
+    let Some(name) = segments.last() else {
+        return;
+    };
+    let mut path = vec![
+        "extension".to_string(),
+        manifest.name().as_str().to_string(),
+    ];
+    path.extend(segments[..segments.len() - 1].iter().cloned());
+    let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let mut options = command
+        .options()
+        .iter()
+        .map(option_spec)
+        .collect::<Vec<_>>();
+    options.extend(standard_options().into_iter().map(|option| {
+        OptionSpec {
+            name: option.name,
+            short: option.short,
+            long: option.long,
+            help: option.help,
+            field_type_help: option.field_type_help,
+            field_type: option.field_type,
+            required: option.required,
+            flag: option.flag,
+            greedy: option.greedy,
+            nargs: option.nargs,
+            repeatable: option.repeatable,
+            value_source: option.value_source,
+            completion: option
+                .autocomplete
+                .map(CompletionSpec::Dynamic)
+                .unwrap_or(CompletionSpec::None),
+        }
+    }));
+
+    builder.add_command(
+        &path_refs,
+        CommandSpec {
+            name: name.clone(),
+            about: command.about().map(str::to_string),
+            long_about: command.long_about().map(str::to_string),
+            examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
+            options,
+            reauthentication_retry: ReauthenticationRetry::Safe,
+            composable: false,
+            handler: Arc::new(WorkflowCommandHandler {
+                pack: manifest.name().as_str().to_string(),
+                declaration: command.clone(),
+                workflow,
+                config: pack.config().clone(),
+            }),
         },
     );
 }
@@ -248,6 +322,254 @@ impl AsyncCommandHandler for ExternalCommandHandler {
 
     fn requires_authentication(&self) -> bool {
         false
+    }
+}
+
+#[derive(Clone)]
+struct WorkflowCommandHandler {
+    pack: String,
+    declaration: CommandDeclaration,
+    workflow: WorkflowDeclaration,
+    config: Value,
+}
+
+#[async_trait]
+impl AsyncCommandHandler for WorkflowCommandHandler {
+    async fn execute(
+        &self,
+        ctx: CommandContext,
+        invocation: CommandInvocation,
+    ) -> Result<CommandOutcome, AppError> {
+        let option_defs = extension_cli_options(&self.declaration);
+        let tokens =
+            CommandTokenizer::new_at(&invocation.raw_line, invocation.command_index, &option_defs)?;
+        validate_invocation(&tokens, &self.declaration)?;
+        let actions = self
+            .workflow
+            .actions()
+            .iter()
+            .map(|action| {
+                let arguments = action
+                    .arguments()
+                    .iter()
+                    .map(|argument| {
+                        resolve_workflow_argument(
+                            argument,
+                            &tokens,
+                            &self.declaration,
+                            &self.config,
+                            &self.pack,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((action, arguments))
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+
+        let mut values = Map::new();
+        let mut columns = Vec::new();
+        let mut warnings = Vec::new();
+        for (action, arguments) in actions {
+            let mut action_tokens = action.command().segments().to_vec();
+            action_tokens.extend(arguments);
+            let raw_line = action_tokens
+                .iter()
+                .map(|token| shell_escape(token))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let (handler, command_path, command_index) = {
+                let catalog = ctx.catalog.snapshot();
+                let resolved = catalog.resolve_command(&[], &action_tokens)?;
+                if resolved.command.reauthentication_retry != ReauthenticationRetry::Safe
+                    || !resolved.command.composable
+                {
+                    return Err(workflow_error(
+                        &self.pack,
+                        &self.declaration,
+                        format!(
+                            "action '{}' command '{}' is no longer a composable read-only command",
+                            action.id().as_str(),
+                            action.command().display()
+                        ),
+                    ));
+                }
+                (
+                    resolved.command.handler.clone(),
+                    resolved.command_path,
+                    resolved.command_index,
+                )
+            };
+            let outcome = handler
+                .execute(
+                    ctx.clone(),
+                    CommandInvocation {
+                        raw_line,
+                        command_index,
+                        command_path,
+                        pipeline: Vec::new(),
+                        pipeline_suffix: None,
+                    },
+                )
+                .await
+                .map_err(|error| error.with_warnings(warnings.clone()))?;
+            warnings.extend(outcome.output.warnings);
+            if outcome.redirect.is_some() || outcome.scope_action != ScopeAction::None {
+                return Err(workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "action '{}' attempted an unsupported redirect or scope change",
+                        action.id().as_str()
+                    ),
+                )
+                .with_warnings(warnings));
+            }
+            if outcome.output.next_page_command.is_some() {
+                return Err(workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "action '{}' returned a partial page; declare '--all' or an explicit page policy",
+                        action.id().as_str()
+                    ),
+                )
+                .with_warnings(warnings));
+            }
+            if !outcome.output.errors.is_empty() {
+                return Err(workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "action '{}' returned errors: {}",
+                        action.id().as_str(),
+                        outcome.output.errors.join("; ")
+                    ),
+                )
+                .with_warnings(warnings));
+            }
+            let mut semantic = outcome.output.semantic;
+            if semantic.len() != 1 {
+                return Err(workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "action '{}' returned {} semantic values; exactly one is required",
+                        action.id().as_str(),
+                        semantic.len()
+                    ),
+                )
+                .with_warnings(warnings));
+            }
+            let envelope = semantic.pop().expect("one semantic value was checked");
+            let id = action.id().as_str().to_string();
+            columns.push(id.clone());
+            values.insert(id, envelope.value);
+        }
+
+        reset_output()?;
+        set_pipeline(invocation.pipeline)?;
+        set_pipeline_suffix(invocation.pipeline_suffix)?;
+        set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
+        for warning in warnings {
+            add_warning(warning)?;
+        }
+        set_semantic_output(OutputEnvelope::detail(Value::Object(values), columns))?;
+        Ok(CommandOutcome {
+            output: take_output()?,
+            scope_action: ScopeAction::None,
+            ..Default::default()
+        })
+    }
+}
+
+fn resolve_workflow_argument(
+    argument: &WorkflowArgument,
+    tokens: &CommandTokenizer,
+    declaration: &CommandDeclaration,
+    config: &Value,
+    pack: &str,
+) -> Result<String, AppError> {
+    match argument.kind() {
+        WorkflowArgumentKind::Literal => Ok(argument.value().to_string()),
+        WorkflowArgumentKind::OptionValue => {
+            workflow_option_value(tokens, declaration, argument.value()).ok_or_else(|| {
+                workflow_error(
+                    pack,
+                    declaration,
+                    format!("required option '{}' had no value", argument.value()),
+                )
+            })
+        }
+        WorkflowArgumentKind::ConfigValue => {
+            let value = config
+                .as_object()
+                .and_then(|config| config.get(argument.value()))
+                .filter(|value| !value.is_null());
+            match value {
+                Some(Value::String(value)) if !value.contains('\0') => Ok(value.clone()),
+                Some(Value::String(_)) => Err(workflow_error(
+                    pack,
+                    declaration,
+                    format!("config key '{}' cannot contain NUL", argument.value()),
+                )),
+                Some(Value::Bool(value)) => Ok(value.to_string()),
+                Some(Value::Number(value)) => Ok(value.to_string()),
+                Some(_) => Err(workflow_error(
+                    pack,
+                    declaration,
+                    format!(
+                        "config key '{}' must contain a string, number, or boolean",
+                        argument.value()
+                    ),
+                )),
+                None => argument.default().map(str::to_string).ok_or_else(|| {
+                    workflow_error(
+                        pack,
+                        declaration,
+                        format!("required config key '{}' is missing", argument.value()),
+                    )
+                }),
+            }
+        }
+    }
+}
+
+fn workflow_option_value(
+    tokens: &CommandTokenizer,
+    declaration: &CommandDeclaration,
+    name: &str,
+) -> Option<String> {
+    let option = declaration
+        .options()
+        .iter()
+        .find(|option| option.name() == name)?;
+    if option.positional() {
+        let index = declaration
+            .options()
+            .iter()
+            .filter(|candidate| candidate.positional())
+            .position(|candidate| candidate.name() == name)?;
+        return tokens.get_positionals().get(index).cloned();
+    }
+
+    tokens
+        .get_option_occurrences()
+        .iter()
+        .find(|occurrence| {
+            option
+                .short()
+                .is_some_and(|short| occurrence.key == short.to_string())
+                || option.long().is_some_and(|long| occurrence.key == long)
+        })
+        .map(|occurrence| occurrence.value.clone())
+}
+
+fn workflow_error(pack: &str, declaration: &CommandDeclaration, message: String) -> AppError {
+    AppError::ExtensionWorkflow {
+        pack: pack.to_string(),
+        command: declaration.path().display(),
+        message,
     }
 }
 
@@ -495,10 +817,47 @@ fn output_status(status: &std::process::ExitStatus) -> String {
 
 #[cfg(test)]
 mod tests {
-    use hubuum_extension_protocol::ExtensionManifest;
+    use std::sync::Arc;
 
-    use super::{extension_cli_options, forwarded_arguments};
+    use async_trait::async_trait;
+    use hubuum_extension_protocol::ExtensionManifest;
+    use hubuum_filter::OutputEnvelope;
+    use serde_json::json;
+    use serial_test::serial;
+
+    use super::{
+        extension_cli_options, forwarded_arguments, AsyncCommandHandler, WorkflowCommandHandler,
+    };
+    use crate::catalog::{
+        CatalogStore, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
+        CommandSpec, ScopeAction,
+    };
+    use crate::config::get_config;
+    use crate::errors::{AppError, ReauthenticationRetry};
+    use crate::output::OutputSnapshot;
     use crate::tokenizer::CommandTokenizer;
+
+    struct SemanticAction;
+
+    #[async_trait]
+    impl AsyncCommandHandler for SemanticAction {
+        async fn execute(
+            &self,
+            _ctx: CommandContext,
+            _invocation: CommandInvocation,
+        ) -> Result<CommandOutcome, AppError> {
+            Ok(CommandOutcome {
+                output: OutputSnapshot {
+                    semantic: vec![OutputEnvelope::rows(
+                        vec![json!({"id": 1})],
+                        vec!["id".to_string()],
+                    )],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        }
+    }
 
     #[test]
     fn scoped_invocations_forward_every_entered_extension_argument() {
@@ -537,6 +896,80 @@ long = "state"
         assert_eq!(
             forwarded_arguments(&tokens, 1),
             ["target-1", "--state", "active"]
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn workflow_composes_semantic_action_values_in_process() {
+        let manifest = ExtensionManifest::parse(
+            r#"
+schema_version = 1
+name = "demo"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "items"
+command = ["object", "list"]
+"#,
+        )
+        .expect("workflow manifest");
+        let declaration = manifest.commands()[0].clone();
+        let handler = WorkflowCommandHandler {
+            pack: "demo".to_string(),
+            workflow: declaration.workflow().expect("workflow").clone(),
+            declaration,
+            config: json!({}),
+        };
+        let mut builder = CommandCatalogBuilder::new();
+        builder.add_command(
+            &["object"],
+            CommandSpec {
+                name: "list".to_string(),
+                about: None,
+                long_about: None,
+                examples: None,
+                options: Vec::new(),
+                reauthentication_retry: ReauthenticationRetry::Safe,
+                composable: true,
+                handler: Arc::new(SemanticAction),
+            },
+        );
+        let context = CommandContext {
+            config: get_config(),
+            services: None,
+            catalog: Arc::new(CatalogStore::new(builder.build())),
+        };
+
+        let outcome = handler
+            .execute(
+                context,
+                CommandInvocation {
+                    raw_line: "extension demo snapshot --output json".to_string(),
+                    command_index: 2,
+                    command_path: vec![
+                        "extension".to_string(),
+                        "demo".to_string(),
+                        "snapshot".to_string(),
+                    ],
+                    pipeline: Vec::new(),
+                    pipeline_suffix: None,
+                },
+            )
+            .await
+            .expect("workflow should execute");
+
+        assert_eq!(outcome.scope_action, ScopeAction::None);
+        assert_eq!(
+            outcome.output.semantic[0].value,
+            json!({"items": [{"id": 1}]})
         );
     }
 }

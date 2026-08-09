@@ -141,6 +141,13 @@ pub enum AppError {
         details: String,
     },
 
+    #[error("Extension workflow error for {pack} ({command}): {message}")]
+    ExtensionWorkflow {
+        pack: String,
+        command: String,
+        message: String,
+    },
+
     #[error("{source}")]
     WithWarnings {
         warnings: Vec<String>,

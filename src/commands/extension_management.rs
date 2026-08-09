@@ -115,6 +115,7 @@ fn register(
             examples: management_examples(name),
             options,
             reauthentication_retry: ReauthenticationRetry::Unsafe,
+            composable: false,
             handler: Arc::new(ManagementHandler { operation: name }),
         },
     );
@@ -329,6 +330,17 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
                     "path": command.path().display(),
                     "arguments": command.arguments(),
                     "interactive": command.interactive(),
+                    "implementation": if command.workflow().is_some() {
+                        "workflow"
+                    } else {
+                        "executable"
+                    },
+                    "actions": command.workflow().map(|workflow| workflow.actions().iter().map(|action| {
+                        json!({
+                            "id": action.id().as_str(),
+                            "command": action.command().display(),
+                        })
+                    }).collect::<Vec<_>>()).unwrap_or_default(),
                 })
             }).collect::<Vec<_>>()).unwrap_or_default(),
             "diagnostics": pack.diagnostics().iter().map(diagnostic_value).collect::<Vec<_>>(),
@@ -547,7 +559,9 @@ fn validate_source(source: &Path) -> Result<ExtensionManifest, AppError> {
             manifest.requires_cli()
         )));
     }
-    validate_executable(&source.join(manifest.executable().as_path()))?;
+    if let Some(executable) = manifest.executable() {
+        validate_executable(&source.join(executable.as_path()))?;
+    }
     Ok(manifest)
 }
 
