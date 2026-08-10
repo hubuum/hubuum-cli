@@ -5,7 +5,6 @@ use std::iter::{once, repeat_n};
 
 use anstream::AutoStream;
 use comfy_table::{
-    modifiers::UTF8_ROUND_CORNERS,
     presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
     ColumnConstraint, ContentArrangement, Table, Width,
 };
@@ -1025,20 +1024,19 @@ fn semantic_scalar(value: &Value) -> String {
 fn apply_table_style(table: &mut Table, style: &TableStyle) {
     match style {
         TableStyle::Ascii => {
-            table.load_preset(ASCII_FULL);
+            table.load_style(ASCII_FULL);
         }
         TableStyle::Compact => {
-            table.load_preset(UTF8_HORIZONTAL_ONLY);
+            table.load_style(UTF8_HORIZONTAL_ONLY);
         }
         TableStyle::Markdown => {
-            table.load_preset(ASCII_MARKDOWN);
+            table.load_style(ASCII_MARKDOWN);
         }
         TableStyle::Plain | TableStyle::Dense => {
-            table.load_preset(NOTHING);
+            table.load_style(NOTHING);
         }
         TableStyle::Rounded => {
-            table.load_preset(UTF8_FULL);
-            table.apply_modifier(UTF8_ROUND_CORNERS);
+            table.load_style(UTF8_FULL.with_rounded_corners());
         }
     }
 }
