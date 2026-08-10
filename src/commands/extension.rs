@@ -10,13 +10,14 @@ use hubuum_extension_protocol::{
     CommandDeclaration, ExtensionManifest, ExtensionResponse, OptionDeclaration, OptionKind,
     SemanticOutput, SemanticOutputShape, WorkflowBinding, WorkflowDeclaration, PROTOCOL_V1,
 };
-use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage};
+use hubuum_filter::{apply_pipeline, OutputEnvelope, OutputShape, PipeStage};
 use serde_json::{from_str, to_string, Map, Value};
 use tokio::process::Command;
 
 use crate::catalog::{
-    AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
-    CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+    AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandEffects, CommandInvocation,
+    CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction, WorkflowCardinality,
+    WorkflowInputContract, WorkflowValueType,
 };
 use crate::command_line::shell_escape;
 use crate::commands::{render_format, standard_options, table_headers};
@@ -103,18 +104,17 @@ fn register_external_command(
         declaration: command.clone(),
         config: pack.config().clone(),
     };
-    builder.add_command(
-        &path_refs,
-        CommandSpec {
-            name: name.clone(),
-            about: command.about().map(str::to_string),
-            long_about: command.long_about().map(str::to_string),
-            examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
-            options,
-            reauthentication_retry: ReauthenticationRetry::Unsafe,
-            handler: Arc::new(handler),
-        },
+    let mut spec = CommandSpec::new(
+        name,
+        options,
+        ReauthenticationRetry::Unsafe,
+        CommandEffects::Mutating,
+        Arc::new(handler),
     );
+    spec.about = command.about().map(str::to_string);
+    spec.long_about = command.long_about().map(str::to_string);
+    spec.examples = (!command.examples().is_empty()).then(|| command.examples().join("\n"));
+    builder.add_command(&path_refs, spec);
 }
 
 fn register_workflow_command(
@@ -142,6 +142,15 @@ fn register_workflow_command(
         ReauthenticationRetry::Unsafe
     } else {
         ReauthenticationRetry::Safe
+    };
+    let effects = if workflow.steps().iter().any(|step| {
+        builder
+            .command(step.run().segments())
+            .is_some_and(|command| command.workflow_contract().effects().may_mutate())
+    }) {
+        CommandEffects::Mutating
+    } else {
+        CommandEffects::ReadOnly
     };
     let requires_authentication = workflow.steps().iter().any(|step| {
         !is_offline_builtin_command(step.run().segments())
@@ -176,24 +185,23 @@ fn register_workflow_command(
         }
     }));
 
-    builder.add_command(
-        &path_refs,
-        CommandSpec {
-            name: name.clone(),
-            about: command.about().map(str::to_string),
-            long_about: command.long_about().map(str::to_string),
-            examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
-            options,
-            reauthentication_retry,
-            handler: Arc::new(WorkflowCommandHandler {
-                pack: manifest.name().as_str().to_string(),
-                declaration: command.clone(),
-                workflow,
-                config: pack.config().clone(),
-                requires_authentication,
-            }),
-        },
+    let mut spec = CommandSpec::new(
+        name,
+        options,
+        reauthentication_retry,
+        effects,
+        Arc::new(WorkflowCommandHandler {
+            pack: manifest.name().as_str().to_string(),
+            declaration: command.clone(),
+            workflow,
+            config: pack.config().clone(),
+            requires_authentication,
+        }),
     );
+    spec.about = command.about().map(str::to_string);
+    spec.long_about = command.long_about().map(str::to_string);
+    spec.examples = (!command.examples().is_empty()).then(|| command.examples().join("\n"));
+    builder.add_command(&path_refs, spec);
 }
 
 fn option_spec(option: &OptionDeclaration) -> OptionSpec {
@@ -226,14 +234,6 @@ fn option_spec(option: &OptionDeclaration) -> OptionSpec {
 
 const WORKFLOW_HOST_INPUTS: &[&str] = &["help", "json", "output", "table-headers"];
 
-pub(crate) fn workflow_binding_name(option: &OptionSpec) -> &str {
-    option
-        .long
-        .as_deref()
-        .map(|long| long.trim_start_matches('-'))
-        .unwrap_or(&option.name)
-}
-
 pub(crate) fn workflow_step_arguments(
     command: &CommandSpec,
     values: &BTreeMap<String, Value>,
@@ -244,31 +244,28 @@ pub(crate) fn workflow_step_arguments(
                 "binding '{name}' is owned by the host and cannot be supplied by a workflow"
             ));
         }
-        if !command
-            .options
-            .iter()
-            .any(|option| workflow_binding_name(option) == name)
-        {
+        if command.workflow_contract().input(name).is_none() {
             return Err(format!("command has no input named '{name}'"));
         }
     }
 
     let mut named_arguments = Vec::new();
     let mut positional_arguments = Vec::new();
-    for option in &command.options {
-        let binding_name = workflow_binding_name(option);
+    for input in command.workflow_contract().inputs() {
+        let binding_name = input.id();
         if WORKFLOW_HOST_INPUTS.contains(&binding_name) {
             continue;
         }
+        let option = command.workflow_input_option(input);
         let Some(value) = values.get(binding_name) else {
-            if option.required {
+            if input.required() {
                 return Err(format!("required input '{binding_name}' has no binding"));
             }
             continue;
         };
-        let groups = workflow_binding_groups(value, option)?;
+        let groups = workflow_binding_groups(value, input)?;
         if groups.is_empty() {
-            if option.required {
+            if input.required() {
                 return Err(format!(
                     "required input '{binding_name}' resolved to no value"
                 ));
@@ -300,60 +297,92 @@ pub(crate) fn workflow_step_arguments(
     Ok(named_arguments)
 }
 
-fn workflow_binding_groups(value: &Value, option: &OptionSpec) -> Result<Vec<Vec<String>>, String> {
+fn workflow_binding_groups(
+    value: &Value,
+    input: &WorkflowInputContract,
+) -> Result<Vec<Vec<String>>, String> {
     if value.is_null() {
         return Ok(Vec::new());
     }
-    if option.flag {
+    if input.flag() {
         return match value {
             Value::Bool(true) => Ok(vec![Vec::new()]),
             Value::Bool(false) | Value::Null => Ok(Vec::new()),
             _ => Err(format!(
                 "flag input '{}' requires a boolean value",
-                option.name
+                input.id()
             )),
         };
     }
 
-    match (option.repeatable, option.nargs) {
-        (true, Some(count)) => {
+    match input.cardinality() {
+        WorkflowCardinality::RepeatedFixed(count) => {
             let occurrences = value.as_array().ok_or_else(|| {
                 format!(
                     "repeatable input '{}' with {count} values per occurrence requires an array of arrays",
-                    option.name
+                    input.id()
                 )
             })?;
             occurrences
                 .iter()
-                .map(|occurrence| workflow_fixed_group(occurrence, &option.name, count))
+                .map(|occurrence| workflow_fixed_group(occurrence, input, count))
                 .collect()
         }
-        (false, Some(count)) => Ok(vec![workflow_fixed_group(value, &option.name, count)?]),
-        (true, None) => match value {
+        WorkflowCardinality::Fixed(count) => Ok(vec![workflow_fixed_group(value, input, count)?]),
+        WorkflowCardinality::Repeated => match value {
             Value::Array(values) => values
                 .iter()
-                .map(|value| workflow_scalar_argument(value).map(|value| vec![value]))
+                .map(|value| workflow_scalar_argument(value, input).map(|value| vec![value]))
                 .collect(),
-            _ => Ok(vec![vec![workflow_scalar_argument(value)?]]),
+            _ => Ok(vec![vec![workflow_scalar_argument(value, input)?]]),
         },
-        (false, None) => Ok(vec![vec![workflow_scalar_argument(value)?]]),
+        WorkflowCardinality::One => Ok(vec![vec![workflow_scalar_argument(value, input)?]]),
     }
 }
 
-fn workflow_fixed_group(value: &Value, name: &str, count: usize) -> Result<Vec<String>, String> {
+fn workflow_fixed_group(
+    value: &Value,
+    input: &WorkflowInputContract,
+    count: usize,
+) -> Result<Vec<String>, String> {
     let values = value.as_array().ok_or_else(|| {
-        format!("input '{name}' requires an array containing exactly {count} values")
+        format!(
+            "input '{}' requires an array containing exactly {count} values",
+            input.id()
+        )
     })?;
     if values.len() != count {
         return Err(format!(
-            "input '{name}' requires exactly {count} values per occurrence, got {}",
+            "input '{}' requires exactly {count} values per occurrence, got {}",
+            input.id(),
             values.len()
         ));
     }
-    values.iter().map(workflow_scalar_argument).collect()
+    values
+        .iter()
+        .map(|value| workflow_scalar_argument(value, input))
+        .collect()
 }
 
-fn workflow_scalar_argument(value: &Value) -> Result<String, String> {
+fn workflow_scalar_argument(
+    value: &Value,
+    input: &WorkflowInputContract,
+) -> Result<String, String> {
+    let valid_type = match input.value_type() {
+        WorkflowValueType::Text => value.is_string(),
+        WorkflowValueType::Integer => value.as_i64().is_some() || value.as_u64().is_some(),
+        WorkflowValueType::Number => value.is_number(),
+        WorkflowValueType::Boolean => value.is_boolean(),
+        WorkflowValueType::Json => true,
+    };
+    if !valid_type {
+        return Err(format!(
+            "input '{}' expects {:?}, got {}",
+            input.id(),
+            input.value_type(),
+            workflow_json_type(value)
+        ));
+    }
     let value = match value {
         Value::String(value) => value.clone(),
         Value::Bool(value) => value.to_string(),
@@ -367,6 +396,17 @@ fn workflow_scalar_argument(value: &Value) -> Result<String, String> {
         Err("command arguments cannot contain NUL".to_string())
     } else {
         Ok(value)
+    }
+}
+
+fn workflow_json_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 
@@ -509,6 +549,7 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
             .map_err(|message| workflow_error(&self.pack, &self.declaration, message))?;
 
         let mut values = Map::new();
+        let mut outputs = Map::new();
         let mut columns = Vec::new();
         let mut warnings = Vec::new();
         let mut completed_steps = Vec::new();
@@ -527,7 +568,7 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
             let (handler, command_path, command_index, arguments) = {
                 let catalog = ctx.catalog.snapshot();
                 let resolved = catalog.resolve_command(&[], step.run().segments())?;
-                if resolved.command.reauthentication_retry == ReauthenticationRetry::Unsafe
+                if resolved.command.workflow_contract().effects().may_mutate()
                     && !self.workflow.allows_mutation()
                 {
                     return Err(workflow_error(
@@ -632,11 +673,13 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                 )
                 .with_warnings(workflow_progress_warnings(&warnings, &completed_steps)));
             }
-            let value = workflow_output_value(outcome.output.semantic, outcome.output.lines);
+            let (value, output) =
+                workflow_output_capture(outcome.output.semantic, outcome.output.lines);
             let id = step.id().as_str().to_string();
             columns.push(id.clone());
             completed_steps.push(id.clone());
-            values.insert(id, value);
+            values.insert(id.clone(), value);
+            outputs.insert(id, output);
         }
 
         let output = if let Some(result) = self.workflow.result() {
@@ -644,6 +687,7 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                 "input": inputs,
                 "config": self.config.clone(),
                 "steps": values,
+                "outputs": outputs,
             });
             apply_pipeline(
                 workflow_value_envelope(context),
@@ -682,8 +726,30 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
     }
 }
 
-fn workflow_output_value(semantic: Vec<OutputEnvelope>, lines: Vec<String>) -> Value {
-    match semantic.len() {
+fn workflow_output_capture(semantic: Vec<OutputEnvelope>, lines: Vec<String>) -> (Value, Value) {
+    let has_semantic = !semantic.is_empty();
+    let metadata = if !has_semantic {
+        serde_json::json!({
+            "source": "rendered",
+            "shape": "lines",
+            "columns": [],
+            "lines": lines,
+        })
+    } else {
+        Value::Array(
+            semantic
+                .iter()
+                .map(|envelope| {
+                    serde_json::json!({
+                        "shape": workflow_output_shape_name(envelope.shape),
+                        "value": envelope.value,
+                        "columns": envelope.columns,
+                    })
+                })
+                .collect(),
+        )
+    };
+    let value = match semantic.len() {
         0 => {
             if lines.is_empty() {
                 Value::Null
@@ -711,6 +777,33 @@ fn workflow_output_value(semantic: Vec<OutputEnvelope>, lines: Vec<String>) -> V
                 .map(|envelope| envelope.value)
                 .collect(),
         ),
+    };
+    let output = if !has_semantic {
+        let mut metadata = metadata
+            .as_object()
+            .expect("rendered output metadata is an object")
+            .clone();
+        metadata.insert("value".to_string(), value.clone());
+        Value::Object(metadata)
+    } else {
+        serde_json::json!({
+            "source": "semantic",
+            "value": value,
+            "envelopes": metadata,
+        })
+    };
+    (value, output)
+}
+
+fn workflow_output_shape_name(shape: OutputShape) -> &'static str {
+    match shape {
+        OutputShape::Empty => "empty",
+        OutputShape::Lines => "lines",
+        OutputShape::Rows => "rows",
+        OutputShape::Detail => "detail",
+        OutputShape::Message => "message",
+        OutputShape::Values => "values",
+        OutputShape::Groups => "groups",
     }
 }
 
@@ -1125,8 +1218,8 @@ mod tests {
         AsyncCommandHandler, WorkflowCommandHandler,
     };
     use crate::catalog::{
-        CatalogStore, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
-        CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+        CatalogStore, CommandCatalogBuilder, CommandContext, CommandEffects, CommandInvocation,
+        CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
     };
     use crate::config::get_config;
     use crate::errors::{AppError, ReauthenticationRetry};
@@ -1306,12 +1399,9 @@ repeatable = true
 
     #[test]
     fn workflow_bindings_compile_named_flags_positionals_and_fixed_arity_values() {
-        let command = CommandSpec {
-            name: "demo".to_string(),
-            about: None,
-            long_about: None,
-            examples: None,
-            options: vec![
+        let command = CommandSpec::new(
+            "demo",
+            vec![
                 catalog_option("target", None, true, false, false, None),
                 catalog_option("class", Some("--class"), false, false, false, None),
                 catalog_option("all", Some("--all"), false, true, false, None),
@@ -1324,9 +1414,10 @@ repeatable = true
                     Some(3),
                 ),
             ],
-            reauthentication_retry: ReauthenticationRetry::Safe,
-            handler: Arc::new(EchoAction),
-        };
+            ReauthenticationRetry::Safe,
+            CommandEffects::ReadOnly,
+            Arc::new(EchoAction),
+        );
         let values = BTreeMap::from([
             ("target".to_string(), json!("server-01")),
             ("class".to_string(), json!("Hosts")),
@@ -1375,7 +1466,7 @@ positional = true
 required = true
 
 [commands.workflow]
-result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy }"
+result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
 
 [[commands.workflow.steps]]
 id = "items"
@@ -1408,53 +1499,36 @@ run = ["object", "legacy"]
         let mut builder = CommandCatalogBuilder::new();
         builder.add_command(
             &["object"],
-            CommandSpec {
-                name: "list".to_string(),
-                about: None,
-                long_about: None,
-                examples: None,
-                options: Vec::new(),
-                reauthentication_retry: ReauthenticationRetry::Safe,
-                handler: Arc::new(SemanticAction),
-            },
+            CommandSpec::new(
+                "list",
+                Vec::new(),
+                ReauthenticationRetry::Safe,
+                CommandEffects::ReadOnly,
+                Arc::new(SemanticAction),
+            ),
+        );
+        let mut id_option = catalog_option("id", Some("--id"), true, false, false, None);
+        id_option.field_type_help = "integer".to_string();
+        id_option.field_type = TypeId::of::<i64>();
+        builder.add_command(
+            &["object"],
+            CommandSpec::new(
+                "echo",
+                vec![id_option],
+                ReauthenticationRetry::Safe,
+                CommandEffects::ReadOnly,
+                Arc::new(EchoAction),
+            ),
         );
         builder.add_command(
             &["object"],
-            CommandSpec {
-                name: "echo".to_string(),
-                about: None,
-                long_about: None,
-                examples: None,
-                options: vec![OptionSpec {
-                    name: "id".to_string(),
-                    short: None,
-                    long: Some("--id".to_string()),
-                    help: String::new(),
-                    field_type_help: "string".to_string(),
-                    field_type: TypeId::of::<String>(),
-                    required: true,
-                    flag: false,
-                    greedy: false,
-                    nargs: None,
-                    repeatable: false,
-                    value_source: false,
-                    completion: CompletionSpec::None,
-                }],
-                reauthentication_retry: ReauthenticationRetry::Safe,
-                handler: Arc::new(EchoAction),
-            },
-        );
-        builder.add_command(
-            &["object"],
-            CommandSpec {
-                name: "legacy".to_string(),
-                about: None,
-                long_about: None,
-                examples: None,
-                options: Vec::new(),
-                reauthentication_retry: ReauthenticationRetry::Safe,
-                handler: Arc::new(RenderedJsonAction),
-            },
+            CommandSpec::new(
+                "legacy",
+                Vec::new(),
+                ReauthenticationRetry::Safe,
+                CommandEffects::ReadOnly,
+                Arc::new(RenderedJsonAction),
+            ),
         );
         let context = CommandContext {
             config: get_config(),
@@ -1488,7 +1562,23 @@ run = ["object", "legacy"]
                 "items": [{"id": 1}],
                 "selected": "object echo --output json --id=1",
                 "input_echo": "object echo --output json --id=7",
-                "legacy": {"legacy": true}
+                "legacy": {"legacy": true},
+                "items_output": {
+                    "source": "semantic",
+                    "value": [{"id": 1}],
+                    "envelopes": [{
+                        "shape": "rows",
+                        "value": [{"id": 1}],
+                        "columns": ["id"]
+                    }]
+                },
+                "legacy_output": {
+                    "source": "rendered",
+                    "shape": "lines",
+                    "columns": [],
+                    "lines": ["{", "  \"legacy\": true", "}"],
+                    "value": {"legacy": true}
+                }
             })
         );
     }

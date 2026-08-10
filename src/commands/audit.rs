@@ -10,7 +10,7 @@ use crate::autocomplete::{
     actor_kinds, audit_event_ids, audit_resource_names, audit_resources, classes, collections,
     event_actions,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::AuditEventId;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::{AppServices, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope};
@@ -104,6 +104,7 @@ pub struct AuditList {
 
 impl CliCommand for AuditList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -146,6 +147,7 @@ pub struct AuditShow {
 
 impl CliCommand for AuditShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -206,6 +208,7 @@ pub struct AuditResource {
 
 impl CliCommand for AuditResource {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

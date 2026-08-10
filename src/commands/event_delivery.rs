@@ -8,7 +8,7 @@ use super::{
     PageSelection,
 };
 use crate::autocomplete::event_delivery_ids;
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
@@ -90,6 +90,7 @@ pub struct EventDeliveryList {
 
 impl CliCommand for EventDeliveryList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -118,6 +119,7 @@ pub struct EventDeliveryShow {
 
 impl CliCommand for EventDeliveryShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -131,6 +133,7 @@ pub struct EventDeliveryHealth {}
 
 impl CliCommand for EventDeliveryHealth {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_json_record(tokens, &services.gateway().event_delivery_health()?)

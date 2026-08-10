@@ -8,7 +8,7 @@ use super::{
     CliCommand, PageSelection,
 };
 use crate::autocomplete::{group_sort, group_where, groups, service_accounts, users};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
 use crate::domain::GroupDetails;
 use crate::errors::{AppError, ReauthenticationRetry};
@@ -302,6 +302,7 @@ pub struct GroupInfo {
 }
 impl CliCommand for GroupInfo {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;
@@ -394,6 +395,7 @@ pub struct GroupList {
 
 impl CliCommand for GroupList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

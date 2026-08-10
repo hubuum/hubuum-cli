@@ -2,14 +2,17 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hubuum_extension_protocol::{WorkflowBinding, WorkflowDeclaration};
+use hubuum_extension_protocol::{
+    CommandDeclaration, OptionDeclaration, OptionKind, WorkflowBinding, WorkflowDeclaration,
+};
 use hubuum_filter::validate_jq_expression;
 use serde_json::{json, Value};
 use tokio::task::spawn_blocking;
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,
-    CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+    CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction, WorkflowCardinality,
+    WorkflowInputContract, WorkflowValueType,
 };
 use crate::commands::{self, command_options, render_format, table_headers, CliCommand};
 use crate::config::get_config;
@@ -21,9 +24,7 @@ use crate::output::{
 };
 use crate::tokenizer::CommandTokenizer;
 
-use super::extension::{
-    register_extension_commands, workflow_binding_name, workflow_step_arguments,
-};
+use super::extension::{register_extension_commands, workflow_step_arguments};
 use super::extension_management::register_commands as register_extension_management_commands;
 
 #[derive(Clone, Copy, Default)]
@@ -66,7 +67,9 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);
-    extensions.validate_workflows(|workflow, config| validate_workflow(&builder, workflow, config));
+    extensions.validate_workflows(|command, workflow, config| {
+        validate_workflow(&builder, command, workflow, config)
+    });
     let extensions = Arc::new(extensions);
     builder.set_extensions(extensions.clone());
     register_extension_management_commands(&mut builder);
@@ -77,6 +80,7 @@ pub fn build_command_catalog() -> CommandCatalog {
 
 fn validate_workflow(
     builder: &CommandCatalogBuilder,
+    declaration: &CommandDeclaration,
     workflow: &WorkflowDeclaration,
     config: &Value,
 ) -> Result<(), String> {
@@ -93,22 +97,19 @@ fn validate_workflow(
                 step.run().display()
             )
         })?;
-        if command.reauthentication_retry == crate::errors::ReauthenticationRetry::Unsafe
-            && !workflow.allows_mutation()
-        {
+        if command.workflow_contract().effects().may_mutate() && !workflow.allows_mutation() {
             return Err(format!(
                 "step '{}' command '{}' may change state; declare capabilities = [\"mutate\"]",
                 step.id().as_str(),
-                step.run().display()
+                command.workflow_contract().command_id()
             ));
         }
 
         let mut values = BTreeMap::new();
         for (name, binding) in step.bindings() {
             let option = command
-                .options
-                .iter()
-                .find(|option| workflow_binding_name(option) == name.as_str())
+                .workflow_contract()
+                .input(name.as_str())
                 .ok_or_else(|| {
                     format!(
                         "step '{}' command '{}' has no input named '{}'",
@@ -119,7 +120,21 @@ fn validate_workflow(
                 })?;
             let value = match binding {
                 WorkflowBinding::Literal(value) => value.clone(),
-                WorkflowBinding::Input { .. } => workflow_placeholder(option),
+                WorkflowBinding::Input { name } => {
+                    let source = declaration
+                        .options()
+                        .iter()
+                        .find(|option| option.name() == name)
+                        .ok_or_else(|| format!("workflow input '{name}' was not declared"))?;
+                    validate_input_compatibility(source, option).map_err(|message| {
+                        format!(
+                            "step '{}' binding '{}': {message}",
+                            step.id().as_str(),
+                            name
+                        )
+                    })?;
+                    workflow_input_placeholder(source)
+                }
                 WorkflowBinding::Config { key, default } => config
                     .as_object()
                     .and_then(|config| config.get(key))
@@ -153,18 +168,82 @@ fn validate_workflow(
     Ok(())
 }
 
-fn workflow_placeholder(option: &OptionSpec) -> Value {
-    if option.flag {
+fn workflow_placeholder(input: &WorkflowInputContract) -> Value {
+    if input.flag() {
         return Value::Bool(true);
     }
-    let value = || Value::String("workflow-value".to_string());
-    match (option.repeatable, option.nargs) {
-        (true, Some(count)) => {
+    let value = || workflow_value_placeholder(input.value_type());
+    match input.cardinality() {
+        WorkflowCardinality::RepeatedFixed(count) => {
             Value::Array(vec![Value::Array((0..count).map(|_| value()).collect())])
         }
-        (_, Some(count)) => Value::Array((0..count).map(|_| value()).collect()),
-        (true, None) => json!(["workflow-value"]),
-        (false, None) => value(),
+        WorkflowCardinality::Fixed(count) => Value::Array((0..count).map(|_| value()).collect()),
+        WorkflowCardinality::Repeated => Value::Array(vec![value()]),
+        WorkflowCardinality::One => value(),
+    }
+}
+
+fn workflow_input_placeholder(option: &OptionDeclaration) -> Value {
+    let value = || match option.kind() {
+        OptionKind::String => Value::String("workflow-value".to_string()),
+        OptionKind::Integer => json!(1),
+        OptionKind::Number => json!(1.5),
+        OptionKind::Boolean | OptionKind::Flag => Value::Bool(true),
+    };
+    if option.repeatable() {
+        Value::Array(vec![value()])
+    } else {
+        value()
+    }
+}
+
+fn workflow_value_placeholder(value_type: WorkflowValueType) -> Value {
+    match value_type {
+        WorkflowValueType::Text => Value::String("workflow-value".to_string()),
+        WorkflowValueType::Integer => json!(1),
+        WorkflowValueType::Number => json!(1.5),
+        WorkflowValueType::Boolean => Value::Bool(true),
+        WorkflowValueType::Json => json!({"workflow": "value"}),
+    }
+}
+
+fn validate_input_compatibility(
+    source: &OptionDeclaration,
+    target: &WorkflowInputContract,
+) -> Result<(), String> {
+    let source_type = match source.kind() {
+        OptionKind::String => WorkflowValueType::Text,
+        OptionKind::Integer => WorkflowValueType::Integer,
+        OptionKind::Number => WorkflowValueType::Number,
+        OptionKind::Boolean | OptionKind::Flag => WorkflowValueType::Boolean,
+    };
+    let type_compatible = source_type == target.value_type()
+        || source_type == WorkflowValueType::Integer
+            && target.value_type() == WorkflowValueType::Number
+        || target.value_type() == WorkflowValueType::Json;
+    if !type_compatible {
+        return Err(format!(
+            "workflow input '{}' has type {:?}, but target input '{}' expects {:?}",
+            source.name(),
+            source_type,
+            target.id(),
+            target.value_type()
+        ));
+    }
+    match (source.repeatable(), target.cardinality()) {
+        (true, WorkflowCardinality::One | WorkflowCardinality::Fixed(_)) => Err(format!(
+            "repeatable workflow input '{}' cannot bind non-repeatable target input '{}'",
+            source.name(),
+            target.id()
+        )),
+        (false, WorkflowCardinality::Fixed(_) | WorkflowCardinality::RepeatedFixed(_)) => {
+            Err(format!(
+                "scalar workflow input '{}' cannot bind fixed-arity target input '{}'",
+                source.name(),
+                target.id()
+            ))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -194,17 +273,19 @@ where
         })
         .collect();
 
-    CommandSpec {
-        name: name.to_string(),
-        about: docs.about.map(str::to_string),
-        long_about: docs.long_about.map(str::to_string),
-        examples: docs.examples.map(str::to_string),
+    let mut spec = CommandSpec::new(
+        name,
         options,
-        reauthentication_retry: C::REAUTHENTICATION_RETRY,
-        handler: Arc::new(CommandHandler {
+        C::REAUTHENTICATION_RETRY,
+        C::EFFECTS,
+        Arc::new(CommandHandler {
             command: Arc::new(command),
         }) as Arc<dyn AsyncCommandHandler>,
-    }
+    );
+    spec.about = docs.about.map(str::to_string);
+    spec.long_about = docs.long_about.map(str::to_string);
+    spec.examples = docs.examples.map(str::to_string);
+    spec
 }
 
 struct CommandHandler<C>

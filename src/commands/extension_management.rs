@@ -11,8 +11,8 @@ use semver::Version;
 use serde_json::{json, Value};
 
 use crate::catalog::{
-    AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
-    CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+    AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandEffects, CommandInvocation,
+    CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
 use crate::commands::{build_command_catalog, render_format, standard_options, table_headers};
 use crate::config::{get_config, reload_runtime_config, set_persisted_value};
@@ -106,18 +106,20 @@ fn register(
     mut options: Vec<OptionSpec>,
 ) {
     options.extend(standard_option_specs());
-    builder.add_command(
-        &["extension"],
-        CommandSpec {
-            name: name.to_string(),
-            about: Some(about.to_string()),
-            long_about: None,
-            examples: management_examples(name),
-            options,
-            reauthentication_retry: ReauthenticationRetry::Unsafe,
-            handler: Arc::new(ManagementHandler { operation: name }),
-        },
+    let effects = match name {
+        "list" | "show" | "doctor" => CommandEffects::ReadOnly,
+        _ => CommandEffects::Mutating,
+    };
+    let mut spec = CommandSpec::new(
+        name,
+        options,
+        ReauthenticationRetry::Unsafe,
+        effects,
+        Arc::new(ManagementHandler { operation: name }),
     );
+    spec.about = Some(about.to_string());
+    spec.examples = management_examples(name);
+    builder.add_command(&["extension"], spec);
 }
 
 fn management_examples(name: &str) -> Option<String> {

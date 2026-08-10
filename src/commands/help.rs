@@ -7,7 +7,7 @@ use crate::tokenizer::CommandTokenizer;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::CliCommand;
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::commands::build_command_catalog;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -32,6 +32,8 @@ pub struct Help {
 }
 
 impl CliCommand for Help {
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let options = tokens.get_options();
         if options.get("tree").is_some() {

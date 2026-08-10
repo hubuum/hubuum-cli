@@ -7,7 +7,10 @@
   catalog help and static completion, semantic output pipelines, diagnostics,
   typed manifest-only workflows, and local user-package lifecycle commands.
   The Host wrappers now double as a tested pilot pack while preserving their
-  standalone entry points.
+  standalone entry points. Workflow commands use strict manifest schemas and a
+  catalog contract with stable input IDs, portable types and cardinality,
+  explicit effects, early compatibility checks, and preserved step-output
+  metadata.
 
 ## [0.0.9] - 2026-08-07
 

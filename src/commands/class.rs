@@ -7,7 +7,7 @@ use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
     CliCommand, PageSelection,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
 use crate::autocomplete::{bool, class_sort, class_where, classes, collections};
 use crate::config::get_config;
@@ -159,6 +159,7 @@ pub struct ClassInfo {
 
 impl CliCommand for ClassInfo {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -332,6 +333,7 @@ pub struct ClassList {
 
 impl CliCommand for ClassList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

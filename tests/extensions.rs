@@ -545,6 +545,67 @@ fn doctor_rejects_steps_missing_required_bindings() {
 }
 
 #[test]
+fn doctor_rejects_incompatible_workflow_input_types() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    let package = user_root.join("typed-flow");
+    create_dir_all(&package).expect("workflow package");
+    write(
+        package.join("hubuum-extension.toml"),
+        r#"schema_version = 1
+name = "typed-flow"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+
+[[commands.options]]
+name = "depth"
+kind = "string"
+long = "depth"
+
+[commands.workflow]
+
+[[commands.workflow.steps]]
+id = "object"
+run = ["object", "show"]
+
+[commands.workflow.steps.with]
+name = "server-01"
+class = "Hosts"
+max-depth = { input = "depth" }
+"#,
+    )
+    .expect("workflow manifest");
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let doctor = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "doctor",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(doctor[0]["code"], "workflow_invalid");
+    assert!(doctor[0]["message"]
+        .as_str()
+        .expect("diagnostic message")
+        .contains("has type Text"));
+    assert!(doctor[0]["message"]
+        .as_str()
+        .expect("diagnostic message")
+        .contains("expects Integer"));
+}
+
+#[test]
 fn explicitly_mutating_workflow_steps_join_the_catalog() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");

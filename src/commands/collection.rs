@@ -8,7 +8,7 @@ use super::{
     build_list_query, desired_format, render_list_page, required_option_or_pos, CliCommand,
     PageSelection,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
 use crate::autocomplete::{
     collection_sort, collection_where, collections, groups, principal_kinds, principal_names,
@@ -218,6 +218,7 @@ pub struct CollectionList {
 
 impl CliCommand for CollectionList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -265,6 +266,7 @@ pub struct CollectionInfo {
 
 impl CliCommand for CollectionInfo {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -362,6 +364,7 @@ pub struct CollectionPermissions {
 
 impl CliCommand for CollectionPermissions {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -681,6 +684,7 @@ pub struct CollectionPrincipalPermissions {
 
 impl CliCommand for CollectionPrincipalPermissions {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;

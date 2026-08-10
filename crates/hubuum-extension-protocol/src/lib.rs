@@ -291,13 +291,20 @@ impl ExtensionManifest {
 #[derive(Debug, Clone)]
 pub struct CommandDeclaration {
     path: CommandPath,
-    arguments: Vec<String>,
     about: Option<String>,
     long_about: Option<String>,
     examples: Vec<String>,
-    interactive: bool,
     options: Vec<OptionDeclaration>,
-    workflow: Option<WorkflowDeclaration>,
+    implementation: CommandImplementation,
+}
+
+#[derive(Debug, Clone)]
+pub enum CommandImplementation {
+    Executable {
+        arguments: Vec<String>,
+        interactive: bool,
+    },
+    Workflow(WorkflowDeclaration),
 }
 
 impl CommandDeclaration {
@@ -306,7 +313,10 @@ impl CommandDeclaration {
     }
 
     pub fn arguments(&self) -> &[String] {
-        &self.arguments
+        match &self.implementation {
+            CommandImplementation::Executable { arguments, .. } => arguments,
+            CommandImplementation::Workflow(_) => &[],
+        }
     }
 
     pub fn about(&self) -> Option<&str> {
@@ -322,7 +332,13 @@ impl CommandDeclaration {
     }
 
     pub fn interactive(&self) -> bool {
-        self.interactive
+        matches!(
+            self.implementation,
+            CommandImplementation::Executable {
+                interactive: true,
+                ..
+            }
+        )
     }
 
     pub fn options(&self) -> &[OptionDeclaration] {
@@ -330,7 +346,14 @@ impl CommandDeclaration {
     }
 
     pub fn workflow(&self) -> Option<&WorkflowDeclaration> {
-        self.workflow.as_ref()
+        match &self.implementation {
+            CommandImplementation::Executable { .. } => None,
+            CommandImplementation::Workflow(workflow) => Some(workflow),
+        }
+    }
+
+    pub fn implementation(&self) -> &CommandImplementation {
+        &self.implementation
     }
 }
 
@@ -416,15 +439,26 @@ impl TryFrom<RawCommand> for CommandDeclaration {
                 "workflow commands cannot declare executable arguments",
             ));
         }
+        if workflow.is_some() && raw.interactive {
+            return Err(invalid_workflow(
+                &path,
+                "workflow commands cannot be interactive",
+            ));
+        }
+        let implementation = workflow.map_or_else(
+            || CommandImplementation::Executable {
+                arguments: raw.arguments,
+                interactive: raw.interactive,
+            },
+            CommandImplementation::Workflow,
+        );
         Ok(Self {
             path,
-            arguments: raw.arguments,
             about: nonempty(raw.about),
             long_about: nonempty(raw.long_about),
             examples: raw.examples,
-            interactive: raw.interactive,
             options,
-            workflow,
+            implementation,
         })
     }
 }
@@ -951,6 +985,7 @@ impl OptionDeclaration {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawManifest {
     schema_version: u32,
     name: String,
@@ -963,6 +998,7 @@ struct RawManifest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawCommand {
     path: Vec<String>,
     #[serde(default)]
@@ -1015,6 +1051,7 @@ struct RawWorkflowBindingSource {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawOption {
     name: String,
     kind: OptionKind,
@@ -1258,8 +1295,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ExtensionManifest, ExtensionResponse, ProtocolError, SemanticOutput, SemanticOutputShape,
-        WorkflowBinding,
+        CommandImplementation, ExtensionManifest, ExtensionResponse, ProtocolError, SemanticOutput,
+        SemanticOutputShape, WorkflowBinding,
     };
 
     const MANIFEST: &str = r#"
@@ -1300,6 +1337,33 @@ long = "verbose"
         assert!(manifest.supports_cli(&Version::new(0, 0, 9)));
         assert_eq!(manifest.commands()[0].path().display(), "host show");
         assert_eq!(manifest.commands()[0].options()[1].values().len(), 4);
+        assert!(matches!(
+            manifest.commands()[0].implementation(),
+            CommandImplementation::Executable { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_manifest_command_and_option_fields() {
+        let manifest_error = ExtensionManifest::parse(&MANIFEST.replace(
+            "name = \"site-inventory\"",
+            "name = \"site-inventory\"\nowner = \"ops\"",
+        ))
+        .expect_err("unknown manifest field should fail");
+        assert!(manifest_error.to_string().contains("owner"));
+
+        let command_error = ExtensionManifest::parse(&MANIFEST.replace(
+            "about = \"Show a Host\"",
+            "about = \"Show a Host\"\ninteractiv = true",
+        ))
+        .expect_err("unknown command field should fail");
+        assert!(command_error.to_string().contains("interactiv"));
+
+        let option_error = ExtensionManifest::parse(
+            &MANIFEST.replace("positional = true", "positional = true\nrequried = true"),
+        )
+        .expect_err("unknown option field should fail");
+        assert!(option_error.to_string().contains("requried"));
     }
 
     #[test]
@@ -1354,6 +1418,36 @@ with = { id = { step = "hosts", select = ".[0].id" } }
             WorkflowBinding::Step { step, select }
                 if step.as_str() == "hosts" && select.as_deref() == Some(".[0].id")
         ));
+        assert!(matches!(
+            manifest.commands()[0].implementation(),
+            CommandImplementation::Workflow(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_interactive_workflows() {
+        let manifest = r#"
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+interactive = true
+
+[commands.workflow]
+
+[[commands.workflow.steps]]
+id = "classes"
+run = ["class", "list"]
+"#;
+        let error = ExtensionManifest::parse(manifest).expect_err("workflow should fail");
+
+        assert!(error
+            .to_string()
+            .contains("workflow commands cannot be interactive"));
     }
 
     #[test]

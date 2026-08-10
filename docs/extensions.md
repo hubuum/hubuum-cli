@@ -106,7 +106,11 @@ Positionals are ordered; only the final positional may be repeatable. The
 `values` list provides validation and static completion.
 One command path cannot be a prefix of another command path in the same pack.
 Short and long option aliases share one namespace after removing their dashes,
-and aliases reserved by host rendering options are rejected.
+and aliases reserved by host rendering options are rejected. Manifest schema
+versions are strict: unknown top-level, command, option, workflow, step, and
+binding fields are rejected so misspellings cannot silently change behavior.
+Each command has exactly one implementation. `interactive` and executable
+`arguments` are invalid on workflow commands.
 
 ## In-process workflows
 
@@ -151,9 +155,13 @@ run = ["object", "show"]
 with = { id = { step = "hosts", select = ".[0].id" } }
 ```
 
-The `with` keys are the target command's public long option names without the
-leading `--`; positional-only inputs use their catalog names. For example,
-`--include-total` becomes `include-total`. A binding may be:
+The `with` keys are stable workflow input IDs exported by the target command's
+catalog contract. Current built-ins use their public long option names without
+the leading `--`; positional-only inputs use their catalog names. For example,
+`--include-total` becomes `include-total`. These IDs, their portable value
+types, cardinality, required state, and command effects are treated as the
+workflow compatibility surface rather than being rediscovered while a workflow
+runs. A binding may be:
 
 - a literal TOML string, number, boolean, or array;
 - `{ input = "name" }` to read a declared option of the workflow command;
@@ -165,11 +173,18 @@ leading `--`; positional-only inputs use their catalog names. For example,
 Flags accept booleans. Arrays feed repeatable inputs. Inputs with a fixed
 arity accept an array, while repeatable fixed-arity inputs accept an array of
 arrays. Missing optional inputs and configuration values become `null` and
-omit the target input; a required target produces a focused error.
+omit the target input; a required target produces a focused error. Literal,
+configured, and workflow-input values are checked against the target input's
+type and cardinality while the catalog is built. Values selected dynamically
+from prior steps receive the same check immediately before their target runs.
 
 `result` is an optional JQ expression evaluated over an object containing
-`.input`, `.config`, and `.steps`. Its output shape is inferred as rows, detail,
-values, message, or empty output. Without `result`, the workflow returns the
+`.input`, `.config`, `.steps`, and `.outputs`. `.steps.<id>` is the convenient
+normalized step value. `.outputs.<id>` preserves its source, normalized value,
+semantic envelopes, shapes, columns, or original rendered lines so workflows
+can distinguish rows from values and semantic output from the compatibility
+fallback. The result's output shape is inferred as rows, detail, values,
+message, or empty output. Without `result`, the workflow returns the normalized
 step values as one detail object, keyed by step ID.
 
 Forward and recursive step references are rejected. The CLI compiles bindings
@@ -178,9 +193,9 @@ shell command.
 
 Workflow packs need no `executable`. Every built-in catalog command except the
 `extension` namespace can be a step. During catalog construction the CLI
-validates command paths, binding names and shapes, required target inputs, JQ
-expressions, and replay safety. Invalid workflows quarantine the pack and
-appear in `extension doctor`.
+validates command paths, stable input IDs, binding types and cardinality,
+required target inputs, JQ expressions, command effects, and replay safety.
+Invalid workflows quarantine the pack and appear in `extension doctor`.
 
 Steps that may change state require an explicit workflow capability:
 
@@ -189,11 +204,12 @@ Steps that may change state require an explicit workflow capability:
 capabilities = ["mutate"]
 ```
 
-This includes commands that may change server or local state, plus conservative
-commands that have not declared safe retry behavior. A workflow containing any
-such step is itself never automatically replayed after reauthentication.
-Completed step IDs are reported if a later step fails, but generic
-workflows do not provide transactions or compensating rollback.
+Effects and reauthentication retry behavior are separate command properties.
+Commands that may change server or local state require `mutate`, whether or not
+an individual operation could safely be retried. A workflow containing a step
+that is unsafe to retry is itself never automatically replayed after
+reauthentication. Completed step IDs are reported if a later step fails, but
+generic workflows do not provide transactions or compensating rollback.
 
 The runtime forces each step to internal JSON output, preserves warnings,
 and then applies the caller's pipeline, output format, and redirect to the

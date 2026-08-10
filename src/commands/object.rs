@@ -23,7 +23,7 @@ use crate::autocomplete::{
     object_aggregate_measures, object_aggregate_sort, object_aggregate_where, object_data_columns,
     object_sort, object_where, objects_from_class,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
 use crate::domain::{
     visit_observed_data_fields, ComputedFieldSelector, ComputedFieldSet, ObjectAggregateRecord,
@@ -356,6 +356,7 @@ pub struct ObjectInfo {
 
 impl CliCommand for ObjectInfo {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -1361,6 +1362,7 @@ pub struct ObjectAggregate {
 
 impl CliCommand for ObjectAggregate {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -1493,6 +1495,7 @@ pub struct ObjectList {
 
 impl CliCommand for ObjectList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;
@@ -1568,6 +1571,7 @@ pub struct ObjectFields {
 
 impl CliCommand for ObjectFields {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, _tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(_tokens)?;

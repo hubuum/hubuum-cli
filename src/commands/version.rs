@@ -7,7 +7,7 @@ use serde_json::to_string_pretty;
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
 use crate::build_info;
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
@@ -46,6 +46,7 @@ pub struct Version {
 
 impl CliCommand for Version {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_version(tokens)

@@ -4,7 +4,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use hubuum_extension_protocol::{ExtensionManifest, WorkflowDeclaration, MANIFEST_FILENAME};
+use hubuum_extension_protocol::{
+    CommandDeclaration, ExtensionManifest, WorkflowDeclaration, MANIFEST_FILENAME,
+};
 use semver::Version;
 use serde_json::{to_value, Value};
 
@@ -241,7 +243,7 @@ impl ExtensionRegistry {
 
     pub(crate) fn validate_workflows<F>(&mut self, validate: F)
     where
-        F: Fn(&WorkflowDeclaration, &Value) -> Result<(), String>,
+        F: Fn(&CommandDeclaration, &WorkflowDeclaration, &Value) -> Result<(), String>,
     {
         for pack in &mut self.packs {
             if !pack.is_enabled() {
@@ -252,12 +254,14 @@ impl ExtensionRegistry {
             };
             let invalid = manifest.commands().iter().find_map(|command| {
                 command.workflow().and_then(|workflow| {
-                    validate(workflow, pack.config()).err().map(|message| {
-                        format!(
-                            "workflow command '{}' is invalid: {message}",
-                            command.path().display()
-                        )
-                    })
+                    validate(command, workflow, pack.config())
+                        .err()
+                        .map(|message| {
+                            format!(
+                                "workflow command '{}' is invalid: {message}",
+                                command.path().display()
+                            )
+                        })
                 })
             });
             if let Some(message) = invalid {

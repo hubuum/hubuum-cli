@@ -22,7 +22,8 @@ jacks_class = "Jacks"
 rooms_class = "Rooms"
 ```
 
-Every step is resolved and structurally validated through the complete
-built-in command catalog at load time. Commands that are not safe to replay
-are available with the manifest's explicit `mutate` capability;
-this read-only example does not need it.
+Every step is resolved and checked against the built-in command catalog's
+workflow contract at load time, including input IDs, types, cardinality, and
+command effects. Commands that may change state require the manifest's
+explicit `mutate` capability; this read-only example does not need it. Retry
+safety remains a separate runtime property.

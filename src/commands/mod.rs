@@ -45,6 +45,7 @@ pub(crate) mod version;
 pub use builder::build_command_catalog;
 
 use crate::autocomplete::output_formats;
+use crate::catalog::CommandEffects;
 use crate::config::get_config;
 use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
@@ -103,6 +104,7 @@ pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
 
 pub trait CliCommand: CommandArgs + Send + Sync {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Unsafe;
+    const EFFECTS: CommandEffects = CommandEffects::Mutating;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError>;
 }

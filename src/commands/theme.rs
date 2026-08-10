@@ -7,7 +7,7 @@ use serde_json::{json, to_string_pretty};
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
 use crate::autocomplete::theme_names;
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
     get_config, reload_runtime_config, set_persisted_value, theme_value_candidates,
 };
@@ -74,6 +74,7 @@ pub struct ThemeList {}
 
 impl CliCommand for ThemeList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_list(tokens)
@@ -126,6 +127,7 @@ pub struct ThemeShow {
 
 impl CliCommand for ThemeShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_show(tokens)
@@ -154,6 +156,7 @@ pub struct ThemePreview {
 
 impl CliCommand for ThemePreview {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_preview(tokens)

@@ -4,7 +4,7 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
@@ -82,6 +82,7 @@ pub struct JobsList {}
 
 impl CliCommand for JobsList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
@@ -111,6 +112,7 @@ pub struct JobsShow {
 
 impl CliCommand for JobsShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
@@ -150,6 +152,7 @@ pub struct JobsOutput {
 
 impl CliCommand for JobsOutput {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
@@ -183,6 +186,7 @@ pub struct JobsWatch {
 
 impl CliCommand for JobsWatch {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         services.background().require_enabled()?;
