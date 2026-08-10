@@ -22,7 +22,7 @@ jacks_class = "Jacks"
 rooms_class = "Rooms"
 ```
 
-Every action is resolved and structurally validated through the complete
+Every step is resolved and structurally validated through the complete
 built-in command catalog at load time. Commands that are not safe to replay
-are available with the manifest's explicit `allow_unsafe_actions` capability;
+are available with the manifest's explicit `mutate` capability;
 this read-only example does not need it.

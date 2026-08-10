@@ -15,59 +15,42 @@ examples = [
 ]
 
 [commands.workflow]
+result = "{ hosts: .steps.hosts, jacks: .steps.jacks, rooms: .steps.rooms }"
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "hosts"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--class"
+[commands.workflow.steps.with]
+class = { config = "hosts_class", default = "Hosts" }
+all = true
 
-[[commands.workflow.actions.arguments]]
-config = "hosts_class"
-default = "Hosts"
-
-[[commands.workflow.actions.arguments]]
-literal = "--all"
-
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "jacks"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--class"
+[commands.workflow.steps.with]
+class = { config = "jacks_class", default = "Jacks" }
+all = true
 
-[[commands.workflow.actions.arguments]]
-config = "jacks_class"
-default = "Jacks"
-
-[[commands.workflow.actions.arguments]]
-literal = "--all"
-
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "rooms"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--class"
-
-[[commands.workflow.actions.arguments]]
-config = "rooms_class"
-default = "Rooms"
-
-[[commands.workflow.actions.arguments]]
-literal = "--all"
+[commands.workflow.steps.with]
+class = { config = "rooms_class", default = "Rooms" }
+all = true
 
 [[commands]]
 path = ["classes"]
-about = "List all classes through an in-process action"
+about = "List all classes through an in-process step"
 examples = ["extension inventory classes --output json"]
 
 [commands.workflow]
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "classes"
-command = ["class", "list"]
+run = ["class", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--all"
+[commands.workflow.steps.with]
+all = true

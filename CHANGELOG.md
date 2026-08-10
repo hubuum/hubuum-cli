@@ -5,8 +5,9 @@
 - Added manifest-driven external command packs under `extension <pack>`, with a
   versioned argv/JSON protocol, deterministic system and user discovery,
   catalog help and static completion, semantic output pipelines, diagnostics,
-  and local user-package lifecycle commands. The Host wrappers now double as a
-  tested pilot pack while preserving their standalone entry points.
+  typed manifest-only workflows, and local user-package lifecycle commands.
+  The Host wrappers now double as a tested pilot pack while preserving their
+  standalone entry points.
 
 ## [0.0.9] - 2026-08-07
 

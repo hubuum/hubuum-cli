@@ -1,5 +1,5 @@
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -8,8 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hubuum_extension_protocol::{
     CommandDeclaration, ExtensionManifest, ExtensionResponse, OptionDeclaration, OptionKind,
-    SemanticOutput, SemanticOutputShape, WorkflowArgument, WorkflowArgumentKind,
-    WorkflowDeclaration, PROTOCOL_V1,
+    SemanticOutput, SemanticOutputShape, WorkflowBinding, WorkflowDeclaration, PROTOCOL_V1,
 };
 use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage};
 use serde_json::{from_str, to_string, Map, Value};
@@ -135,19 +134,19 @@ fn register_workflow_command(
     ];
     path.extend(segments[..segments.len() - 1].iter().cloned());
     let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
-    let reauthentication_retry = if workflow.actions().iter().any(|action| {
+    let reauthentication_retry = if workflow.steps().iter().any(|step| {
         builder
-            .command(action.command().segments())
+            .command(step.run().segments())
             .is_some_and(|command| command.reauthentication_retry == ReauthenticationRetry::Unsafe)
     }) {
         ReauthenticationRetry::Unsafe
     } else {
         ReauthenticationRetry::Safe
     };
-    let requires_authentication = workflow.actions().iter().any(|action| {
-        !is_offline_builtin_command(action.command().segments())
+    let requires_authentication = workflow.steps().iter().any(|step| {
+        !is_offline_builtin_command(step.run().segments())
             && builder
-                .command(action.command().segments())
+                .command(step.run().segments())
                 .is_some_and(|command| command.handler.requires_authentication())
     });
 
@@ -222,6 +221,152 @@ fn option_spec(option: &OptionDeclaration) -> OptionSpec {
         } else {
             CompletionSpec::Static(option.values().to_vec())
         },
+    }
+}
+
+const WORKFLOW_HOST_INPUTS: &[&str] = &["help", "json", "output", "table-headers"];
+
+pub(crate) fn workflow_binding_name(option: &OptionSpec) -> &str {
+    option
+        .long
+        .as_deref()
+        .map(|long| long.trim_start_matches('-'))
+        .unwrap_or(&option.name)
+}
+
+pub(crate) fn workflow_step_arguments(
+    command: &CommandSpec,
+    values: &BTreeMap<String, Value>,
+) -> Result<Vec<String>, String> {
+    for name in values.keys() {
+        if WORKFLOW_HOST_INPUTS.contains(&name.as_str()) {
+            return Err(format!(
+                "binding '{name}' is owned by the host and cannot be supplied by a workflow"
+            ));
+        }
+        if !command
+            .options
+            .iter()
+            .any(|option| workflow_binding_name(option) == name)
+        {
+            return Err(format!("command has no input named '{name}'"));
+        }
+    }
+
+    let mut named_arguments = Vec::new();
+    let mut positional_arguments = Vec::new();
+    for option in &command.options {
+        let binding_name = workflow_binding_name(option);
+        if WORKFLOW_HOST_INPUTS.contains(&binding_name) {
+            continue;
+        }
+        let Some(value) = values.get(binding_name) else {
+            if option.required {
+                return Err(format!("required input '{binding_name}' has no binding"));
+            }
+            continue;
+        };
+        let groups = workflow_binding_groups(value, option)?;
+        if groups.is_empty() {
+            if option.required {
+                return Err(format!(
+                    "required input '{binding_name}' resolved to no value"
+                ));
+            }
+            continue;
+        }
+        let positional = option.short.is_none() && option.long.is_none();
+        let prefix = option.long.as_ref().or(option.short.as_ref());
+        if positional {
+            positional_arguments.extend(groups.into_iter().flatten());
+            continue;
+        }
+        let prefix =
+            prefix.ok_or_else(|| format!("input '{}' has no CLI spelling", option.name))?;
+        for mut group in groups {
+            if group.is_empty() {
+                named_arguments.push(prefix.clone());
+            } else {
+                let first = group.remove(0);
+                named_arguments.push(format!("{prefix}={first}"));
+                named_arguments.extend(group);
+            }
+        }
+    }
+    if !positional_arguments.is_empty() {
+        named_arguments.push("--".to_string());
+        named_arguments.extend(positional_arguments);
+    }
+    Ok(named_arguments)
+}
+
+fn workflow_binding_groups(value: &Value, option: &OptionSpec) -> Result<Vec<Vec<String>>, String> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    if option.flag {
+        return match value {
+            Value::Bool(true) => Ok(vec![Vec::new()]),
+            Value::Bool(false) | Value::Null => Ok(Vec::new()),
+            _ => Err(format!(
+                "flag input '{}' requires a boolean value",
+                option.name
+            )),
+        };
+    }
+
+    match (option.repeatable, option.nargs) {
+        (true, Some(count)) => {
+            let occurrences = value.as_array().ok_or_else(|| {
+                format!(
+                    "repeatable input '{}' with {count} values per occurrence requires an array of arrays",
+                    option.name
+                )
+            })?;
+            occurrences
+                .iter()
+                .map(|occurrence| workflow_fixed_group(occurrence, &option.name, count))
+                .collect()
+        }
+        (false, Some(count)) => Ok(vec![workflow_fixed_group(value, &option.name, count)?]),
+        (true, None) => match value {
+            Value::Array(values) => values
+                .iter()
+                .map(|value| workflow_scalar_argument(value).map(|value| vec![value]))
+                .collect(),
+            _ => Ok(vec![vec![workflow_scalar_argument(value)?]]),
+        },
+        (false, None) => Ok(vec![vec![workflow_scalar_argument(value)?]]),
+    }
+}
+
+fn workflow_fixed_group(value: &Value, name: &str, count: usize) -> Result<Vec<String>, String> {
+    let values = value.as_array().ok_or_else(|| {
+        format!("input '{name}' requires an array containing exactly {count} values")
+    })?;
+    if values.len() != count {
+        return Err(format!(
+            "input '{name}' requires exactly {count} values per occurrence, got {}",
+            values.len()
+        ));
+    }
+    values.iter().map(workflow_scalar_argument).collect()
+}
+
+fn workflow_scalar_argument(value: &Value) -> Result<String, String> {
+    let value = match value {
+        Value::String(value) => value.clone(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::Array(_) | Value::Object(_) => {
+            to_string(value).map_err(|error| error.to_string())?
+        }
+        Value::Null => return Err("null cannot be passed as a command argument".to_string()),
+    };
+    if value.contains('\0') {
+        Err("command arguments cannot contain NUL".to_string())
+    } else {
+        Ok(value)
     }
 }
 
@@ -360,78 +505,70 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
         let tokens =
             CommandTokenizer::new_at(&invocation.raw_line, invocation.command_index, &option_defs)?;
         validate_invocation(&tokens, &self.declaration)?;
+        let inputs = workflow_input_values(&tokens, &self.declaration)
+            .map_err(|message| workflow_error(&self.pack, &self.declaration, message))?;
 
         let mut values = Map::new();
         let mut columns = Vec::new();
         let mut warnings = Vec::new();
-        let mut completed_actions = Vec::new();
-        for action in self.workflow.actions() {
-            let arguments = action
-                .arguments()
+        let mut completed_steps = Vec::new();
+        for step in self.workflow.steps() {
+            let binding_values = step
+                .bindings()
                 .iter()
-                .map(|argument| {
-                    resolve_workflow_argument(
-                        argument,
-                        &tokens,
-                        &self.declaration,
-                        &self.config,
-                        &self.pack,
-                        &values,
-                    )
+                .map(|(name, binding)| {
+                    resolve_workflow_binding(binding, &inputs, &self.config, &self.pack, &values)
+                        .map(|value| (name.as_str().to_string(), value))
                 })
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<Result<BTreeMap<_, _>, _>>()
                 .map_err(|error| {
-                    error.with_warnings(workflow_progress_warnings(&warnings, &completed_actions))
+                    error.with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
                 })?;
-            if arguments.iter().any(|argument| {
-                matches!(argument.as_str(), "-j" | "--json" | "-o" | "--output")
-                    || argument.starts_with("--output=")
-            }) {
-                return Err(workflow_error(
-                    &self.pack,
-                    &self.declaration,
-                    format!(
-                        "action '{}' cannot override the internal JSON output format",
-                        action.id().as_str()
-                    ),
-                )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
-            }
-            let mut action_tokens = action.command().segments().to_vec();
-            action_tokens.extend(arguments);
-            action_tokens.extend(["--output".to_string(), "json".to_string()]);
-            let raw_line = action_tokens
-                .iter()
-                .map(|token| shell_escape(token))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let (handler, command_path, command_index) = {
+            let (handler, command_path, command_index, arguments) = {
                 let catalog = ctx.catalog.snapshot();
-                let resolved = catalog.resolve_command(&[], &action_tokens)?;
+                let resolved = catalog.resolve_command(&[], step.run().segments())?;
                 if resolved.command.reauthentication_retry == ReauthenticationRetry::Unsafe
-                    && !self.workflow.allows_unsafe_actions()
+                    && !self.workflow.allows_mutation()
                 {
                     return Err(workflow_error(
                         &self.pack,
                         &self.declaration,
                         format!(
-                            "action '{}' command '{}' may change state; declare allow_unsafe_actions = true",
-                            action.id().as_str(),
-                            action.command().display()
+                            "step '{}' command '{}' may change state; declare capabilities = [\"mutate\"]",
+                            step.id().as_str(),
+                            step.run().display()
                         ),
                     )
                     .with_warnings(workflow_progress_warnings(
                         &warnings,
-                        &completed_actions,
+                        &completed_steps,
                     )));
                 }
+                let arguments = workflow_step_arguments(resolved.command, &binding_values)
+                    .map_err(|message| {
+                        workflow_error(
+                            &self.pack,
+                            &self.declaration,
+                            format!("step '{}': {message}", step.id().as_str()),
+                        )
+                        .with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
+                    })?;
                 (
                     resolved.command.handler.clone(),
                     resolved.command_path,
                     resolved.command_index,
+                    arguments,
                 )
             };
-            let action_result = if is_offline_builtin_command(action.command().segments()) {
+            let mut step_tokens = step.run().segments().to_vec();
+            step_tokens.extend(["--output".to_string(), "json".to_string()]);
+            step_tokens.extend(arguments);
+            let raw_line = step_tokens
+                .iter()
+                .map(|token| shell_escape(token))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let step_result = if is_offline_builtin_command(step.run().segments()) {
                 execute_offline_line(ctx.catalog.clone(), &raw_line).await
             } else {
                 handler
@@ -447,15 +584,15 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                     )
                     .await
             };
-            let outcome = action_result.map_err(|error| {
-                let error = AppError::ExtensionWorkflowAction {
+            let outcome = step_result.map_err(|error| {
+                let error = AppError::ExtensionWorkflowStep {
                     pack: self.pack.clone(),
                     workflow: self.declaration.path().display(),
-                    action: action.id().as_str().to_string(),
-                    command: action.command().display(),
+                    step: step.id().as_str().to_string(),
+                    command: step.run().display(),
                     source: Box::new(error),
                 };
-                error.with_warnings(workflow_progress_warnings(&warnings, &completed_actions))
+                error.with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
             })?;
             warnings.extend(outcome.output.warnings);
             if outcome.redirect.is_some() || outcome.scope_action != ScopeAction::None {
@@ -463,24 +600,24 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                     &self.pack,
                     &self.declaration,
                     format!(
-                        "action '{}' attempted an unsupported redirect or scope change",
-                        action.id().as_str()
+                        "step '{}' attempted an unsupported redirect or scope change",
+                        step.id().as_str()
                     ),
                 )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps)));
             }
             if outcome.output.next_page_command.is_some() {
                 return Err(workflow_error(
                     &self.pack,
                     &self.declaration,
                     format!(
-                        "action '{}' returned a partial page; declare '--all' or an explicit page policy",
-                        action.id().as_str()
+                        "step '{}' returned a partial page; bind 'all = true' or an explicit pagination policy",
+                        step.id().as_str()
                     ),
                 )
                 .with_warnings(workflow_progress_warnings(
                     &warnings,
-                    &completed_actions,
+                    &completed_steps,
                 )));
             }
             if !outcome.output.errors.is_empty() {
@@ -488,19 +625,41 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                     &self.pack,
                     &self.declaration,
                     format!(
-                        "action '{}' returned errors: {}",
-                        action.id().as_str(),
+                        "step '{}' returned errors: {}",
+                        step.id().as_str(),
                         outcome.output.errors.join("; ")
                     ),
                 )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps)));
             }
             let value = workflow_output_value(outcome.output.semantic, outcome.output.lines);
-            let id = action.id().as_str().to_string();
+            let id = step.id().as_str().to_string();
             columns.push(id.clone());
-            completed_actions.push(id.clone());
+            completed_steps.push(id.clone());
             values.insert(id, value);
         }
+
+        let output = if let Some(result) = self.workflow.result() {
+            let context = serde_json::json!({
+                "input": inputs,
+                "config": self.config.clone(),
+                "steps": values,
+            });
+            apply_pipeline(
+                workflow_value_envelope(context),
+                &[PipeStage::Jq(result.to_string())],
+            )
+            .map_err(|error| {
+                workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!("result expression failed: {error}"),
+                )
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
+            })?
+        } else {
+            OutputEnvelope::detail(Value::Object(values), columns)
+        };
 
         reset_output()?;
         set_pipeline(invocation.pipeline)?;
@@ -510,7 +669,7 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
         for warning in warnings {
             add_warning(warning)?;
         }
-        set_semantic_output(OutputEnvelope::detail(Value::Object(values), columns))?;
+        set_semantic_output(output)?;
         Ok(CommandOutcome {
             output: take_output()?,
             scope_action: ScopeAction::None,
@@ -555,104 +714,61 @@ fn workflow_output_value(semantic: Vec<OutputEnvelope>, lines: Vec<String>) -> V
     }
 }
 
-fn workflow_progress_warnings(warnings: &[String], completed_actions: &[String]) -> Vec<String> {
+fn workflow_progress_warnings(warnings: &[String], completed_steps: &[String]) -> Vec<String> {
     let mut warnings = warnings.to_vec();
-    if !completed_actions.is_empty() {
+    if !completed_steps.is_empty() {
         warnings.push(format!(
-            "Workflow completed actions before the failure: {}",
-            completed_actions.join(", ")
+            "Workflow completed steps before the failure: {}",
+            completed_steps.join(", ")
         ));
     }
     warnings
 }
 
-fn resolve_workflow_argument(
-    argument: &WorkflowArgument,
-    tokens: &CommandTokenizer,
-    declaration: &CommandDeclaration,
+fn resolve_workflow_binding(
+    binding: &WorkflowBinding,
+    inputs: &Map<String, Value>,
     config: &Value,
     pack: &str,
-    action_values: &Map<String, Value>,
-) -> Result<String, AppError> {
-    match argument.kind() {
-        WorkflowArgumentKind::Literal => Ok(argument.value().to_string()),
-        WorkflowArgumentKind::OptionValue => {
-            workflow_option_value(tokens, declaration, argument.value()).ok_or_else(|| {
-                workflow_error(
-                    pack,
-                    declaration,
-                    format!("required option '{}' had no value", argument.value()),
-                )
-            })
-        }
-        WorkflowArgumentKind::ConfigValue => {
-            let value = config
-                .as_object()
-                .and_then(|config| config.get(argument.value()))
-                .filter(|value| !value.is_null());
-            match value {
-                Some(Value::String(value)) if !value.contains('\0') => Ok(value.clone()),
-                Some(Value::String(_)) => Err(workflow_error(
-                    pack,
-                    declaration,
-                    format!("config key '{}' cannot contain NUL", argument.value()),
-                )),
-                Some(Value::Bool(value)) => Ok(value.to_string()),
-                Some(Value::Number(value)) => Ok(value.to_string()),
-                Some(_) => Err(workflow_error(
-                    pack,
-                    declaration,
-                    format!(
-                        "config key '{}' must contain a string, number, or boolean",
-                        argument.value()
-                    ),
-                )),
-                None => argument.default().map(str::to_string).ok_or_else(|| {
-                    workflow_error(
-                        pack,
-                        declaration,
-                        format!("required config key '{}' is missing", argument.value()),
-                    )
-                }),
-            }
-        }
-        WorkflowArgumentKind::ActionOutput => {
-            let source = action_values.get(argument.value()).ok_or_else(|| {
-                workflow_error(
-                    pack,
-                    declaration,
-                    format!("action output '{}' was unavailable", argument.value()),
-                )
+    step_values: &Map<String, Value>,
+) -> Result<Value, AppError> {
+    match binding {
+        WorkflowBinding::Literal(value) => Ok(value.clone()),
+        WorkflowBinding::Input { name } => inputs.get(name).cloned().ok_or_else(|| {
+            AppError::CommandExecutionError(format!(
+                "extension workflow {pack} input '{name}' was unavailable"
+            ))
+        }),
+        WorkflowBinding::Config { key, default } => Ok(config
+            .as_object()
+            .and_then(|config| config.get(key))
+            .filter(|value| !value.is_null())
+            .cloned()
+            .or_else(|| default.clone())
+            .unwrap_or(Value::Null)),
+        WorkflowBinding::Step { step, select } => {
+            let source = step_values.get(step.as_str()).ok_or_else(|| {
+                AppError::CommandExecutionError(format!(
+                    "extension workflow {pack} step output '{}' was unavailable",
+                    step.as_str()
+                ))
             })?;
-            let value = if let Some(selector) = argument.selector() {
+            let value = if let Some(select) = select {
                 apply_pipeline(
                     workflow_value_envelope(source.clone()),
-                    &[PipeStage::Jq(selector.to_string())],
+                    &[PipeStage::Jq(select.to_string())],
                 )
                 .map_err(|error| {
-                    workflow_error(
-                        pack,
-                        declaration,
-                        format!(
-                            "selector for action output '{}' failed: {error}",
-                            argument.value()
-                        ),
-                    )
+                    AppError::CommandExecutionError(format!(
+                        "extension workflow {pack} selector for step output '{}' failed: {error}",
+                        step.as_str()
+                    ))
                 })?
                 .value
             } else {
                 source.clone()
             };
-            workflow_value_argument(value).map_err(|message| {
-                workflow_error(
-                    pack,
-                    declaration,
-                    format!(
-                        "action output '{}' could not become an argument: {message}",
-                        argument.value()
-                    ),
-                )
-            })
+            Ok(value)
         }
     }
 }
@@ -667,51 +783,79 @@ fn workflow_value_envelope(value: Value) -> OutputEnvelope {
     }
 }
 
-fn workflow_value_argument(value: Value) -> Result<String, String> {
-    let value = match value {
-        Value::String(value) => value,
-        Value::Null => "null".to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::Array(_) | Value::Object(_) => {
-            to_string(&value).map_err(|error| error.to_string())?
-        }
-    };
-    if value.contains('\0') {
-        Err("selected value contains NUL".to_string())
-    } else {
-        Ok(value)
-    }
-}
-
-fn workflow_option_value(
+fn workflow_input_values(
     tokens: &CommandTokenizer,
     declaration: &CommandDeclaration,
-    name: &str,
-) -> Option<String> {
-    let option = declaration
-        .options()
-        .iter()
-        .find(|option| option.name() == name)?;
-    if option.positional() {
-        let index = declaration
-            .options()
-            .iter()
-            .filter(|candidate| candidate.positional())
-            .position(|candidate| candidate.name() == name)?;
-        return tokens.get_positionals().get(index).cloned();
+) -> Result<Map<String, Value>, String> {
+    let mut inputs = Map::new();
+    let mut positional_index = 0;
+    for option in declaration.options() {
+        let raw_values = if option.positional() {
+            if option.repeatable() {
+                let values = tokens.get_positionals()[positional_index..].to_vec();
+                positional_index = tokens.get_positionals().len();
+                values
+            } else {
+                let value = tokens.get_positionals().get(positional_index).cloned();
+                positional_index += usize::from(value.is_some());
+                value.into_iter().collect()
+            }
+        } else {
+            tokens
+                .get_option_occurrences()
+                .iter()
+                .filter(|occurrence| {
+                    option
+                        .short()
+                        .is_some_and(|short| occurrence.key == short.to_string())
+                        || option.long().is_some_and(|long| occurrence.key == long)
+                })
+                .map(|occurrence| occurrence.value.clone())
+                .collect()
+        };
+        let value = if option.kind() == OptionKind::Flag {
+            Value::Bool(!raw_values.is_empty())
+        } else if option.repeatable() {
+            Value::Array(
+                raw_values
+                    .iter()
+                    .map(|value| workflow_typed_input(option, value))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        } else {
+            raw_values
+                .first()
+                .map(|value| workflow_typed_input(option, value))
+                .transpose()?
+                .unwrap_or(Value::Null)
+        };
+        inputs.insert(option.name().to_string(), value);
     }
+    Ok(inputs)
+}
 
-    tokens
-        .get_option_occurrences()
-        .iter()
-        .find(|occurrence| {
-            option
-                .short()
-                .is_some_and(|short| occurrence.key == short.to_string())
-                || option.long().is_some_and(|long| occurrence.key == long)
-        })
-        .map(|occurrence| occurrence.value.clone())
+fn workflow_typed_input(option: &OptionDeclaration, value: &str) -> Result<Value, String> {
+    match option.kind() {
+        OptionKind::String => Ok(Value::String(value.to_string())),
+        OptionKind::Integer => value
+            .parse::<i64>()
+            .map(serde_json::Number::from)
+            .map(Value::Number)
+            .map_err(|error| format!("input '{}' is not an integer: {error}", option.name())),
+        OptionKind::Number => value
+            .parse::<f64>()
+            .map_err(|error| format!("input '{}' is not a number: {error}", option.name()))
+            .and_then(|number| {
+                serde_json::Number::from_f64(number)
+                    .map(Value::Number)
+                    .ok_or_else(|| format!("input '{}' must be finite", option.name()))
+            }),
+        OptionKind::Boolean => value
+            .parse::<bool>()
+            .map(Value::Bool)
+            .map_err(|error| format!("input '{}' is not a boolean: {error}", option.name())),
+        OptionKind::Flag => Ok(Value::Bool(true)),
+    }
 }
 
 fn workflow_error(pack: &str, declaration: &CommandDeclaration, message: String) -> AppError {
@@ -966,6 +1110,8 @@ fn output_status(status: &std::process::ExitStatus) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -975,11 +1121,12 @@ mod tests {
     use serial_test::serial;
 
     use super::{
-        extension_cli_options, forwarded_arguments, AsyncCommandHandler, WorkflowCommandHandler,
+        extension_cli_options, forwarded_arguments, workflow_input_values, workflow_step_arguments,
+        AsyncCommandHandler, WorkflowCommandHandler,
     };
     use crate::catalog::{
         CatalogStore, CommandCatalogBuilder, CommandContext, CommandInvocation, CommandOutcome,
-        CommandSpec, ScopeAction,
+        CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
     };
     use crate::config::get_config;
     use crate::errors::{AppError, ReauthenticationRetry};
@@ -989,6 +1136,31 @@ mod tests {
     struct SemanticAction;
     struct EchoAction;
     struct RenderedJsonAction;
+
+    fn catalog_option(
+        name: &str,
+        long: Option<&str>,
+        required: bool,
+        flag: bool,
+        repeatable: bool,
+        nargs: Option<usize>,
+    ) -> OptionSpec {
+        OptionSpec {
+            name: name.to_string(),
+            short: None,
+            long: long.map(str::to_string),
+            help: String::new(),
+            field_type_help: "string".to_string(),
+            field_type: TypeId::of::<String>(),
+            required,
+            flag,
+            greedy: false,
+            nargs,
+            repeatable,
+            value_source: false,
+            completion: CompletionSpec::None,
+        }
+    }
 
     #[async_trait]
     impl AsyncCommandHandler for SemanticAction {
@@ -1088,9 +1260,103 @@ long = "state"
         );
     }
 
+    #[test]
+    fn workflow_inputs_preserve_optional_flags_and_repeated_values() {
+        let manifest = ExtensionManifest::parse(
+            r#"
+schema_version = 1
+name = "demo"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+executable = "bin/demo"
+
+[[commands]]
+path = ["run"]
+
+[[commands.options]]
+name = "verbose"
+kind = "flag"
+long = "verbose"
+
+[[commands.options]]
+name = "tag"
+kind = "string"
+long = "tag"
+repeatable = true
+"#,
+        )
+        .expect("manifest");
+        let declaration = &manifest.commands()[0];
+        let tokens = CommandTokenizer::new_at(
+            "run --verbose --tag alpha --tag beta",
+            0,
+            &extension_cli_options(declaration),
+        )
+        .expect("workflow inputs should tokenize");
+
+        assert_eq!(
+            workflow_input_values(&tokens, declaration).expect("typed workflow inputs"),
+            json!({ "verbose": true, "tag": ["alpha", "beta"] })
+                .as_object()
+                .expect("object")
+                .clone()
+        );
+    }
+
+    #[test]
+    fn workflow_bindings_compile_named_flags_positionals_and_fixed_arity_values() {
+        let command = CommandSpec {
+            name: "demo".to_string(),
+            about: None,
+            long_about: None,
+            examples: None,
+            options: vec![
+                catalog_option("target", None, true, false, false, None),
+                catalog_option("class", Some("--class"), false, false, false, None),
+                catalog_option("all", Some("--all"), false, true, false, None),
+                catalog_option(
+                    "where_clauses",
+                    Some("--where"),
+                    false,
+                    false,
+                    true,
+                    Some(3),
+                ),
+            ],
+            reauthentication_retry: ReauthenticationRetry::Safe,
+            handler: Arc::new(EchoAction),
+        };
+        let values = BTreeMap::from([
+            ("target".to_string(), json!("server-01")),
+            ("class".to_string(), json!("Hosts")),
+            ("all".to_string(), json!(true)),
+            (
+                "where".to_string(),
+                json!([["state", "eq", "active"], ["kind", "eq", "host"]]),
+            ),
+        ]);
+
+        assert_eq!(
+            workflow_step_arguments(&command, &values).expect("compiled arguments"),
+            [
+                "--class=Hosts",
+                "--all",
+                "--where=state",
+                "eq",
+                "active",
+                "--where=kind",
+                "eq",
+                "host",
+                "--",
+                "server-01",
+            ]
+        );
+    }
+
     #[tokio::test]
     #[serial]
-    async fn workflow_composes_semantic_action_values_in_process() {
+    async fn workflow_composes_semantic_step_values_in_process() {
         let manifest = ExtensionManifest::parse(
             r#"
 schema_version = 1
@@ -1102,26 +1368,32 @@ protocol = "hubuum-cli.extension/v1"
 [[commands]]
 path = ["snapshot"]
 
+[[commands.options]]
+name = "target"
+kind = "integer"
+positional = true
+required = true
+
 [commands.workflow]
+result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy }"
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "items"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "selected"
-command = ["object", "echo"]
+run = ["object", "echo"]
+with = { id = { step = "items", select = ".[0].id" } }
 
-[[commands.workflow.actions.arguments]]
-literal = "--id"
+[[commands.workflow.steps]]
+id = "input_echo"
+run = ["object", "echo"]
+with = { id = { input = "target" } }
 
-[[commands.workflow.actions.arguments]]
-action = "items"
-selector = ".[0].id"
-
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "legacy"
-command = ["object", "legacy"]
+run = ["object", "legacy"]
 "#,
         )
         .expect("workflow manifest");
@@ -1153,7 +1425,21 @@ command = ["object", "legacy"]
                 about: None,
                 long_about: None,
                 examples: None,
-                options: Vec::new(),
+                options: vec![OptionSpec {
+                    name: "id".to_string(),
+                    short: None,
+                    long: Some("--id".to_string()),
+                    help: String::new(),
+                    field_type_help: "string".to_string(),
+                    field_type: TypeId::of::<String>(),
+                    required: true,
+                    flag: false,
+                    greedy: false,
+                    nargs: None,
+                    repeatable: false,
+                    value_source: false,
+                    completion: CompletionSpec::None,
+                }],
                 reauthentication_retry: ReauthenticationRetry::Safe,
                 handler: Arc::new(EchoAction),
             },
@@ -1180,7 +1466,7 @@ command = ["object", "legacy"]
             .execute(
                 context,
                 CommandInvocation {
-                    raw_line: "extension demo snapshot --output json".to_string(),
+                    raw_line: "extension demo snapshot 7 --output json".to_string(),
                     command_index: 2,
                     command_path: vec![
                         "extension".to_string(),
@@ -1198,8 +1484,10 @@ command = ["object", "legacy"]
         assert_eq!(
             outcome.output.semantic[0].value,
             json!({
+                "requested": 7,
                 "items": [{"id": 1}],
-                "selected": "object echo --id 1 --output json",
+                "selected": "object echo --output json --id=1",
+                "input_echo": "object echo --output json --id=7",
                 "legacy": {"legacy": true}
             })
         );

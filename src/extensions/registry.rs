@@ -4,7 +4,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use hubuum_extension_protocol::{ExtensionManifest, WorkflowAction, MANIFEST_FILENAME};
+use hubuum_extension_protocol::{ExtensionManifest, WorkflowDeclaration, MANIFEST_FILENAME};
 use semver::Version;
 use serde_json::{to_value, Value};
 
@@ -239,9 +239,9 @@ impl ExtensionRegistry {
         names
     }
 
-    pub(crate) fn validate_workflow_actions<F>(&mut self, validate: F)
+    pub(crate) fn validate_workflows<F>(&mut self, validate: F)
     where
-        F: Fn(&WorkflowAction, bool, &Value) -> Result<(), String>,
+        F: Fn(&WorkflowDeclaration, &Value) -> Result<(), String>,
     {
         for pack in &mut self.packs {
             if !pack.is_enabled() {
@@ -252,23 +252,17 @@ impl ExtensionRegistry {
             };
             let invalid = manifest.commands().iter().find_map(|command| {
                 command.workflow().and_then(|workflow| {
-                    workflow.actions().iter().find_map(|action| {
-                        validate(action, workflow.allows_unsafe_actions(), pack.config())
-                            .err()
-                            .map(|message| {
-                                format!(
-                                "workflow command '{}' action '{}' cannot invoke '{}': {message}",
-                                command.path().display(),
-                                action.id().as_str(),
-                                action.command().display()
-                            )
-                            })
+                    validate(workflow, pack.config()).err().map(|message| {
+                        format!(
+                            "workflow command '{}' is invalid: {message}",
+                            command.path().display()
+                        )
                     })
                 })
             });
             if let Some(message) = invalid {
                 pack.quarantine(ExtensionDiagnostic::error(
-                    "workflow_action_invalid",
+                    "workflow_invalid",
                     Some(manifest.name().as_str().to_string()),
                     pack.manifest_path.clone(),
                     message,

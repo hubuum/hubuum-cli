@@ -5,6 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use hubuum_extension_protocol::ExtensionManifest;
 use predicates::str::contains;
 use serde_json::Value;
 use tempfile::tempdir;
@@ -125,27 +126,25 @@ about = "Run protocol fixture"
 fn write_workflow_pack(
     root: &Path,
     name: &str,
-    action: &[&str],
-    action_arguments: &[&str],
-    allow_unsafe_actions: bool,
+    run: &[&str],
+    bindings: &[(&str, &str)],
+    allows_mutation: bool,
 ) {
     let package = root.join(name);
     create_dir_all(&package).expect("package directory");
-    let command = action
+    let command = run
         .iter()
         .map(|segment| format!("\"{segment}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    let unsafe_setting = if allow_unsafe_actions {
-        "allow_unsafe_actions = true"
+    let capabilities = if allows_mutation {
+        "capabilities = [\"mutate\"]"
     } else {
         ""
     };
-    let arguments = action_arguments
+    let bindings = bindings
         .iter()
-        .map(|argument| {
-            format!("\n[[commands.workflow.actions.arguments]]\nliteral = {argument:?}\n")
-        })
+        .map(|(name, value)| format!("{name} = {value:?}\n"))
         .collect::<String>();
     write(
         package.join("hubuum-extension.toml"),
@@ -161,12 +160,14 @@ path = ["snapshot"]
 about = "Compose built-in commands"
 
 [commands.workflow]
-{unsafe_setting}
+{capabilities}
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "items"
-command = [{command}]
-{arguments}
+run = [{command}]
+
+[commands.workflow.steps.with]
+{bindings}
 "#
         ),
     )
@@ -176,6 +177,20 @@ command = [{command}]
 fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
     let output = assertion.success().get_output().stdout.clone();
     serde_json::from_slice(&output).expect("JSON command output")
+}
+
+#[test]
+fn bundled_manifest_workflow_uses_the_current_language() {
+    let manifest = ExtensionManifest::parse(include_str!(
+        "../examples/hubuum-inventory/hubuum-extension.toml"
+    ))
+    .expect("bundled workflow manifest");
+    let snapshot = manifest.commands()[0]
+        .workflow()
+        .expect("snapshot workflow");
+
+    assert_eq!(snapshot.steps().len(), 3);
+    assert!(snapshot.result().is_some());
 }
 
 #[test]
@@ -448,7 +463,7 @@ fn manifest_only_workflows_need_no_executable() {
 }
 
 #[test]
-fn offline_workflow_actions_run_without_login() {
+fn offline_workflow_steps_run_without_login() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
     create_dir_all(&user_root).expect("extension root");
@@ -474,7 +489,7 @@ fn offline_workflow_actions_run_without_login() {
 }
 
 #[test]
-fn doctor_quarantines_unsafe_workflow_actions() {
+fn doctor_quarantines_mutating_workflows_without_capability() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
     create_dir_all(&user_root).expect("extension root");
@@ -494,15 +509,15 @@ fn doctor_quarantines_unsafe_workflow_actions() {
             ])
             .assert(),
     );
-    assert_eq!(doctor[0]["code"], "workflow_action_invalid");
+    assert_eq!(doctor[0]["code"], "workflow_invalid");
     assert!(doctor[0]["message"]
         .as_str()
         .expect("diagnostic message")
-        .contains("not safe to replay"));
+        .contains("may change state"));
 }
 
 #[test]
-fn doctor_rejects_actions_missing_required_arguments() {
+fn doctor_rejects_steps_missing_required_bindings() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
     create_dir_all(&user_root).expect("extension root");
@@ -522,15 +537,15 @@ fn doctor_rejects_actions_missing_required_arguments() {
             ])
             .assert(),
     );
-    assert_eq!(doctor[0]["code"], "workflow_action_invalid");
+    assert_eq!(doctor[0]["code"], "workflow_invalid");
     assert!(doctor[0]["message"]
         .as_str()
         .expect("diagnostic message")
-        .contains("required option"));
+        .contains("required input"));
 }
 
 #[test]
-fn explicitly_unsafe_workflow_actions_join_the_catalog() {
+fn explicitly_mutating_workflow_steps_join_the_catalog() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
     create_dir_all(&user_root).expect("extension root");
@@ -539,14 +554,10 @@ fn explicitly_unsafe_workflow_actions_join_the_catalog() {
         "suite-flow",
         &["object", "create"],
         &[
-            "--name",
-            "workflow-object",
-            "--class",
-            "Hosts",
-            "--collection",
-            "inventory",
-            "--description",
-            "Created by workflow",
+            ("name", "workflow-object"),
+            ("class", "Hosts"),
+            ("collection", "inventory"),
+            ("description", "Created by workflow"),
         ],
         true,
     );
@@ -568,11 +579,8 @@ fn explicitly_unsafe_workflow_actions_join_the_catalog() {
     );
     assert_eq!(shown["state"], "enabled");
     assert_eq!(shown["commands"][0]["implementation"], "workflow");
-    assert_eq!(shown["commands"][0]["allow_unsafe_actions"], true);
-    assert_eq!(
-        shown["commands"][0]["actions"][0]["command"],
-        "object create"
-    );
+    assert_eq!(shown["commands"][0]["capabilities"][0], "mutate");
+    assert_eq!(shown["commands"][0]["steps"][0]["run"], "object create");
 }
 
 #[test]

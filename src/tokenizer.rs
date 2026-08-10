@@ -96,6 +96,7 @@ impl CommandTokenizer {
         trace!("Tokenizer generated: {tokens:?}");
 
         let mut idx = 0;
+        let mut options_ended = false;
         while idx < tokens.len() {
             let token = &tokens[idx];
 
@@ -108,7 +109,16 @@ impl CommandTokenizer {
                 continue;
             }
 
-            if token.starts_with('-') {
+            if token == "--" && !options_ended {
+                if tokenizer.command.is_empty() {
+                    return Err(AppError::InvalidInput);
+                }
+                options_ended = true;
+                idx += 1;
+                continue;
+            }
+
+            if !options_ended && token.starts_with('-') {
                 if tokenizer.command.is_empty() {
                     return Err(AppError::InvalidInput);
                 }
@@ -650,6 +660,27 @@ mod tests {
             Some(&"Device".to_string())
         );
         assert_eq!(tokens.get_positionals(), &["router-1".to_string()]);
+    }
+
+    #[test]
+    fn double_dash_preserves_option_like_positionals() {
+        let options = vec![opt("class", Some("-c"), Some("--class"), false)];
+
+        let tokens = CommandTokenizer::new(
+            "object show --class=Device -- --output -temporary",
+            "show",
+            &options,
+        )
+        .expect("the option terminator should preserve positional values");
+
+        assert_eq!(
+            tokens.get_options().get("class"),
+            Some(&"Device".to_string())
+        );
+        assert_eq!(
+            tokens.get_positionals(),
+            &["--output".to_string(), "-temporary".to_string()]
+        );
     }
 
     #[test]

@@ -149,12 +149,12 @@ pub enum AppError {
     },
 
     #[error(
-        "Extension workflow {pack} ({workflow}) action {action} invoking {command} failed: {source}"
+        "Extension workflow {pack} ({workflow}) step {step} invoking {command} failed: {source}"
     )]
-    ExtensionWorkflowAction {
+    ExtensionWorkflowStep {
         pack: String,
         workflow: String,
-        action: String,
+        step: String,
         command: String,
         #[source]
         source: Box<AppError>,
@@ -224,7 +224,7 @@ impl AppError {
             Self::ApiError(error) => Some(error),
             Self::UnauthorizedCommand { source, .. }
             | Self::WithWarnings { source, .. }
-            | Self::ExtensionWorkflowAction { source, .. } => source.api_error(),
+            | Self::ExtensionWorkflowStep { source, .. } => source.api_error(),
             _ => None,
         }
     }

@@ -110,12 +110,10 @@ and aliases reserved by host rendering options are rejected.
 
 ## In-process workflows
 
-A workflow command declares sequential actions instead of an executable
-argument vector. Each action resolves an existing built-in CLI command. Native
-semantic output is consumed directly; commands that still render their JSON
-are captured and parsed in-process, with non-JSON lines normalized to JSON
-strings. The action values are composed into one detail object keyed by action
-ID.
+A workflow command declares typed, sequential steps instead of an executable
+argument vector. Each step resolves an existing built-in CLI command and binds
+values to that command's canonical input names. Authors do not need to spell
+flags, order positional arguments, or construct shell tokens.
 
 ```toml
 schema_version = 1
@@ -129,78 +127,85 @@ path = ["snapshot"]
 about = "Collect Hosts and Rooms"
 
 [commands.workflow]
+result = "{ hosts: .steps.hosts, rooms: .steps.rooms }"
 
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "hosts"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--class"
+[commands.workflow.steps.with]
+class = { config = "hosts_class", default = "Hosts" }
+all = true
 
-[[commands.workflow.actions.arguments]]
-config = "hosts_class"
-default = "Hosts"
-
-[[commands.workflow.actions.arguments]]
-literal = "--all"
-
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "rooms"
-command = ["object", "list"]
+run = ["object", "list"]
 
-[[commands.workflow.actions.arguments]]
-literal = "--class"
+[commands.workflow.steps.with]
+class = { config = "rooms_class", default = "Rooms" }
+all = true
 
-[[commands.workflow.actions.arguments]]
-config = "rooms_class"
-default = "Rooms"
-
-[[commands.workflow.actions.arguments]]
-literal = "--all"
-
-[[commands.workflow.actions]]
+[[commands.workflow.steps]]
 id = "first_host"
-command = ["object", "show"]
-
-[[commands.workflow.actions.arguments]]
-literal = "--id"
-
-[[commands.workflow.actions.arguments]]
-action = "hosts"
-selector = ".[0].id"
+run = ["object", "show"]
+with = { id = { step = "hosts", select = ".[0].id" } }
 ```
 
-Action arguments are structured entries. `literal` supplies a fixed token,
-`config` reads a scalar from `extensions.config.<pack>` and may declare a
-`default`, and `option` forwards a required, non-repeatable workflow command
-option by name. `action` reads an earlier action's JSON value; its optional
-`selector` is an in-process JQ expression and must produce a value that can be
-passed as one argument. Forward and recursive references are rejected. The CLI
-never evaluates these tokens as a shell command.
+The `with` keys are the target command's public long option names without the
+leading `--`; positional-only inputs use their catalog names. For example,
+`--include-total` becomes `include-total`. A binding may be:
+
+- a literal TOML string, number, boolean, or array;
+- `{ input = "name" }` to read a declared option of the workflow command;
+- `{ config = "key", default = value }` to read
+  `extensions.config.<pack>`;
+- `{ step = "id", select = "jq expression" }` to read and optionally
+  transform an earlier step's semantic value.
+
+Flags accept booleans. Arrays feed repeatable inputs. Inputs with a fixed
+arity accept an array, while repeatable fixed-arity inputs accept an array of
+arrays. Missing optional inputs and configuration values become `null` and
+omit the target input; a required target produces a focused error.
+
+`result` is an optional JQ expression evaluated over an object containing
+`.input`, `.config`, and `.steps`. Its output shape is inferred as rows, detail,
+values, message, or empty output. Without `result`, the workflow returns the
+step values as one detail object, keyed by step ID.
+
+Forward and recursive step references are rejected. The CLI compiles bindings
+to an argument vector using catalog metadata and never evaluates them as a
+shell command.
 
 Workflow packs need no `executable`. Every built-in catalog command except the
-`extension` namespace can be an action. During catalog construction the CLI
-validates command paths, fixed argument structure, required configuration,
-output selectors, and replay safety. Invalid actions quarantine the pack and
+`extension` namespace can be a step. During catalog construction the CLI
+validates command paths, binding names and shapes, required target inputs, JQ
+expressions, and replay safety. Invalid workflows quarantine the pack and
 appear in `extension doctor`.
 
-Actions that are not safe to replay require an explicit workflow capability:
+Steps that may change state require an explicit workflow capability:
 
 ```toml
 [commands.workflow]
-allow_unsafe_actions = true
+capabilities = ["mutate"]
 ```
 
 This includes commands that may change server or local state, plus conservative
 commands that have not declared safe retry behavior. A workflow containing any
-such action is itself never automatically replayed after reauthentication.
-Completed action IDs are reported if a later action fails, but generic
+such step is itself never automatically replayed after reauthentication.
+Completed step IDs are reported if a later step fails, but generic
 workflows do not provide transactions or compensating rollback.
 
-The runtime forces each action to internal JSON output, preserves warnings,
+The runtime forces each step to internal JSON output, preserves warnings,
 and then applies the caller's pipeline, output format, and redirect to the
 composed result. Paged commands retain their normal JSON page metadata unless
-the action supplies `--all`.
+the step binds `all = true`.
+
+TOML remains the manifest container because the language is declarative data,
+not a general-purpose program: it provides typed scalars, deterministic parsing,
+good diagnostics, and consistency with Hubuum CLI configuration. JQ supplies
+the deliberately bounded transformation layer. Workflows requiring arbitrary
+control flow, external I/O, or custom recovery should use an executable-backed
+command rather than embedding a second scripting language in the manifest.
 
 See the dependency-free
 [`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack for a

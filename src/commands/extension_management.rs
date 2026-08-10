@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use hubuum_extension_protocol::{ExtensionManifest, MANIFEST_FILENAME};
+use hubuum_extension_protocol::{ExtensionManifest, WorkflowBinding, MANIFEST_FILENAME};
 use hubuum_filter::OutputEnvelope;
 use semver::Version;
 use serde_json::{json, Value};
@@ -334,13 +334,17 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
                     } else {
                         "executable"
                     },
-                    "allow_unsafe_actions": command.workflow().is_some_and(|workflow| {
-                        workflow.allows_unsafe_actions()
-                    }),
-                    "actions": command.workflow().map(|workflow| workflow.actions().iter().map(|action| {
+                    "capabilities": command.workflow().map(|workflow| workflow.capabilities().iter().map(|capability| {
+                        capability.as_str()
+                    }).collect::<Vec<_>>()).unwrap_or_default(),
+                    "result": command.workflow().and_then(|workflow| workflow.result()),
+                    "steps": command.workflow().map(|workflow| workflow.steps().iter().map(|step| {
                         json!({
-                            "id": action.id().as_str(),
-                            "command": action.command().display(),
+                            "id": step.id().as_str(),
+                            "run": step.run().display(),
+                            "with": step.bindings().iter().map(|(name, binding)| {
+                                (name.as_str().to_string(), workflow_binding_value(binding))
+                            }).collect::<serde_json::Map<_, _>>(),
                         })
                     }).collect::<Vec<_>>()).unwrap_or_default(),
                 })
@@ -349,6 +353,21 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
         }),
         Vec::new(),
     ))
+}
+
+fn workflow_binding_value(binding: &WorkflowBinding) -> Value {
+    match binding {
+        WorkflowBinding::Literal(value) => value.clone(),
+        WorkflowBinding::Input { name } => json!({ "input": name }),
+        WorkflowBinding::Config { key, default } => json!({
+            "config": key,
+            "default": default,
+        }),
+        WorkflowBinding::Step { step, select } => json!({
+            "step": step.as_str(),
+            "select": select,
+        }),
+    }
 }
 
 fn doctor(ctx: &CommandContext) -> Result<(), AppError> {

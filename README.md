@@ -109,12 +109,12 @@ hubuum-cli extension site-inventory host show server-01
 hubuum-cli extension doctor
 ```
 
-Manifest-only packs run built-in CLI commands as in-process actions and require
-no runtime dependency other than `hubuum-cli`. Executable-backed packs remain
-available through a small versioned JSON process protocol; they are trusted,
-not native plugins, and not sandboxed. See the [extension command pack
-guide](docs/extensions.md) for manifests, discovery, configuration, lifecycle
-operations, security boundaries, and troubleshooting.
+Manifest-only packs run built-in CLI commands as typed in-process steps and
+require no runtime dependency other than `hubuum-cli`. Executable-backed packs
+remain available through a small versioned JSON process protocol; they are
+trusted, not native plugins, and not sandboxed. See the
+[extension command pack guide](docs/extensions.md) for manifests, discovery,
+configuration, lifecycle operations, security boundaries, and troubleshooting.
 
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in
