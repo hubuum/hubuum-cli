@@ -103,7 +103,6 @@ pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
 
 pub trait CliCommand: CommandArgs + Send + Sync {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Unsafe;
-    const COMPOSABLE: bool = false;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError>;
 }

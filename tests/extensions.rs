@@ -122,7 +122,13 @@ about = "Run protocol fixture"
     .expect("extension manifest");
 }
 
-fn write_workflow_pack(root: &Path, name: &str, action: &[&str]) {
+fn write_workflow_pack(
+    root: &Path,
+    name: &str,
+    action: &[&str],
+    action_arguments: &[&str],
+    allow_unsafe_actions: bool,
+) {
     let package = root.join(name);
     create_dir_all(&package).expect("package directory");
     let command = action
@@ -130,6 +136,17 @@ fn write_workflow_pack(root: &Path, name: &str, action: &[&str]) {
         .map(|segment| format!("\"{segment}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    let unsafe_setting = if allow_unsafe_actions {
+        "allow_unsafe_actions = true"
+    } else {
+        ""
+    };
+    let arguments = action_arguments
+        .iter()
+        .map(|argument| {
+            format!("\n[[commands.workflow.actions.arguments]]\nliteral = {argument:?}\n")
+        })
+        .collect::<String>();
     write(
         package.join("hubuum-extension.toml"),
         format!(
@@ -144,10 +161,12 @@ path = ["snapshot"]
 about = "Compose built-in commands"
 
 [commands.workflow]
+{unsafe_setting}
 
 [[commands.workflow.actions]]
 id = "items"
 command = [{command}]
+{arguments}
 "#
         ),
     )
@@ -378,7 +397,7 @@ fn manifest_only_workflows_need_no_executable() {
     let user_root = temporary.path().join("installed");
     create_dir_all(&source_root).expect("source root");
     create_dir_all(&user_root).expect("extension root");
-    write_workflow_pack(&source_root, "inventory", &["object", "list"]);
+    write_workflow_pack(&source_root, "inventory", &["class", "list"], &[], false);
     let source = source_root.join("inventory");
     let config = temporary.path().join("config.toml");
     write_config(&config, &user_root);
@@ -429,11 +448,37 @@ fn manifest_only_workflows_need_no_executable() {
 }
 
 #[test]
+fn offline_workflow_actions_run_without_login() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_workflow_pack(&user_root, "offline-flow", &["version"], &[], false);
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let output = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "offline-flow",
+                "snapshot",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert!(output["items"]["cli_version"].is_string());
+    assert!(output["items"]["target"].is_string());
+}
+
+#[test]
 fn doctor_quarantines_unsafe_workflow_actions() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
     create_dir_all(&user_root).expect("extension root");
-    write_workflow_pack(&user_root, "unsafe-flow", &["object", "create"]);
+    write_workflow_pack(&user_root, "unsafe-flow", &["object", "create"], &[], false);
     let config = temporary.path().join("config.toml");
     write_config(&config, &user_root);
 
@@ -453,7 +498,81 @@ fn doctor_quarantines_unsafe_workflow_actions() {
     assert!(doctor[0]["message"]
         .as_str()
         .expect("diagnostic message")
-        .contains("not declared read-only"));
+        .contains("not safe to replay"));
+}
+
+#[test]
+fn doctor_rejects_actions_missing_required_arguments() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_workflow_pack(&user_root, "invalid-flow", &["object", "create"], &[], true);
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let doctor = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "doctor",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(doctor[0]["code"], "workflow_action_invalid");
+    assert!(doctor[0]["message"]
+        .as_str()
+        .expect("diagnostic message")
+        .contains("required option"));
+}
+
+#[test]
+fn explicitly_unsafe_workflow_actions_join_the_catalog() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_workflow_pack(
+        &user_root,
+        "suite-flow",
+        &["object", "create"],
+        &[
+            "--name",
+            "workflow-object",
+            "--class",
+            "Hosts",
+            "--collection",
+            "inventory",
+            "--description",
+            "Created by workflow",
+        ],
+        true,
+    );
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let shown = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "show",
+                "suite-flow",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(shown["state"], "enabled");
+    assert_eq!(shown["commands"][0]["implementation"], "workflow");
+    assert_eq!(shown["commands"][0]["allow_unsafe_actions"], true);
+    assert_eq!(
+        shown["commands"][0]["actions"][0]["command"],
+        "object create"
+    );
 }
 
 #[test]
@@ -554,5 +673,6 @@ fn host_pilot_appears_in_the_real_command_catalog() {
         .stdout(contains("extension host show"))
         .stdout(contains("extension host create"))
         .stdout(contains("extension host move"))
-        .stdout(contains("extension inventory snapshot"));
+        .stdout(contains("extension inventory snapshot"))
+        .stdout(contains("extension inventory classes"));
 }

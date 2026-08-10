@@ -2,7 +2,7 @@
 
 Extension packs add trusted, site-specific workflows to the Hubuum CLI command
 catalog without compiling them into the CLI. A manifest-only workflow invokes
-composable built-in commands in-process and needs no runtime other than
+built-in commands in-process and needs no runtime other than
 `hubuum-cli`. Packs may also declare executable-backed commands implemented in
 Bash, Python, Rust, or another language. Both forms participate in help, REPL
 scopes, declared option validation, static completion, semantic pipelines,
@@ -111,9 +111,11 @@ and aliases reserved by host rendering options are rejected.
 ## In-process workflows
 
 A workflow command declares sequential actions instead of an executable
-argument vector. Each action resolves an existing built-in CLI command and
-uses its semantic output directly; it does not render JSON and parse it again.
-The action values are composed into one detail object keyed by action ID.
+argument vector. Each action resolves an existing built-in CLI command. Native
+semantic output is consumed directly; commands that still render their JSON
+are captured and parsed in-process, with non-JSON lines normalized to JSON
+strings. The action values are composed into one detail object keyed by action
+ID.
 
 ```toml
 schema_version = 1
@@ -155,20 +157,50 @@ default = "Rooms"
 
 [[commands.workflow.actions.arguments]]
 literal = "--all"
+
+[[commands.workflow.actions]]
+id = "first_host"
+command = ["object", "show"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--id"
+
+[[commands.workflow.actions.arguments]]
+action = "hosts"
+selector = ".[0].id"
 ```
 
 Action arguments are structured entries. `literal` supplies a fixed token,
 `config` reads a scalar from `extensions.config.<pack>` and may declare a
 `default`, and `option` forwards a required, non-repeatable workflow command
-option by name. The CLI never joins these tokens into a shell command.
+option by name. `action` reads an earlier action's JSON value; its optional
+`selector` is an in-process JQ expression and must produce a value that can be
+passed as one argument. Forward and recursive references are rejected. The CLI
+never evaluates these tokens as a shell command.
 
-Workflow packs need no `executable`. During catalog construction, every action
-must resolve to a built-in command explicitly marked as composable and
-read-only. Unknown, mutating, non-semantic, or recursive extension actions
-quarantine the pack and appear in `extension doctor`. Actions must return one
-semantic value and must select all pages or an explicit page; warnings are
-preserved and the caller's pipeline and output format apply to the composed
-result.
+Workflow packs need no `executable`. Every built-in catalog command except the
+`extension` namespace can be an action. During catalog construction the CLI
+validates command paths, fixed argument structure, required configuration,
+output selectors, and replay safety. Invalid actions quarantine the pack and
+appear in `extension doctor`.
+
+Actions that are not safe to replay require an explicit workflow capability:
+
+```toml
+[commands.workflow]
+allow_unsafe_actions = true
+```
+
+This includes commands that may change server or local state, plus conservative
+commands that have not declared safe retry behavior. A workflow containing any
+such action is itself never automatically replayed after reauthentication.
+Completed action IDs are reported if a later action fails, but generic
+workflows do not provide transactions or compensating rollback.
+
+The runtime forces each action to internal JSON output, preserves warnings,
+and then applies the caller's pipeline, output format, and redirect to the
+composed result. Paged commands retain their normal JSON page metadata unless
+the action supplies `--all`.
 
 See the dependency-free
 [`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack for a

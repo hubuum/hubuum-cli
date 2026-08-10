@@ -9,18 +9,15 @@ use serde_json::{from_str, to_vec, Value};
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
 
+pub(crate) fn validate_jq_expression(expression: &str) -> Result<(), PipelineError> {
+    compile(expression).map(|_| ()).map_err(jq_compile_error)
+}
+
 pub(crate) fn jq_envelope(
     mut envelope: OutputEnvelope,
     expression: &str,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let filter = compile(expression).map_err(|reports| {
-        let message = reports
-            .iter()
-            .map(|report| FileReportsDisp::new(report).to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        PipelineError::Jq(message.trim().to_string())
-    })?;
+    let filter = compile(expression).map_err(jq_compile_error)?;
     let input = to_vec(&envelope.value)
         .map_err(|err| PipelineError::Jq(format!("serializing input failed: {err}")))?;
     let input = parse_single(&input)
@@ -51,6 +48,16 @@ pub(crate) fn jq_envelope(
     envelope.value = value;
     envelope.columns.clear();
     Ok(envelope)
+}
+
+fn jq_compile_error(reports: impl AsRef<[jaq_all::load::FileReports]>) -> PipelineError {
+    let message = reports
+        .as_ref()
+        .iter()
+        .map(|report| FileReportsDisp::new(report).to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    PipelineError::Jq(message.trim().to_string())
 }
 
 fn collapse_outputs(outputs: Vec<Value>, previous_shape: OutputShape) -> (OutputShape, Value) {

@@ -57,3 +57,17 @@ default = "Rooms"
 
 [[commands.workflow.actions.arguments]]
 literal = "--all"
+
+[[commands]]
+path = ["classes"]
+about = "List all classes through an in-process action"
+examples = ["extension inventory classes --output json"]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "classes"
+command = ["class", "list"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--all"

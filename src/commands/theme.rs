@@ -11,7 +11,7 @@ use crate::catalog::CommandCatalogBuilder;
 use crate::config::{
     get_config, reload_runtime_config, set_persisted_value, theme_value_candidates,
 };
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
 use crate::output::{append_line, append_lines, render_dense_theme_preview, set_semantic_output};
 use crate::services::AppServices;
@@ -73,6 +73,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct ThemeList {}
 
 impl CliCommand for ThemeList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_list(tokens)
     }
@@ -123,6 +125,8 @@ pub struct ThemeShow {
 }
 
 impl CliCommand for ThemeShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_show(tokens)
     }
@@ -149,6 +153,8 @@ pub struct ThemePreview {
 }
 
 impl CliCommand for ThemePreview {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_theme_preview(tokens)
     }

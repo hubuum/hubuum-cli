@@ -416,13 +416,6 @@ impl TryFrom<RawCommand> for CommandDeclaration {
                 "workflow commands cannot declare executable arguments",
             ));
         }
-        if workflow.is_some() && raw.interactive {
-            return Err(invalid_workflow(
-                &path,
-                "workflow commands cannot be interactive",
-            ));
-        }
-
         Ok(Self {
             path,
             arguments: raw.arguments,
@@ -439,6 +432,7 @@ impl TryFrom<RawCommand> for CommandDeclaration {
 #[derive(Debug, Clone)]
 pub struct WorkflowDeclaration {
     actions: Vec<WorkflowAction>,
+    allow_unsafe_actions: bool,
 }
 
 impl WorkflowDeclaration {
@@ -457,7 +451,7 @@ impl WorkflowDeclaration {
             let id = WorkflowActionId::new(raw_action.id).map_err(|message| {
                 invalid_workflow(command, &format!("invalid action id: {message}"))
             })?;
-            if !ids.insert(id.clone()) {
+            if ids.contains(&id) {
                 return Err(invalid_workflow(
                     command,
                     &format!("duplicate action id '{}'", id.as_str()),
@@ -479,19 +473,27 @@ impl WorkflowDeclaration {
             let arguments = raw_action
                 .arguments
                 .into_iter()
-                .map(|argument| WorkflowArgument::validate(argument, command, options))
+                .map(|argument| WorkflowArgument::validate(argument, command, options, &ids))
                 .collect::<Result<Vec<_>, _>>()?;
             actions.push(WorkflowAction {
-                id,
+                id: id.clone(),
                 command: action_path,
                 arguments,
             });
+            ids.insert(id);
         }
-        Ok(Self { actions })
+        Ok(Self {
+            actions,
+            allow_unsafe_actions: raw.allow_unsafe_actions,
+        })
     }
 
     pub fn actions(&self) -> &[WorkflowAction] {
         &self.actions
+    }
+
+    pub fn allows_unsafe_actions(&self) -> bool {
+        self.allow_unsafe_actions
     }
 }
 
@@ -538,6 +540,7 @@ pub enum WorkflowArgumentKind {
     Literal,
     OptionValue,
     ConfigValue,
+    ActionOutput,
 }
 
 #[derive(Debug, Clone)]
@@ -545,6 +548,7 @@ pub struct WorkflowArgument {
     kind: WorkflowArgumentKind,
     value: String,
     default: Option<String>,
+    selector: Option<String>,
 }
 
 impl WorkflowArgument {
@@ -552,11 +556,13 @@ impl WorkflowArgument {
         raw: RawWorkflowArgument,
         command: &CommandPath,
         options: &[OptionDeclaration],
+        prior_action_ids: &HashSet<WorkflowActionId>,
     ) -> Result<Self, ProtocolError> {
         let sources = [
             raw.literal.is_some(),
             raw.option.is_some(),
             raw.config.is_some(),
+            raw.action.is_some(),
         ]
         .into_iter()
         .filter(|present| *present)
@@ -564,7 +570,7 @@ impl WorkflowArgument {
         if sources != 1 {
             return Err(invalid_workflow(
                 command,
-                "each action argument must declare exactly one of literal, option, or config",
+                "each action argument must declare exactly one of literal, option, config, or action",
             ));
         }
         if raw.default.is_some() && raw.config.is_none() {
@@ -581,6 +587,22 @@ impl WorkflowArgument {
             return Err(invalid_workflow(
                 command,
                 "action argument defaults cannot contain NUL",
+            ));
+        }
+        if raw.selector.is_some() && raw.action.is_none() {
+            return Err(invalid_workflow(
+                command,
+                "an action argument selector is only valid with action",
+            ));
+        }
+        if raw
+            .selector
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(invalid_workflow(
+                command,
+                "an action argument selector cannot be empty",
             ));
         }
 
@@ -613,8 +635,7 @@ impl WorkflowArgument {
                 ));
             }
             (WorkflowArgumentKind::OptionValue, option)
-        } else {
-            let config = raw.config.expect("one argument source was present");
+        } else if let Some(config) = raw.config {
             if !is_option_word(&config) {
                 return Err(invalid_workflow(
                     command,
@@ -624,12 +645,29 @@ impl WorkflowArgument {
                 ));
             }
             (WorkflowArgumentKind::ConfigValue, config)
+        } else {
+            let action =
+                WorkflowActionId::new(raw.action.expect("one argument source was present"))
+                    .map_err(|message| {
+                        invalid_workflow(command, &format!("invalid action reference: {message}"))
+                    })?;
+            if !prior_action_ids.contains(&action) {
+                return Err(invalid_workflow(
+                    command,
+                    &format!(
+                        "action output reference '{}' must name an earlier action",
+                        action.as_str()
+                    ),
+                ));
+            }
+            (WorkflowArgumentKind::ActionOutput, action.0)
         };
 
         Ok(Self {
             kind,
             value,
             default: raw.default,
+            selector: raw.selector,
         })
     }
 
@@ -643,6 +681,10 @@ impl WorkflowArgument {
 
     pub fn default(&self) -> Option<&str> {
         self.default.as_deref()
+    }
+
+    pub fn selector(&self) -> Option<&str> {
+        self.selector.as_deref()
     }
 }
 
@@ -880,6 +922,8 @@ struct RawCommand {
 struct RawWorkflow {
     #[serde(default)]
     actions: Vec<RawWorkflowAction>,
+    #[serde(default)]
+    allow_unsafe_actions: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -895,7 +939,9 @@ struct RawWorkflowArgument {
     literal: Option<String>,
     option: Option<String>,
     config: Option<String>,
+    action: Option<String>,
     default: Option<String>,
+    selector: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1134,6 +1180,7 @@ mod tests {
 
     use super::{
         ExtensionManifest, ExtensionResponse, ProtocolError, SemanticOutput, SemanticOutputShape,
+        WorkflowArgumentKind,
     };
 
     const MANIFEST: &str = r#"
@@ -1190,6 +1237,7 @@ protocol = "hubuum-cli.extension/v1"
 path = ["snapshot"]
 
 [commands.workflow]
+allow_unsafe_actions = true
 
 [[commands.workflow.actions]]
 id = "hosts"
@@ -1201,17 +1249,62 @@ literal = "--class"
 [[commands.workflow.actions.arguments]]
 config = "hosts_class"
 default = "Hosts"
+
+[[commands.workflow.actions]]
+id = "details"
+command = ["object", "show"]
+
+[[commands.workflow.actions.arguments]]
+action = "hosts"
+selector = ".[0].id"
 "#,
         )
         .expect("workflow manifest should parse");
 
         assert!(manifest.executable().is_none());
-        let action = &manifest.commands()[0]
-            .workflow()
-            .expect("workflow")
-            .actions()[0];
+        let workflow = manifest.commands()[0].workflow().expect("workflow");
+        let action = &workflow.actions()[0];
         assert_eq!(action.id().as_str(), "hosts");
         assert_eq!(action.command().display(), "object list");
+        assert!(workflow.allows_unsafe_actions());
+        assert_eq!(
+            workflow.actions()[1].arguments()[0].kind(),
+            WorkflowArgumentKind::ActionOutput
+        );
+        assert_eq!(
+            workflow.actions()[1].arguments()[0].selector(),
+            Some(".[0].id")
+        );
+    }
+
+    #[test]
+    fn rejects_forward_action_output_references() {
+        let manifest = r#"
+schema_version = 1
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+
+[[commands]]
+path = ["snapshot"]
+
+[commands.workflow]
+
+[[commands.workflow.actions]]
+id = "first"
+command = ["object", "show"]
+
+[[commands.workflow.actions.arguments]]
+action = "later"
+
+[[commands.workflow.actions]]
+id = "later"
+command = ["object", "list"]
+"#;
+        let error = ExtensionManifest::parse(manifest).expect_err("manifest should fail");
+
+        assert!(error.to_string().contains("must name an earlier action"));
     }
 
     #[test]

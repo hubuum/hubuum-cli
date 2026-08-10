@@ -115,7 +115,6 @@ fn register(
             examples: management_examples(name),
             options,
             reauthentication_retry: ReauthenticationRetry::Unsafe,
-            composable: false,
             handler: Arc::new(ManagementHandler { operation: name }),
         },
     );
@@ -335,6 +334,9 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
                     } else {
                         "executable"
                     },
+                    "allow_unsafe_actions": command.workflow().is_some_and(|workflow| {
+                        workflow.allows_unsafe_actions()
+                    }),
                     "actions": command.workflow().map(|workflow| workflow.actions().iter().map(|action| {
                         json!({
                             "id": action.id().as_str(),

@@ -10,8 +10,10 @@ library.
 For a dependency-free, manifest-only example that runs built-in commands
 in-process, see
 [`examples/hubuum-inventory`](../hubuum-inventory/README.md). The shell-backed
-wrappers remain as the richer Host placement pilot while the workflow action
-surface is deliberately read-only.
+wrappers remain as the richer Host placement pilot while equivalent
+manifest-only workflows are developed. The action runtime supports the full
+built-in command catalog, with explicit opt-in for commands that are unsafe to
+replay.
 
 Keep the manifest, protocol dispatcher, wrappers, and common file in this
 directory together. Put the directory on `PATH` for standalone use, or install

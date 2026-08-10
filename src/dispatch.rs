@@ -179,21 +179,25 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
             .map_or(true, |resolved| {
                 !resolved.command.handler.requires_authentication()
             });
-    parts
-        .first()
-        .is_some_and(|part| part == "help" || part == "?")
+    is_offline_builtin_command(&parts)
         || extension_offline
-        || command_path_is(&parts, &["config", "show"])
-        || command_path_is(&parts, &["config", "paths"])
-        || command_path_is(&parts, &["theme", "list"])
-        || command_path_is(&parts, &["theme", "show"])
-        || command_path_is(&parts, &["theme", "preview"])
-        || command_path_is(&parts, &["auth", "providers"])
-        || command_path_is(&parts, &["metrics"])
-        || command_path_is(&parts, &["version"])
         || catalog
             .resolve_command(&[], &parts)
             .is_ok_and(|resolved| !resolved.command.handler.requires_authentication())
+}
+
+pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
+    parts
+        .first()
+        .is_some_and(|part| part == "help" || part == "?")
+        || command_path_is(parts, &["config", "show"])
+        || command_path_is(parts, &["config", "paths"])
+        || command_path_is(parts, &["theme", "list"])
+        || command_path_is(parts, &["theme", "show"])
+        || command_path_is(parts, &["theme", "preview"])
+        || command_path_is(parts, &["auth", "providers"])
+        || command_path_is(parts, &["metrics"])
+        || command_path_is(parts, &["version"])
 }
 
 pub async fn execute_offline_line(

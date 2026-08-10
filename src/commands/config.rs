@@ -154,6 +154,8 @@ pub struct ConfigShow {
 }
 
 impl CliCommand for ConfigShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_show(tokens)
     }
@@ -185,6 +187,8 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
 pub struct ConfigPaths {}
 
 impl CliCommand for ConfigPaths {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_paths(tokens)
     }

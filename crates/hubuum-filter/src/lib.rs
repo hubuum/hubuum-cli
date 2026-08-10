@@ -19,3 +19,7 @@ pub use parse::split_pipeline;
 pub use selector::{scalar_text, select_values};
 pub use verb_info::{help_topics, topic_help, verb_summaries, HelpTopic, VerbSummary};
 pub use verbs::collection::group_summary_rows;
+
+pub fn validate_jq_expression(expression: &str) -> Result<(), PipelineError> {
+    verbs::jq::validate_jq_expression(expression)
+}

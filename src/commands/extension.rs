@@ -11,8 +11,8 @@ use hubuum_extension_protocol::{
     SemanticOutput, SemanticOutputShape, WorkflowArgument, WorkflowArgumentKind,
     WorkflowDeclaration, PROTOCOL_V1,
 };
-use hubuum_filter::OutputEnvelope;
-use serde_json::{to_string, Map, Value};
+use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage};
+use serde_json::{from_str, to_string, Map, Value};
 use tokio::process::Command;
 
 use crate::catalog::{
@@ -21,6 +21,7 @@ use crate::catalog::{
 };
 use crate::command_line::shell_escape;
 use crate::commands::{render_format, standard_options, table_headers};
+use crate::dispatch::{execute_offline_line, is_offline_builtin_command};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::extensions::{ExtensionPack, ExtensionRegistry};
 use crate::output::{
@@ -29,7 +30,7 @@ use crate::output::{
 };
 use crate::tokenizer::CommandTokenizer;
 
-pub(crate) fn register_external_commands(
+pub(crate) fn register_extension_commands(
     builder: &mut CommandCatalogBuilder,
     registry: &Arc<ExtensionRegistry>,
 ) {
@@ -112,7 +113,6 @@ fn register_external_command(
             examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
             options,
             reauthentication_retry: ReauthenticationRetry::Unsafe,
-            composable: false,
             handler: Arc::new(handler),
         },
     );
@@ -135,6 +135,21 @@ fn register_workflow_command(
     ];
     path.extend(segments[..segments.len() - 1].iter().cloned());
     let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
+    let reauthentication_retry = if workflow.actions().iter().any(|action| {
+        builder
+            .command(action.command().segments())
+            .is_some_and(|command| command.reauthentication_retry == ReauthenticationRetry::Unsafe)
+    }) {
+        ReauthenticationRetry::Unsafe
+    } else {
+        ReauthenticationRetry::Safe
+    };
+    let requires_authentication = workflow.actions().iter().any(|action| {
+        !is_offline_builtin_command(action.command().segments())
+            && builder
+                .command(action.command().segments())
+                .is_some_and(|command| command.handler.requires_authentication())
+    });
 
     let mut options = command
         .options()
@@ -170,13 +185,13 @@ fn register_workflow_command(
             long_about: command.long_about().map(str::to_string),
             examples: (!command.examples().is_empty()).then(|| command.examples().join("\n")),
             options,
-            reauthentication_retry: ReauthenticationRetry::Safe,
-            composable: false,
+            reauthentication_retry,
             handler: Arc::new(WorkflowCommandHandler {
                 pack: manifest.name().as_str().to_string(),
                 declaration: command.clone(),
                 workflow,
                 config: pack.config().clone(),
+                requires_authentication,
             }),
         },
     );
@@ -331,6 +346,7 @@ struct WorkflowCommandHandler {
     declaration: CommandDeclaration,
     workflow: WorkflowDeclaration,
     config: Value,
+    requires_authentication: bool,
 }
 
 #[async_trait]
@@ -344,34 +360,46 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
         let tokens =
             CommandTokenizer::new_at(&invocation.raw_line, invocation.command_index, &option_defs)?;
         validate_invocation(&tokens, &self.declaration)?;
-        let actions = self
-            .workflow
-            .actions()
-            .iter()
-            .map(|action| {
-                let arguments = action
-                    .arguments()
-                    .iter()
-                    .map(|argument| {
-                        resolve_workflow_argument(
-                            argument,
-                            &tokens,
-                            &self.declaration,
-                            &self.config,
-                            &self.pack,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok((action, arguments))
-            })
-            .collect::<Result<Vec<_>, AppError>>()?;
 
         let mut values = Map::new();
         let mut columns = Vec::new();
         let mut warnings = Vec::new();
-        for (action, arguments) in actions {
+        let mut completed_actions = Vec::new();
+        for action in self.workflow.actions() {
+            let arguments = action
+                .arguments()
+                .iter()
+                .map(|argument| {
+                    resolve_workflow_argument(
+                        argument,
+                        &tokens,
+                        &self.declaration,
+                        &self.config,
+                        &self.pack,
+                        &values,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    error.with_warnings(workflow_progress_warnings(&warnings, &completed_actions))
+                })?;
+            if arguments.iter().any(|argument| {
+                matches!(argument.as_str(), "-j" | "--json" | "-o" | "--output")
+                    || argument.starts_with("--output=")
+            }) {
+                return Err(workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "action '{}' cannot override the internal JSON output format",
+                        action.id().as_str()
+                    ),
+                )
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
+            }
             let mut action_tokens = action.command().segments().to_vec();
             action_tokens.extend(arguments);
+            action_tokens.extend(["--output".to_string(), "json".to_string()]);
             let raw_line = action_tokens
                 .iter()
                 .map(|token| shell_escape(token))
@@ -380,18 +408,22 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
             let (handler, command_path, command_index) = {
                 let catalog = ctx.catalog.snapshot();
                 let resolved = catalog.resolve_command(&[], &action_tokens)?;
-                if resolved.command.reauthentication_retry != ReauthenticationRetry::Safe
-                    || !resolved.command.composable
+                if resolved.command.reauthentication_retry == ReauthenticationRetry::Unsafe
+                    && !self.workflow.allows_unsafe_actions()
                 {
                     return Err(workflow_error(
                         &self.pack,
                         &self.declaration,
                         format!(
-                            "action '{}' command '{}' is no longer a composable read-only command",
+                            "action '{}' command '{}' may change state; declare allow_unsafe_actions = true",
                             action.id().as_str(),
                             action.command().display()
                         ),
-                    ));
+                    )
+                    .with_warnings(workflow_progress_warnings(
+                        &warnings,
+                        &completed_actions,
+                    )));
                 }
                 (
                     resolved.command.handler.clone(),
@@ -399,19 +431,32 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                     resolved.command_index,
                 )
             };
-            let outcome = handler
-                .execute(
-                    ctx.clone(),
-                    CommandInvocation {
-                        raw_line,
-                        command_index,
-                        command_path,
-                        pipeline: Vec::new(),
-                        pipeline_suffix: None,
-                    },
-                )
-                .await
-                .map_err(|error| error.with_warnings(warnings.clone()))?;
+            let action_result = if is_offline_builtin_command(action.command().segments()) {
+                execute_offline_line(ctx.catalog.clone(), &raw_line).await
+            } else {
+                handler
+                    .execute(
+                        ctx.clone(),
+                        CommandInvocation {
+                            raw_line,
+                            command_index,
+                            command_path,
+                            pipeline: Vec::new(),
+                            pipeline_suffix: None,
+                        },
+                    )
+                    .await
+            };
+            let outcome = action_result.map_err(|error| {
+                let error = AppError::ExtensionWorkflowAction {
+                    pack: self.pack.clone(),
+                    workflow: self.declaration.path().display(),
+                    action: action.id().as_str().to_string(),
+                    command: action.command().display(),
+                    source: Box::new(error),
+                };
+                error.with_warnings(workflow_progress_warnings(&warnings, &completed_actions))
+            })?;
             warnings.extend(outcome.output.warnings);
             if outcome.redirect.is_some() || outcome.scope_action != ScopeAction::None {
                 return Err(workflow_error(
@@ -422,7 +467,7 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                         action.id().as_str()
                     ),
                 )
-                .with_warnings(warnings));
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
             }
             if outcome.output.next_page_command.is_some() {
                 return Err(workflow_error(
@@ -433,7 +478,10 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                         action.id().as_str()
                     ),
                 )
-                .with_warnings(warnings));
+                .with_warnings(workflow_progress_warnings(
+                    &warnings,
+                    &completed_actions,
+                )));
             }
             if !outcome.output.errors.is_empty() {
                 return Err(workflow_error(
@@ -445,25 +493,13 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
                         outcome.output.errors.join("; ")
                     ),
                 )
-                .with_warnings(warnings));
+                .with_warnings(workflow_progress_warnings(&warnings, &completed_actions)));
             }
-            let mut semantic = outcome.output.semantic;
-            if semantic.len() != 1 {
-                return Err(workflow_error(
-                    &self.pack,
-                    &self.declaration,
-                    format!(
-                        "action '{}' returned {} semantic values; exactly one is required",
-                        action.id().as_str(),
-                        semantic.len()
-                    ),
-                )
-                .with_warnings(warnings));
-            }
-            let envelope = semantic.pop().expect("one semantic value was checked");
+            let value = workflow_output_value(outcome.output.semantic, outcome.output.lines);
             let id = action.id().as_str().to_string();
             columns.push(id.clone());
-            values.insert(id, envelope.value);
+            completed_actions.push(id.clone());
+            values.insert(id, value);
         }
 
         reset_output()?;
@@ -481,6 +517,53 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
             ..Default::default()
         })
     }
+
+    fn requires_authentication(&self) -> bool {
+        self.requires_authentication
+    }
+}
+
+fn workflow_output_value(semantic: Vec<OutputEnvelope>, lines: Vec<String>) -> Value {
+    match semantic.len() {
+        0 => {
+            if lines.is_empty() {
+                Value::Null
+            } else {
+                let rendered = lines.join("\n");
+                from_str(&rendered).unwrap_or_else(|_| {
+                    if lines.len() == 1 {
+                        Value::String(lines.into_iter().next().expect("one line was checked"))
+                    } else {
+                        Value::Array(lines.into_iter().map(Value::String).collect())
+                    }
+                })
+            }
+        }
+        1 => {
+            semantic
+                .into_iter()
+                .next()
+                .expect("one semantic value was checked")
+                .value
+        }
+        _ => Value::Array(
+            semantic
+                .into_iter()
+                .map(|envelope| envelope.value)
+                .collect(),
+        ),
+    }
+}
+
+fn workflow_progress_warnings(warnings: &[String], completed_actions: &[String]) -> Vec<String> {
+    let mut warnings = warnings.to_vec();
+    if !completed_actions.is_empty() {
+        warnings.push(format!(
+            "Workflow completed actions before the failure: {}",
+            completed_actions.join(", ")
+        ));
+    }
+    warnings
 }
 
 fn resolve_workflow_argument(
@@ -489,6 +572,7 @@ fn resolve_workflow_argument(
     declaration: &CommandDeclaration,
     config: &Value,
     pack: &str,
+    action_values: &Map<String, Value>,
 ) -> Result<String, AppError> {
     match argument.kind() {
         WorkflowArgumentKind::Literal => Ok(argument.value().to_string()),
@@ -532,6 +616,71 @@ fn resolve_workflow_argument(
                 }),
             }
         }
+        WorkflowArgumentKind::ActionOutput => {
+            let source = action_values.get(argument.value()).ok_or_else(|| {
+                workflow_error(
+                    pack,
+                    declaration,
+                    format!("action output '{}' was unavailable", argument.value()),
+                )
+            })?;
+            let value = if let Some(selector) = argument.selector() {
+                apply_pipeline(
+                    workflow_value_envelope(source.clone()),
+                    &[PipeStage::Jq(selector.to_string())],
+                )
+                .map_err(|error| {
+                    workflow_error(
+                        pack,
+                        declaration,
+                        format!(
+                            "selector for action output '{}' failed: {error}",
+                            argument.value()
+                        ),
+                    )
+                })?
+                .value
+            } else {
+                source.clone()
+            };
+            workflow_value_argument(value).map_err(|message| {
+                workflow_error(
+                    pack,
+                    declaration,
+                    format!(
+                        "action output '{}' could not become an argument: {message}",
+                        argument.value()
+                    ),
+                )
+            })
+        }
+    }
+}
+
+fn workflow_value_envelope(value: Value) -> OutputEnvelope {
+    match value {
+        Value::Object(_) => OutputEnvelope::detail(value, Vec::new()),
+        Value::Array(values) => OutputEnvelope::values(values),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            OutputEnvelope::message(value)
+        }
+    }
+}
+
+fn workflow_value_argument(value: Value) -> Result<String, String> {
+    let value = match value {
+        Value::String(value) => value,
+        Value::Null => "null".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::Array(_) | Value::Object(_) => {
+            to_string(&value).map_err(|error| error.to_string())?
+        }
+    };
+    if value.contains('\0') {
+        Err("selected value contains NUL".to_string())
+    } else {
+        Ok(value)
     }
 }
 
@@ -838,6 +987,8 @@ mod tests {
     use crate::tokenizer::CommandTokenizer;
 
     struct SemanticAction;
+    struct EchoAction;
+    struct RenderedJsonAction;
 
     #[async_trait]
     impl AsyncCommandHandler for SemanticAction {
@@ -852,6 +1003,44 @@ mod tests {
                         vec![json!({"id": 1})],
                         vec!["id".to_string()],
                     )],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        }
+    }
+
+    #[async_trait]
+    impl AsyncCommandHandler for EchoAction {
+        async fn execute(
+            &self,
+            _ctx: CommandContext,
+            invocation: CommandInvocation,
+        ) -> Result<CommandOutcome, AppError> {
+            Ok(CommandOutcome {
+                output: OutputSnapshot {
+                    semantic: vec![OutputEnvelope::message(json!(invocation.raw_line))],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        }
+    }
+
+    #[async_trait]
+    impl AsyncCommandHandler for RenderedJsonAction {
+        async fn execute(
+            &self,
+            _ctx: CommandContext,
+            _invocation: CommandInvocation,
+        ) -> Result<CommandOutcome, AppError> {
+            Ok(CommandOutcome {
+                output: OutputSnapshot {
+                    lines: vec![
+                        "{".to_string(),
+                        "  \"legacy\": true".to_string(),
+                        "}".to_string(),
+                    ],
                     ..Default::default()
                 },
                 ..Default::default()
@@ -918,6 +1107,21 @@ path = ["snapshot"]
 [[commands.workflow.actions]]
 id = "items"
 command = ["object", "list"]
+
+[[commands.workflow.actions]]
+id = "selected"
+command = ["object", "echo"]
+
+[[commands.workflow.actions.arguments]]
+literal = "--id"
+
+[[commands.workflow.actions.arguments]]
+action = "items"
+selector = ".[0].id"
+
+[[commands.workflow.actions]]
+id = "legacy"
+command = ["object", "legacy"]
 "#,
         )
         .expect("workflow manifest");
@@ -927,6 +1131,7 @@ command = ["object", "list"]
             workflow: declaration.workflow().expect("workflow").clone(),
             declaration,
             config: json!({}),
+            requires_authentication: false,
         };
         let mut builder = CommandCatalogBuilder::new();
         builder.add_command(
@@ -938,8 +1143,31 @@ command = ["object", "list"]
                 examples: None,
                 options: Vec::new(),
                 reauthentication_retry: ReauthenticationRetry::Safe,
-                composable: true,
                 handler: Arc::new(SemanticAction),
+            },
+        );
+        builder.add_command(
+            &["object"],
+            CommandSpec {
+                name: "echo".to_string(),
+                about: None,
+                long_about: None,
+                examples: None,
+                options: Vec::new(),
+                reauthentication_retry: ReauthenticationRetry::Safe,
+                handler: Arc::new(EchoAction),
+            },
+        );
+        builder.add_command(
+            &["object"],
+            CommandSpec {
+                name: "legacy".to_string(),
+                about: None,
+                long_about: None,
+                examples: None,
+                options: Vec::new(),
+                reauthentication_retry: ReauthenticationRetry::Safe,
+                handler: Arc::new(RenderedJsonAction),
             },
         );
         let context = CommandContext {
@@ -969,7 +1197,11 @@ command = ["object", "list"]
         assert_eq!(outcome.scope_action, ScopeAction::None);
         assert_eq!(
             outcome.output.semantic[0].value,
-            json!({"items": [{"id": 1}]})
+            json!({
+                "items": [{"id": 1}],
+                "selected": "object echo --id 1 --output json",
+                "legacy": {"legacy": true}
+            })
         );
     }
 }

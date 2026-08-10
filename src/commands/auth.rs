@@ -11,7 +11,7 @@ use super::CliCommand;
 use crate::build_info;
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
-use crate::errors::AppError;
+use crate::errors::{AppError, ReauthenticationRetry};
 use crate::output::set_semantic_output;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
@@ -39,6 +39,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct AuthProviders {}
 
 impl CliCommand for AuthProviders {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_auth_providers(tokens)
     }

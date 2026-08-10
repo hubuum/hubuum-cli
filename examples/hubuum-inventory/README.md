@@ -9,6 +9,7 @@ Install and run it with:
 ```console
 hubuum-cli extension install examples/hubuum-inventory
 hubuum-cli extension inventory snapshot --output json
+hubuum-cli extension inventory classes --output json
 ```
 
 The result is one object with `hosts`, `jacks`, and `rooms` arrays. Override
@@ -21,5 +22,7 @@ jacks_class = "Jacks"
 rooms_class = "Rooms"
 ```
 
-Every action is resolved through the built-in command catalog at load time.
-Only commands explicitly marked as composable and read-only can be used.
+Every action is resolved and structurally validated through the complete
+built-in command catalog at load time. Commands that are not safe to replay
+are available with the manifest's explicit `allow_unsafe_actions` capability;
+this read-only example does not need it.

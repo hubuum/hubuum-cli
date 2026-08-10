@@ -58,7 +58,6 @@ pub struct CommandSpec {
     pub examples: Option<String>,
     pub options: Vec<OptionSpec>,
     pub reauthentication_retry: ReauthenticationRetry,
-    pub composable: bool,
     pub handler: Arc<dyn AsyncCommandHandler>,
 }
 
@@ -71,7 +70,6 @@ impl Debug for CommandSpec {
             .field("examples", &self.examples)
             .field("options", &self.options)
             .field("reauthentication_retry", &self.reauthentication_retry)
-            .field("composable", &self.composable)
             .finish()
     }
 }
@@ -994,7 +992,6 @@ mod tests {
             examples: None,
             options: Vec::new(),
             reauthentication_retry: ReauthenticationRetry::Unsafe,
-            composable: false,
             handler: Arc::new(NoopHandler),
         }
     }
