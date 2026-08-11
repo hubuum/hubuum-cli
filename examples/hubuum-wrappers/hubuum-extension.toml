@@ -1,9 +1,30 @@
 schema_version = 1
+kind = "executable"
 name = "host"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1.0"
 protocol = "hubuum-cli.extension/v1"
 executable = "hubuum-extension"
+
+[config.hosts_class]
+type = "string"
+default = "Hosts"
+
+[config.jacks_class]
+type = "string"
+default = "Jacks"
+
+[config.rooms_class]
+type = "string"
+default = "Rooms"
+
+[config.host_collection]
+type = "string"
+default = "inventory"
+
+[config.default_jack]
+type = "string"
+default = "J-000"
 
 [[commands]]
 path = ["show"]

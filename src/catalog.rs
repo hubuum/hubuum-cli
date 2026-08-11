@@ -426,6 +426,11 @@ impl CommandCatalog {
         Some(current)
     }
 
+    pub fn command(&self, path: &[String]) -> Option<&CommandSpec> {
+        let (name, scope) = path.split_last()?;
+        self.scope(scope)?.commands.get(name)
+    }
+
     pub fn resolve_command<'a>(
         &'a self,
         scope: &[String],

@@ -104,13 +104,17 @@ machinery:
 
 ```sh
 hubuum-cli extension install ./site-inventory
+hubuum-cli extension validate ./site-inventory
+hubuum-cli extension explain ./site-inventory
 hubuum-cli extension list
 hubuum-cli extension site-inventory host show server-01
 hubuum-cli extension doctor
 ```
 
-Manifest-only packs run built-in CLI commands as typed in-process steps and
-require no runtime dependency other than `hubuum-cli`. Executable-backed packs
+Portable packs run reusable, typed TOML workflows in-process and require no
+runtime dependency other than `hubuum-cli`. They support bounded JQ
+expressions, conditions, assertions, same-pack calls, and bounded iteration.
+Executable-backed packs
 remain available through a small versioned JSON process protocol; they are
 trusted, not native plugins, and not sandboxed. See the
 [extension command pack guide](docs/extensions.md) for manifests, discovery,

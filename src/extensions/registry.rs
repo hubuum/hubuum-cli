@@ -4,13 +4,12 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use hubuum_extension_protocol::{
-    CommandDeclaration, ExtensionManifest, WorkflowDeclaration, MANIFEST_FILENAME,
-};
+use hubuum_extension_protocol::{ExtensionManifest, MANIFEST_FILENAME};
 use semver::Version;
 use serde_json::{to_value, Value};
 
 use crate::config::AppConfig;
+use crate::extensions::WorkflowProgram;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionOrigin {
@@ -105,6 +104,7 @@ pub struct ExtensionPack {
     state: ExtensionPackState,
     diagnostics: Vec<ExtensionDiagnostic>,
     config: Value,
+    workflow_program: Option<Arc<WorkflowProgram>>,
 }
 
 impl ExtensionPack {
@@ -146,6 +146,14 @@ impl ExtensionPack {
 
     pub fn config(&self) -> &Value {
         &self.config
+    }
+
+    pub fn workflow_program(&self) -> Option<&WorkflowProgram> {
+        self.workflow_program.as_deref()
+    }
+
+    pub fn workflow_program_arc(&self) -> Option<Arc<WorkflowProgram>> {
+        self.workflow_program.clone()
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -241,9 +249,9 @@ impl ExtensionRegistry {
         names
     }
 
-    pub(crate) fn validate_workflows<F>(&mut self, validate: F)
+    pub(crate) fn compile_workflows<F>(&mut self, compile: F)
     where
-        F: Fn(&CommandDeclaration, &WorkflowDeclaration, &Value) -> Result<(), String>,
+        F: Fn(&ExtensionManifest, &Value) -> Result<WorkflowProgram, String>,
     {
         for pack in &mut self.packs {
             if !pack.is_enabled() {
@@ -252,25 +260,19 @@ impl ExtensionRegistry {
             let Some(manifest) = pack.manifest.clone() else {
                 continue;
             };
-            let invalid = manifest.commands().iter().find_map(|command| {
-                command.workflow().and_then(|workflow| {
-                    validate(command, workflow, pack.config())
-                        .err()
-                        .map(|message| {
-                            format!(
-                                "workflow command '{}' is invalid: {message}",
-                                command.path().display()
-                            )
-                        })
-                })
-            });
-            if let Some(message) = invalid {
-                pack.quarantine(ExtensionDiagnostic::error(
-                    "workflow_invalid",
-                    Some(manifest.name().as_str().to_string()),
-                    pack.manifest_path.clone(),
-                    message,
-                ));
+            if !manifest.is_portable() {
+                continue;
+            }
+            match compile(&manifest, pack.config()) {
+                Ok(program) => pack.workflow_program = Some(Arc::new(program)),
+                Err(message) => {
+                    pack.quarantine(ExtensionDiagnostic::error(
+                        "workflow_invalid",
+                        Some(manifest.name().as_str().to_string()),
+                        pack.manifest_path.clone(),
+                        message,
+                    ));
+                }
             }
         }
     }
@@ -396,6 +398,7 @@ fn load_pack(
         state: ExtensionPackState::Quarantined,
         diagnostics: Vec::new(),
         config: Value::Object(Default::default()),
+        workflow_program: None,
     };
 
     let contents = match read_to_string(&manifest_path) {
@@ -423,12 +426,21 @@ fn load_pack(
         }
     };
     let name = manifest.name().as_str().to_string();
-    pack.config = config
+    let raw_config = config
         .extensions
         .config
         .get(&name)
         .and_then(|value| to_value(value).ok())
         .unwrap_or_else(|| Value::Object(Default::default()));
+    match manifest.resolve_config(&raw_config) {
+        Ok(config) => pack.config = config,
+        Err(error) => pack.diagnostics.push(ExtensionDiagnostic::error(
+            "config_invalid",
+            Some(name.clone()),
+            &manifest_path,
+            error.to_string(),
+        )),
+    }
 
     if !manifest.supports_cli(cli_version) {
         pack.diagnostics.push(ExtensionDiagnostic::error(
@@ -520,6 +532,7 @@ mod tests {
             package.join("hubuum-extension.toml"),
             format!(
                 r#"schema_version = 1
+kind = "executable"
 name = "{name}"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"

@@ -72,6 +72,7 @@ The v1 executable-backed manifest is TOML:
 
 ```toml
 schema_version = 1
+kind = "executable"
 name = "site-inventory"
 version = "1.2.0"
 requires_cli = ">=0.0.9,<0.1"
@@ -101,7 +102,7 @@ values = ["summary", "full"]
 
 Pack names, command path segments, and long option names use lowercase ASCII
 kebab-case. The executable path must remain within the package. Supported
-option kinds are `string`, `integer`, `number`, `boolean`, and `flag`.
+option kinds are `string`, `integer`, `number`, `boolean`, `flag`, and `json`.
 Positionals are ordered; only the final positional may be repeatable. The
 `values` list provides validation and static completion.
 One command path cannot be a prefix of another command path in the same pack.
@@ -112,116 +113,185 @@ binding fields are rejected so misspellings cannot silently change behavior.
 Each command has exactly one implementation. `interactive` and executable
 `arguments` are invalid on workflow commands.
 
-## In-process workflows
+## Portable workflows
 
-A workflow command declares typed, sequential steps instead of an executable
-argument vector. Each step resolves an existing built-in CLI command and binds
-values to that command's canonical input names. Authors do not need to spell
-flags, order positional arguments, or construct shell tokens.
+A portable pack is explicitly classified with `kind = "portable"`. It cannot
+declare `protocol` or `executable`; its only runtime dependency is the current
+`hubuum-cli`. An executable pack uses `kind = "executable"`, must declare both
+process fields, and cannot mix in workflow declarations.
+
+Workflows are reusable top-level declarations. Commands expose selected
+workflows, while other workflows remain private building blocks in the same
+pack:
 
 ```toml
 schema_version = 1
+kind = "portable"
 name = "inventory"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
+
+[config.hosts_class]
+type = "string"
+default = "Hosts"
+help = "Class containing Host objects"
+
+[workflows.snapshot]
+result = "{ hosts: .steps.hosts, first: .steps.first }"
+
+[[workflows.snapshot.inputs]]
+name = "enabled"
+type = "boolean"
+default = true
+
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+columns = ["hosts", "first"]
+
+[[workflows.snapshot.steps]]
+id = "hosts"
+kind = "run"
+run = ["object", "list"]
+when = ".input.enabled"
+
+[workflows.snapshot.steps.with]
+class = { config = "hosts_class" }
+all = true
+
+[[workflows.snapshot.steps]]
+id = "first"
+kind = "let"
+expr = ".steps.hosts[0]"
+
+[[workflows.snapshot.steps]]
+id = "has_hosts"
+kind = "assert"
+condition = "(.steps.hosts | length) > 0"
+message = "No Hosts were found"
 
 [[commands]]
 path = ["snapshot"]
-about = "Collect Hosts and Rooms"
+workflow = "snapshot"
+about = "Collect Hosts"
 
-[commands.workflow]
-result = "{ hosts: .steps.hosts, rooms: .steps.rooms }"
-
-[[commands.workflow.steps]]
-id = "hosts"
-run = ["object", "list"]
-
-[commands.workflow.steps.with]
-class = { config = "hosts_class", default = "Hosts" }
-all = true
-
-[[commands.workflow.steps]]
-id = "rooms"
-run = ["object", "list"]
-
-[commands.workflow.steps.with]
-class = { config = "rooms_class", default = "Rooms" }
-all = true
-
-[[commands.workflow.steps]]
-id = "first_host"
-run = ["object", "show"]
-with = { id = { step = "hosts", select = ".[0].id" } }
+[[commands.options]]
+name = "enabled"
+kind = "boolean"
+long = "enabled"
 ```
 
-The `with` keys are stable workflow input IDs exported by the target command's
-catalog contract. Current built-ins use their public long option names without
-the leading `--`; positional-only inputs use their catalog names. For example,
-`--include-total` becomes `include-total`. These IDs, their portable value
-types, cardinality, required state, and command effects are treated as the
-workflow compatibility surface rather than being rediscovered while a workflow
-runs. A binding may be:
+The command option interface must exactly match the referenced workflow's
+public inputs by name, type, required state, and repeatability. Internal
+workflows need no command. Input and configuration types are `string`,
+`integer`, `number`, `boolean`, and `json`. Declarations can be required,
+repeatable, or have a typed default. Unknown configured keys, missing required
+values, and type mismatches quarantine an installed pack.
 
-- a literal TOML string, number, boolean, or array;
-- `{ input = "name" }` to read a declared option of the workflow command;
-- `{ config = "key", default = value }` to read
-  `extensions.config.<pack>`;
-- `{ step = "id", select = "jq expression" }` to read and optionally
-  transform an earlier step's semantic value.
+### Tagged steps
 
-Flags accept booleans. Arrays feed repeatable inputs. Inputs with a fixed
-arity accept an array, while repeatable fixed-arity inputs accept an array of
-arrays. Missing optional inputs and configuration values become `null` and
-omit the target input; a required target produces a focused error. Literal,
-configured, and workflow-input values are checked against the target input's
-type and cardinality while the catalog is built. Values selected dynamically
-from prior steps receive the same check immediately before their target runs.
+Every step has a unique snake-case `id` and one explicit `kind`:
 
-`result` is an optional JQ expression evaluated over an object containing
-`.input`, `.config`, `.steps`, and `.outputs`. `.steps.<id>` is the convenient
-normalized step value. `.outputs.<id>` preserves its source, normalized value,
-semantic envelopes, shapes, columns, or original rendered lines so workflows
-can distinguish rows from values and semantic output from the compatibility
-fallback. The result's output shape is inferred as rows, detail, values,
-message, or empty output. Without `result`, the workflow returns the normalized
-step values as one detail object, keyed by step ID.
+| Kind | Purpose | Conditional |
+| --- | --- | --- |
+| `run` | Invoke a built-in Hubuum CLI command in-process | `when` |
+| `let` | Store the result of a JQ expression | Always |
+| `assert` | Require a JQ expression to return `true` | Always |
+| `call` | Invoke another workflow in this pack | `when` |
+| `for_each` | Invoke one same-pack workflow for every array item | `when` |
 
-Forward and recursive step references are rejected. The CLI compiles bindings
-to an argument vector using catalog metadata and never evaluates them as a
-shell command.
-
-Workflow packs need no `executable`. Every built-in catalog command except the
-`extension` namespace can be a step. During catalog construction the CLI
-validates command paths, stable input IDs, binding types and cardinality,
-required target inputs, JQ expressions, command effects, and replay safety.
-Invalid workflows quarantine the pack and appear in `extension doctor`.
-
-Steps that may change state require an explicit workflow capability:
+`run` binds values to canonical input IDs from the built-in command catalog.
+Authors do not construct shell commands, spell flags, or order positional
+arguments. `call` and `for_each` bind declared workflow inputs. Cross-pack
+workflow calls are prohibited. `for_each` requires both an `as` input name and
+a positive `max_items` bound:
 
 ```toml
-[commands.workflow]
-capabilities = ["mutate"]
+[[workflows.snapshot.steps]]
+id = "details"
+kind = "for_each"
+items = { step = "hosts" }
+as = "host"
+call = "describe_host"
+max_items = 100
+when = ".input.enabled"
+
+[workflows.snapshot.steps.with]
+verbose = true
 ```
 
-Effects and reauthentication retry behavior are separate command properties.
-Commands that may change server or local state require `mutate`, whether or not
-an individual operation could safely be retried. A workflow containing a step
-that is unsafe to retry is itself never automatically replayed after
-reauthentication. Completed step IDs are reported if a later step fails, but
-generic workflows do not provide transactions or compensating rollback.
+A `with` value may be:
 
-The runtime forces each step to internal JSON output, preserves warnings,
-and then applies the caller's pipeline, output format, and redirect to the
-composed result. Paged commands retain their normal JSON page metadata unless
-the step binds `all = true`.
+- a literal TOML string, number, boolean, or array;
+- `{ literal = { key = "value" } }` for a literal object;
+- `{ input = "name" }` for a workflow input;
+- `{ config = "key" }` for declared pack configuration;
+- `{ step = "id", select = "jq expression" }` for an earlier step value.
 
-TOML remains the manifest container because the language is declarative data,
-not a general-purpose program: it provides typed scalars, deterministic parsing,
-good diagnostics, and consistency with Hubuum CLI configuration. JQ supplies
-the deliberately bounded transformation layer. Workflows requiring arbitrary
-control flow, external I/O, or custom recovery should use an executable-backed
-command rather than embedding a second scripting language in the manifest.
+Configuration defaults belong to `[config.<key>]`, not individual bindings.
+Forward step references are rejected. Dynamically selected values receive
+target validation immediately before execution.
+
+### Expressions and outputs
+
+JQ is the workflow expression language. `let`, `assert`, `when`, step
+selectors, and the mandatory workflow `result` all evaluate against JSON.
+Workflow expressions see:
+
+- `.input` for resolved typed inputs;
+- `.config` for resolved typed pack configuration;
+- `.steps` for normalized values keyed by step ID;
+- `.outputs` for source and semantic-output metadata.
+
+The workflow output declaration is mandatory. It fixes the semantic `shape`,
+item or scalar `type`, and optional columns before execution. Supported shapes
+are `empty`, `lines`, `rows`, `detail`, `message`, and `values`. The final JQ
+value must satisfy that contract; the caller's pipeline and output renderer run
+only after validation.
+
+Workflow JQ uses a bounded profile. User definitions and variables, recursive
+descent, multiplication, multiple array generators, `combinations`, `walk`,
+`recurse`, `repeat`, `range`, `while`, `until`, `foreach`, and `reduce` are
+rejected. This profile is intentionally smaller than JQ available in ordinary
+CLI pipelines.
+
+### Compilation and limits
+
+The CLI compiles every portable pack into a stable `WorkflowPlan` intermediate
+representation before registering commands. Compilation resolves built-in
+command contracts, expands the same-pack call graph, detects cycles, computes
+effects and retry safety, and rejects graphs that exceed fixed host limits.
+Installed failures quarantine the whole pack and appear in `extension doctor`.
+
+The v1 limits are mandatory and cannot be weakened by a pack:
+
+- call depth: 16;
+- worst-case and runtime operations: 10,000;
+- one `for_each`: 1,000 items, further restricted by its `max_items`;
+- cumulative workflow output: 4 MiB;
+- one JQ expression: 4 KiB source, 1 MiB input, 128 outputs, and 1 MiB output.
+
+Static checks and runtime counters both enforce the limits. Iteration is
+sequential and deterministic. A false `when` records a skipped `null` step.
+`when` and `assert` must return a Boolean.
+
+Any expanded call graph that may change state requires
+`capabilities = ["mutate"]` on each calling workflow. An unsafe nested command
+makes the exposed workflow unsafe to replay after reauthentication. Workflows
+do not provide transactions or compensating rollback.
+
+Use these read-only commands while authoring a pack:
+
+```console
+hubuum-cli extension validate ./inventory
+hubuum-cli extension explain ./inventory
+hubuum-cli extension explain ./inventory --workflow snapshot
+```
+
+TOML remains the declaration format; no second scripting language or external
+interpreter is required. JQ provides bounded transformation, and built-in
+commands provide effects. Work requiring external I/O or arbitrary recovery
+belongs in an explicitly executable pack.
 
 See the dependency-free
 [`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack for a
@@ -302,6 +372,8 @@ an online registry, download code, verify signatures, or provide a sandbox.
 hubuum-cli extension list
 hubuum-cli extension show site-inventory
 hubuum-cli extension doctor
+hubuum-cli extension validate ./site-inventory
+hubuum-cli extension explain ./site-inventory --workflow snapshot
 hubuum-cli extension reload
 
 hubuum-cli extension install ./site-inventory

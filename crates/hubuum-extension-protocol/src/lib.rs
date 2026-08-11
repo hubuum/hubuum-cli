@@ -11,7 +11,8 @@ pub const PROTOCOL_V1: &str = "hubuum-cli.extension/v1";
 pub const MANIFEST_FILENAME: &str = "hubuum-extension.toml";
 
 const RESERVED_PACK_NAMES: &[&str] = &[
-    "disable", "doctor", "enable", "install", "list", "reload", "remove", "show", "upgrade",
+    "disable", "doctor", "enable", "explain", "install", "list", "reload", "remove", "show",
+    "upgrade", "validate",
 ];
 const RESERVED_LONG_OPTIONS: &[&str] = &["help", "json", "output", "table-headers"];
 const RESERVED_SHORT_OPTIONS: &[char] = &['h', 'j', 'o'];
@@ -35,10 +36,16 @@ pub enum ProtocolError {
     InvalidCommandPath(String),
     #[error("invalid executable path '{0}': use a relative path confined to the pack")]
     InvalidExecutablePath(String),
+    #[error("invalid {kind} extension pack: {message}")]
+    InvalidPackKind { kind: String, message: String },
     #[error("command '{0}' requires an executable or a workflow")]
     MissingCommandImplementation(String),
     #[error("command '{command}' has an invalid workflow: {message}")]
     InvalidWorkflow { command: String, message: String },
+    #[error("workflow '{workflow}' is invalid: {message}")]
+    InvalidNamedWorkflow { workflow: String, message: String },
+    #[error("extension configuration key '{key}' is invalid: {message}")]
+    InvalidConfig { key: String, message: String },
     #[error("invalid extension version '{value}': {source}")]
     InvalidVersion {
         value: String,
@@ -179,13 +186,149 @@ impl DiagnosticCode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionPackKind {
+    Portable,
+    Executable,
+}
+
+impl ExtensionPackKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Portable => "portable",
+            Self::Executable => "executable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct WorkflowName(String);
+
+impl WorkflowName {
+    pub fn new(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        if is_snake_word(&value) {
+            Ok(Self(value))
+        } else {
+            Err(format!("'{value}'; use lowercase ASCII snake_case"))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowValueType {
+    String,
+    Integer,
+    Number,
+    Boolean,
+    Json,
+}
+
+impl WorkflowValueType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Json => "json",
+        }
+    }
+
+    pub fn accepts(self, value: &Value) -> bool {
+        match self {
+            Self::String => value.is_string(),
+            Self::Integer => value.as_i64().is_some() || value.as_u64().is_some(),
+            Self::Number => value.is_number(),
+            Self::Boolean => value.is_boolean(),
+            Self::Json => true,
+        }
+    }
+
+    pub fn accepts_type(self, source: Self) -> bool {
+        self == Self::Json || self == source || (self == Self::Number && source == Self::Integer)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigDeclaration {
+    key: String,
+    value_type: WorkflowValueType,
+    required: bool,
+    repeatable: bool,
+    default: Option<Value>,
+    help: String,
+}
+
+impl ConfigDeclaration {
+    fn validate(key: String, raw: RawValueDeclaration) -> Result<Self, ProtocolError> {
+        if !is_option_word(&key) {
+            return Err(invalid_config(
+                &key,
+                "key must use lowercase ASCII letters, numbers, '-' or '_'",
+            ));
+        }
+        if raw.required && raw.default.is_some() {
+            return Err(invalid_config(
+                &key,
+                "required config cannot also declare a default",
+            ));
+        }
+        validate_declared_default(&raw.default, raw.value_type, raw.repeatable, |message| {
+            invalid_config(&key, &message)
+        })?;
+        Ok(Self {
+            key,
+            value_type: raw.value_type,
+            required: raw.required,
+            repeatable: raw.repeatable,
+            default: raw.default,
+            help: raw.help,
+        })
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn value_type(&self) -> WorkflowValueType {
+        self.value_type
+    }
+
+    pub fn required(&self) -> bool {
+        self.required
+    }
+
+    pub fn repeatable(&self) -> bool {
+        self.repeatable
+    }
+
+    pub fn default(&self) -> Option<&Value> {
+        self.default.as_ref()
+    }
+
+    pub fn help(&self) -> &str {
+        &self.help
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ExtensionManifest {
+    kind: ExtensionPackKind,
     name: PackName,
     version: Version,
     requires_cli: VersionReq,
-    protocol: ProtocolVersion,
+    protocol: Option<ProtocolVersion>,
     executable: Option<ExecutablePath>,
+    config: BTreeMap<String, ConfigDeclaration>,
+    workflows: BTreeMap<WorkflowName, WorkflowDeclaration>,
     commands: Vec<CommandDeclaration>,
 }
 
@@ -208,18 +351,37 @@ impl ExtensionManifest {
                 source,
             }
         })?;
-        let protocol = ProtocolVersion::new(raw.protocol)?;
+        let protocol = raw.protocol.map(ProtocolVersion::new).transpose()?;
         let executable = raw.executable.map(ExecutablePath::new).transpose()?;
+        validate_pack_kind(
+            raw.kind,
+            protocol.as_ref(),
+            executable.as_ref(),
+            &raw.workflows,
+        )?;
+
+        let config = raw
+            .config
+            .into_iter()
+            .map(|(key, declaration)| {
+                ConfigDeclaration::validate(key.clone(), declaration)
+                    .map(|declaration| (key, declaration))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+        let mut workflows = BTreeMap::new();
+        for (name, workflow) in raw.workflows {
+            let name = WorkflowName::new(name.clone())
+                .map_err(|message| invalid_named_workflow(&name, &message))?;
+            let workflow = WorkflowDeclaration::validate(&name, workflow, &config)?;
+            workflows.insert(name, workflow);
+        }
+        validate_workflow_calls(&workflows)?;
 
         let mut command_paths = HashSet::new();
         let mut commands: Vec<CommandDeclaration> = Vec::with_capacity(raw.commands.len());
         for command in raw.commands {
-            let command = CommandDeclaration::try_from(command)?;
-            if command.workflow().is_none() && executable.is_none() {
-                return Err(ProtocolError::MissingCommandImplementation(
-                    command.path().display(),
-                ));
-            }
+            let command = CommandDeclaration::validate(command, raw.kind, &workflows)?;
             if !command_paths.insert(command.path.clone()) {
                 return Err(ProtocolError::DuplicateCommandPath(command.path.display()));
             }
@@ -250,13 +412,24 @@ impl ExtensionManifest {
         }
 
         Ok(Self {
+            kind: raw.kind,
             name,
             version,
             requires_cli,
             protocol,
             executable,
+            config,
+            workflows,
             commands,
         })
+    }
+
+    pub fn kind(&self) -> ExtensionPackKind {
+        self.kind
+    }
+
+    pub fn is_portable(&self) -> bool {
+        self.kind == ExtensionPackKind::Portable
     }
 
     pub fn name(&self) -> &PackName {
@@ -275,17 +448,100 @@ impl ExtensionManifest {
         self.requires_cli.matches(version)
     }
 
-    pub fn protocol(&self) -> &ProtocolVersion {
-        &self.protocol
+    pub fn protocol(&self) -> Option<&ProtocolVersion> {
+        self.protocol.as_ref()
     }
 
     pub fn executable(&self) -> Option<&ExecutablePath> {
         self.executable.as_ref()
     }
 
+    pub fn config(&self) -> &BTreeMap<String, ConfigDeclaration> {
+        &self.config
+    }
+
+    pub fn workflows(&self) -> &BTreeMap<WorkflowName, WorkflowDeclaration> {
+        &self.workflows
+    }
+
+    pub fn workflow(&self, name: &WorkflowName) -> Option<&WorkflowDeclaration> {
+        self.workflows.get(name)
+    }
+
     pub fn commands(&self) -> &[CommandDeclaration] {
         &self.commands
     }
+
+    pub fn resolve_config(&self, value: &Value) -> Result<Value, ProtocolError> {
+        let supplied = value.as_object().ok_or_else(|| {
+            invalid_config("<root>", "extension configuration must be a TOML table")
+        })?;
+        if let Some(key) = supplied.keys().find(|key| !self.config.contains_key(*key)) {
+            return Err(invalid_config(key, "unknown configuration key"));
+        }
+
+        let mut resolved = serde_json::Map::new();
+        for declaration in self.config.values() {
+            let value = supplied
+                .get(declaration.key())
+                .cloned()
+                .or_else(|| declaration.default().cloned());
+            match value {
+                Some(value) => {
+                    validate_declared_value(
+                        &value,
+                        declaration.value_type(),
+                        declaration.repeatable(),
+                    )
+                    .map_err(|message| invalid_config(declaration.key(), &message))?;
+                    resolved.insert(declaration.key().to_string(), value);
+                }
+                None if declaration.required() => {
+                    return Err(invalid_config(
+                        declaration.key(),
+                        "required configuration value is missing",
+                    ));
+                }
+                None => {}
+            }
+        }
+        Ok(Value::Object(resolved))
+    }
+}
+
+fn validate_pack_kind(
+    kind: ExtensionPackKind,
+    protocol: Option<&ProtocolVersion>,
+    executable: Option<&ExecutablePath>,
+    workflows: &BTreeMap<String, RawWorkflow>,
+) -> Result<(), ProtocolError> {
+    let invalid = |message: &str| ProtocolError::InvalidPackKind {
+        kind: kind.as_str().to_string(),
+        message: message.to_string(),
+    };
+    match kind {
+        ExtensionPackKind::Portable => {
+            if protocol.is_some() || executable.is_some() {
+                return Err(invalid(
+                    "portable packs cannot declare protocol or executable; they run only through hubuum-cli workflows",
+                ));
+            }
+            if workflows.is_empty() {
+                return Err(invalid("portable packs must declare at least one workflow"));
+            }
+        }
+        ExtensionPackKind::Executable => {
+            if protocol.is_none() || executable.is_none() {
+                return Err(invalid(
+                    "executable packs must declare both protocol and executable",
+                ));
+            }
+            if !workflows.is_empty() {
+                return Err(invalid("executable packs cannot declare workflows"));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -304,63 +560,15 @@ pub enum CommandImplementation {
         arguments: Vec<String>,
         interactive: bool,
     },
-    Workflow(WorkflowDeclaration),
+    Workflow(WorkflowName),
 }
 
 impl CommandDeclaration {
-    pub fn path(&self) -> &CommandPath {
-        &self.path
-    }
-
-    pub fn arguments(&self) -> &[String] {
-        match &self.implementation {
-            CommandImplementation::Executable { arguments, .. } => arguments,
-            CommandImplementation::Workflow(_) => &[],
-        }
-    }
-
-    pub fn about(&self) -> Option<&str> {
-        self.about.as_deref()
-    }
-
-    pub fn long_about(&self) -> Option<&str> {
-        self.long_about.as_deref()
-    }
-
-    pub fn examples(&self) -> &[String] {
-        &self.examples
-    }
-
-    pub fn interactive(&self) -> bool {
-        matches!(
-            self.implementation,
-            CommandImplementation::Executable {
-                interactive: true,
-                ..
-            }
-        )
-    }
-
-    pub fn options(&self) -> &[OptionDeclaration] {
-        &self.options
-    }
-
-    pub fn workflow(&self) -> Option<&WorkflowDeclaration> {
-        match &self.implementation {
-            CommandImplementation::Executable { .. } => None,
-            CommandImplementation::Workflow(workflow) => Some(workflow),
-        }
-    }
-
-    pub fn implementation(&self) -> &CommandImplementation {
-        &self.implementation
-    }
-}
-
-impl TryFrom<RawCommand> for CommandDeclaration {
-    type Error = ProtocolError;
-
-    fn try_from(raw: RawCommand) -> Result<Self, Self::Error> {
+    fn validate(
+        raw: RawCommand,
+        kind: ExtensionPackKind,
+        workflows: &BTreeMap<WorkflowName, WorkflowDeclaration>,
+    ) -> Result<Self, ProtocolError> {
         let path = CommandPath::new(raw.path)?;
         if raw.arguments.iter().any(|argument| argument.contains('\0')) {
             return Err(ProtocolError::InvalidCommandPath(format!(
@@ -407,7 +615,6 @@ impl TryFrom<RawCommand> for CommandDeclaration {
                     ));
                 }
             }
-
             if declaration.positional {
                 positional_index += 1;
                 if optional_positional_seen && declaration.required {
@@ -429,29 +636,48 @@ impl TryFrom<RawCommand> for CommandDeclaration {
             options.push(declaration);
         }
 
-        let workflow = raw
-            .workflow
-            .map(|workflow| WorkflowDeclaration::validate(workflow, &path, &options))
-            .transpose()?;
-        if workflow.is_some() && !raw.arguments.is_empty() {
-            return Err(invalid_workflow(
-                &path,
-                "workflow commands cannot declare executable arguments",
-            ));
-        }
-        if workflow.is_some() && raw.interactive {
-            return Err(invalid_workflow(
-                &path,
-                "workflow commands cannot be interactive",
-            ));
-        }
-        let implementation = workflow.map_or_else(
-            || CommandImplementation::Executable {
+        let implementation = match (kind, raw.workflow) {
+            (ExtensionPackKind::Portable, Some(name)) => {
+                if !raw.arguments.is_empty() {
+                    return Err(invalid_workflow(
+                        &path,
+                        "portable workflow commands cannot declare executable arguments",
+                    ));
+                }
+                if raw.interactive {
+                    return Err(invalid_workflow(
+                        &path,
+                        "portable workflow commands cannot be interactive",
+                    ));
+                }
+                let name = WorkflowName::new(name.clone())
+                    .map_err(|message| invalid_workflow(&path, &message))?;
+                let workflow = workflows.get(&name).ok_or_else(|| {
+                    invalid_workflow(
+                        &path,
+                        &format!("references unknown workflow '{}'", name.as_str()),
+                    )
+                })?;
+                validate_command_inputs(&path, &options, workflow.inputs())?;
+                CommandImplementation::Workflow(name)
+            }
+            (ExtensionPackKind::Portable, None) => {
+                return Err(invalid_workflow(
+                    &path,
+                    "portable commands must reference a workflow",
+                ));
+            }
+            (ExtensionPackKind::Executable, Some(_)) => {
+                return Err(invalid_workflow(
+                    &path,
+                    "executable commands cannot reference workflows",
+                ));
+            }
+            (ExtensionPackKind::Executable, None) => CommandImplementation::Executable {
                 arguments: raw.arguments,
                 interactive: raw.interactive,
             },
-            CommandImplementation::Workflow,
-        );
+        };
         Ok(Self {
             path,
             about: nonempty(raw.about),
@@ -461,98 +687,352 @@ impl TryFrom<RawCommand> for CommandDeclaration {
             implementation,
         })
     }
+
+    pub fn path(&self) -> &CommandPath {
+        &self.path
+    }
+
+    pub fn arguments(&self) -> &[String] {
+        match &self.implementation {
+            CommandImplementation::Executable { arguments, .. } => arguments,
+            CommandImplementation::Workflow(_) => &[],
+        }
+    }
+
+    pub fn about(&self) -> Option<&str> {
+        self.about.as_deref()
+    }
+
+    pub fn long_about(&self) -> Option<&str> {
+        self.long_about.as_deref()
+    }
+
+    pub fn examples(&self) -> &[String] {
+        &self.examples
+    }
+
+    pub fn interactive(&self) -> bool {
+        matches!(
+            self.implementation,
+            CommandImplementation::Executable {
+                interactive: true,
+                ..
+            }
+        )
+    }
+
+    pub fn options(&self) -> &[OptionDeclaration] {
+        &self.options
+    }
+
+    pub fn workflow(&self) -> Option<&WorkflowName> {
+        match &self.implementation {
+            CommandImplementation::Executable { .. } => None,
+            CommandImplementation::Workflow(workflow) => Some(workflow),
+        }
+    }
+
+    pub fn implementation(&self) -> &CommandImplementation {
+        &self.implementation
+    }
+}
+
+fn validate_command_inputs(
+    command: &CommandPath,
+    options: &[OptionDeclaration],
+    inputs: &[WorkflowInputDeclaration],
+) -> Result<(), ProtocolError> {
+    if options.len() != inputs.len() {
+        return Err(invalid_workflow(
+            command,
+            "command options must exactly match the referenced workflow inputs",
+        ));
+    }
+    for input in inputs {
+        let option = options
+            .iter()
+            .find(|option| option.name() == input.name())
+            .ok_or_else(|| {
+                invalid_workflow(
+                    command,
+                    &format!(
+                        "missing command option for workflow input '{}'",
+                        input.name()
+                    ),
+                )
+            })?;
+        if input.value_type() != option.kind().workflow_type()
+            || input.required() != option.required()
+            || input.repeatable() != option.repeatable()
+        {
+            return Err(invalid_workflow(
+                command,
+                &format!(
+                    "option '{}' must match workflow input type={}, required={}, repeatable={}",
+                    input.name(),
+                    input.value_type().as_str(),
+                    input.required(),
+                    input.repeatable()
+                ),
+            ));
+        }
+        if option.kind() == OptionKind::Flag && input.repeatable() {
+            return Err(invalid_workflow(
+                command,
+                &format!(
+                    "option '{}' cannot use flag kind for a repeatable workflow input",
+                    input.name()
+                ),
+            ));
+        }
+        if option.kind() == OptionKind::Flag
+            && input
+                .default()
+                .is_some_and(|default| default != &Value::Bool(false))
+        {
+            return Err(invalid_workflow(
+                command,
+                &format!(
+                    "option '{}' cannot use flag kind when the workflow input defaults to true",
+                    input.name()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInputDeclaration {
+    name: String,
+    value_type: WorkflowValueType,
+    required: bool,
+    repeatable: bool,
+    default: Option<Value>,
+    help: String,
+}
+
+impl WorkflowInputDeclaration {
+    fn validate(workflow: &WorkflowName, raw: RawWorkflowInput) -> Result<Self, ProtocolError> {
+        if !is_option_word(&raw.name) {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                &format!(
+                    "input '{}' must use lowercase ASCII letters, numbers, '-' or '_'",
+                    raw.name
+                ),
+            ));
+        }
+        if raw.required && raw.default.is_some() {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                &format!(
+                    "input '{}' cannot be required and also declare a default",
+                    raw.name
+                ),
+            ));
+        }
+        validate_declared_default(&raw.default, raw.value_type, raw.repeatable, |message| {
+            invalid_named_workflow(workflow.as_str(), &message)
+        })?;
+        Ok(Self {
+            name: raw.name,
+            value_type: raw.value_type,
+            required: raw.required,
+            repeatable: raw.repeatable,
+            default: raw.default,
+            help: raw.help,
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn value_type(&self) -> WorkflowValueType {
+        self.value_type
+    }
+
+    pub fn required(&self) -> bool {
+        self.required
+    }
+
+    pub fn repeatable(&self) -> bool {
+        self.repeatable
+    }
+
+    pub fn default(&self) -> Option<&Value> {
+        self.default.as_ref()
+    }
+
+    pub fn help(&self) -> &str {
+        &self.help
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowOutputDeclaration {
+    shape: SemanticOutputShape,
+    value_type: WorkflowValueType,
+    columns: Vec<String>,
+}
+
+impl WorkflowOutputDeclaration {
+    fn validate(workflow: &WorkflowName, raw: RawWorkflowOutput) -> Result<Self, ProtocolError> {
+        if raw.columns.iter().any(|column| column.trim().is_empty()) {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                "output columns cannot be empty",
+            ));
+        }
+        let mut unique = HashSet::new();
+        if raw.columns.iter().any(|column| !unique.insert(column)) {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                "output columns must be unique",
+            ));
+        }
+        if !raw.columns.is_empty()
+            && !matches!(
+                raw.shape,
+                SemanticOutputShape::Rows | SemanticOutputShape::Detail
+            )
+        {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                "output columns are only valid for rows and detail shapes",
+            ));
+        }
+        Ok(Self {
+            shape: raw.shape,
+            value_type: raw.value_type,
+            columns: raw.columns,
+        })
+    }
+
+    pub fn shape(&self) -> SemanticOutputShape {
+        self.shape
+    }
+
+    pub fn value_type(&self) -> WorkflowValueType {
+        self.value_type
+    }
+
+    pub fn columns(&self) -> &[String] {
+        &self.columns
+    }
+
+    pub fn validate_value(&self, value: &Value) -> Result<(), ProtocolError> {
+        SemanticOutput::new(self.shape, value.clone(), self.columns.clone())?;
+        let typed_values: Vec<&Value> = match self.shape {
+            SemanticOutputShape::Values | SemanticOutputShape::Lines => {
+                value.as_array().into_iter().flatten().collect()
+            }
+            SemanticOutputShape::Empty => Vec::new(),
+            SemanticOutputShape::Rows
+            | SemanticOutputShape::Detail
+            | SemanticOutputShape::Message => vec![value],
+        };
+        if typed_values
+            .into_iter()
+            .any(|item| !self.value_type.accepts(item))
+        {
+            return Err(ProtocolError::InvalidOutput(format!(
+                "workflow output contains a value incompatible with declared type '{}'",
+                self.value_type.as_str()
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct WorkflowDeclaration {
+    name: WorkflowName,
+    inputs: Vec<WorkflowInputDeclaration>,
+    output: WorkflowOutputDeclaration,
     steps: Vec<WorkflowStep>,
     capabilities: Vec<WorkflowCapability>,
-    result: Option<String>,
+    result: String,
 }
 
 impl WorkflowDeclaration {
     fn validate(
+        name: &WorkflowName,
         raw: RawWorkflow,
-        command: &CommandPath,
-        options: &[OptionDeclaration],
+        config: &BTreeMap<String, ConfigDeclaration>,
     ) -> Result<Self, ProtocolError> {
         if raw.steps.is_empty() {
-            return Err(invalid_workflow(command, "at least one step is required"));
+            return Err(invalid_named_workflow(
+                name.as_str(),
+                "at least one step is required",
+            ));
+        }
+        if raw.result.trim().is_empty() {
+            return Err(invalid_named_workflow(
+                name.as_str(),
+                "result expression cannot be empty",
+            ));
+        }
+
+        let mut input_names = HashSet::new();
+        let mut inputs = Vec::with_capacity(raw.inputs.len());
+        for input in raw.inputs {
+            let input = WorkflowInputDeclaration::validate(name, input)?;
+            if !input_names.insert(input.name.clone()) {
+                return Err(invalid_named_workflow(
+                    name.as_str(),
+                    &format!("duplicate input '{}'", input.name()),
+                ));
+            }
+            inputs.push(input);
         }
 
         let mut capabilities = Vec::with_capacity(raw.capabilities.len());
         for capability in raw.capabilities {
             let capability = WorkflowCapability::new(&capability)
-                .map_err(|message| invalid_workflow(command, &message))?;
+                .map_err(|message| invalid_named_workflow(name.as_str(), &message))?;
             if capabilities.contains(&capability) {
-                return Err(invalid_workflow(
-                    command,
+                return Err(invalid_named_workflow(
+                    name.as_str(),
                     &format!("duplicate workflow capability '{}'", capability.as_str()),
                 ));
             }
             capabilities.push(capability);
         }
-        let result = raw
-            .result
-            .map(|result| {
-                if result.trim().is_empty() {
-                    Err(invalid_workflow(
-                        command,
-                        "workflow result expression cannot be empty",
-                    ))
-                } else {
-                    Ok(result)
-                }
-            })
-            .transpose()?;
+
         let mut ids = HashSet::new();
         let mut steps = Vec::with_capacity(raw.steps.len());
         for raw_step in raw.steps {
-            let id = WorkflowStepId::new(raw_step.id).map_err(|message| {
-                invalid_workflow(command, &format!("invalid step id: {message}"))
-            })?;
-            if ids.contains(&id) {
-                return Err(invalid_workflow(
-                    command,
-                    &format!("duplicate step id '{}'", id.as_str()),
+            let step = WorkflowStep::validate(name, raw_step, &inputs, config, &ids)?;
+            if !ids.insert(step.id().clone()) {
+                return Err(invalid_named_workflow(
+                    name.as_str(),
+                    &format!("duplicate step id '{}'", step.id().as_str()),
                 ));
             }
-            let run = CommandPath::new(raw_step.run).map_err(|error| {
-                invalid_workflow(command, &format!("step '{}': {error}", id.as_str()))
-            })?;
-            if run
-                .segments()
-                .first()
-                .is_some_and(|part| part == "extension")
-            {
-                return Err(invalid_workflow(
-                    command,
-                    &format!("step '{}' cannot invoke extension commands", id.as_str()),
-                ));
-            }
-            let bindings = raw_step
-                .with
-                .into_iter()
-                .map(|(name, binding)| {
-                    let name = WorkflowBindingName::new(name).map_err(|message| {
-                        invalid_workflow(command, &format!("step '{}': {message}", id.as_str()))
-                    })?;
-                    let binding = WorkflowBinding::validate(binding, command, options, &ids)?;
-                    Ok::<_, ProtocolError>((name, binding))
-                })
-                .collect::<Result<BTreeMap<_, _>, _>>()?;
-            steps.push(WorkflowStep {
-                id: id.clone(),
-                run,
-                bindings,
-            });
-            ids.insert(id);
+            steps.push(step);
         }
         Ok(Self {
+            name: name.clone(),
+            inputs,
+            output: WorkflowOutputDeclaration::validate(name, raw.output)?,
             steps,
             capabilities,
-            result,
+            result: raw.result,
         })
+    }
+
+    pub fn name(&self) -> &WorkflowName {
+        &self.name
+    }
+
+    pub fn inputs(&self) -> &[WorkflowInputDeclaration] {
+        &self.inputs
+    }
+
+    pub fn output(&self) -> &WorkflowOutputDeclaration {
+        &self.output
     }
 
     pub fn steps(&self) -> &[WorkflowStep] {
@@ -567,8 +1047,54 @@ impl WorkflowDeclaration {
         self.capabilities.contains(&WorkflowCapability::Mutate)
     }
 
-    pub fn result(&self) -> Option<&str> {
-        self.result.as_deref()
+    pub fn result(&self) -> &str {
+        &self.result
+    }
+
+    pub fn resolve_inputs(&self, value: &Value) -> Result<Value, ProtocolError> {
+        let supplied = value.as_object().ok_or_else(|| {
+            invalid_named_workflow(self.name.as_str(), "workflow inputs must be an object")
+        })?;
+        if let Some(key) = supplied
+            .keys()
+            .find(|key| !self.inputs.iter().any(|input| input.name() == *key))
+        {
+            return Err(invalid_named_workflow(
+                self.name.as_str(),
+                &format!("unknown workflow input '{key}'"),
+            ));
+        }
+        let mut resolved = serde_json::Map::new();
+        for declaration in &self.inputs {
+            let value = supplied
+                .get(declaration.name())
+                .cloned()
+                .or_else(|| declaration.default().cloned());
+            match value {
+                Some(value) => {
+                    validate_declared_value(
+                        &value,
+                        declaration.value_type(),
+                        declaration.repeatable(),
+                    )
+                    .map_err(|message| {
+                        invalid_named_workflow(
+                            self.name.as_str(),
+                            &format!("input '{}': {message}", declaration.name()),
+                        )
+                    })?;
+                    resolved.insert(declaration.name().to_string(), value);
+                }
+                None if declaration.required() => {
+                    return Err(invalid_named_workflow(
+                        self.name.as_str(),
+                        &format!("required input '{}' is missing", declaration.name()),
+                    ));
+                }
+                None => {}
+            }
+        }
+        Ok(Value::Object(resolved))
     }
 }
 
@@ -612,13 +1138,157 @@ impl WorkflowStepId {
 }
 
 #[derive(Debug, Clone)]
-pub struct WorkflowStep {
-    id: WorkflowStepId,
-    run: CommandPath,
-    bindings: BTreeMap<WorkflowBindingName, WorkflowBinding>,
+pub enum WorkflowStep {
+    Run(WorkflowRunStep),
+    Let(WorkflowLetStep),
+    Assert(WorkflowAssertStep),
+    Call(WorkflowCallStep),
+    ForEach(WorkflowForEachStep),
 }
 
 impl WorkflowStep {
+    fn validate(
+        workflow: &WorkflowName,
+        raw: RawWorkflowStep,
+        inputs: &[WorkflowInputDeclaration],
+        config: &BTreeMap<String, ConfigDeclaration>,
+        prior_step_ids: &HashSet<WorkflowStepId>,
+    ) -> Result<Self, ProtocolError> {
+        let invalid = |message: String| invalid_named_workflow(workflow.as_str(), &message);
+        match raw {
+            RawWorkflowStep::Run {
+                id,
+                run,
+                bindings,
+                when,
+            } => {
+                let id = validate_step_id(workflow, id)?;
+                let run = CommandPath::new(run)
+                    .map_err(|error| invalid(format!("step '{}': {error}", id.as_str())))?;
+                if run
+                    .segments()
+                    .first()
+                    .is_some_and(|part| part == "extension")
+                {
+                    return Err(invalid(format!(
+                        "step '{}' cannot invoke extension commands",
+                        id.as_str()
+                    )));
+                }
+                Ok(Self::Run(WorkflowRunStep {
+                    id,
+                    run,
+                    bindings: validate_bindings(
+                        workflow,
+                        bindings,
+                        inputs,
+                        config,
+                        prior_step_ids,
+                    )?,
+                    when: validate_optional_expression(workflow, "when", when)?,
+                }))
+            }
+            RawWorkflowStep::Let { id, expr } => Ok(Self::Let(WorkflowLetStep {
+                id: validate_step_id(workflow, id)?,
+                expr: validate_expression(workflow, "let expression", expr)?,
+            })),
+            RawWorkflowStep::Assert {
+                id,
+                condition,
+                message,
+            } => {
+                if message.trim().is_empty() || message.contains('\0') {
+                    return Err(invalid(format!(
+                        "assert step '{id}' message must be non-empty and contain no NUL"
+                    )));
+                }
+                Ok(Self::Assert(WorkflowAssertStep {
+                    id: validate_step_id(workflow, id)?,
+                    condition: validate_expression(workflow, "assert condition", condition)?,
+                    message,
+                }))
+            }
+            RawWorkflowStep::Call {
+                id,
+                call,
+                bindings,
+                when,
+            } => Ok(Self::Call(WorkflowCallStep {
+                id: validate_step_id(workflow, id)?,
+                call: WorkflowName::new(call.clone())
+                    .map_err(|message| invalid(format!("call target {message}")))?,
+                bindings: validate_bindings(workflow, bindings, inputs, config, prior_step_ids)?,
+                when: validate_optional_expression(workflow, "when", when)?,
+            })),
+            RawWorkflowStep::ForEach {
+                id,
+                items,
+                item_name,
+                call,
+                bindings,
+                max_items,
+                when,
+            } => {
+                let id = validate_step_id(workflow, id)?;
+                if max_items == 0 {
+                    return Err(invalid(format!(
+                        "for_each step '{}' max_items must be greater than zero",
+                        id.as_str()
+                    )));
+                }
+                if !is_option_word(&item_name) {
+                    return Err(invalid(format!(
+                        "for_each step '{}' as value '{}' is not a valid input name",
+                        id.as_str(),
+                        item_name
+                    )));
+                }
+                Ok(Self::ForEach(WorkflowForEachStep {
+                    id,
+                    items: WorkflowBinding::validate(
+                        items,
+                        workflow,
+                        inputs,
+                        config,
+                        prior_step_ids,
+                    )?,
+                    item_name,
+                    call: WorkflowName::new(call.clone())
+                        .map_err(|message| invalid(format!("call target {message}")))?,
+                    bindings: validate_bindings(
+                        workflow,
+                        bindings,
+                        inputs,
+                        config,
+                        prior_step_ids,
+                    )?,
+                    max_items,
+                    when: validate_optional_expression(workflow, "when", when)?,
+                }))
+            }
+        }
+    }
+
+    pub fn id(&self) -> &WorkflowStepId {
+        match self {
+            Self::Run(step) => step.id(),
+            Self::Let(step) => step.id(),
+            Self::Assert(step) => step.id(),
+            Self::Call(step) => step.id(),
+            Self::ForEach(step) => step.id(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowRunStep {
+    id: WorkflowStepId,
+    run: CommandPath,
+    bindings: BTreeMap<WorkflowBindingName, WorkflowBinding>,
+    when: Option<String>,
+}
+
+impl WorkflowRunStep {
     pub fn id(&self) -> &WorkflowStepId {
         &self.id
     }
@@ -629,6 +1299,114 @@ impl WorkflowStep {
 
     pub fn bindings(&self) -> &BTreeMap<WorkflowBindingName, WorkflowBinding> {
         &self.bindings
+    }
+
+    pub fn when(&self) -> Option<&str> {
+        self.when.as_deref()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowLetStep {
+    id: WorkflowStepId,
+    expr: String,
+}
+
+impl WorkflowLetStep {
+    pub fn id(&self) -> &WorkflowStepId {
+        &self.id
+    }
+
+    pub fn expr(&self) -> &str {
+        &self.expr
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowAssertStep {
+    id: WorkflowStepId,
+    condition: String,
+    message: String,
+}
+
+impl WorkflowAssertStep {
+    pub fn id(&self) -> &WorkflowStepId {
+        &self.id
+    }
+
+    pub fn condition(&self) -> &str {
+        &self.condition
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowCallStep {
+    id: WorkflowStepId,
+    call: WorkflowName,
+    bindings: BTreeMap<WorkflowBindingName, WorkflowBinding>,
+    when: Option<String>,
+}
+
+impl WorkflowCallStep {
+    pub fn id(&self) -> &WorkflowStepId {
+        &self.id
+    }
+
+    pub fn call(&self) -> &WorkflowName {
+        &self.call
+    }
+
+    pub fn bindings(&self) -> &BTreeMap<WorkflowBindingName, WorkflowBinding> {
+        &self.bindings
+    }
+
+    pub fn when(&self) -> Option<&str> {
+        self.when.as_deref()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowForEachStep {
+    id: WorkflowStepId,
+    items: WorkflowBinding,
+    item_name: String,
+    call: WorkflowName,
+    bindings: BTreeMap<WorkflowBindingName, WorkflowBinding>,
+    max_items: usize,
+    when: Option<String>,
+}
+
+impl WorkflowForEachStep {
+    pub fn id(&self) -> &WorkflowStepId {
+        &self.id
+    }
+
+    pub fn items(&self) -> &WorkflowBinding {
+        &self.items
+    }
+
+    pub fn item_name(&self) -> &str {
+        &self.item_name
+    }
+
+    pub fn call(&self) -> &WorkflowName {
+        &self.call
+    }
+
+    pub fn bindings(&self) -> &BTreeMap<WorkflowBindingName, WorkflowBinding> {
+        &self.bindings
+    }
+
+    pub fn max_items(&self) -> usize {
+        self.max_items
+    }
+
+    pub fn when(&self) -> Option<&str> {
+        self.when.as_deref()
     }
 }
 
@@ -659,7 +1437,6 @@ pub enum WorkflowBinding {
     },
     Config {
         key: String,
-        default: Option<Value>,
     },
     Step {
         step: WorkflowStepId,
@@ -670,23 +1447,21 @@ pub enum WorkflowBinding {
 impl WorkflowBinding {
     fn validate(
         raw: RawWorkflowBinding,
-        command: &CommandPath,
-        options: &[OptionDeclaration],
+        workflow: &WorkflowName,
+        inputs: &[WorkflowInputDeclaration],
+        config: &BTreeMap<String, ConfigDeclaration>,
         prior_step_ids: &HashSet<WorkflowStepId>,
     ) -> Result<Self, ProtocolError> {
+        let invalid = |message: &str| invalid_named_workflow(workflow.as_str(), message);
         let raw = match raw {
             RawWorkflowBinding::Literal(value) => {
                 if value.is_object() {
-                    return Err(invalid_workflow(
-                        command,
+                    return Err(invalid(
                         "workflow binding tables must declare exactly one of input, config, or step",
                     ));
                 }
                 if workflow_value_contains_nul(&value) {
-                    return Err(invalid_workflow(
-                        command,
-                        "workflow binding literals cannot contain NUL",
-                    ));
+                    return Err(invalid("workflow binding literals cannot contain NUL"));
                 }
                 return Ok(Self::Literal(value));
             }
@@ -696,35 +1471,18 @@ impl WorkflowBinding {
             raw.input.is_some(),
             raw.config.is_some(),
             raw.step.is_some(),
+            raw.literal.is_some(),
         ]
         .into_iter()
         .filter(|present| *present)
         .count();
         if sources != 1 {
-            return Err(invalid_workflow(
-                command,
-                "each workflow binding source must declare exactly one of input, config, or step",
-            ));
-        }
-        if raw.default.is_some() && raw.config.is_none() {
-            return Err(invalid_workflow(
-                command,
-                "a workflow binding default is only valid with config",
-            ));
-        }
-        if raw
-            .default
-            .as_ref()
-            .is_some_and(workflow_value_contains_nul)
-        {
-            return Err(invalid_workflow(
-                command,
-                "workflow binding defaults cannot contain NUL",
+            return Err(invalid(
+                "each workflow binding source must declare exactly one of input, config, step, or literal",
             ));
         }
         if raw.select.is_some() && raw.step.is_none() {
-            return Err(invalid_workflow(
-                command,
+            return Err(invalid(
                 "a workflow binding select expression is only valid with step",
             ));
         }
@@ -733,52 +1491,229 @@ impl WorkflowBinding {
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(invalid_workflow(
-                command,
+            return Err(invalid(
                 "a workflow binding select expression cannot be empty",
             ));
         }
 
         if let Some(input) = raw.input {
-            if !options.iter().any(|candidate| candidate.name() == input) {
-                return Err(invalid_workflow(
-                    command,
-                    &format!("workflow binding references unknown input '{input}'"),
-                ));
+            if !inputs.iter().any(|candidate| candidate.name() == input) {
+                return Err(invalid(&format!(
+                    "workflow binding references unknown input '{input}'"
+                )));
             }
             Ok(Self::Input { name: input })
-        } else if let Some(config) = raw.config {
-            if !is_option_word(&config) {
-                return Err(invalid_workflow(
-                    command,
-                    &format!(
-                        "config key '{config}' must use lowercase ASCII letters, numbers, '-' or '_'"
-                    ),
-                ));
+        } else if let Some(key) = raw.config {
+            if !config.contains_key(&key) {
+                return Err(invalid(&format!(
+                    "workflow binding references undeclared config key '{key}'"
+                )));
             }
-            Ok(Self::Config {
-                key: config,
-                default: raw.default,
-            })
+            Ok(Self::Config { key })
+        } else if let Some(literal) = raw.literal {
+            if workflow_value_contains_nul(&literal) {
+                return Err(invalid("workflow binding literals cannot contain NUL"));
+            }
+            Ok(Self::Literal(literal))
         } else {
             let step = WorkflowStepId::new(raw.step.expect("one binding source was present"))
-                .map_err(|message| {
-                    invalid_workflow(command, &format!("invalid step reference: {message}"))
-                })?;
+                .map_err(|message| invalid(&format!("invalid step reference: {message}")))?;
             if !prior_step_ids.contains(&step) {
-                return Err(invalid_workflow(
-                    command,
-                    &format!(
-                        "step output reference '{}' must name an earlier step",
-                        step.as_str()
-                    ),
-                ));
+                return Err(invalid(&format!(
+                    "step output reference '{}' must name an earlier step",
+                    step.as_str()
+                )));
             }
             Ok(Self::Step {
                 step,
                 select: raw.select,
             })
         }
+    }
+}
+
+fn validate_workflow_calls(
+    workflows: &BTreeMap<WorkflowName, WorkflowDeclaration>,
+) -> Result<(), ProtocolError> {
+    for workflow in workflows.values() {
+        for step in workflow.steps() {
+            let (target, item_name, bindings) = match step {
+                WorkflowStep::Call(step) => (step.call(), None, step.bindings()),
+                WorkflowStep::ForEach(step) => {
+                    (step.call(), Some(step.item_name()), step.bindings())
+                }
+                WorkflowStep::Run(_) | WorkflowStep::Let(_) | WorkflowStep::Assert(_) => continue,
+            };
+            let target_workflow = workflows.get(target).ok_or_else(|| {
+                invalid_named_workflow(
+                    workflow.name().as_str(),
+                    &format!(
+                        "step '{}' calls unknown workflow '{}'",
+                        step.id().as_str(),
+                        target.as_str()
+                    ),
+                )
+            })?;
+            for binding in bindings.keys() {
+                if !target_workflow
+                    .inputs()
+                    .iter()
+                    .any(|input| input.name() == binding.as_str())
+                {
+                    return Err(invalid_named_workflow(
+                        workflow.name().as_str(),
+                        &format!(
+                            "step '{}' binds unknown input '{}' on workflow '{}'",
+                            step.id().as_str(),
+                            binding.as_str(),
+                            target.as_str()
+                        ),
+                    ));
+                }
+            }
+            if let Some(item_name) = item_name {
+                if bindings.keys().any(|binding| binding.as_str() == item_name) {
+                    return Err(invalid_named_workflow(
+                        workflow.name().as_str(),
+                        &format!(
+                            "for_each step '{}' cannot bind '{}' in both as and with",
+                            step.id().as_str(),
+                            item_name
+                        ),
+                    ));
+                }
+                if !target_workflow
+                    .inputs()
+                    .iter()
+                    .any(|input| input.name() == item_name)
+                {
+                    return Err(invalid_named_workflow(
+                        workflow.name().as_str(),
+                        &format!(
+                            "for_each step '{}' as value '{}' is not an input of workflow '{}'",
+                            step.id().as_str(),
+                            item_name,
+                            target.as_str()
+                        ),
+                    ));
+                }
+            }
+            for input in target_workflow.inputs() {
+                let supplied = bindings
+                    .keys()
+                    .any(|binding| binding.as_str() == input.name())
+                    || item_name == Some(input.name())
+                    || input.default().is_some();
+                if input.required() && !supplied {
+                    return Err(invalid_named_workflow(
+                        workflow.name().as_str(),
+                        &format!(
+                            "step '{}' does not bind required input '{}' on workflow '{}'",
+                            step.id().as_str(),
+                            input.name(),
+                            target.as_str()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_step_id(
+    workflow: &WorkflowName,
+    value: String,
+) -> Result<WorkflowStepId, ProtocolError> {
+    WorkflowStepId::new(value).map_err(|message| {
+        invalid_named_workflow(workflow.as_str(), &format!("invalid step id: {message}"))
+    })
+}
+
+fn validate_bindings(
+    workflow: &WorkflowName,
+    raw: BTreeMap<String, RawWorkflowBinding>,
+    inputs: &[WorkflowInputDeclaration],
+    config: &BTreeMap<String, ConfigDeclaration>,
+    prior_step_ids: &HashSet<WorkflowStepId>,
+) -> Result<BTreeMap<WorkflowBindingName, WorkflowBinding>, ProtocolError> {
+    raw.into_iter()
+        .map(|(name, binding)| {
+            let name = WorkflowBindingName::new(name).map_err(|message| {
+                invalid_named_workflow(workflow.as_str(), &format!("binding: {message}"))
+            })?;
+            let binding =
+                WorkflowBinding::validate(binding, workflow, inputs, config, prior_step_ids)?;
+            Ok((name, binding))
+        })
+        .collect()
+}
+
+fn validate_expression(
+    workflow: &WorkflowName,
+    label: &str,
+    expression: String,
+) -> Result<String, ProtocolError> {
+    if expression.trim().is_empty() || expression.contains('\0') {
+        Err(invalid_named_workflow(
+            workflow.as_str(),
+            &format!("{label} must be non-empty and contain no NUL"),
+        ))
+    } else {
+        Ok(expression)
+    }
+}
+
+fn validate_optional_expression(
+    workflow: &WorkflowName,
+    label: &str,
+    expression: Option<String>,
+) -> Result<Option<String>, ProtocolError> {
+    expression
+        .map(|expression| validate_expression(workflow, label, expression))
+        .transpose()
+}
+
+fn validate_declared_default<F>(
+    default: &Option<Value>,
+    value_type: WorkflowValueType,
+    repeatable: bool,
+    invalid: F,
+) -> Result<(), ProtocolError>
+where
+    F: Fn(String) -> ProtocolError,
+{
+    if let Some(value) = default {
+        if workflow_value_contains_nul(value) {
+            return Err(invalid("default value cannot contain NUL".to_string()));
+        }
+        validate_declared_value(value, value_type, repeatable)
+            .map_err(|message| invalid(format!("invalid default: {message}")))?;
+    }
+    Ok(())
+}
+
+fn validate_declared_value(
+    value: &Value,
+    value_type: WorkflowValueType,
+    repeatable: bool,
+) -> Result<(), String> {
+    if repeatable {
+        let values = value
+            .as_array()
+            .ok_or_else(|| "repeatable value must be an array".to_string())?;
+        if values.iter().all(|value| value_type.accepts(value)) {
+            Ok(())
+        } else {
+            Err(format!(
+                "array items must have type '{}'",
+                value_type.as_str()
+            ))
+        }
+    } else if value_type.accepts(value) {
+        Ok(())
+    } else {
+        Err(format!("value must have type '{}'", value_type.as_str()))
     }
 }
 
@@ -790,6 +1725,7 @@ pub enum OptionKind {
     Number,
     Boolean,
     Flag,
+    Json,
 }
 
 impl OptionKind {
@@ -800,6 +1736,7 @@ impl OptionKind {
             Self::Number => value.parse::<f64>().is_ok(),
             Self::Boolean => value.parse::<bool>().is_ok(),
             Self::Flag => value.is_empty(),
+            Self::Json => serde_json::from_str::<Value>(value).is_ok(),
         }
     }
 
@@ -810,6 +1747,17 @@ impl OptionKind {
             Self::Number => "number",
             Self::Boolean => "boolean",
             Self::Flag => "flag",
+            Self::Json => "json",
+        }
+    }
+
+    pub fn workflow_type(self) -> WorkflowValueType {
+        match self {
+            Self::String => WorkflowValueType::String,
+            Self::Integer => WorkflowValueType::Integer,
+            Self::Number => WorkflowValueType::Number,
+            Self::Boolean | Self::Flag => WorkflowValueType::Boolean,
+            Self::Json => WorkflowValueType::Json,
         }
     }
 }
@@ -988,11 +1936,16 @@ impl OptionDeclaration {
 #[serde(deny_unknown_fields)]
 struct RawManifest {
     schema_version: u32,
+    kind: ExtensionPackKind,
     name: String,
     version: String,
     requires_cli: String,
-    protocol: String,
+    protocol: Option<String>,
     executable: Option<String>,
+    #[serde(default)]
+    config: BTreeMap<String, RawValueDeclaration>,
+    #[serde(default)]
+    workflows: BTreeMap<String, RawWorkflow>,
     #[serde(default)]
     commands: Vec<RawCommand>,
 }
@@ -1011,26 +1964,59 @@ struct RawCommand {
     interactive: bool,
     #[serde(default)]
     options: Vec<RawOption>,
-    workflow: Option<RawWorkflow>,
+    workflow: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawWorkflow {
     #[serde(default)]
+    inputs: Vec<RawWorkflowInput>,
+    output: RawWorkflowOutput,
+    #[serde(default)]
     steps: Vec<RawWorkflowStep>,
     #[serde(default)]
     capabilities: Vec<String>,
-    result: Option<String>,
+    result: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawWorkflowStep {
-    id: String,
-    run: Vec<String>,
-    #[serde(default)]
-    with: BTreeMap<String, RawWorkflowBinding>,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum RawWorkflowStep {
+    Run {
+        id: String,
+        run: Vec<String>,
+        #[serde(default, rename = "with")]
+        bindings: BTreeMap<String, RawWorkflowBinding>,
+        when: Option<String>,
+    },
+    Let {
+        id: String,
+        expr: String,
+    },
+    Assert {
+        id: String,
+        condition: String,
+        message: String,
+    },
+    Call {
+        id: String,
+        call: String,
+        #[serde(default, rename = "with")]
+        bindings: BTreeMap<String, RawWorkflowBinding>,
+        when: Option<String>,
+    },
+    ForEach {
+        id: String,
+        items: RawWorkflowBinding,
+        #[serde(rename = "as")]
+        item_name: String,
+        call: String,
+        #[serde(default, rename = "with")]
+        bindings: BTreeMap<String, RawWorkflowBinding>,
+        max_items: usize,
+        when: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -1046,8 +2032,51 @@ struct RawWorkflowBindingSource {
     input: Option<String>,
     config: Option<String>,
     step: Option<String>,
-    default: Option<Value>,
+    literal: Option<Value>,
     select: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawValueDeclaration {
+    #[serde(rename = "type")]
+    value_type: WorkflowValueType,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    repeatable: bool,
+    default: Option<Value>,
+    #[serde(default)]
+    help: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWorkflowInput {
+    name: String,
+    #[serde(rename = "type")]
+    value_type: WorkflowValueType,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    repeatable: bool,
+    default: Option<Value>,
+    #[serde(default)]
+    help: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWorkflowOutput {
+    shape: SemanticOutputShape,
+    #[serde(default = "default_workflow_value_type", rename = "type")]
+    value_type: WorkflowValueType,
+    #[serde(default)]
+    columns: Vec<String>,
+}
+
+fn default_workflow_value_type() -> WorkflowValueType {
+    WorkflowValueType::Json
 }
 
 #[derive(Debug, Deserialize)]
@@ -1244,6 +2273,20 @@ fn invalid_workflow(command: &CommandPath, message: &str) -> ProtocolError {
     }
 }
 
+fn invalid_named_workflow(workflow: &str, message: &str) -> ProtocolError {
+    ProtocolError::InvalidNamedWorkflow {
+        workflow: workflow.to_string(),
+        message: message.to_string(),
+    }
+}
+
+fn invalid_config(key: &str, message: &str) -> ProtocolError {
+    ProtocolError::InvalidConfig {
+        key: key.to_string(),
+        message: message.to_string(),
+    }
+}
+
 fn nonempty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
 }
@@ -1290,387 +2333,312 @@ fn workflow_value_contains_nul(value: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+mod workflow_language_tests {
     use semver::Version;
     use serde_json::json;
 
     use super::{
-        CommandImplementation, ExtensionManifest, ExtensionResponse, ProtocolError, SemanticOutput,
-        SemanticOutputShape, WorkflowBinding,
+        CommandImplementation, ExtensionManifest, ExtensionPackKind, ExtensionResponse,
+        ProtocolError, SemanticOutput, SemanticOutputShape, WorkflowStep, PROTOCOL_V1,
     };
 
-    const MANIFEST: &str = r#"
+    const EXECUTABLE: &str = r#"
 schema_version = 1
+kind = "executable"
 name = "site-inventory"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/site-inventory"
 
+[config.site]
+type = "string"
+required = true
+
 [[commands]]
 path = ["host", "show"]
 arguments = ["host", "show"]
-about = "Show a Host"
 
 [[commands.options]]
 name = "identifier"
 kind = "string"
 positional = true
+"#;
 
-[[commands.options]]
-name = "target-type"
-kind = "string"
-long = "target-type"
-values = ["auto", "host", "jack", "room"]
+    const PORTABLE_BODY: &str = r#"
+[config.hosts_class]
+type = "string"
+default = "Hosts"
 
-[[commands.options]]
-name = "verbose"
-kind = "flag"
-short = "v"
-long = "verbose"
+[workflows.item]
+result = "[.input.item]"
+
+[[workflows.item.inputs]]
+name = "item"
+type = "json"
+required = true
+
+[workflows.item.output]
+shape = "values"
+type = "json"
+
+[[workflows.item.steps]]
+id = "keep"
+kind = "let"
+expr = ".input.item"
+
+[workflows.snapshot]
+result = "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
+
+[[workflows.snapshot.inputs]]
+name = "enabled"
+type = "boolean"
+default = true
+
+[[workflows.snapshot.inputs]]
+name = "items"
+type = "json"
+default = [1, 2]
+
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+
+[[workflows.snapshot.steps]]
+id = "hosts"
+kind = "run"
+run = ["object", "list"]
+when = ".input.enabled"
+
+[workflows.snapshot.steps.with]
+class = { config = "hosts_class" }
+all = true
+
+[[workflows.snapshot.steps]]
+id = "selected"
+kind = "let"
+expr = ".steps.hosts"
+
+[[workflows.snapshot.steps]]
+id = "valid"
+kind = "assert"
+condition = ".input.enabled == true"
+message = "snapshot must be enabled"
+
+[[workflows.snapshot.steps]]
+id = "one"
+kind = "call"
+call = "item"
+when = ".input.enabled"
+with = { item = "one" }
+
+[[workflows.snapshot.steps]]
+id = "many"
+kind = "for_each"
+items = { input = "items" }
+as = "item"
+call = "item"
+max_items = 10
+when = ".input.enabled"
 "#;
 
     #[test]
-    fn parses_and_validates_a_manifest() {
-        let manifest = ExtensionManifest::parse(MANIFEST).expect("manifest should parse");
-        assert_eq!(manifest.name().as_str(), "site-inventory");
+    fn parses_executable_pack_and_typed_config() {
+        let manifest = ExtensionManifest::parse(EXECUTABLE).expect("manifest");
+        assert_eq!(manifest.kind(), ExtensionPackKind::Executable);
+        assert_eq!(manifest.protocol().expect("protocol").as_str(), PROTOCOL_V1);
         assert!(manifest.supports_cli(&Version::new(0, 0, 9)));
-        assert_eq!(manifest.commands()[0].path().display(), "host show");
-        assert_eq!(manifest.commands()[0].options()[1].values().len(), 4);
         assert!(matches!(
             manifest.commands()[0].implementation(),
             CommandImplementation::Executable { .. }
         ));
-    }
-
-    #[test]
-    fn rejects_unknown_manifest_command_and_option_fields() {
-        let manifest_error = ExtensionManifest::parse(&MANIFEST.replace(
-            "name = \"site-inventory\"",
-            "name = \"site-inventory\"\nowner = \"ops\"",
-        ))
-        .expect_err("unknown manifest field should fail");
-        assert!(manifest_error.to_string().contains("owner"));
-
-        let command_error = ExtensionManifest::parse(&MANIFEST.replace(
-            "about = \"Show a Host\"",
-            "about = \"Show a Host\"\ninteractiv = true",
-        ))
-        .expect_err("unknown command field should fail");
-        assert!(command_error.to_string().contains("interactiv"));
-
-        let option_error = ExtensionManifest::parse(
-            &MANIFEST.replace("positional = true", "positional = true\nrequried = true"),
-        )
-        .expect_err("unknown option field should fail");
-        assert!(option_error.to_string().contains("requried"));
-    }
-
-    #[test]
-    fn parses_manifest_only_workflows() {
-        let manifest = ExtensionManifest::parse(
-            r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-capabilities = ["mutate"]
-result = "{ hosts: .steps.hosts, details: .steps.details }"
-
-[[commands.workflow.steps]]
-id = "hosts"
-run = ["object", "list"]
-
-[commands.workflow.steps.with]
-class = { config = "hosts_class", default = "Hosts" }
-all = true
-
-[[commands.workflow.steps]]
-id = "details"
-run = ["object", "show"]
-with = { id = { step = "hosts", select = ".[0].id" } }
-"#,
-        )
-        .expect("workflow manifest should parse");
-
-        assert!(manifest.executable().is_none());
-        let workflow = manifest.commands()[0].workflow().expect("workflow");
-        let step = &workflow.steps()[0];
-        assert_eq!(step.id().as_str(), "hosts");
-        assert_eq!(step.run().display(), "object list");
-        assert!(workflow.allows_mutation());
         assert_eq!(
-            workflow.result(),
-            Some("{ hosts: .steps.hosts, details: .steps.details }")
+            manifest
+                .resolve_config(&json!({"site": "oslo"}))
+                .expect("config")["site"],
+            "oslo"
         );
-        assert!(matches!(
-            workflow.steps()[1]
-                .bindings()
-                .values()
-                .next()
-                .expect("step binding"),
-            WorkflowBinding::Step { step, select }
-                if step.as_str() == "hosts" && select.as_deref() == Some(".[0].id")
-        ));
-        assert!(matches!(
-            manifest.commands()[0].implementation(),
-            CommandImplementation::Workflow(_)
-        ));
-    }
-
-    #[test]
-    fn rejects_interactive_workflows() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-interactive = true
-
-[commands.workflow]
-
-[[commands.workflow.steps]]
-id = "classes"
-run = ["class", "list"]
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("workflow should fail");
-
-        assert!(error
+        assert!(manifest
+            .resolve_config(&json!({"site": "oslo", "extra": true}))
+            .expect_err("unknown key")
             .to_string()
-            .contains("workflow commands cannot be interactive"));
+            .contains("unknown configuration key"));
     }
 
     #[test]
-    fn rejects_forward_step_output_references() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
+    fn parses_every_tagged_step_and_named_workflow() {
+        let manifest =
+            ExtensionManifest::parse(&portable_manifest(PORTABLE_BODY)).expect("portable manifest");
+        assert_eq!(manifest.kind(), ExtensionPackKind::Portable);
+        assert!(manifest.protocol().is_none());
+        let name = manifest.commands()[0].workflow().expect("workflow name");
+        let workflow = manifest.workflow(name).expect("workflow");
+        assert_eq!(workflow.steps().len(), 5);
+        assert!(matches!(workflow.steps()[0], WorkflowStep::Run(_)));
+        assert!(matches!(workflow.steps()[1], WorkflowStep::Let(_)));
+        assert!(matches!(workflow.steps()[2], WorkflowStep::Assert(_)));
+        assert!(matches!(workflow.steps()[3], WorkflowStep::Call(_)));
+        assert!(matches!(workflow.steps()[4], WorkflowStep::ForEach(_)));
+    }
 
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-
-[[commands.workflow.steps]]
+    #[test]
+    fn rejects_forward_references_cross_pack_calls_and_unbounded_iteration() {
+        let forward = portable_manifest(
+            r#"
+[workflows.snapshot]
+result = ".steps.first"
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+[[workflows.snapshot.steps]]
 id = "first"
+kind = "run"
 run = ["object", "show"]
 with = { id = { step = "later" } }
-
-[[commands.workflow.steps]]
+[[workflows.snapshot.steps]]
 id = "later"
+kind = "run"
 run = ["object", "list"]
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("manifest should fail");
-
-        assert!(error.to_string().contains("must name an earlier step"));
-    }
-
-    #[test]
-    fn rejects_retired_action_workflow_syntax() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-
-[[commands.workflow.actions]]
-id = "legacy"
-command = ["class", "list"]
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("legacy syntax should fail");
-
-        let message = error.to_string();
-        assert!(message.contains("unknown field"));
-        assert!(message.contains("actions"));
-    }
-
-    #[test]
-    fn rejects_unknown_workflow_capabilities() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-capabilities = ["network"]
-
-[[commands.workflow.steps]]
-id = "classes"
-run = ["class", "list"]
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("capability should fail");
-
-        assert!(error
+"#,
+        );
+        assert!(ExtensionManifest::parse(&forward)
+            .expect_err("forward reference")
             .to_string()
-            .contains("unknown workflow capability 'network'"));
-    }
+            .contains("earlier step"));
 
-    #[test]
-    fn rejects_misspelled_workflow_binding_sources() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-
-[[commands.workflow.steps]]
-id = "classes"
-run = ["class", "show"]
-with = { name = { stpe = "classes" } }
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("binding typo should fail");
-
-        assert!(error
+        let cross_pack = PORTABLE_BODY.replace("call = \"item\"", "call = \"other.pack\"");
+        assert!(ExtensionManifest::parse(&portable_manifest(&cross_pack))
+            .expect_err("cross-pack call")
             .to_string()
-            .contains("binding tables must declare exactly one"));
+            .contains("snake_case"));
+
+        let unbounded = PORTABLE_BODY.replace("max_items = 10\n", "");
+        assert!(ExtensionManifest::parse(&portable_manifest(&unbounded))
+            .expect_err("missing max_items")
+            .to_string()
+            .contains("max_items"));
     }
 
     #[test]
-    fn requires_an_implementation_for_each_command() {
-        let manifest = MANIFEST
-            .replace("executable = \"bin/site-inventory\"\n", "")
-            .replace("arguments = [\"host\", \"show\"]\n", "");
-        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
+    fn rejects_pack_kind_mixing_and_extension_run_steps() {
+        assert!(ExtensionManifest::parse(
+            &EXECUTABLE.replace("kind = \"executable\"", "kind = \"portable\"")
+        )
+        .expect_err("mixed kind")
+        .to_string()
+        .contains("cannot declare protocol or executable"));
 
-        assert!(matches!(
-            error,
-            ProtocolError::MissingCommandImplementation(_)
-        ));
-    }
-
-    #[test]
-    fn rejects_extension_recursion_in_workflows() {
-        let manifest = r#"
-schema_version = 1
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-
-[[commands]]
-path = ["snapshot"]
-
-[commands.workflow]
-
-[[commands.workflow.steps]]
-id = "again"
-run = ["extension", "inventory", "snapshot"]
-"#;
-        let error = ExtensionManifest::parse(manifest).expect_err("manifest should fail");
-
-        assert!(error
+        let recursion = PORTABLE_BODY.replace(
+            "run = [\"object\", \"list\"]",
+            "run = [\"extension\", \"inventory\", \"snapshot\"]",
+        );
+        assert!(ExtensionManifest::parse(&portable_manifest(&recursion))
+            .expect_err("extension recursion")
             .to_string()
             .contains("cannot invoke extension commands"));
     }
 
     #[test]
-    fn rejects_reserved_pack_names() {
-        let manifest = MANIFEST.replace("site-inventory", "doctor");
-        assert!(matches!(
-            ExtensionManifest::parse(&manifest),
-            Err(ProtocolError::ReservedPackName(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_nonfinal_repeatable_positionals() {
-        let manifest = MANIFEST.replace(
-            "positional = true",
-            "positional = true\nrepeatable = true\n\n[[commands.options]]\nname = \"second\"\nkind = \"string\"\npositional = true",
+    fn rejects_contradictory_defaults_and_lossy_flag_inputs() {
+        let required_config = PORTABLE_BODY.replace(
+            "type = \"string\"\ndefault = \"Hosts\"",
+            "type = \"string\"\nrequired = true\ndefault = \"Hosts\"",
         );
-        assert!(ExtensionManifest::parse(&manifest)
-            .expect_err("manifest should fail")
+        assert!(
+            ExtensionManifest::parse(&portable_manifest(&required_config))
+                .expect_err("required config default")
+                .to_string()
+                .contains("required config cannot also declare a default")
+        );
+
+        let required_input = PORTABLE_BODY.replace(
+            "type = \"boolean\"\ndefault = true",
+            "type = \"boolean\"\nrequired = true\ndefault = true",
+        );
+        assert!(
+            ExtensionManifest::parse(&portable_manifest(&required_input))
+                .expect_err("required input default")
+                .to_string()
+                .contains("cannot be required and also declare a default")
+        );
+
+        let true_flag = portable_manifest(PORTABLE_BODY).replace(
+            "name = \"enabled\"\nkind = \"boolean\"",
+            "name = \"enabled\"\nkind = \"flag\"",
+        );
+        assert!(ExtensionManifest::parse(&true_flag)
+            .expect_err("true default flag")
             .to_string()
-            .contains("final positional"));
-    }
+            .contains("defaults to true"));
 
-    #[test]
-    fn rejects_command_paths_that_prefix_other_commands() {
-        let manifest =
-            format!("{MANIFEST}\n[[commands]]\npath = [\"host\"]\nabout = \"Host commands\"\n");
-        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
-
-        assert!(matches!(error, ProtocolError::CommandPathPrefix { .. }));
-        assert!(error.to_string().contains("'host'"));
-        assert!(error.to_string().contains("'host show'"));
-    }
-
-    #[test]
-    fn rejects_aliases_that_collide_after_removing_dashes() {
-        let manifest = format!(
-            "{MANIFEST}\n[[commands.options]]\nname = \"view\"\nkind = \"string\"\nlong = \"v\"\n"
+        let repeatable_flag = portable_manifest(&PORTABLE_BODY.replace(
+            "type = \"boolean\"\ndefault = true",
+            "type = \"boolean\"\nrepeatable = true",
+        ))
+        .replace(
+            "name = \"enabled\"\nkind = \"boolean\"",
+            "name = \"enabled\"\nkind = \"flag\"\nrepeatable = true",
         );
-        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
-
-        assert!(error.to_string().contains("unique after removing dashes"));
+        assert!(ExtensionManifest::parse(&repeatable_flag)
+            .expect_err("repeatable flag")
+            .to_string()
+            .contains("repeatable workflow input"));
     }
 
     #[test]
-    fn rejects_long_aliases_that_collide_with_host_short_options() {
-        let manifest = MANIFEST.replace("long = \"target-type\"", "long = \"h\"");
-        let error = ExtensionManifest::parse(&manifest).expect_err("manifest should fail");
-
-        assert!(error.to_string().contains("reserved by the host"));
-    }
-
-    #[test]
-    fn validates_semantic_shapes() {
+    fn validates_semantic_shapes_and_protocol_responses() {
         SemanticOutput::new(
             SemanticOutputShape::Rows,
             json!([{"name": "host-1"}]),
             vec!["name".to_string()],
         )
-        .expect("rows should validate");
+        .expect("rows");
         assert!(SemanticOutput::new(
             SemanticOutputShape::Rows,
             json!(["not-an-object"]),
             Vec::new(),
         )
         .is_err());
+
+        assert!(ExtensionResponse::parse(
+            r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"done","columns":[]}}"#,
+        )
+        .expect("response")
+        .is_ok());
     }
 
     #[test]
-    fn parses_success_and_error_responses() {
-        let success = ExtensionResponse::parse(
-            r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"done","columns":[]}}"#,
-        )
-        .expect("success response");
-        assert!(success.is_ok());
+    fn reserves_management_names() {
+        assert!(matches!(
+            ExtensionManifest::parse(&EXECUTABLE.replace("site-inventory", "validate")),
+            Err(ProtocolError::ReservedPackName(_))
+        ));
+    }
 
-        let failure = ExtensionResponse::parse(
-            r#"{"protocol":"hubuum-cli.extension/v1","status":"error","error":{"code":"move_failed","message":"move failed","details":{}}}"#,
+    fn portable_manifest(body: &str) -> String {
+        format!(
+            r#"schema_version = 1
+kind = "portable"
+name = "inventory"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+
+{body}
+
+[[commands]]
+path = ["snapshot"]
+workflow = "snapshot"
+
+[[commands.options]]
+name = "enabled"
+kind = "boolean"
+long = "enabled"
+
+[[commands.options]]
+name = "items"
+kind = "json"
+long = "items"
+"#
         )
-        .expect("error response");
-        assert!(!failure.is_ok());
     }
 }

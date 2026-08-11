@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use hubuum_extension_protocol::{ExtensionManifest, WorkflowBinding, MANIFEST_FILENAME};
+use hubuum_extension_protocol::{ExtensionManifest, MANIFEST_FILENAME};
 use hubuum_filter::OutputEnvelope;
 use semver::Version;
-use serde_json::{json, Value};
+use serde_json::{json, to_value, Value};
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandEffects, CommandInvocation,
@@ -17,7 +17,7 @@ use crate::catalog::{
 use crate::commands::{build_command_catalog, render_format, standard_options, table_headers};
 use crate::config::{get_config, reload_runtime_config, set_persisted_value};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::extensions::{ExtensionOrigin, ExtensionPack, ExtensionPackState};
+use crate::extensions::{ExtensionOrigin, ExtensionPack, ExtensionPackState, WorkflowProgram};
 use crate::output::{
     reset_output, set_pipeline, set_pipeline_suffix, set_render_format, set_semantic_output,
     set_table_headers, take_output,
@@ -53,6 +53,26 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         "doctor",
         "Report extension discovery and validation diagnostics",
         Vec::new(),
+    );
+    register(
+        builder,
+        "validate",
+        "Validate a local extension package without installing it",
+        vec![positional(
+            "source",
+            "Local package directory",
+            true,
+            Vec::new(),
+        )],
+    );
+    register(
+        builder,
+        "explain",
+        "Explain a local extension package's compiled workflow plan",
+        vec![
+            positional("source", "Local package directory", true, Vec::new()),
+            named("workflow", "Workflow to explain"),
+        ],
     );
     register(
         builder,
@@ -107,7 +127,7 @@ fn register(
 ) {
     options.extend(standard_option_specs());
     let effects = match name {
-        "list" | "show" | "doctor" => CommandEffects::ReadOnly,
+        "list" | "show" | "doctor" | "validate" | "explain" => CommandEffects::ReadOnly,
         _ => CommandEffects::Mutating,
     };
     let mut spec = CommandSpec::new(
@@ -124,7 +144,8 @@ fn register(
 
 fn management_examples(name: &str) -> Option<String> {
     match name {
-        "install" | "upgrade" => Some(format!("extension {name} ./my-pack")),
+        "install" | "upgrade" | "validate" => Some(format!("extension {name} ./my-pack")),
+        "explain" => Some("extension explain ./my-pack --workflow snapshot".to_string()),
         "enable" | "disable" | "remove" | "show" => {
             Some(format!("extension {name} site-inventory"))
         }
@@ -165,6 +186,24 @@ fn flag(name: &str, short: Option<&str>, help: &str) -> OptionSpec {
         field_type: TypeId::of::<bool>(),
         required: false,
         flag: true,
+        greedy: false,
+        nargs: None,
+        repeatable: false,
+        value_source: false,
+        completion: CompletionSpec::None,
+    }
+}
+
+fn named(name: &str, help: &str) -> OptionSpec {
+    OptionSpec {
+        name: name.to_string(),
+        short: None,
+        long: Some(format!("--{name}")),
+        help: help.to_string(),
+        field_type_help: "string".to_string(),
+        field_type: TypeId::of::<String>(),
+        required: false,
+        flag: false,
         greedy: false,
         nargs: None,
         repeatable: false,
@@ -214,6 +253,12 @@ impl AsyncCommandHandler for ManagementHandler {
             "list" => list(&ctx)?,
             "show" => show(&ctx, one_positional(&tokens, "pack")?)?,
             "doctor" => doctor(&ctx)?,
+            "validate" => validate_command(&ctx, one_positional(&tokens, "source")?)?,
+            "explain" => explain_command(
+                &ctx,
+                one_positional(&tokens, "source")?,
+                tokens.get_options().get("workflow").map(String::as_str),
+            )?,
             "reload" => reload(&ctx)?,
             "install" => install(&ctx, one_positional(&tokens, "source")?, force(&tokens))?,
             "upgrade" => upgrade(&ctx, one_positional(&tokens, "source")?, force(&tokens))?,
@@ -302,6 +347,7 @@ fn pack_row(pack: &ExtensionPack) -> Value {
     json!({
         "name": pack.name(),
         "version": pack.manifest().map(|manifest| manifest.version().to_string()),
+        "kind": pack.manifest().map(|manifest| manifest.kind().as_str()),
         "state": pack.state().as_str(),
         "origin": pack.origin().as_str(),
         "path": pack.package_root(),
@@ -319,8 +365,10 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
         json!({
             "name": pack.name(),
             "version": manifest.map(|manifest| manifest.version().to_string()),
+            "kind": manifest.map(|manifest| manifest.kind().as_str()),
+            "portable": manifest.is_some_and(ExtensionManifest::is_portable),
             "requires_cli": manifest.map(|manifest| manifest.requires_cli().to_string()),
-            "protocol": manifest.map(|manifest| manifest.protocol().as_str()),
+            "protocol": manifest.and_then(ExtensionManifest::protocol).map(|protocol| protocol.as_str()),
             "state": pack.state().as_str(),
             "origin": pack.origin().as_str(),
             "package_root": pack.package_root(),
@@ -336,40 +384,23 @@ fn show(ctx: &CommandContext, name: &str) -> Result<(), AppError> {
                     } else {
                         "executable"
                     },
-                    "capabilities": command.workflow().map(|workflow| workflow.capabilities().iter().map(|capability| {
-                        capability.as_str()
-                    }).collect::<Vec<_>>()).unwrap_or_default(),
-                    "result": command.workflow().and_then(|workflow| workflow.result()),
-                    "steps": command.workflow().map(|workflow| workflow.steps().iter().map(|step| {
-                        json!({
-                            "id": step.id().as_str(),
-                            "run": step.run().display(),
-                            "with": step.bindings().iter().map(|(name, binding)| {
-                                (name.as_str().to_string(), workflow_binding_value(binding))
-                            }).collect::<serde_json::Map<_, _>>(),
-                        })
-                    }).collect::<Vec<_>>()).unwrap_or_default(),
+                    "workflow": command.workflow().map(|workflow| workflow.as_str()),
                 })
             }).collect::<Vec<_>>()).unwrap_or_default(),
+            "config": manifest.map(|manifest| manifest.config().values().map(|declaration| json!({
+                "key": declaration.key(),
+                "type": declaration.value_type().as_str(),
+                "required": declaration.required(),
+                "repeatable": declaration.repeatable(),
+                "default": declaration.default(),
+                "help": declaration.help(),
+            })).collect::<Vec<_>>()).unwrap_or_default(),
+            "workflow_plan": pack.workflow_program().map(|program| program.explain_value(None)).transpose()
+                .map_err(AppError::CommandExecutionError)?,
             "diagnostics": pack.diagnostics().iter().map(diagnostic_value).collect::<Vec<_>>(),
         }),
         Vec::new(),
     ))
-}
-
-fn workflow_binding_value(binding: &WorkflowBinding) -> Value {
-    match binding {
-        WorkflowBinding::Literal(value) => value.clone(),
-        WorkflowBinding::Input { name } => json!({ "input": name }),
-        WorkflowBinding::Config { key, default } => json!({
-            "config": key,
-            "default": default,
-        }),
-        WorkflowBinding::Step { step, select } => json!({
-            "step": step.as_str(),
-            "select": select,
-        }),
-    }
 }
 
 fn doctor(ctx: &CommandContext) -> Result<(), AppError> {
@@ -392,6 +423,55 @@ fn doctor(ctx: &CommandContext) -> Result<(), AppError> {
             "path".to_string(),
             "message".to_string(),
         ],
+    ))
+}
+
+fn validate_command(ctx: &CommandContext, source: &str) -> Result<(), AppError> {
+    let source = Path::new(source);
+    let (manifest, program) = validate_source_for_catalog(ctx, source)?;
+    set_semantic_output(OutputEnvelope::detail(
+        json!({
+            "status": "valid",
+            "source": source,
+            "name": manifest.name().as_str(),
+            "version": manifest.version().to_string(),
+            "kind": manifest.kind().as_str(),
+            "portable": manifest.is_portable(),
+            "workflow_plan": program.map(|program| program.explain_value(None)).transpose()
+                .map_err(AppError::CommandExecutionError)?,
+        }),
+        Vec::new(),
+    ))
+}
+
+fn explain_command(
+    ctx: &CommandContext,
+    source: &str,
+    workflow: Option<&str>,
+) -> Result<(), AppError> {
+    let source = Path::new(source);
+    let (manifest, program) = validate_source_for_catalog(ctx, source)?;
+    let plan = program
+        .map(|program| program.explain_value(workflow))
+        .transpose()
+        .map_err(AppError::CommandExecutionError)?;
+    if workflow.is_some() && plan.is_none() {
+        return Err(AppError::CommandExecutionError(
+            "--workflow is only valid for portable packs".to_string(),
+        ));
+    }
+    set_semantic_output(OutputEnvelope::detail(
+        json!({
+            "source": source,
+            "name": manifest.name().as_str(),
+            "version": manifest.version().to_string(),
+            "kind": manifest.kind().as_str(),
+            "portable": manifest.is_portable(),
+            "protocol": manifest.protocol().map(|protocol| protocol.as_str()),
+            "executable": manifest.executable().map(|path| path.as_path()),
+            "plan": plan,
+        }),
+        Vec::new(),
     ))
 }
 
@@ -457,7 +537,7 @@ fn set_enabled(ctx: &CommandContext, name: &str, enabled: bool) -> Result<(), Ap
 
 fn install(ctx: &CommandContext, source: &str, force: bool) -> Result<(), AppError> {
     let source = Path::new(source);
-    let manifest = validate_source(source)?;
+    let (manifest, _) = validate_source_for_catalog(ctx, source)?;
     let current = ctx.catalog.snapshot();
     let replace = current
         .extensions()
@@ -485,7 +565,7 @@ fn install(ctx: &CommandContext, source: &str, force: bool) -> Result<(), AppErr
 
 fn upgrade(ctx: &CommandContext, source: &str, force: bool) -> Result<(), AppError> {
     let source = Path::new(source);
-    let manifest = validate_source(source)?;
+    let (manifest, _) = validate_source_for_catalog(ctx, source)?;
     let current = ctx.catalog.snapshot();
     let existing = current
         .extensions()
@@ -586,6 +666,39 @@ fn validate_source(source: &Path) -> Result<ExtensionManifest, AppError> {
         validate_executable(&source.join(executable.as_path()))?;
     }
     Ok(manifest)
+}
+
+fn validate_source_for_catalog(
+    ctx: &CommandContext,
+    source: &Path,
+) -> Result<(ExtensionManifest, Option<WorkflowProgram>), AppError> {
+    let manifest = validate_source(source)?;
+    let raw_config = get_config()
+        .extensions
+        .config
+        .get(manifest.name().as_str())
+        .and_then(|value| to_value(value).ok())
+        .unwrap_or_else(|| Value::Object(Default::default()));
+    let config = manifest.resolve_config(&raw_config).map_err(|error| {
+        AppError::CommandExecutionError(format!(
+            "extension configuration does not satisfy the manifest: {error}"
+        ))
+    })?;
+    let program = if manifest.is_portable() {
+        let catalog = ctx.catalog.snapshot();
+        Some(
+            WorkflowProgram::compile(&manifest, &config, |path| catalog.command(path)).map_err(
+                |message| {
+                    AppError::CommandExecutionError(format!(
+                        "extension workflow compilation failed: {message}"
+                    ))
+                },
+            )?,
+        )
+    } else {
+        None
+    };
+    Ok((manifest, program))
 }
 
 fn validate_executable(path: &Path) -> Result<(), AppError> {
@@ -772,6 +885,7 @@ mod tests {
         write(
             source.join("hubuum-extension.toml"),
             r#"schema_version = 1
+kind = "executable"
 name = "test-pack"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"

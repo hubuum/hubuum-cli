@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::cargo::cargo_bin_cmd;
 use hubuum_extension_protocol::ExtensionManifest;
 use predicates::str::contains;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tempfile::tempdir;
 
 fn write_pack(root: &Path, version: &str) -> PathBuf {
@@ -43,11 +43,16 @@ printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"sh
         package.join("hubuum-extension.toml"),
         format!(
             r#"schema_version = 1
+kind = "executable"
 name = "demo"
 version = "{version}"
 requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/demo"
+
+[config.label]
+type = "string"
+required = true
 
 [[commands]]
 path = ["demo"]
@@ -108,6 +113,7 @@ fn write_response_pack(root: &Path, name: &str, response: &str, exit_code: u8) {
         package.join("hubuum-extension.toml"),
         format!(
             r#"schema_version = 1
+kind = "executable"
 name = "{name}"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
@@ -150,28 +156,134 @@ fn write_workflow_pack(
         package.join("hubuum-extension.toml"),
         format!(
             r#"schema_version = 1
+kind = "portable"
 name = "{name}"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
+
+[workflows.snapshot]
+{capabilities}
+result = "{{ items: .steps.items }}"
+
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+
+[[workflows.snapshot.steps]]
+id = "items"
+kind = "run"
+run = [{command}]
+
+[workflows.snapshot.steps.with]
+{bindings}
 
 [[commands]]
 path = ["snapshot"]
+workflow = "snapshot"
 about = "Compose built-in commands"
-
-[commands.workflow]
-{capabilities}
-
-[[commands.workflow.steps]]
-id = "items"
-run = [{command}]
-
-[commands.workflow.steps.with]
-{bindings}
 "#
         ),
     )
     .expect("workflow manifest");
+}
+
+fn write_composable_workflow_pack(root: &Path) -> PathBuf {
+    let package = root.join("composable");
+    create_dir_all(&package).expect("package directory");
+    write(
+        package.join("hubuum-extension.toml"),
+        r#"schema_version = 1
+kind = "portable"
+name = "composable"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1"
+
+[workflows.capture]
+result = "[.input.item]"
+
+[[workflows.capture.inputs]]
+name = "item"
+type = "json"
+required = true
+
+[workflows.capture.output]
+shape = "values"
+type = "json"
+
+[[workflows.capture.steps]]
+id = "value"
+kind = "let"
+expr = ".input.item"
+
+[workflows.compose]
+result = "{ one: .steps.one[0], many: [.steps.many[][0]], skipped: .steps.skipped }"
+
+[[workflows.compose.inputs]]
+name = "enabled"
+type = "boolean"
+default = true
+
+[[workflows.compose.inputs]]
+name = "items"
+type = "json"
+default = ["alpha", "beta"]
+
+[workflows.compose.output]
+shape = "detail"
+type = "json"
+columns = ["one", "many", "skipped"]
+
+[[workflows.compose.steps]]
+id = "seed"
+kind = "let"
+expr = ".input.items"
+
+[[workflows.compose.steps]]
+id = "valid"
+kind = "assert"
+condition = "(.input.items | length) == 2"
+message = "two items are required"
+
+[[workflows.compose.steps]]
+id = "one"
+kind = "call"
+call = "capture"
+when = ".input.enabled"
+with = { item = "single" }
+
+[[workflows.compose.steps]]
+id = "many"
+kind = "for_each"
+items = { step = "seed" }
+as = "item"
+call = "capture"
+max_items = 2
+when = ".input.enabled"
+
+[[workflows.compose.steps]]
+id = "skipped"
+kind = "run"
+run = ["version"]
+when = ".input.enabled == false"
+
+[[commands]]
+path = ["compose"]
+workflow = "compose"
+about = "Exercise portable workflow composition"
+
+[[commands.options]]
+name = "enabled"
+kind = "boolean"
+long = "enabled"
+
+[[commands.options]]
+name = "items"
+kind = "json"
+long = "items"
+"#,
+    )
+    .expect("workflow manifest");
+    package
 }
 
 fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
@@ -185,12 +297,13 @@ fn bundled_manifest_workflow_uses_the_current_language() {
         "../examples/hubuum-inventory/hubuum-extension.toml"
     ))
     .expect("bundled workflow manifest");
-    let snapshot = manifest.commands()[0]
+    let snapshot_name = manifest.commands()[0]
         .workflow()
-        .expect("snapshot workflow");
+        .expect("snapshot workflow name");
+    let snapshot = manifest.workflow(snapshot_name).expect("snapshot workflow");
 
     assert_eq!(snapshot.steps().len(), 3);
-    assert!(snapshot.result().is_some());
+    assert!(snapshot.result().contains("hosts"));
 }
 
 #[test]
@@ -463,6 +576,84 @@ fn manifest_only_workflows_need_no_executable() {
 }
 
 #[test]
+fn portable_workflows_compose_with_calls_iteration_conditions_and_assertions() {
+    let temporary = tempdir().expect("temporary directory");
+    let sources = temporary.path().join("sources");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&sources).expect("source root");
+    let source = write_composable_workflow_pack(&sources);
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    let validated = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "validate",
+                source.to_str().expect("source path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(validated["status"], "valid");
+    assert_eq!(validated["kind"], "portable");
+
+    let explained = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "explain",
+                source.to_str().expect("source path"),
+                "--workflow",
+                "compose",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(explained["plan"]["workflows"][0]["name"], "compose");
+    assert_eq!(explained["plan"]["workflows"][0]["call_depth"], 2);
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "install",
+            source.to_str().expect("source path"),
+        ])
+        .assert()
+        .success();
+
+    let output = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "extension",
+                "composable",
+                "compose",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(
+        output,
+        json!({
+            "one": "single",
+            "many": ["alpha", "beta"],
+            "skipped": null,
+        })
+    );
+}
+
+#[test]
 fn offline_workflow_steps_run_without_login() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");
@@ -553,29 +744,40 @@ fn doctor_rejects_incompatible_workflow_input_types() {
     write(
         package.join("hubuum-extension.toml"),
         r#"schema_version = 1
+kind = "portable"
 name = "typed-flow"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
+
+[workflows.snapshot]
+result = ".steps.object"
+
+[[workflows.snapshot.inputs]]
+name = "depth"
+type = "string"
+
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+
+[[workflows.snapshot.steps]]
+id = "object"
+kind = "run"
+run = ["object", "show"]
+
+[workflows.snapshot.steps.with]
+name = "server-01"
+class = "Hosts"
+max-depth = { input = "depth" }
 
 [[commands]]
 path = ["snapshot"]
+workflow = "snapshot"
 
 [[commands.options]]
 name = "depth"
 kind = "string"
 long = "depth"
-
-[commands.workflow]
-
-[[commands.workflow.steps]]
-id = "object"
-run = ["object", "show"]
-
-[commands.workflow.steps.with]
-name = "server-01"
-class = "Hosts"
-max-depth = { input = "depth" }
 "#,
     )
     .expect("workflow manifest");
@@ -598,11 +800,11 @@ max-depth = { input = "depth" }
     assert!(doctor[0]["message"]
         .as_str()
         .expect("diagnostic message")
-        .contains("has type Text"));
+        .contains("declared type 'string'"));
     assert!(doctor[0]["message"]
         .as_str()
         .expect("diagnostic message")
-        .contains("expects Integer"));
+        .contains("target type Integer"));
 }
 
 #[test]
@@ -640,8 +842,14 @@ fn explicitly_mutating_workflow_steps_join_the_catalog() {
     );
     assert_eq!(shown["state"], "enabled");
     assert_eq!(shown["commands"][0]["implementation"], "workflow");
-    assert_eq!(shown["commands"][0]["capabilities"][0], "mutate");
-    assert_eq!(shown["commands"][0]["steps"][0]["run"], "object create");
+    assert_eq!(
+        shown["workflow_plan"]["workflows"][0]["effects"],
+        "mutating"
+    );
+    assert_eq!(
+        shown["workflow_plan"]["workflows"][0]["steps"][0]["run"],
+        "object create"
+    );
 }
 
 #[test]

@@ -2,16 +2,18 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::{future::Future, mem};
 
 use async_trait::async_trait;
 use hubuum_extension_protocol::{
     CommandDeclaration, ExtensionManifest, ExtensionResponse, OptionDeclaration, OptionKind,
-    SemanticOutput, SemanticOutputShape, WorkflowBinding, WorkflowDeclaration, PROTOCOL_V1,
+    SemanticOutput, SemanticOutputShape, PROTOCOL_V1,
 };
-use hubuum_filter::{apply_pipeline, OutputEnvelope, OutputShape, PipeStage};
-use serde_json::{from_str, to_string, Map, Value};
+use hubuum_filter::{evaluate_bounded_jq, OutputEnvelope, OutputShape};
+use serde_json::{from_str, json, to_string, Map, Value};
 use tokio::process::Command;
 
 use crate::catalog::{
@@ -23,7 +25,9 @@ use crate::command_line::shell_escape;
 use crate::commands::{render_format, standard_options, table_headers};
 use crate::dispatch::{execute_offline_line, is_offline_builtin_command};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::extensions::{ExtensionPack, ExtensionRegistry};
+use crate::extensions::{
+    ExtensionPack, ExtensionRegistry, PlanBinding, PlanStep, WorkflowPlan, WorkflowProgram,
+};
 use crate::output::{
     add_warning, reset_output, set_pipeline, set_pipeline_suffix, set_render_format,
     set_semantic_output, set_table_headers, take_output,
@@ -45,7 +49,7 @@ pub(crate) fn register_extension_commands(
                     pack,
                     manifest.clone(),
                     command,
-                    workflow.clone(),
+                    workflow.as_str(),
                 );
             } else if let Some(executable) = pack.executable().map(PathBuf::from) {
                 register_external_command(builder, pack, manifest.clone(), executable, command);
@@ -122,7 +126,7 @@ fn register_workflow_command(
     pack: &ExtensionPack,
     manifest: Arc<ExtensionManifest>,
     command: &CommandDeclaration,
-    workflow: WorkflowDeclaration,
+    workflow: &str,
 ) {
     let segments = command.path().segments();
     let Some(name) = segments.last() else {
@@ -134,30 +138,12 @@ fn register_workflow_command(
     ];
     path.extend(segments[..segments.len() - 1].iter().cloned());
     let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
-    let reauthentication_retry = if workflow.steps().iter().any(|step| {
-        builder
-            .command(step.run().segments())
-            .is_some_and(|command| command.reauthentication_retry == ReauthenticationRetry::Unsafe)
-    }) {
-        ReauthenticationRetry::Unsafe
-    } else {
-        ReauthenticationRetry::Safe
+    let Some(program) = pack.workflow_program_arc() else {
+        return;
     };
-    let effects = if workflow.steps().iter().any(|step| {
-        builder
-            .command(step.run().segments())
-            .is_some_and(|command| command.workflow_contract().effects().may_mutate())
-    }) {
-        CommandEffects::Mutating
-    } else {
-        CommandEffects::ReadOnly
+    let Some(plan) = program.plan(workflow) else {
+        return;
     };
-    let requires_authentication = workflow.steps().iter().any(|step| {
-        !is_offline_builtin_command(step.run().segments())
-            && builder
-                .command(step.run().segments())
-                .is_some_and(|command| command.handler.requires_authentication())
-    });
 
     let mut options = command
         .options()
@@ -188,14 +174,14 @@ fn register_workflow_command(
     let mut spec = CommandSpec::new(
         name,
         options,
-        reauthentication_retry,
-        effects,
+        plan.reauthentication_retry(),
+        plan.effects(),
         Arc::new(WorkflowCommandHandler {
             pack: manifest.name().as_str().to_string(),
             declaration: command.clone(),
-            workflow,
+            program,
+            plan: plan.clone(),
             config: pack.config().clone(),
-            requires_authentication,
         }),
     );
     spec.about = command.about().map(str::to_string);
@@ -210,6 +196,7 @@ fn option_spec(option: &OptionDeclaration) -> OptionSpec {
         OptionKind::Integer => TypeId::of::<i64>(),
         OptionKind::Number => TypeId::of::<f64>(),
         OptionKind::Boolean | OptionKind::Flag => TypeId::of::<bool>(),
+        OptionKind::Json => TypeId::of::<Value>(),
     };
     OptionSpec {
         name: option.name().to_string(),
@@ -529,9 +516,9 @@ impl AsyncCommandHandler for ExternalCommandHandler {
 struct WorkflowCommandHandler {
     pack: String,
     declaration: CommandDeclaration,
-    workflow: WorkflowDeclaration,
+    program: Arc<WorkflowProgram>,
+    plan: Arc<WorkflowPlan>,
     config: Value,
-    requires_authentication: bool,
 }
 
 #[async_trait]
@@ -547,170 +534,33 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
         validate_invocation(&tokens, &self.declaration)?;
         let inputs = workflow_input_values(&tokens, &self.declaration)
             .map_err(|message| workflow_error(&self.pack, &self.declaration, message))?;
-
-        let mut values = Map::new();
-        let mut outputs = Map::new();
-        let mut columns = Vec::new();
-        let mut warnings = Vec::new();
-        let mut completed_steps = Vec::new();
-        for step in self.workflow.steps() {
-            let binding_values = step
-                .bindings()
-                .iter()
-                .map(|(name, binding)| {
-                    resolve_workflow_binding(binding, &inputs, &self.config, &self.pack, &values)
-                        .map(|value| (name.as_str().to_string(), value))
-                })
-                .collect::<Result<BTreeMap<_, _>, _>>()
-                .map_err(|error| {
-                    error.with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
-                })?;
-            let (handler, command_path, command_index, arguments) = {
-                let catalog = ctx.catalog.snapshot();
-                let resolved = catalog.resolve_command(&[], step.run().segments())?;
-                if resolved.command.workflow_contract().effects().may_mutate()
-                    && !self.workflow.allows_mutation()
-                {
-                    return Err(workflow_error(
-                        &self.pack,
-                        &self.declaration,
-                        format!(
-                            "step '{}' command '{}' may change state; declare capabilities = [\"mutate\"]",
-                            step.id().as_str(),
-                            step.run().display()
-                        ),
-                    )
-                    .with_warnings(workflow_progress_warnings(
-                        &warnings,
-                        &completed_steps,
-                    )));
-                }
-                let arguments = workflow_step_arguments(resolved.command, &binding_values)
-                    .map_err(|message| {
-                        workflow_error(
-                            &self.pack,
-                            &self.declaration,
-                            format!("step '{}': {message}", step.id().as_str()),
-                        )
-                        .with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
-                    })?;
-                (
-                    resolved.command.handler.clone(),
-                    resolved.command_path,
-                    resolved.command_index,
-                    arguments,
-                )
-            };
-            let mut step_tokens = step.run().segments().to_vec();
-            step_tokens.extend(["--output".to_string(), "json".to_string()]);
-            step_tokens.extend(arguments);
-            let raw_line = step_tokens
-                .iter()
-                .map(|token| shell_escape(token))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let step_result = if is_offline_builtin_command(step.run().segments()) {
-                execute_offline_line(ctx.catalog.clone(), &raw_line).await
-            } else {
-                handler
-                    .execute(
-                        ctx.clone(),
-                        CommandInvocation {
-                            raw_line,
-                            command_index,
-                            command_path,
-                            pipeline: Vec::new(),
-                            pipeline_suffix: None,
-                        },
-                    )
-                    .await
-            };
-            let outcome = step_result.map_err(|error| {
-                let error = AppError::ExtensionWorkflowStep {
-                    pack: self.pack.clone(),
-                    workflow: self.declaration.path().display(),
-                    step: step.id().as_str().to_string(),
-                    command: step.run().display(),
-                    source: Box::new(error),
-                };
-                error.with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
-            })?;
-            warnings.extend(outcome.output.warnings);
-            if outcome.redirect.is_some() || outcome.scope_action != ScopeAction::None {
-                return Err(workflow_error(
-                    &self.pack,
-                    &self.declaration,
-                    format!(
-                        "step '{}' attempted an unsupported redirect or scope change",
-                        step.id().as_str()
-                    ),
-                )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps)));
-            }
-            if outcome.output.next_page_command.is_some() {
-                return Err(workflow_error(
-                    &self.pack,
-                    &self.declaration,
-                    format!(
-                        "step '{}' returned a partial page; bind 'all = true' or an explicit pagination policy",
-                        step.id().as_str()
-                    ),
-                )
-                .with_warnings(workflow_progress_warnings(
-                    &warnings,
-                    &completed_steps,
-                )));
-            }
-            if !outcome.output.errors.is_empty() {
-                return Err(workflow_error(
-                    &self.pack,
-                    &self.declaration,
-                    format!(
-                        "step '{}' returned errors: {}",
-                        step.id().as_str(),
-                        outcome.output.errors.join("; ")
-                    ),
-                )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps)));
-            }
-            let (value, output) =
-                workflow_output_capture(outcome.output.semantic, outcome.output.lines);
-            let id = step.id().as_str().to_string();
-            columns.push(id.clone());
-            completed_steps.push(id.clone());
-            values.insert(id.clone(), value);
-            outputs.insert(id, output);
-        }
-
-        let output = if let Some(result) = self.workflow.result() {
-            let context = serde_json::json!({
-                "input": inputs,
-                "config": self.config.clone(),
-                "steps": values,
-                "outputs": outputs,
-            });
-            apply_pipeline(
-                workflow_value_envelope(context),
-                &[PipeStage::Jq(result.to_string())],
-            )
-            .map_err(|error| {
+        let inputs = self
+            .plan
+            .resolve_inputs(&Value::Object(inputs))
+            .map_err(|message| workflow_error(&self.pack, &self.declaration, message))?;
+        let mut runtime = WorkflowRuntime::new(self.plan.limits());
+        let execution = self
+            .execute_plan(ctx.clone(), self.plan.clone(), inputs, &mut runtime)
+            .await?;
+        let output = self
+            .plan
+            .output()
+            .semantic_output(execution.value)
+            .map(convert_output)
+            .map_err(|message| {
                 workflow_error(
                     &self.pack,
                     &self.declaration,
-                    format!("result expression failed: {error}"),
+                    format!("declared output contract failed: {message}"),
                 )
-                .with_warnings(workflow_progress_warnings(&warnings, &completed_steps))
-            })?
-        } else {
-            OutputEnvelope::detail(Value::Object(values), columns)
-        };
+            })?;
 
         reset_output()?;
         set_pipeline(invocation.pipeline)?;
         set_pipeline_suffix(invocation.pipeline_suffix)?;
         set_render_format(render_format(&tokens)?)?;
         set_table_headers(table_headers(&tokens)?)?;
-        for warning in warnings {
+        for warning in execution.warnings {
             add_warning(warning)?;
         }
         set_semantic_output(output)?;
@@ -722,7 +572,574 @@ impl AsyncCommandHandler for WorkflowCommandHandler {
     }
 
     fn requires_authentication(&self) -> bool {
-        self.requires_authentication
+        self.plan.requires_authentication()
+    }
+}
+
+impl WorkflowCommandHandler {
+    fn execute_plan<'a>(
+        &'a self,
+        ctx: CommandContext,
+        plan: Arc<WorkflowPlan>,
+        inputs: Map<String, Value>,
+        runtime: &'a mut WorkflowRuntime,
+    ) -> Pin<Box<dyn Future<Output = Result<WorkflowExecution, AppError>> + Send + 'a>> {
+        Box::pin(async move {
+            runtime.enter_call(WorkflowLocation::new(
+                &self.pack,
+                &self.declaration,
+                plan.name(),
+                "<call>",
+            ))?;
+            let result = self.execute_plan_steps(ctx, plan, inputs, runtime).await;
+            runtime.leave_call();
+            result
+        })
+    }
+
+    async fn execute_plan_steps(
+        &self,
+        ctx: CommandContext,
+        plan: Arc<WorkflowPlan>,
+        inputs: Map<String, Value>,
+        runtime: &mut WorkflowRuntime,
+    ) -> Result<WorkflowExecution, AppError> {
+        let mut values = Map::new();
+        let mut outputs = Map::new();
+        let mut warnings = Vec::new();
+        let mut completed_steps = Vec::new();
+
+        for step in plan.steps() {
+            let location =
+                WorkflowLocation::new(&self.pack, &self.declaration, plan.name(), step.id());
+            runtime.tick(location)?;
+            let context = || workflow_context(&inputs, &self.config, &values, &outputs);
+            let (value, output, step_warnings) = match step {
+                PlanStep::Run(step) => {
+                    if !self.evaluate_when(
+                        step.when(),
+                        context(),
+                        runtime,
+                        plan.name(),
+                        step.id(),
+                    )? {
+                        (Value::Null, skipped_output(), Vec::new())
+                    } else {
+                        let bindings = resolve_plan_bindings(
+                            step.bindings(),
+                            &inputs,
+                            &self.config,
+                            &values,
+                            runtime,
+                            &self.pack,
+                            &self.declaration,
+                        )?;
+                        self.execute_run_step(RunStepRequest {
+                            ctx: &ctx,
+                            workflow: plan.name(),
+                            step: step.id(),
+                            run: step.run().segments(),
+                            binding_values: bindings,
+                            warnings: &warnings,
+                            completed_steps: &completed_steps,
+                        })
+                        .await?
+                    }
+                }
+                PlanStep::Let(step) => {
+                    let value = runtime.evaluate(location, "let", &context(), step.expr())?;
+                    let output = json!({ "source": "expression", "value": value });
+                    (value, output, Vec::new())
+                }
+                PlanStep::Assert(step) => {
+                    let condition =
+                        runtime.evaluate(location, "assert", &context(), step.condition())?;
+                    match condition {
+                        Value::Bool(true) => (
+                            Value::Bool(true),
+                            json!({ "source": "assert", "value": true }),
+                            Vec::new(),
+                        ),
+                        Value::Bool(false) => {
+                            return Err(workflow_error(
+                                &self.pack,
+                                &self.declaration,
+                                format!(
+                                    "workflow '{}' assert step '{}' failed: {}",
+                                    plan.name(),
+                                    step.id(),
+                                    step.message()
+                                ),
+                            ));
+                        }
+                        value => {
+                            return Err(workflow_error(
+                                &self.pack,
+                                &self.declaration,
+                                format!(
+                                    "workflow '{}' assert step '{}' returned {}, expected boolean",
+                                    plan.name(),
+                                    step.id(),
+                                    workflow_json_type(&value)
+                                ),
+                            ));
+                        }
+                    }
+                }
+                PlanStep::Call(step) => {
+                    if !self.evaluate_when(
+                        step.when(),
+                        context(),
+                        runtime,
+                        plan.name(),
+                        step.id(),
+                    )? {
+                        (Value::Null, skipped_output(), Vec::new())
+                    } else {
+                        let bindings = resolve_plan_bindings(
+                            step.bindings(),
+                            &inputs,
+                            &self.config,
+                            &values,
+                            runtime,
+                            &self.pack,
+                            &self.declaration,
+                        )?;
+                        let target = self.target_plan(step.call())?;
+                        let target_inputs = target
+                            .resolve_inputs(&Value::Object(bindings.into_iter().collect()))
+                            .map_err(|message| {
+                                workflow_error(
+                                    &self.pack,
+                                    &self.declaration,
+                                    format!(
+                                        "workflow '{}' call step '{}' inputs are invalid: {message}",
+                                        plan.name(),
+                                        step.id()
+                                    ),
+                                )
+                            })?;
+                        let execution = self
+                            .execute_plan(ctx.clone(), target, target_inputs, runtime)
+                            .await?;
+                        (
+                            execution.value.clone(),
+                            json!({
+                                "source": "workflow",
+                                "workflow": step.call(),
+                                "value": execution.value,
+                                "output": execution.output,
+                            }),
+                            execution.warnings,
+                        )
+                    }
+                }
+                PlanStep::ForEach(step) => {
+                    if !self.evaluate_when(
+                        step.when(),
+                        context(),
+                        runtime,
+                        plan.name(),
+                        step.id(),
+                    )? {
+                        (Value::Null, skipped_output(), Vec::new())
+                    } else {
+                        let items = resolve_plan_binding(
+                            step.items(),
+                            &inputs,
+                            &self.config,
+                            &values,
+                            runtime,
+                            &self.pack,
+                            &self.declaration,
+                        )?
+                        .ok_or_else(|| {
+                            workflow_error(
+                                &self.pack,
+                                &self.declaration,
+                                format!(
+                                    "workflow '{}' for_each step '{}' items binding was absent",
+                                    plan.name(),
+                                    step.id()
+                                ),
+                            )
+                        })?;
+                        let items = items.as_array().ok_or_else(|| {
+                            workflow_error(
+                                &self.pack,
+                                &self.declaration,
+                                format!(
+                                    "workflow '{}' for_each step '{}' expected an array, got {}",
+                                    plan.name(),
+                                    step.id(),
+                                    workflow_json_type(&items)
+                                ),
+                            )
+                        })?;
+                        if items.len() > step.max_items()
+                            || items.len() > runtime.limits.max_for_each_items()
+                        {
+                            return Err(workflow_error(
+                                &self.pack,
+                                &self.declaration,
+                                format!(
+                                    "workflow '{}' for_each step '{}' received {} items; declared max_items={}, host limit={}",
+                                    plan.name(),
+                                    step.id(),
+                                    items.len(),
+                                    step.max_items(),
+                                    runtime.limits.max_for_each_items()
+                                ),
+                            ));
+                        }
+                        let target = self.target_plan(step.call())?;
+                        let mut item_values = Vec::with_capacity(items.len());
+                        let mut item_outputs = Vec::with_capacity(items.len());
+                        let mut item_warnings = Vec::new();
+                        for item in items {
+                            let mut bindings = resolve_plan_bindings(
+                                step.bindings(),
+                                &inputs,
+                                &self.config,
+                                &values,
+                                runtime,
+                                &self.pack,
+                                &self.declaration,
+                            )?;
+                            bindings.insert(step.item_name().to_string(), item.clone());
+                            let target_inputs = target
+                                .resolve_inputs(&Value::Object(bindings.into_iter().collect()))
+                                .map_err(|message| {
+                                    workflow_error(
+                                        &self.pack,
+                                        &self.declaration,
+                                        format!(
+                                            "workflow '{}' for_each step '{}' item inputs are invalid: {message}",
+                                            plan.name(),
+                                            step.id()
+                                        ),
+                                    )
+                                })?;
+                            let execution = self
+                                .execute_plan(ctx.clone(), target.clone(), target_inputs, runtime)
+                                .await?;
+                            item_values.push(execution.value);
+                            item_outputs.push(execution.output);
+                            item_warnings.extend(execution.warnings);
+                        }
+                        let value = Value::Array(item_values);
+                        (
+                            value.clone(),
+                            json!({
+                                "source": "for_each",
+                                "workflow": step.call(),
+                                "value": value,
+                                "outputs": item_outputs,
+                            }),
+                            item_warnings,
+                        )
+                    }
+                }
+            };
+
+            runtime.charge_output(location, &value)?;
+            warnings.extend(step_warnings);
+            let id = step.id().to_string();
+            completed_steps.push(id.clone());
+            values.insert(id.clone(), value);
+            outputs.insert(id, output);
+        }
+
+        let context = workflow_context(&inputs, &self.config, &values, &outputs);
+        let result_location =
+            WorkflowLocation::new(&self.pack, &self.declaration, plan.name(), "<result>");
+        let value = runtime.evaluate(result_location, "result", &context, plan.result())?;
+        runtime.charge_output(result_location, &value)?;
+        let semantic = plan
+            .output()
+            .semantic_output(value.clone())
+            .map_err(|message| {
+                workflow_error(
+                    &self.pack,
+                    &self.declaration,
+                    format!(
+                        "workflow '{}' declared output contract failed: {message}",
+                        plan.name()
+                    ),
+                )
+            })?;
+        Ok(WorkflowExecution {
+            value,
+            output: json!({
+                "shape": workflow_semantic_shape_name(semantic.shape()),
+                "value": semantic.value(),
+                "columns": semantic.columns(),
+            }),
+            warnings,
+        })
+    }
+
+    fn evaluate_when(
+        &self,
+        expression: Option<&str>,
+        context: Value,
+        runtime: &mut WorkflowRuntime,
+        workflow: &str,
+        step: &str,
+    ) -> Result<bool, AppError> {
+        let Some(expression) = expression else {
+            return Ok(true);
+        };
+        let value = runtime.evaluate(
+            WorkflowLocation::new(&self.pack, &self.declaration, workflow, step),
+            "when",
+            &context,
+            expression,
+        )?;
+        value.as_bool().ok_or_else(|| {
+            workflow_error(
+                &self.pack,
+                &self.declaration,
+                format!(
+                    "workflow '{workflow}' when expression on step '{step}' returned {}, expected boolean",
+                    workflow_json_type(&value)
+                ),
+            )
+        })
+    }
+
+    fn target_plan(&self, name: &str) -> Result<Arc<WorkflowPlan>, AppError> {
+        self.program.plan(name).ok_or_else(|| {
+            workflow_error(
+                &self.pack,
+                &self.declaration,
+                format!("compiled workflow target '{name}' was unavailable"),
+            )
+        })
+    }
+
+    async fn execute_run_step(
+        &self,
+        request: RunStepRequest<'_>,
+    ) -> Result<(Value, Value, Vec<String>), AppError> {
+        let RunStepRequest {
+            ctx,
+            workflow,
+            step,
+            run,
+            binding_values,
+            warnings,
+            completed_steps,
+        } = request;
+        let (handler, command_path, command_index, arguments) = {
+            let catalog = ctx.catalog.snapshot();
+            let resolved = catalog.resolve_command(&[], run)?;
+            let arguments =
+                workflow_step_arguments(resolved.command, &binding_values).map_err(|message| {
+                    workflow_error(
+                        &self.pack,
+                        &self.declaration,
+                        format!("workflow '{workflow}' step '{step}': {message}"),
+                    )
+                    .with_warnings(workflow_progress_warnings(warnings, completed_steps))
+                })?;
+            (
+                resolved.command.handler.clone(),
+                resolved.command_path,
+                resolved.command_index,
+                arguments,
+            )
+        };
+        let mut step_tokens = run.to_vec();
+        step_tokens.extend(["--output".to_string(), "json".to_string()]);
+        step_tokens.extend(arguments);
+        let raw_line = step_tokens
+            .iter()
+            .map(|token| shell_escape(token))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let step_result = if is_offline_builtin_command(run) {
+            execute_offline_line(ctx.catalog.clone(), &raw_line).await
+        } else {
+            handler
+                .execute(
+                    ctx.clone(),
+                    CommandInvocation {
+                        raw_line,
+                        command_index,
+                        command_path,
+                        pipeline: Vec::new(),
+                        pipeline_suffix: None,
+                    },
+                )
+                .await
+        };
+        let outcome = step_result.map_err(|error| AppError::ExtensionWorkflowStep {
+            pack: self.pack.clone(),
+            workflow: workflow.to_string(),
+            step: step.to_string(),
+            command: run.join(" "),
+            source: Box::new(error),
+        })?;
+        if outcome.redirect.is_some() || outcome.scope_action != ScopeAction::None {
+            return Err(workflow_error(
+                &self.pack,
+                &self.declaration,
+                format!(
+                    "workflow '{workflow}' step '{step}' attempted an unsupported redirect or scope change"
+                ),
+            ));
+        }
+        if outcome.output.next_page_command.is_some() {
+            return Err(workflow_error(
+                &self.pack,
+                &self.declaration,
+                format!(
+                    "workflow '{workflow}' step '{step}' returned a partial page; bind 'all = true' or an explicit pagination policy"
+                ),
+            ));
+        }
+        if !outcome.output.errors.is_empty() {
+            return Err(workflow_error(
+                &self.pack,
+                &self.declaration,
+                format!(
+                    "workflow '{workflow}' step '{step}' returned errors: {}",
+                    outcome.output.errors.join("; ")
+                ),
+            ));
+        }
+        let mut output = outcome.output;
+        let step_warnings = mem::take(&mut output.warnings);
+        let (value, metadata) = workflow_output_capture(output.semantic, output.lines);
+        Ok((value, metadata, step_warnings))
+    }
+}
+
+struct WorkflowExecution {
+    value: Value,
+    output: Value,
+    warnings: Vec<String>,
+}
+
+struct RunStepRequest<'a> {
+    ctx: &'a CommandContext,
+    workflow: &'a str,
+    step: &'a str,
+    run: &'a [String],
+    binding_values: BTreeMap<String, Value>,
+    warnings: &'a [String],
+    completed_steps: &'a [String],
+}
+
+#[derive(Clone, Copy)]
+struct WorkflowLocation<'a> {
+    pack: &'a str,
+    declaration: &'a CommandDeclaration,
+    workflow: &'a str,
+    step: &'a str,
+}
+
+impl<'a> WorkflowLocation<'a> {
+    fn new(
+        pack: &'a str,
+        declaration: &'a CommandDeclaration,
+        workflow: &'a str,
+        step: &'a str,
+    ) -> Self {
+        Self {
+            pack,
+            declaration,
+            workflow,
+            step,
+        }
+    }
+
+    fn error(self, message: impl Into<String>) -> AppError {
+        workflow_error(self.pack, self.declaration, message.into())
+    }
+}
+
+struct WorkflowRuntime {
+    limits: crate::extensions::WorkflowLimits,
+    operations: usize,
+    call_depth: usize,
+    output_bytes: usize,
+}
+
+impl WorkflowRuntime {
+    fn new(limits: crate::extensions::WorkflowLimits) -> Self {
+        Self {
+            limits,
+            operations: 0,
+            call_depth: 0,
+            output_bytes: 0,
+        }
+    }
+
+    fn enter_call(&mut self, location: WorkflowLocation<'_>) -> Result<(), AppError> {
+        self.call_depth = self.call_depth.saturating_add(1);
+        if self.call_depth > self.limits.max_call_depth() {
+            return Err(location.error(format!(
+                "workflow '{}' exceeded call depth limit {}",
+                location.workflow,
+                self.limits.max_call_depth()
+            )));
+        }
+        Ok(())
+    }
+
+    fn leave_call(&mut self) {
+        self.call_depth = self.call_depth.saturating_sub(1);
+    }
+
+    fn tick(&mut self, location: WorkflowLocation<'_>) -> Result<(), AppError> {
+        self.operations = self.operations.saturating_add(1);
+        if self.operations > self.limits.max_operations() {
+            return Err(location.error(format!(
+                "workflow '{}' step '{}' exceeded operation limit {}",
+                location.workflow,
+                location.step,
+                self.limits.max_operations()
+            )));
+        }
+        Ok(())
+    }
+
+    fn evaluate(
+        &mut self,
+        location: WorkflowLocation<'_>,
+        label: &str,
+        input: &Value,
+        expression: &str,
+    ) -> Result<Value, AppError> {
+        self.tick(location)?;
+        evaluate_bounded_jq(input, expression, self.limits.jq()).map_err(|error| {
+            location.error(format!(
+                "workflow '{}' step '{}' {label} expression failed: {error}",
+                location.workflow, location.step
+            ))
+        })
+    }
+
+    fn charge_output(
+        &mut self,
+        location: WorkflowLocation<'_>,
+        value: &Value,
+    ) -> Result<(), AppError> {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|error| location.error(error.to_string()))?
+            .len();
+        self.output_bytes = self.output_bytes.saturating_add(bytes);
+        if self.output_bytes > self.limits.max_output_bytes() {
+            return Err(location.error(format!(
+                "workflow '{}' step '{}' exceeded cumulative output limit {} bytes",
+                location.workflow,
+                location.step,
+                self.limits.max_output_bytes()
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -818,61 +1235,98 @@ fn workflow_progress_warnings(warnings: &[String], completed_steps: &[String]) -
     warnings
 }
 
-fn resolve_workflow_binding(
-    binding: &WorkflowBinding,
+fn resolve_plan_bindings(
+    bindings: &BTreeMap<String, PlanBinding>,
     inputs: &Map<String, Value>,
     config: &Value,
-    pack: &str,
     step_values: &Map<String, Value>,
-) -> Result<Value, AppError> {
+    runtime: &mut WorkflowRuntime,
+    pack: &str,
+    declaration: &CommandDeclaration,
+) -> Result<BTreeMap<String, Value>, AppError> {
+    let mut resolved = BTreeMap::new();
+    for (name, binding) in bindings {
+        if let Some(value) = resolve_plan_binding(
+            binding,
+            inputs,
+            config,
+            step_values,
+            runtime,
+            pack,
+            declaration,
+        )? {
+            resolved.insert(name.clone(), value);
+        }
+    }
+    Ok(resolved)
+}
+
+fn resolve_plan_binding(
+    binding: &PlanBinding,
+    inputs: &Map<String, Value>,
+    config: &Value,
+    step_values: &Map<String, Value>,
+    runtime: &mut WorkflowRuntime,
+    pack: &str,
+    declaration: &CommandDeclaration,
+) -> Result<Option<Value>, AppError> {
     match binding {
-        WorkflowBinding::Literal(value) => Ok(value.clone()),
-        WorkflowBinding::Input { name } => inputs.get(name).cloned().ok_or_else(|| {
-            AppError::CommandExecutionError(format!(
-                "extension workflow {pack} input '{name}' was unavailable"
-            ))
-        }),
-        WorkflowBinding::Config { key, default } => Ok(config
+        PlanBinding::Literal(value) => Ok(Some(value.clone())),
+        PlanBinding::Input(name) => Ok(inputs.get(name).cloned()),
+        PlanBinding::Config(key) => Ok(config
             .as_object()
             .and_then(|config| config.get(key))
             .filter(|value| !value.is_null())
-            .cloned()
-            .or_else(|| default.clone())
-            .unwrap_or(Value::Null)),
-        WorkflowBinding::Step { step, select } => {
-            let source = step_values.get(step.as_str()).ok_or_else(|| {
-                AppError::CommandExecutionError(format!(
-                    "extension workflow {pack} step output '{}' was unavailable",
-                    step.as_str()
-                ))
+            .cloned()),
+        PlanBinding::Step { step, select } => {
+            let source = step_values.get(step).ok_or_else(|| {
+                workflow_error(
+                    pack,
+                    declaration,
+                    format!("compiled step output '{step}' was unavailable"),
+                )
             })?;
             let value = if let Some(select) = select {
-                apply_pipeline(
-                    workflow_value_envelope(source.clone()),
-                    &[PipeStage::Jq(select.to_string())],
-                )
-                .map_err(|error| {
-                    AppError::CommandExecutionError(format!(
-                        "extension workflow {pack} selector for step output '{}' failed: {error}",
-                        step.as_str()
-                    ))
-                })?
-                .value
+                runtime.evaluate(
+                    WorkflowLocation::new(pack, declaration, "<binding>", step),
+                    "select",
+                    source,
+                    select,
+                )?
             } else {
                 source.clone()
             };
-            Ok(value)
+            Ok(Some(value))
         }
     }
 }
 
-fn workflow_value_envelope(value: Value) -> OutputEnvelope {
-    match value {
-        Value::Object(_) => OutputEnvelope::detail(value, Vec::new()),
-        Value::Array(values) => OutputEnvelope::values(values),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
-            OutputEnvelope::message(value)
-        }
+fn workflow_context(
+    inputs: &Map<String, Value>,
+    config: &Value,
+    steps: &Map<String, Value>,
+    outputs: &Map<String, Value>,
+) -> Value {
+    json!({
+        "input": inputs,
+        "config": config,
+        "steps": steps,
+        "outputs": outputs,
+    })
+}
+
+fn skipped_output() -> Value {
+    json!({ "source": "skipped", "skipped": true, "value": null })
+}
+
+fn workflow_semantic_shape_name(shape: SemanticOutputShape) -> &'static str {
+    match shape {
+        SemanticOutputShape::Empty => "empty",
+        SemanticOutputShape::Lines => "lines",
+        SemanticOutputShape::Rows => "rows",
+        SemanticOutputShape::Detail => "detail",
+        SemanticOutputShape::Message => "message",
+        SemanticOutputShape::Values => "values",
     }
 }
 
@@ -907,22 +1361,28 @@ fn workflow_input_values(
                 .collect()
         };
         let value = if option.kind() == OptionKind::Flag {
-            Value::Bool(!raw_values.is_empty())
+            Some(Value::Bool(!raw_values.is_empty()))
+        } else if raw_values.is_empty() {
+            None
         } else if option.repeatable() {
-            Value::Array(
+            Some(Value::Array(
                 raw_values
                     .iter()
                     .map(|value| workflow_typed_input(option, value))
                     .collect::<Result<Vec<_>, _>>()?,
-            )
+            ))
         } else {
-            raw_values
-                .first()
-                .map(|value| workflow_typed_input(option, value))
-                .transpose()?
-                .unwrap_or(Value::Null)
+            Some(
+                raw_values
+                    .first()
+                    .map(|value| workflow_typed_input(option, value))
+                    .transpose()?
+                    .expect("non-empty raw values have a first value"),
+            )
         };
-        inputs.insert(option.name().to_string(), value);
+        if let Some(value) = value {
+            inputs.insert(option.name().to_string(), value);
+        }
     }
     Ok(inputs)
 }
@@ -948,6 +1408,8 @@ fn workflow_typed_input(option: &OptionDeclaration, value: &str) -> Result<Value
             .map(Value::Bool)
             .map_err(|error| format!("input '{}' is not a boolean: {error}", option.name())),
         OptionKind::Flag => Ok(Value::Bool(true)),
+        OptionKind::Json => from_str(value)
+            .map_err(|error| format!("input '{}' is not JSON: {error}", option.name())),
     }
 }
 
@@ -1223,6 +1685,7 @@ mod tests {
     };
     use crate::config::get_config;
     use crate::errors::{AppError, ReauthenticationRetry};
+    use crate::extensions::WorkflowProgram;
     use crate::output::OutputSnapshot;
     use crate::tokenizer::CommandTokenizer;
 
@@ -1318,6 +1781,7 @@ mod tests {
         let manifest = ExtensionManifest::parse(
             r#"
 schema_version = 1
+kind = "executable"
 name = "demo"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
@@ -1358,6 +1822,7 @@ long = "state"
         let manifest = ExtensionManifest::parse(
             r#"
 schema_version = 1
+kind = "executable"
 name = "demo"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
@@ -1451,51 +1916,58 @@ repeatable = true
         let manifest = ExtensionManifest::parse(
             r#"
 schema_version = 1
+kind = "portable"
 name = "demo"
 version = "0.1.0"
 requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
+
+[workflows.snapshot]
+result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
+
+[[workflows.snapshot.inputs]]
+name = "target"
+type = "integer"
+required = true
+
+[workflows.snapshot.output]
+shape = "detail"
+type = "json"
+
+[[workflows.snapshot.steps]]
+id = "items"
+kind = "run"
+run = ["object", "list"]
+
+[[workflows.snapshot.steps]]
+id = "selected"
+kind = "run"
+run = ["object", "echo"]
+with = { id = { step = "items", select = ".[0].id" } }
+
+[[workflows.snapshot.steps]]
+id = "input_echo"
+kind = "run"
+run = ["object", "echo"]
+with = { id = { input = "target" } }
+
+[[workflows.snapshot.steps]]
+id = "legacy"
+kind = "run"
+run = ["object", "legacy"]
 
 [[commands]]
 path = ["snapshot"]
+workflow = "snapshot"
 
 [[commands.options]]
 name = "target"
 kind = "integer"
 positional = true
 required = true
-
-[commands.workflow]
-result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
-
-[[commands.workflow.steps]]
-id = "items"
-run = ["object", "list"]
-
-[[commands.workflow.steps]]
-id = "selected"
-run = ["object", "echo"]
-with = { id = { step = "items", select = ".[0].id" } }
-
-[[commands.workflow.steps]]
-id = "input_echo"
-run = ["object", "echo"]
-with = { id = { input = "target" } }
-
-[[commands.workflow.steps]]
-id = "legacy"
-run = ["object", "legacy"]
 "#,
         )
         .expect("workflow manifest");
         let declaration = manifest.commands()[0].clone();
-        let handler = WorkflowCommandHandler {
-            pack: "demo".to_string(),
-            workflow: declaration.workflow().expect("workflow").clone(),
-            declaration,
-            config: json!({}),
-            requires_authentication: false,
-        };
         let mut builder = CommandCatalogBuilder::new();
         builder.add_command(
             &["object"],
@@ -1530,6 +2002,17 @@ run = ["object", "legacy"]
                 Arc::new(RenderedJsonAction),
             ),
         );
+        let program = Arc::new(
+            WorkflowProgram::compile(&manifest, &json!({}), |path| builder.command(path))
+                .expect("workflow plan"),
+        );
+        let handler = WorkflowCommandHandler {
+            pack: "demo".to_string(),
+            plan: program.plan("snapshot").expect("snapshot plan"),
+            program,
+            declaration,
+            config: json!({}),
+        };
         let context = CommandContext {
             config: get_config(),
             services: None,
