@@ -7,13 +7,12 @@ Bash wrappers and the `host` pilot for the
 operation invokes `hubuum-cli`; the wrappers do not use a Hubuum API client
 library.
 
-For a dependency-free, manifest-only example that runs built-in commands
-in-process, see
-[`examples/hubuum-inventory`](../hubuum-inventory/README.md). The shell-backed
-wrappers remain as the richer Host placement pilot while equivalent
-manifest-only workflows are developed. The step runtime supports the full
-built-in command catalog, with an explicit `mutate` capability for commands
-that may change state.
+For the dependency-free, manifest-only Host, Jack, and Room implementation,
+see [`examples/hubuum-placement`](../hubuum-placement/README.md). That portable
+pack runs built-in commands in-process and uses reusable typed workflows. These
+shell-backed wrappers remain as the executable-pack and standalone-program
+comparison, including their richer DNS discovery, prompting, and rollback
+behavior.
 
 Keep the manifest, protocol dispatcher, wrappers, and common file in this
 directory together. Put the directory on `PATH` for standalone use, or install

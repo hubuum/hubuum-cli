@@ -1,0 +1,1041 @@
+schema_version = 1
+kind = "portable"
+name = "placement"
+version = "0.1.0"
+requires_cli = ">=0.0.9,<0.1.0"
+
+[config.hosts_class]
+type = "string"
+default = "Hosts"
+help = "Class containing Host objects"
+
+[config.jacks_class]
+type = "string"
+default = "Jacks"
+help = "Class containing Jack objects"
+
+[config.rooms_class]
+type = "string"
+default = "Rooms"
+help = "Class containing Room objects"
+
+[config.inventory_collection]
+type = "string"
+default = "inventory"
+help = "Collection used when creating placement objects"
+
+[config.relation_depth]
+type = "integer"
+default = 1
+help = "Traversal depth used for direct placement lookups"
+
+# Private reusable object workflows.
+
+[workflows.list_objects]
+result = "if (.steps.objects | type) == \"array\" then .steps.objects else .steps.objects.items end"
+
+[[workflows.list_objects.inputs]]
+name = "class"
+type = "string"
+required = true
+
+[workflows.list_objects.output]
+shape = "rows"
+type = "json"
+
+[[workflows.list_objects.steps]]
+id = "objects"
+kind = "run"
+run = ["object", "list"]
+
+[workflows.list_objects.steps.with]
+class = { input = "class" }
+all = true
+
+[workflows.show_object]
+result = ".steps.object"
+
+[[workflows.show_object.inputs]]
+name = "class"
+type = "string"
+required = true
+
+[[workflows.show_object.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[workflows.show_object.output]
+shape = "detail"
+type = "json"
+
+[[workflows.show_object.steps]]
+id = "object"
+kind = "run"
+run = ["object", "show"]
+
+[workflows.show_object.steps.with]
+class = { input = "class" }
+name = { input = "name" }
+max-depth = { config = "relation_depth" }
+
+[workflows.create_object]
+capabilities = ["mutate"]
+result = ".steps.object"
+
+[[workflows.create_object.inputs]]
+name = "class"
+type = "string"
+required = true
+
+[[workflows.create_object.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[[workflows.create_object.inputs]]
+name = "description"
+type = "string"
+required = true
+
+[[workflows.create_object.inputs]]
+name = "data"
+type = "json"
+required = true
+
+[workflows.create_object.output]
+shape = "detail"
+type = "json"
+
+[[workflows.create_object.steps]]
+id = "object"
+kind = "run"
+run = ["object", "create"]
+
+[workflows.create_object.steps.with]
+class = { input = "class" }
+name = { input = "name" }
+collection = { config = "inventory_collection" }
+description = { input = "description" }
+data = { input = "data" }
+
+[workflows.related_objects]
+result = "if (.steps.related | type) == \"array\" then .steps.related else .steps.related.items end"
+
+[[workflows.related_objects.inputs]]
+name = "root_class"
+type = "string"
+required = true
+
+[[workflows.related_objects.inputs]]
+name = "root_object"
+type = "string"
+required = true
+
+[[workflows.related_objects.inputs]]
+name = "ignore_a"
+type = "string"
+
+[[workflows.related_objects.inputs]]
+name = "ignore_b"
+type = "string"
+
+[workflows.related_objects.output]
+shape = "rows"
+type = "json"
+
+[[workflows.related_objects.steps]]
+id = "ignored_classes"
+kind = "let"
+expr = "[.input.ignore_a, .input.ignore_b] | map(select(. != null))"
+
+[[workflows.related_objects.steps]]
+id = "related"
+kind = "run"
+run = ["relation", "object", "list"]
+
+[workflows.related_objects.steps.with]
+root-class = { input = "root_class" }
+root-object = { input = "root_object" }
+max-depth = { config = "relation_depth" }
+ignore-class = { step = "ignored_classes" }
+all = true
+
+[workflows.link_objects]
+capabilities = ["mutate"]
+result = ".steps.relation"
+
+[[workflows.link_objects.inputs]]
+name = "class_a"
+type = "string"
+required = true
+
+[[workflows.link_objects.inputs]]
+name = "object_a"
+type = "string"
+required = true
+
+[[workflows.link_objects.inputs]]
+name = "class_b"
+type = "string"
+required = true
+
+[[workflows.link_objects.inputs]]
+name = "object_b"
+type = "string"
+required = true
+
+[workflows.link_objects.output]
+shape = "detail"
+type = "json"
+
+[[workflows.link_objects.steps]]
+id = "relation"
+kind = "run"
+run = ["relation", "object", "create"]
+
+[workflows.link_objects.steps.with]
+class-a = { input = "class_a" }
+object-a = { input = "object_a" }
+class-b = { input = "class_b" }
+object-b = { input = "object_b" }
+
+[workflows.unlink_objects]
+capabilities = ["mutate"]
+result = ".steps.relation.message"
+
+[[workflows.unlink_objects.inputs]]
+name = "class_a"
+type = "string"
+required = true
+
+[[workflows.unlink_objects.inputs]]
+name = "object_a"
+type = "string"
+required = true
+
+[[workflows.unlink_objects.inputs]]
+name = "class_b"
+type = "string"
+required = true
+
+[[workflows.unlink_objects.inputs]]
+name = "object_b"
+type = "string"
+required = true
+
+[workflows.unlink_objects.output]
+shape = "message"
+type = "string"
+
+[[workflows.unlink_objects.steps]]
+id = "relation"
+kind = "run"
+run = ["relation", "object", "delete"]
+
+[workflows.unlink_objects.steps.with]
+class-a = { input = "class_a" }
+object-a = { input = "object_a" }
+class-b = { input = "class_b" }
+object-b = { input = "object_b" }
+
+# Host workflows.
+
+[workflows.host_list]
+result = ".steps.objects"
+
+[workflows.host_list.output]
+shape = "rows"
+type = "json"
+
+[[workflows.host_list.steps]]
+id = "objects"
+kind = "call"
+call = "list_objects"
+
+[workflows.host_list.steps.with]
+class = { config = "hosts_class" }
+
+[workflows.host_show]
+result = ".steps.object"
+
+[[workflows.host_show.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[workflows.host_show.output]
+shape = "detail"
+type = "json"
+
+[[workflows.host_show.steps]]
+id = "object"
+kind = "call"
+call = "show_object"
+
+[workflows.host_show.steps.with]
+class = { config = "hosts_class" }
+name = { input = "name" }
+
+[workflows.host_create]
+capabilities = ["mutate"]
+result = ".steps.object"
+
+[[workflows.host_create.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[[workflows.host_create.inputs]]
+name = "description"
+type = "string"
+default = "Created by the placement extension"
+
+[[workflows.host_create.inputs]]
+name = "data"
+type = "json"
+default = { facts = { schema_version = 1, source = "hubuum-cli-extension" } }
+
+[workflows.host_create.output]
+shape = "detail"
+type = "json"
+
+[[workflows.host_create.steps]]
+id = "object"
+kind = "call"
+call = "create_object"
+
+[workflows.host_create.steps.with]
+class = { config = "hosts_class" }
+name = { input = "name" }
+description = { input = "description" }
+data = { input = "data" }
+
+[workflows.host_placement]
+result = "{ host: .input.host, jacks: .steps.jacks, rooms_by_jack: ([.steps.jack_names, .steps.rooms] | transpose | map({jack: .[0], rooms: .[1]})) }"
+
+[[workflows.host_placement.inputs]]
+name = "host"
+type = "string"
+required = true
+
+[workflows.host_placement.output]
+shape = "detail"
+type = "json"
+columns = ["host", "jacks", "rooms_by_jack"]
+
+[[workflows.host_placement.steps]]
+id = "jacks"
+kind = "call"
+call = "related_objects"
+
+[workflows.host_placement.steps.with]
+root_class = { config = "hosts_class" }
+root_object = { input = "host" }
+ignore_a = { config = "rooms_class" }
+
+[[workflows.host_placement.steps]]
+id = "jack_names"
+kind = "let"
+expr = "[.steps.jacks[].name]"
+
+[[workflows.host_placement.steps]]
+id = "rooms"
+kind = "for_each"
+items = { step = "jack_names" }
+as = "root_object"
+call = "related_objects"
+max_items = 100
+
+[workflows.host_placement.steps.with]
+root_class = { config = "jacks_class" }
+ignore_a = { config = "hosts_class" }
+
+[workflows.host_connect_jack]
+capabilities = ["mutate"]
+result = ".steps.relation"
+
+[[workflows.host_connect_jack.inputs]]
+name = "host"
+type = "string"
+required = true
+
+[[workflows.host_connect_jack.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[workflows.host_connect_jack.output]
+shape = "detail"
+type = "json"
+
+[[workflows.host_connect_jack.steps]]
+id = "relation"
+kind = "call"
+call = "link_objects"
+
+[workflows.host_connect_jack.steps.with]
+class_a = { config = "hosts_class" }
+object_a = { input = "host" }
+class_b = { config = "jacks_class" }
+object_b = { input = "jack" }
+
+[workflows.host_disconnect_jack]
+capabilities = ["mutate"]
+result = ".steps.relation"
+
+[[workflows.host_disconnect_jack.inputs]]
+name = "host"
+type = "string"
+required = true
+
+[[workflows.host_disconnect_jack.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[workflows.host_disconnect_jack.output]
+shape = "message"
+type = "string"
+
+[[workflows.host_disconnect_jack.steps]]
+id = "relation"
+kind = "call"
+call = "unlink_objects"
+
+[workflows.host_disconnect_jack.steps.with]
+class_a = { config = "hosts_class" }
+object_a = { input = "host" }
+class_b = { config = "jacks_class" }
+object_b = { input = "jack" }
+
+[workflows.host_move]
+capabilities = ["mutate"]
+result = "{ host: .input.host, target_jack: .input.jack, previous_jacks: .steps.current_jacks, applied: .input.apply, removals: .steps.removed, addition: .steps.added }"
+
+[[workflows.host_move.inputs]]
+name = "host"
+type = "string"
+required = true
+
+[[workflows.host_move.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[[workflows.host_move.inputs]]
+name = "apply"
+type = "boolean"
+default = false
+
+[workflows.host_move.output]
+shape = "detail"
+type = "json"
+columns = ["host", "target_jack", "previous_jacks", "applied"]
+
+[[workflows.host_move.steps]]
+id = "current_jacks"
+kind = "call"
+call = "related_objects"
+
+[workflows.host_move.steps.with]
+root_class = { config = "hosts_class" }
+root_object = { input = "host" }
+ignore_a = { config = "rooms_class" }
+
+[[workflows.host_move.steps]]
+id = "valid_names"
+kind = "assert"
+condition = "((.input.host | length) > 0) and ((.input.jack | length) > 0)"
+message = "Host and Jack names must not be empty"
+
+[[workflows.host_move.steps]]
+id = "jack_names"
+kind = "let"
+expr = "[.steps.current_jacks[].name]"
+
+[[workflows.host_move.steps]]
+id = "removed"
+kind = "for_each"
+items = { step = "jack_names" }
+as = "jack"
+call = "host_disconnect_jack"
+max_items = 100
+when = ".input.apply"
+
+[workflows.host_move.steps.with]
+host = { input = "host" }
+
+[[workflows.host_move.steps]]
+id = "added"
+kind = "call"
+call = "host_connect_jack"
+when = ".input.apply"
+
+[workflows.host_move.steps.with]
+host = { input = "host" }
+jack = { input = "jack" }
+
+# Jack workflows.
+
+[workflows.jack_list]
+result = ".steps.objects"
+
+[workflows.jack_list.output]
+shape = "rows"
+type = "json"
+
+[[workflows.jack_list.steps]]
+id = "objects"
+kind = "call"
+call = "list_objects"
+
+[workflows.jack_list.steps.with]
+class = { config = "jacks_class" }
+
+[workflows.jack_show]
+result = ".steps.object"
+
+[[workflows.jack_show.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[workflows.jack_show.output]
+shape = "detail"
+type = "json"
+
+[[workflows.jack_show.steps]]
+id = "object"
+kind = "call"
+call = "show_object"
+
+[workflows.jack_show.steps.with]
+class = { config = "jacks_class" }
+name = { input = "name" }
+
+[workflows.jack_create]
+capabilities = ["mutate"]
+result = ".steps.object"
+
+[[workflows.jack_create.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[[workflows.jack_create.inputs]]
+name = "description"
+type = "string"
+default = "Created by the placement extension"
+
+[[workflows.jack_create.inputs]]
+name = "data"
+type = "json"
+default = {}
+
+[workflows.jack_create.output]
+shape = "detail"
+type = "json"
+
+[[workflows.jack_create.steps]]
+id = "object"
+kind = "call"
+call = "create_object"
+
+[workflows.jack_create.steps.with]
+class = { config = "jacks_class" }
+name = { input = "name" }
+description = { input = "description" }
+data = { input = "data" }
+
+[workflows.jack_hosts]
+result = ".steps.objects"
+
+[[workflows.jack_hosts.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[workflows.jack_hosts.output]
+shape = "rows"
+type = "json"
+
+[[workflows.jack_hosts.steps]]
+id = "objects"
+kind = "call"
+call = "related_objects"
+
+[workflows.jack_hosts.steps.with]
+root_class = { config = "jacks_class" }
+root_object = { input = "jack" }
+ignore_a = { config = "rooms_class" }
+
+[workflows.jack_rooms]
+result = ".steps.objects"
+
+[[workflows.jack_rooms.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[workflows.jack_rooms.output]
+shape = "rows"
+type = "json"
+
+[[workflows.jack_rooms.steps]]
+id = "objects"
+kind = "call"
+call = "related_objects"
+
+[workflows.jack_rooms.steps.with]
+root_class = { config = "jacks_class" }
+root_object = { input = "jack" }
+ignore_a = { config = "hosts_class" }
+
+[workflows.jack_connect_room]
+capabilities = ["mutate"]
+result = ".steps.relation"
+
+[[workflows.jack_connect_room.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[[workflows.jack_connect_room.inputs]]
+name = "room"
+type = "string"
+required = true
+
+[workflows.jack_connect_room.output]
+shape = "detail"
+type = "json"
+
+[[workflows.jack_connect_room.steps]]
+id = "relation"
+kind = "call"
+call = "link_objects"
+
+[workflows.jack_connect_room.steps.with]
+class_a = { config = "jacks_class" }
+object_a = { input = "jack" }
+class_b = { config = "rooms_class" }
+object_b = { input = "room" }
+
+[workflows.jack_disconnect_room]
+capabilities = ["mutate"]
+result = ".steps.relation"
+
+[[workflows.jack_disconnect_room.inputs]]
+name = "jack"
+type = "string"
+required = true
+
+[[workflows.jack_disconnect_room.inputs]]
+name = "room"
+type = "string"
+required = true
+
+[workflows.jack_disconnect_room.output]
+shape = "message"
+type = "string"
+
+[[workflows.jack_disconnect_room.steps]]
+id = "relation"
+kind = "call"
+call = "unlink_objects"
+
+[workflows.jack_disconnect_room.steps.with]
+class_a = { config = "jacks_class" }
+object_a = { input = "jack" }
+class_b = { config = "rooms_class" }
+object_b = { input = "room" }
+
+# Room workflows.
+
+[workflows.room_list]
+result = ".steps.objects"
+
+[workflows.room_list.output]
+shape = "rows"
+type = "json"
+
+[[workflows.room_list.steps]]
+id = "objects"
+kind = "call"
+call = "list_objects"
+
+[workflows.room_list.steps.with]
+class = { config = "rooms_class" }
+
+[workflows.room_show]
+result = ".steps.object"
+
+[[workflows.room_show.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[workflows.room_show.output]
+shape = "detail"
+type = "json"
+
+[[workflows.room_show.steps]]
+id = "object"
+kind = "call"
+call = "show_object"
+
+[workflows.room_show.steps.with]
+class = { config = "rooms_class" }
+name = { input = "name" }
+
+[workflows.room_create]
+capabilities = ["mutate"]
+result = ".steps.object"
+
+[[workflows.room_create.inputs]]
+name = "name"
+type = "string"
+required = true
+
+[[workflows.room_create.inputs]]
+name = "description"
+type = "string"
+default = "Created by the placement extension"
+
+[[workflows.room_create.inputs]]
+name = "data"
+type = "json"
+default = {}
+
+[workflows.room_create.output]
+shape = "detail"
+type = "json"
+
+[[workflows.room_create.steps]]
+id = "object"
+kind = "call"
+call = "create_object"
+
+[workflows.room_create.steps.with]
+class = { config = "rooms_class" }
+name = { input = "name" }
+description = { input = "description" }
+data = { input = "data" }
+
+[workflows.room_jacks]
+result = ".steps.objects"
+
+[[workflows.room_jacks.inputs]]
+name = "room"
+type = "string"
+required = true
+
+[workflows.room_jacks.output]
+shape = "rows"
+type = "json"
+
+[[workflows.room_jacks.steps]]
+id = "objects"
+kind = "call"
+call = "related_objects"
+
+[workflows.room_jacks.steps.with]
+root_class = { config = "rooms_class" }
+root_object = { input = "room" }
+ignore_a = { config = "hosts_class" }
+
+# Public extension commands.
+
+[[commands]]
+path = ["host", "list"]
+workflow = "host_list"
+about = "List Hosts"
+examples = ["extension placement host list"]
+
+[[commands]]
+path = ["host", "show"]
+workflow = "host_show"
+about = "Show a Host and its related placement objects"
+examples = ["extension placement host show server-01"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Exact Host name"
+
+[[commands]]
+path = ["host", "create"]
+workflow = "host_create"
+about = "Create a Host in the configured inventory collection"
+examples = ["extension placement host create server-01 --data '{\"facts\":{}}'"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Host name"
+
+[[commands.options]]
+name = "description"
+kind = "string"
+long = "description"
+help = "Host description"
+
+[[commands.options]]
+name = "data"
+kind = "json"
+long = "data"
+help = "Host data as JSON"
+
+[[commands]]
+path = ["host", "placement"]
+workflow = "host_placement"
+about = "Show the Jacks and Rooms containing a Host"
+examples = ["extension placement host placement server-01"]
+
+[[commands.options]]
+name = "host"
+kind = "string"
+positional = true
+required = true
+help = "Exact Host name"
+
+[[commands]]
+path = ["host", "connect-jack"]
+workflow = "host_connect_jack"
+about = "Relate a Host to a Jack"
+examples = ["extension placement host connect-jack server-01 J-42"]
+
+[[commands.options]]
+name = "host"
+kind = "string"
+positional = true
+required = true
+help = "Exact Host name"
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands]]
+path = ["host", "disconnect-jack"]
+workflow = "host_disconnect_jack"
+about = "Remove a Host-to-Jack relation"
+examples = ["extension placement host disconnect-jack server-01 J-42"]
+
+[[commands.options]]
+name = "host"
+kind = "string"
+positional = true
+required = true
+help = "Exact Host name"
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands]]
+path = ["host", "move"]
+workflow = "host_move"
+about = "Preview or apply moving a Host to one Jack"
+long_about = "List the Host's current Jacks, remove those relations, and add the requested Jack relation. The default is a read-only preview; pass --apply to mutate."
+examples = [
+  "extension placement host move server-01 J-42",
+  "extension placement host move server-01 J-42 --apply",
+]
+
+[[commands.options]]
+name = "host"
+kind = "string"
+positional = true
+required = true
+help = "Exact Host name"
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact target Jack name"
+
+[[commands.options]]
+name = "apply"
+kind = "flag"
+long = "apply"
+help = "Apply the relation changes; otherwise return only the plan"
+
+[[commands]]
+path = ["jack", "list"]
+workflow = "jack_list"
+about = "List Jacks"
+examples = ["extension placement jack list"]
+
+[[commands]]
+path = ["jack", "show"]
+workflow = "jack_show"
+about = "Show a Jack and its related placement objects"
+examples = ["extension placement jack show J-42"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands]]
+path = ["jack", "create"]
+workflow = "jack_create"
+about = "Create a Jack in the configured inventory collection"
+examples = ["extension placement jack create J-42"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Jack name"
+
+[[commands.options]]
+name = "description"
+kind = "string"
+long = "description"
+help = "Jack description"
+
+[[commands.options]]
+name = "data"
+kind = "json"
+long = "data"
+help = "Jack data as JSON"
+
+[[commands]]
+path = ["jack", "hosts"]
+workflow = "jack_hosts"
+about = "List Hosts related to a Jack"
+examples = ["extension placement jack hosts J-42"]
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands]]
+path = ["jack", "rooms"]
+workflow = "jack_rooms"
+about = "List Rooms related to a Jack"
+examples = ["extension placement jack rooms J-42"]
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands]]
+path = ["jack", "connect-room"]
+workflow = "jack_connect_room"
+about = "Relate a Jack to a Room"
+examples = ["extension placement jack connect-room J-42 R-301"]
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands.options]]
+name = "room"
+kind = "string"
+positional = true
+required = true
+help = "Exact Room name"
+
+[[commands]]
+path = ["jack", "disconnect-room"]
+workflow = "jack_disconnect_room"
+about = "Remove a Jack-to-Room relation"
+examples = ["extension placement jack disconnect-room J-42 R-301"]
+
+[[commands.options]]
+name = "jack"
+kind = "string"
+positional = true
+required = true
+help = "Exact Jack name"
+
+[[commands.options]]
+name = "room"
+kind = "string"
+positional = true
+required = true
+help = "Exact Room name"
+
+[[commands]]
+path = ["room", "list"]
+workflow = "room_list"
+about = "List Rooms"
+examples = ["extension placement room list"]
+
+[[commands]]
+path = ["room", "show"]
+workflow = "room_show"
+about = "Show a Room and its related placement objects"
+examples = ["extension placement room show R-301"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Exact Room name"
+
+[[commands]]
+path = ["room", "create"]
+workflow = "room_create"
+about = "Create a Room in the configured inventory collection"
+examples = ["extension placement room create R-301"]
+
+[[commands.options]]
+name = "name"
+kind = "string"
+positional = true
+required = true
+help = "Room name"
+
+[[commands.options]]
+name = "description"
+kind = "string"
+long = "description"
+help = "Room description"
+
+[[commands.options]]
+name = "data"
+kind = "json"
+long = "data"
+help = "Room data as JSON"
+
+[[commands]]
+path = ["room", "jacks"]
+workflow = "room_jacks"
+about = "List Jacks related to a Room"
+examples = ["extension placement room jacks R-301"]
+
+[[commands.options]]
+name = "room"
+kind = "string"
+positional = true
+required = true
+help = "Exact Room name"

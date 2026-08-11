@@ -307,6 +307,54 @@ fn bundled_manifest_workflow_uses_the_current_language() {
 }
 
 #[test]
+fn bundled_placement_extension_compiles_and_explains_composition() {
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("hubuum-placement");
+
+    let validated = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "validate",
+                package.to_str().expect("placement package path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(validated["status"], "valid");
+    assert_eq!(validated["name"], "placement");
+    assert_eq!(validated["kind"], "portable");
+    assert_eq!(validated["workflow_plan"]["workflow_count"], 24);
+
+    let explained = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "explain",
+                package.to_str().expect("placement package path"),
+                "--workflow",
+                "host_move",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(explained["plan"]["workflows"][0]["name"], "host_move");
+    assert_eq!(explained["plan"]["workflows"][0]["effects"], "mutating");
+    assert_eq!(explained["plan"]["workflows"][0]["call_depth"], 3);
+    assert_eq!(
+        explained["plan"]["workflows"][0]["steps"][3]["kind"],
+        "for_each"
+    );
+    assert_eq!(
+        explained["plan"]["workflows"][0]["steps"][3]["max_items"],
+        100
+    );
+}
+
+#[test]
 fn extension_commands_are_first_class_and_lifecycle_managed() {
     let temporary = tempdir().expect("temporary directory");
     let sources = temporary.path().join("sources");
@@ -918,7 +966,7 @@ fn protocol_failures_are_actionable() {
 }
 
 #[test]
-fn host_pilot_appears_in_the_real_command_catalog() {
+fn bundled_extension_examples_appear_in_the_real_command_catalog() {
     let temporary = tempdir().expect("temporary directory");
     let config = temporary.path().join("config.toml");
     let example_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -943,6 +991,21 @@ fn host_pilot_appears_in_the_real_command_catalog() {
             "--config",
             config.to_str().expect("config path"),
             "help",
+            "extension",
+            "placement",
+            "host",
+            "move",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Preview or apply moving a Host to one Jack"))
+        .stdout(contains("--apply"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
             "--tree",
         ])
         .assert()
@@ -951,5 +1014,8 @@ fn host_pilot_appears_in_the_real_command_catalog() {
         .stdout(contains("extension host create"))
         .stdout(contains("extension host move"))
         .stdout(contains("extension inventory snapshot"))
-        .stdout(contains("extension inventory classes"));
+        .stdout(contains("extension inventory classes"))
+        .stdout(contains("extension placement host placement"))
+        .stdout(contains("extension placement jack connect-room"))
+        .stdout(contains("extension placement room jacks"));
 }

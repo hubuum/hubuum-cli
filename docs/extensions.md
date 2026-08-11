@@ -11,8 +11,8 @@ output formats, and redirects.
 Extension commands use a reserved namespace:
 
 ```console
-hubuum-cli extension host show server-01
-hubuum-cli extension host move server-01 J-42
+hubuum-cli extension placement host placement server-01
+hubuum-cli extension placement room jacks R-301
 ```
 
 Built-in management names are reserved and packs cannot shadow built-in
@@ -32,12 +32,12 @@ system_roots = ["/opt/hubuum/extensions.d"]
 user_roots = ["/home/alice/.config/hubuum/extensions.d"]
 disabled = ["retired-pack"]
 
-[extensions.config.host]
+[extensions.config.placement]
 hosts_class = "Hosts"
 jacks_class = "Jacks"
 rooms_class = "Rooms"
-host_collection = "inventory"
-default_jack = "J-000"
+inventory_collection = "inventory"
+relation_depth = 1
 ```
 
 Each immediate, non-hidden child directory is one package. Hidden directories
@@ -294,8 +294,12 @@ commands provide effects. Work requiring external I/O or arbitrary recovery
 belongs in an explicitly executable pack.
 
 See the dependency-free
-[`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack for a
-complete example.
+[`examples/hubuum-placement`](../examples/hubuum-placement/README.md) pack for
+a complete Host, Jack, and Room example. It demonstrates reusable private
+workflows, all executable step kinds, typed configuration, relation mutations,
+and a bounded `for_each` move plan. The smaller
+[`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack is a
+minimal read-only introduction.
 
 ## Executable commands
 
@@ -409,6 +413,9 @@ For common failures:
   error, ensuring that prompts and logs go to stderr;
 - run `extension reload` after manual package or configuration changes.
 
-The Host wrapper pilot in
-[`examples/hubuum-wrappers`](../examples/hubuum-wrappers/README.md) is a complete
-v1 package that also preserves its standalone executables.
+The portable placement pack in
+[`examples/hubuum-placement`](../examples/hubuum-placement/README.md) combines
+Host, Jack, and Room operations while depending only on `hubuum-cli`. The
+legacy shell pilot in
+[`examples/hubuum-wrappers`](../examples/hubuum-wrappers/README.md) remains an
+executable-pack and standalone-wrapper example.

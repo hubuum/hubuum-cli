@@ -913,4 +913,17 @@ path = ["ping"]
         assert_eq!(manifest.name().as_str(), "host");
         assert_eq!(manifest.commands().len(), 3);
     }
+
+    #[test]
+    fn placement_example_is_one_portable_package() {
+        let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("hubuum-placement");
+        let manifest = validate_source(&package).expect("valid placement package");
+
+        assert_eq!(manifest.name().as_str(), "placement");
+        assert!(manifest.is_portable());
+        assert_eq!(manifest.commands().len(), 18);
+        assert_eq!(manifest.workflows().len(), 24);
+    }
 }

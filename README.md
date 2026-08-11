@@ -103,11 +103,12 @@ help tree, validation, completion, semantic output, pipeline, and redirect
 machinery:
 
 ```sh
-hubuum-cli extension install ./site-inventory
-hubuum-cli extension validate ./site-inventory
-hubuum-cli extension explain ./site-inventory
+hubuum-cli extension validate examples/hubuum-placement
+hubuum-cli extension explain examples/hubuum-placement
+hubuum-cli extension install examples/hubuum-placement
 hubuum-cli extension list
-hubuum-cli extension site-inventory host show server-01
+hubuum-cli extension placement host placement server-01
+hubuum-cli extension placement room jacks R-301
 hubuum-cli extension doctor
 ```
 
@@ -119,6 +120,8 @@ remain available through a small versioned JSON process protocol; they are
 trusted, not native plugins, and not sandboxed. See the
 [extension command pack guide](docs/extensions.md) for manifests, discovery,
 configuration, lifecycle operations, security boundaries, and troubleshooting.
+The [placement example](examples/hubuum-placement/README.md) combines Host,
+Jack, and Room operations in one dependency-free portable pack.
 
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in
