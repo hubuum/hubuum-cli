@@ -883,18 +883,19 @@ mod tests {
                 .expect("executable permissions");
         }
         write(
-            source.join("hubuum-extension.toml"),
-            r#"schema_version = 1
-kind = "executable"
-name = "test-pack"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/run"
-
-[commands.ping]
-path = ["ping"]
-"#,
+            source.join("hubuum-extension.jsonc"),
+            r#"{
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "test-pack",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/run",
+  "commands": {
+    "ping": { "path": ["ping"] }
+  }
+}"#,
         )
         .expect("write manifest");
 

@@ -9,7 +9,7 @@ library.
 
 For the dependency-free Host, Jack, and Room implementation,
 see [`examples/hubuum-placement`](../hubuum-placement/README.md). That portable
-workflow pack runs built-in commands in-process and uses reusable typed TOML/JQ
+workflow pack runs built-in commands in-process and uses reusable typed JSONC/JQ
 workflows. These shell-backed wrappers are intentionally an executable pack and
 standalone-program comparison, including their richer DNS discovery, prompting,
 and rollback behavior.

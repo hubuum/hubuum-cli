@@ -113,7 +113,7 @@ hubuum-cli extension doctor
 ```
 
 Portable workflow packs are the preferred extension kind. They run reusable,
-typed TOML workflows in-process, require no runtime dependency other than
+typed JSONC workflows in-process, require no runtime dependency other than
 `hubuum-cli`, and support bounded JQ expressions, conditions, assertions,
 same-pack calls, and bounded iteration. Executable packs remain available for
 work that cannot be expressed through built-in commands and JQ. They use a
@@ -123,6 +123,8 @@ trusted rather than sandboxed. See the
 configuration, lifecycle operations, security boundaries, and troubleshooting.
 The [placement example](examples/hubuum-placement/README.md) combines Host,
 Jack, and Room operations in one dependency-free portable workflow pack.
+The [Jacks example](examples/hubuum-jacks/README.md) is a smaller introduction
+to typed inputs and explicit step dependencies.
 
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in

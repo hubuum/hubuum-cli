@@ -1,0 +1,154 @@
+// A small, read-only pack for inspecting physical Jack placement.
+{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "jacks",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1.0",
+
+  // Site-specific class names and traversal depth remain typed configuration.
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts"
+    },
+    "jacks_class": {
+      "type": "string",
+      "default": "Jacks"
+    },
+    "rooms_class": {
+      "type": "string",
+      "default": "Rooms"
+    },
+    "relation_depth": {
+      "type": "integer",
+      "default": 1
+    }
+  },
+
+  // Workflow objects own their inputs, output contract, and ordered steps.
+  "workflows": {
+    "jack_list": {
+      "result": ".steps.jacks",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "jacks",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "config": "jacks_class" },
+            "all": true
+          }
+        }
+      ]
+    },
+
+    "jack_hosts": {
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "result": ".steps.hosts",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "ignored_classes",
+          "kind": "let",
+          "expr": "[.config.rooms_class]"
+        },
+        {
+          "id": "hosts",
+          "kind": "run",
+          "run": ["relation", "object", "list"],
+          "with": {
+            "root-class": { "config": "jacks_class" },
+            "root-object": { "input": "jack" },
+            "ignore-class": { "step": "ignored_classes" },
+            "max-depth": { "config": "relation_depth" },
+            "all": true
+          }
+        }
+      ]
+    },
+
+    "jack_rooms": {
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "result": ".steps.rooms",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "ignored_classes",
+          "kind": "let",
+          "expr": "[.config.hosts_class]"
+        },
+        {
+          "id": "rooms",
+          "kind": "run",
+          "run": ["relation", "object", "list"],
+          "with": {
+            "root-class": { "config": "jacks_class" },
+            "root-object": { "input": "jack" },
+            "ignore-class": { "step": "ignored_classes" },
+            "max-depth": { "config": "relation_depth" },
+            "all": true
+          }
+        }
+      ]
+    }
+  },
+
+  // Commands expose selected workflows and define their CLI-facing options.
+  "commands": {
+    "jack_list": {
+      "path": ["list"],
+      "workflow": "jack_list",
+      "about": "List Jacks",
+      "examples": ["extension jacks list"]
+    },
+    "jack_hosts": {
+      "path": ["hosts"],
+      "workflow": "jack_hosts",
+      "about": "List Hosts related to a Jack",
+      "examples": ["extension jacks hosts J-42"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "jack_rooms": {
+      "path": ["rooms"],
+      "workflow": "jack_rooms",
+      "about": "List Rooms related to a Jack",
+      "examples": ["extension jacks rooms J-42"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    }
+  },
+}

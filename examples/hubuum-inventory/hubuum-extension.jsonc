@@ -1,0 +1,98 @@
+// A minimal portable pack: one manifest and no runtime but hubuum-cli.
+{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "inventory",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1.0",
+
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts",
+      "help": "Class containing Host objects"
+    },
+    "jacks_class": {
+      "type": "string",
+      "default": "Jacks",
+      "help": "Class containing Jack objects"
+    },
+    "rooms_class": {
+      "type": "string",
+      "default": "Rooms",
+      "help": "Class containing Room objects"
+    }
+  },
+
+  "workflows": {
+    "snapshot": {
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["hosts", "jacks", "rooms"]
+      },
+      "steps": [
+        {
+          "id": "hosts",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "config": "hosts_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "jacks",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "config": "jacks_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "rooms",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "config": "rooms_class" },
+            "all": true
+          }
+        }
+      ],
+      "result": "{ hosts: .steps.hosts, jacks: .steps.jacks, rooms: .steps.rooms }"
+    },
+    "classes": {
+      "output": { "shape": "rows", "type": "json" },
+      "steps": [
+        {
+          "id": "classes",
+          "kind": "run",
+          "run": ["class", "list"],
+          "with": { "all": true }
+        }
+      ],
+      "result": ".steps.classes"
+    }
+  },
+
+  "commands": {
+    "snapshot": {
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "about": "Collect Hosts, Jacks, and Rooms in one response",
+      "long_about": "Run three built-in object list commands in-process and compose their semantic JSON output.",
+      "examples": [
+        "extension inventory snapshot",
+        "extension inventory snapshot --output json",
+        "extension inventory snapshot | JQ '.hosts | length'"
+      ]
+    },
+    "classes": {
+      "path": ["classes"],
+      "workflow": "classes",
+      "about": "List all classes through an in-process step",
+      "examples": ["extension inventory classes --output json"]
+    }
+  },
+}

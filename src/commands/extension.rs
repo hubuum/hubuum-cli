@@ -1757,26 +1757,24 @@ mod tests {
     #[test]
     fn scoped_invocations_forward_every_entered_extension_argument() {
         let manifest = ExtensionManifest::parse(
-            r#"
-schema_version = 1
-kind = "executable"
-name = "demo"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/demo"
-
-[commands.inventory_list]
-path = ["inventory", "list"]
-
-[commands.inventory_list.options.target]
-kind = "string"
-position = 1
-
-[commands.inventory_list.options.state]
-kind = "string"
-long = "state"
-"#,
+            r#"{
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "demo",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/demo",
+  "commands": {
+    "inventory_list": {
+      "path": ["inventory", "list"],
+      "options": {
+        "target": { "kind": "string", "position": 1 },
+        "state": { "kind": "string", "long": "state" }
+      }
+    }
+  }
+}"#,
         )
         .expect("manifest");
         let declaration = &manifest.commands()[0];
@@ -1796,27 +1794,24 @@ long = "state"
     #[test]
     fn workflow_inputs_preserve_optional_flags_and_repeated_values() {
         let manifest = ExtensionManifest::parse(
-            r#"
-schema_version = 1
-kind = "executable"
-name = "demo"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/demo"
-
-[commands.run]
-path = ["run"]
-
-[commands.run.options.verbose]
-kind = "flag"
-long = "verbose"
-
-[commands.run.options.tag]
-kind = "string"
-long = "tag"
-repeatable = true
-"#,
+            r#"{
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "demo",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/demo",
+  "commands": {
+    "run": {
+      "path": ["run"],
+      "options": {
+        "verbose": { "kind": "flag", "long": "verbose" },
+        "tag": { "kind": "string", "long": "tag", "repeatable": true }
+      }
+    }
+  }
+}"#,
         )
         .expect("manifest");
         let declaration = &manifest.commands()[0];
@@ -1888,52 +1883,47 @@ repeatable = true
     #[serial]
     async fn workflow_composes_semantic_step_values_in_process() {
         let manifest = ExtensionManifest::parse(
-            r#"
-schema_version = 1
-kind = "portable"
-name = "demo"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.snapshot]
-result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
-step_order = ["items", "selected", "input_echo", "legacy"]
-
-[workflows.snapshot.inputs.target]
-type = "integer"
-required = true
-
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-
-[workflows.snapshot.steps.items]
-kind = "run"
-run = ["object", "list"]
-
-[workflows.snapshot.steps.selected]
-kind = "run"
-run = ["object", "echo"]
-with = { id = { step = "items", select = ".[0].id" } }
-
-[workflows.snapshot.steps.input_echo]
-kind = "run"
-run = ["object", "echo"]
-with = { id = { input = "target" } }
-
-[workflows.snapshot.steps.legacy]
-kind = "run"
-run = ["object", "legacy"]
-
-[commands.snapshot]
-path = ["snapshot"]
-workflow = "snapshot"
-
-[commands.snapshot.options.target]
-kind = "integer"
-position = 1
-required = true
-"#,
+            r#"{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "demo",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "workflows": {
+    "snapshot": {
+      "inputs": {
+        "target": { "type": "integer", "required": true }
+      },
+      "output": { "shape": "detail", "type": "json" },
+      "steps": [
+        { "id": "items", "kind": "run", "run": ["object", "list"] },
+        {
+          "id": "selected",
+          "kind": "run",
+          "run": ["object", "echo"],
+          "with": { "id": { "step": "items", "select": ".[0].id" } }
+        },
+        {
+          "id": "input_echo",
+          "kind": "run",
+          "run": ["object", "echo"],
+          "with": { "id": { "input": "target" } }
+        },
+        { "id": "legacy", "kind": "run", "run": ["object", "legacy"] }
+      ],
+      "result": "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
+    }
+  },
+  "commands": {
+    "snapshot": {
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "options": {
+        "target": { "kind": "integer", "position": 1, "required": true }
+      }
+    }
+  }
+}"#,
         )
         .expect("workflow manifest");
         let declaration = manifest.commands()[0].clone();

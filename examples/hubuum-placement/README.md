@@ -1,7 +1,7 @@
 # Hubuum placement workflow pack
 
 This portable workflow pack combines the Host, Jack, and Room inventory
-examples in one TOML manifest. It invokes built-in commands in-process and has
+examples in one JSONC manifest. It invokes built-in commands in-process and has
 no runtime dependency other than `hubuum-cli`; it does not start a shell or an
 external interpreter.
 
@@ -80,7 +80,7 @@ inventory_collection = "inventory"
 relation_depth = 1
 ```
 
-The pack demonstrates all compositional parts of the TOML workflow language:
+The pack demonstrates all compositional parts of the JSONC workflow language:
 private reusable workflows, typed inputs and configuration, declared output
 shapes, `run`, `let`, `assert`, `call`, bounded `for_each`, `when`, mutating
 capability propagation, and JQ result construction.

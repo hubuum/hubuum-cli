@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
 
+use jsonc_parser::{parse_to_serde_value, ParseOptions};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,7 +10,17 @@ use thiserror::Error;
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const PROTOCOL_V1: &str = "hubuum-cli.extension/v1";
-pub const MANIFEST_FILENAME: &str = "hubuum-extension.toml";
+pub const MANIFEST_FILENAME: &str = "hubuum-extension.jsonc";
+
+const MANIFEST_PARSE_OPTIONS: ParseOptions = ParseOptions {
+    allow_comments: true,
+    allow_loose_object_property_names: false,
+    allow_trailing_commas: true,
+    allow_missing_commas: false,
+    allow_single_quoted_strings: false,
+    allow_hexadecimal_numbers: false,
+    allow_unary_plus_numbers: false,
+};
 
 const RESERVED_PACK_NAMES: &[&str] = &[
     "disable", "doctor", "enable", "explain", "install", "list", "reload", "remove", "show",
@@ -21,8 +32,8 @@ const RESERVED_OPTION_KEYS: &[&str] = &["h", "help", "j", "json", "o", "output",
 
 #[derive(Debug, Error)]
 pub enum ProtocolError {
-    #[error("invalid TOML manifest: {0}")]
-    InvalidManifestToml(#[from] toml::de::Error),
+    #[error("invalid JSONC manifest: {0}")]
+    InvalidManifestJsonc(String),
     #[error("invalid JSON response: {0}")]
     InvalidResponseJson(#[from] serde_json::Error),
     #[error("unsupported manifest schema version {0}; expected 1")]
@@ -364,7 +375,8 @@ pub struct ExtensionManifest {
 
 impl ExtensionManifest {
     pub fn parse(input: &str) -> Result<Self, ProtocolError> {
-        let raw: RawManifest = toml::from_str(input)?;
+        let raw: RawManifest = parse_to_serde_value(input, &MANIFEST_PARSE_OPTIONS)
+            .map_err(|error| ProtocolError::InvalidManifestJsonc(error.to_string()))?;
         if raw.schema_version != MANIFEST_SCHEMA_VERSION {
             return Err(ProtocolError::UnsupportedSchemaVersion(raw.schema_version));
         }
@@ -1068,7 +1080,7 @@ impl WorkflowDeclaration {
         }
         let inputs = normalize_workflow_inputs(name, raw.inputs)?;
         let capabilities = normalize_workflow_capabilities(name, raw.capabilities)?;
-        let steps = normalize_workflow_steps(name, raw.step_order, raw.steps, &inputs, config)?;
+        let steps = normalize_workflow_steps(name, raw.steps, &inputs, config)?;
         Ok(Self {
             name: name.clone(),
             inputs,
@@ -1184,45 +1196,21 @@ fn normalize_workflow_capabilities(
 
 fn normalize_workflow_steps(
     workflow: &WorkflowName,
-    order: Vec<String>,
-    mut raw: BTreeMap<String, RawWorkflowStep>,
+    raw: Vec<RawWorkflowStep>,
     inputs: &[WorkflowInputDeclaration],
     config: &BTreeMap<String, ConfigDeclaration>,
 ) -> Result<Vec<WorkflowStep>, ProtocolError> {
-    let mut order_ids = HashSet::new();
-    for id in &order {
-        if !order_ids.insert(id.clone()) {
-            return Err(invalid_named_workflow(
-                workflow.as_str(),
-                &format!("step_order contains duplicate step '{id}'"),
-            ));
-        }
-    }
-    if order.len() != raw.len() {
-        return Err(invalid_named_workflow(
-            workflow.as_str(),
-            "step_order must name every declared step exactly once",
-        ));
-    }
-
     let mut prior_ids = HashSet::new();
     let mut steps = Vec::with_capacity(raw.len());
-    for id in order {
-        let raw_step = raw.remove(&id).ok_or_else(|| {
-            invalid_named_workflow(
+    for raw_step in raw {
+        let step = WorkflowStep::validate(workflow, raw_step, inputs, config, &prior_ids)?;
+        if !prior_ids.insert(step.id().clone()) {
+            return Err(invalid_named_workflow(
                 workflow.as_str(),
-                &format!("step_order references undeclared step '{id}'"),
-            )
-        })?;
-        let step = WorkflowStep::validate(workflow, id, raw_step, inputs, config, &prior_ids)?;
-        prior_ids.insert(step.id().clone());
+                &format!("duplicate step id '{}'", step.id().as_str()),
+            ));
+        }
         steps.push(step);
-    }
-    if let Some(id) = raw.keys().next() {
-        return Err(invalid_named_workflow(
-            workflow.as_str(),
-            &format!("step '{id}' is missing from step_order"),
-        ));
     }
     Ok(steps)
 }
@@ -1278,19 +1266,19 @@ pub enum WorkflowStep {
 impl WorkflowStep {
     fn validate(
         workflow: &WorkflowName,
-        id: String,
         raw: RawWorkflowStep,
         inputs: &[WorkflowInputDeclaration],
         config: &BTreeMap<String, ConfigDeclaration>,
         prior_step_ids: &HashSet<WorkflowStepId>,
     ) -> Result<Self, ProtocolError> {
         let invalid = |message: String| invalid_named_workflow(workflow.as_str(), &message);
-        let id = validate_step_id(workflow, id)?;
+        let id = validate_step_id(workflow, raw.id().to_string())?;
         match raw {
             RawWorkflowStep::Run {
                 run,
                 bindings,
                 when,
+                ..
             } => {
                 let run = CommandPath::new(run)
                     .map_err(|error| invalid(format!("step '{}': {error}", id.as_str())))?;
@@ -1317,11 +1305,13 @@ impl WorkflowStep {
                     when: validate_optional_expression(workflow, "when", when)?,
                 }))
             }
-            RawWorkflowStep::Let { expr } => Ok(Self::Let(WorkflowLetStep {
+            RawWorkflowStep::Let { expr, .. } => Ok(Self::Let(WorkflowLetStep {
                 id,
                 expr: validate_expression(workflow, "let expression", expr)?,
             })),
-            RawWorkflowStep::Assert { condition, message } => {
+            RawWorkflowStep::Assert {
+                condition, message, ..
+            } => {
                 if message.trim().is_empty() || message.contains('\0') {
                     return Err(invalid(format!(
                         "assert step '{}' message must be non-empty and contain no NUL",
@@ -1338,6 +1328,7 @@ impl WorkflowStep {
                 call,
                 bindings,
                 when,
+                ..
             } => Ok(Self::Call(WorkflowCallStep {
                 id,
                 call: WorkflowName::new(call.clone())
@@ -1352,6 +1343,7 @@ impl WorkflowStep {
                 bindings,
                 max_items,
                 when,
+                ..
             } => {
                 if max_items == 0 {
                     return Err(invalid(format!(
@@ -2297,9 +2289,7 @@ struct RawWorkflow {
     inputs: BTreeMap<String, RawWorkflowInput>,
     output: RawWorkflowOutput,
     #[serde(default)]
-    step_order: Vec<String>,
-    #[serde(default)]
-    steps: BTreeMap<String, RawWorkflowStep>,
+    steps: Vec<RawWorkflowStep>,
     #[serde(default)]
     capabilities: Vec<String>,
     result: String,
@@ -2309,25 +2299,30 @@ struct RawWorkflow {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum RawWorkflowStep {
     Run {
+        id: String,
         run: Vec<String>,
         #[serde(default, rename = "with")]
         bindings: BTreeMap<String, RawWorkflowBinding>,
         when: Option<String>,
     },
     Let {
+        id: String,
         expr: String,
     },
     Assert {
+        id: String,
         condition: String,
         message: String,
     },
     Call {
+        id: String,
         call: String,
         #[serde(default, rename = "with")]
         bindings: BTreeMap<String, RawWorkflowBinding>,
         when: Option<String>,
     },
     ForEach {
+        id: String,
         items: RawWorkflowBinding,
         #[serde(rename = "as")]
         item_name: String,
@@ -2337,6 +2332,18 @@ enum RawWorkflowStep {
         max_items: usize,
         when: Option<String>,
     },
+}
+
+impl RawWorkflowStep {
+    fn id(&self) -> &str {
+        match self {
+            Self::Run { id, .. }
+            | Self::Let { id, .. }
+            | Self::Assert { id, .. }
+            | Self::Call { id, .. }
+            | Self::ForEach { id, .. } => id,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2659,96 +2666,120 @@ mod workflow_language_tests {
         ProtocolError, SemanticOutput, SemanticOutputShape, WorkflowStep, PROTOCOL_V1,
     };
 
-    const EXECUTABLE: &str = r#"
-schema_version = 1
-kind = "executable"
-name = "site-inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/site-inventory"
-
-[config.site]
-type = "string"
-required = true
-
-[commands.host_show]
-path = ["host", "show"]
-arguments = ["host", "show"]
-
-[commands.host_show.options.identifier]
-kind = "string"
-position = 1
-"#;
+    const EXECUTABLE: &str = r#"{
+  // JSONC comments and trailing commas are supported.
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "site-inventory",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/site-inventory",
+  "config": {
+    "site": {
+      "type": "string",
+      "required": true,
+    },
+  },
+  "commands": {
+    "host_show": {
+      "path": ["host", "show"],
+      "arguments": ["host", "show"],
+      "options": {
+        "identifier": {
+          "kind": "string",
+          "position": 1,
+        },
+      },
+    },
+  },
+}"#;
 
     const PORTABLE_BODY: &str = r#"
-[config.hosts_class]
-type = "string"
-default = "Hosts"
-
-[workflows.item]
-result = "[.input.item]"
-step_order = ["keep"]
-
-[workflows.item.inputs.item]
-type = "json"
-required = true
-
-[workflows.item.output]
-shape = "values"
-type = "json"
-
-[workflows.item.steps.keep]
-kind = "let"
-expr = ".input.item"
-
-[workflows.snapshot]
-result = "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
-step_order = ["hosts", "selected", "valid", "one", "many"]
-
-[workflows.snapshot.inputs.enabled]
-type = "boolean"
-default = true
-
-[workflows.snapshot.inputs.items]
-type = "json"
-default = [1, 2]
-
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-
-[workflows.snapshot.steps.hosts]
-kind = "run"
-run = ["object", "list"]
-when = ".input.enabled"
-
-[workflows.snapshot.steps.hosts.with]
-class = { config = "hosts_class" }
-all = true
-
-[workflows.snapshot.steps.selected]
-kind = "let"
-expr = ".steps.hosts"
-
-[workflows.snapshot.steps.valid]
-kind = "assert"
-condition = ".input.enabled == true"
-message = "snapshot must be enabled"
-
-[workflows.snapshot.steps.one]
-kind = "call"
-call = "item"
-when = ".input.enabled"
-with = { item = "one" }
-
-[workflows.snapshot.steps.many]
-kind = "for_each"
-items = { input = "items" }
-as = "item"
-call = "item"
-max_items = 10
-when = ".input.enabled"
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts"
+    }
+  },
+  "workflows": {
+    "item": {
+      "inputs": {
+        "item": {
+          "type": "json",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "values",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "keep",
+          "kind": "let",
+          "expr": ".input.item"
+        }
+      ],
+      "result": "[.input.item]"
+    },
+    "snapshot": {
+      "inputs": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "items": {
+          "type": "json",
+          "default": [1, 2]
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "hosts",
+          "kind": "run",
+          "run": ["object", "list"],
+          "when": ".input.enabled",
+          "with": {
+            "class": { "config": "hosts_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "selected",
+          "kind": "let",
+          "expr": ".steps.hosts"
+        },
+        {
+          "id": "valid",
+          "kind": "assert",
+          "condition": ".input.enabled == true",
+          "message": "snapshot must be enabled"
+        },
+        {
+          "id": "one",
+          "kind": "call",
+          "call": "item",
+          "when": ".input.enabled",
+          "with": { "item": "one" }
+        },
+        {
+          "id": "many",
+          "kind": "for_each",
+          "items": { "input": "items" },
+          "as": "item",
+          "call": "item",
+          "max_items": 10,
+          "when": ".input.enabled"
+        }
+      ],
+      "result": "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
+    }
+  }
 "#;
 
     #[test]
@@ -2804,19 +2835,25 @@ when = ".input.enabled"
     fn rejects_forward_references_cross_pack_calls_and_unbounded_iteration() {
         let forward = portable_manifest(
             r#"
-[workflows.snapshot]
-result = ".steps.first"
-step_order = ["first", "later"]
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-[workflows.snapshot.steps.first]
-kind = "run"
-run = ["object", "show"]
-with = { id = { step = "later" } }
-[workflows.snapshot.steps.later]
-kind = "run"
-run = ["object", "list"]
+  "workflows": {
+    "snapshot": {
+      "output": { "shape": "detail", "type": "json" },
+      "steps": [
+        {
+          "id": "first",
+          "kind": "run",
+          "run": ["object", "show"],
+          "with": { "id": { "step": "later" } }
+        },
+        {
+          "id": "later",
+          "kind": "run",
+          "run": ["object", "list"]
+        }
+      ],
+      "result": ".steps.first"
+    }
+  }
 "#,
         );
         assert!(ExtensionManifest::parse(&forward)
@@ -2824,13 +2861,13 @@ run = ["object", "list"]
             .to_string()
             .contains("earlier step"));
 
-        let cross_pack = PORTABLE_BODY.replace("call = \"item\"", "call = \"other.pack\"");
+        let cross_pack = PORTABLE_BODY.replace("\"call\": \"item\"", "\"call\": \"other.pack\"");
         assert!(ExtensionManifest::parse(&portable_manifest(&cross_pack))
             .expect_err("cross-pack call")
             .to_string()
             .contains("snake_case"));
 
-        let unbounded = PORTABLE_BODY.replace("max_items = 10\n", "");
+        let unbounded = PORTABLE_BODY.replace("          \"max_items\": 10,\n", "");
         assert!(ExtensionManifest::parse(&portable_manifest(&unbounded))
             .expect_err("missing max_items")
             .to_string()
@@ -2838,28 +2875,15 @@ run = ["object", "list"]
     }
 
     #[test]
-    fn rejects_ambiguous_declaration_order() {
-        let missing_step = PORTABLE_BODY.replace(
-            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"many\"]",
-            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\"]",
-        );
+    fn rejects_duplicate_steps_and_noncontiguous_positions() {
+        let missing_step =
+            PORTABLE_BODY.replace("          \"id\": \"many\",", "          \"id\": \"one\",");
         assert!(ExtensionManifest::parse(&portable_manifest(&missing_step))
-            .expect_err("missing step order entry")
+            .expect_err("duplicate step id")
             .to_string()
-            .contains("step_order must name every declared step exactly once"));
+            .contains("duplicate step id 'one'"));
 
-        let duplicate_step = PORTABLE_BODY.replace(
-            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"many\"]",
-            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"one\"]",
-        );
-        assert!(
-            ExtensionManifest::parse(&portable_manifest(&duplicate_step))
-                .expect_err("duplicate step order entry")
-                .to_string()
-                .contains("step_order contains duplicate step 'one'")
-        );
-
-        let skipped_position = EXECUTABLE.replace("position = 1", "position = 2");
+        let skipped_position = EXECUTABLE.replace("\"position\": 1", "\"position\": 2");
         assert!(ExtensionManifest::parse(&skipped_position)
             .expect_err("non-contiguous positional order")
             .to_string()
@@ -2869,8 +2893,8 @@ run = ["object", "list"]
     #[test]
     fn rejects_incompatible_same_pack_bindings() {
         let invalid_call_literal = PORTABLE_BODY.replace(
-            "[workflows.item.inputs.item]\ntype = \"json\"",
-            "[workflows.item.inputs.item]\ntype = \"integer\"",
+            "          \"type\": \"json\",\n          \"required\": true",
+            "          \"type\": \"integer\",\n          \"required\": true",
         );
         assert!(
             ExtensionManifest::parse(&portable_manifest(&invalid_call_literal))
@@ -2880,8 +2904,8 @@ run = ["object", "list"]
         );
 
         let invalid_iteration = PORTABLE_BODY.replace(
-            "items = { input = \"items\" }",
-            "items = { input = \"enabled\" }",
+            "\"items\": { \"input\": \"items\" }",
+            "\"items\": { \"input\": \"enabled\" }",
         );
         assert!(
             ExtensionManifest::parse(&portable_manifest(&invalid_iteration))
@@ -2892,14 +2916,28 @@ run = ["object", "list"]
     }
 
     #[test]
-    fn rejects_legacy_arrays_and_invalid_declaration_names() {
-        let legacy = EXECUTABLE.replace("[commands.host_show]", "[[commands]]");
+    fn rejects_toml_json5_extensions_and_invalid_declaration_names() {
+        let legacy = "schema_version = 1";
         assert!(matches!(
             ExtensionManifest::parse(&legacy),
-            Err(ProtocolError::InvalidManifestToml(_))
+            Err(ProtocolError::InvalidManifestJsonc(_))
         ));
 
-        let invalid_name = EXECUTABLE.replace("host_show", "host-show");
+        let json5_extensions = [
+            EXECUTABLE.replace("\"schema_version\"", "schema_version"),
+            EXECUTABLE.replace("\"site-inventory\"", "'site-inventory'"),
+            EXECUTABLE.replace("\"schema_version\": 1", "\"schema_version\": 0x1"),
+            EXECUTABLE.replace("\"schema_version\": 1", "\"schema_version\": +1"),
+            EXECUTABLE.replace("\"schema_version\": 1,", "\"schema_version\": 1"),
+        ];
+        for manifest in json5_extensions {
+            assert!(matches!(
+                ExtensionManifest::parse(&manifest),
+                Err(ProtocolError::InvalidManifestJsonc(_))
+            ));
+        }
+
+        let invalid_name = EXECUTABLE.replace("\"host_show\"", "\"host-show\"");
         assert!(matches!(
             ExtensionManifest::parse(&invalid_name),
             Err(ProtocolError::InvalidCommandDeclarationName(name)) if name == "host-show"
@@ -2909,15 +2947,15 @@ run = ["object", "list"]
     #[test]
     fn rejects_pack_kind_mixing_and_extension_run_steps() {
         assert!(ExtensionManifest::parse(
-            &EXECUTABLE.replace("kind = \"executable\"", "kind = \"portable\"")
+            &EXECUTABLE.replace("\"kind\": \"executable\"", "\"kind\": \"portable\"")
         )
         .expect_err("mixed kind")
         .to_string()
         .contains("cannot declare protocol or executable"));
 
         let recursion = PORTABLE_BODY.replace(
-            "run = [\"object\", \"list\"]",
-            "run = [\"extension\", \"inventory\", \"snapshot\"]",
+            "\"run\": [\"object\", \"list\"]",
+            "\"run\": [\"extension\", \"inventory\", \"snapshot\"]",
         );
         assert!(ExtensionManifest::parse(&portable_manifest(&recursion))
             .expect_err("extension recursion")
@@ -2928,8 +2966,8 @@ run = ["object", "list"]
     #[test]
     fn rejects_contradictory_defaults_and_lossy_flag_inputs() {
         let required_config = PORTABLE_BODY.replace(
-            "type = \"string\"\ndefault = \"Hosts\"",
-            "type = \"string\"\nrequired = true\ndefault = \"Hosts\"",
+            "      \"type\": \"string\",\n      \"default\": \"Hosts\"",
+            "      \"type\": \"string\",\n      \"required\": true,\n      \"default\": \"Hosts\"",
         );
         assert!(
             ExtensionManifest::parse(&portable_manifest(&required_config))
@@ -2939,8 +2977,8 @@ run = ["object", "list"]
         );
 
         let required_input = PORTABLE_BODY.replace(
-            "type = \"boolean\"\ndefault = true",
-            "type = \"boolean\"\nrequired = true\ndefault = true",
+            "          \"type\": \"boolean\",\n          \"default\": true",
+            "          \"type\": \"boolean\",\n          \"required\": true,\n          \"default\": true",
         );
         assert!(
             ExtensionManifest::parse(&portable_manifest(&required_input))
@@ -2950,8 +2988,8 @@ run = ["object", "list"]
         );
 
         let true_flag = portable_manifest(PORTABLE_BODY).replace(
-            "[commands.snapshot.options.enabled]\nkind = \"boolean\"",
-            "[commands.snapshot.options.enabled]\nkind = \"flag\"",
+            "\"enabled\": { \"kind\": \"boolean\", \"long\": \"enabled\" }",
+            "\"enabled\": { \"kind\": \"flag\", \"long\": \"enabled\" }",
         );
         assert!(ExtensionManifest::parse(&true_flag)
             .expect_err("true default flag")
@@ -2959,12 +2997,12 @@ run = ["object", "list"]
             .contains("defaults to true"));
 
         let repeatable_flag = portable_manifest(&PORTABLE_BODY.replace(
-            "type = \"boolean\"\ndefault = true",
-            "type = \"boolean\"\nrepeatable = true",
+            "          \"type\": \"boolean\",\n          \"default\": true",
+            "          \"type\": \"boolean\",\n          \"repeatable\": true",
         ))
         .replace(
-            "[commands.snapshot.options.enabled]\nkind = \"boolean\"",
-            "[commands.snapshot.options.enabled]\nkind = \"flag\"\nrepeatable = true",
+            "\"enabled\": { \"kind\": \"boolean\", \"long\": \"enabled\" }",
+            "\"enabled\": { \"kind\": \"flag\", \"long\": \"enabled\", \"repeatable\": true }",
         );
         assert!(ExtensionManifest::parse(&repeatable_flag)
             .expect_err("repeatable flag")
@@ -3004,26 +3042,24 @@ run = ["object", "list"]
 
     fn portable_manifest(body: &str) -> String {
         format!(
-            r#"schema_version = 1
-kind = "portable"
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-{body}
-
-[commands.snapshot]
-path = ["snapshot"]
-workflow = "snapshot"
-
-[commands.snapshot.options.enabled]
-kind = "boolean"
-long = "enabled"
-
-[commands.snapshot.options.items]
-kind = "json"
-long = "items"
-"#
+            r#"{{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "inventory",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+{body},
+  "commands": {{
+    "snapshot": {{
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "options": {{
+        "enabled": {{ "kind": "boolean", "long": "enabled" }},
+        "items": {{ "kind": "json", "long": "items" }}
+      }}
+    }}
+  }}
+}}"#
         )
     }
 }

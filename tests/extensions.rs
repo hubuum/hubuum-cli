@@ -39,42 +39,43 @@ printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"sh
     )
     .expect("extension executable");
     set_permissions(&executable, Permissions::from_mode(0o755)).expect("executable permissions");
+    let manifest = json!({
+        "schema_version": 1,
+        "kind": "executable",
+        "name": "demo",
+        "version": version,
+        "requires_cli": ">=0.0.9,<0.1",
+        "protocol": "hubuum-cli.extension/v1",
+        "executable": "bin/demo",
+        "config": {
+            "label": { "type": "string", "required": true }
+        },
+        "commands": {
+            "demo": {
+                "path": ["demo"],
+                "about": "Run a command sharing the pack name",
+                "options": {
+                    "target": { "kind": "string", "position": 1, "required": true }
+                }
+            },
+            "inventory_list": {
+                "path": ["inventory", "list"],
+                "arguments": ["inventory", "list"],
+                "about": "List demo inventory",
+                "options": {
+                    "state": {
+                        "kind": "string",
+                        "long": "state",
+                        "help": "Inventory state",
+                        "values": ["active", "retired"]
+                    }
+                }
+            }
+        }
+    });
     write(
-        package.join("hubuum-extension.toml"),
-        format!(
-            r#"schema_version = 1
-kind = "executable"
-name = "demo"
-version = "{version}"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/demo"
-
-[config.label]
-type = "string"
-required = true
-
-[commands.demo]
-path = ["demo"]
-about = "Run a command sharing the pack name"
-
-[commands.demo.options.target]
-kind = "string"
-position = 1
-required = true
-
-[commands.inventory_list]
-path = ["inventory", "list"]
-arguments = ["inventory", "list"]
-about = "List demo inventory"
-
-[commands.inventory_list.options.state]
-kind = "string"
-long = "state"
-help = "Inventory state"
-values = ["active", "retired"]
-"#
-        ),
+        package.join("hubuum-extension.jsonc"),
+        serde_json::to_string_pretty(&manifest).expect("serialize extension manifest"),
     )
     .expect("extension manifest");
     package
@@ -107,22 +108,21 @@ fn write_response_pack(root: &Path, name: &str, response: &str, exit_code: u8) {
     )
     .expect("extension executable");
     set_permissions(&executable, Permissions::from_mode(0o755)).expect("executable permissions");
+    let manifest = json!({
+        "schema_version": 1,
+        "kind": "executable",
+        "name": name,
+        "version": "0.1.0",
+        "requires_cli": ">=0.0.9,<0.1",
+        "protocol": "hubuum-cli.extension/v1",
+        "executable": "bin/run",
+        "commands": {
+            "run": { "path": ["run"], "about": "Run protocol fixture" }
+        }
+    });
     write(
-        package.join("hubuum-extension.toml"),
-        format!(
-            r#"schema_version = 1
-kind = "executable"
-name = "{name}"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/run"
-
-[commands.run]
-path = ["run"]
-about = "Run protocol fixture"
-"#
-        ),
+        package.join("hubuum-extension.jsonc"),
+        serde_json::to_string_pretty(&manifest).expect("serialize extension manifest"),
     )
     .expect("extension manifest");
 }
@@ -138,49 +138,47 @@ fn write_workflow_pack(
     create_dir_all(&package).expect("package directory");
     let command = run
         .iter()
-        .map(|segment| format!("\"{segment}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .map(|segment| Value::String((*segment).to_string()))
+        .collect::<Vec<_>>();
     let capabilities = if allows_mutation {
-        "capabilities = [\"mutate\"]"
+        vec!["mutate"]
     } else {
-        ""
+        Vec::new()
     };
     let bindings = bindings
         .iter()
-        .map(|(name, value)| format!("{name} = {value:?}\n"))
-        .collect::<String>();
+        .map(|(name, value)| ((*name).to_string(), Value::String((*value).to_string())))
+        .collect::<serde_json::Map<_, _>>();
+    let manifest = json!({
+        "schema_version": 1,
+        "kind": "portable",
+        "name": name,
+        "version": "0.1.0",
+        "requires_cli": ">=0.0.9,<0.1",
+        "workflows": {
+            "snapshot": {
+                "output": { "shape": "detail", "type": "json" },
+                "steps": [{
+                    "id": "items",
+                    "kind": "run",
+                    "run": command,
+                    "with": bindings
+                }],
+                "capabilities": capabilities,
+                "result": "{ items: .steps.items }"
+            }
+        },
+        "commands": {
+            "snapshot": {
+                "path": ["snapshot"],
+                "workflow": "snapshot",
+                "about": "Compose built-in commands"
+            }
+        }
+    });
     write(
-        package.join("hubuum-extension.toml"),
-        format!(
-            r#"schema_version = 1
-kind = "portable"
-name = "{name}"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.snapshot]
-{capabilities}
-result = "{{ items: .steps.items }}"
-step_order = ["items"]
-
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-
-[workflows.snapshot.steps.items]
-kind = "run"
-run = [{command}]
-
-[workflows.snapshot.steps.items.with]
-{bindings}
-
-[commands.snapshot]
-path = ["snapshot"]
-workflow = "snapshot"
-about = "Compose built-in commands"
-"#
-        ),
+        package.join("hubuum-extension.jsonc"),
+        serde_json::to_string_pretty(&manifest).expect("serialize extension manifest"),
     )
     .expect("workflow manifest");
 }
@@ -189,87 +187,76 @@ fn write_composable_workflow_pack(root: &Path) -> PathBuf {
     let package = root.join("composable");
     create_dir_all(&package).expect("package directory");
     write(
-        package.join("hubuum-extension.toml"),
-        r#"schema_version = 1
-kind = "portable"
-name = "composable"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.capture]
-result = "[.input.item]"
-step_order = ["value"]
-
-[workflows.capture.inputs.item]
-type = "json"
-required = true
-
-[workflows.capture.output]
-shape = "values"
-type = "json"
-
-[workflows.capture.steps.value]
-kind = "let"
-expr = ".input.item"
-
-[workflows.compose]
-result = "{ one: .steps.one[0], many: [.steps.many[][0]], skipped: .steps.skipped }"
-step_order = ["seed", "valid", "one", "many", "skipped"]
-
-[workflows.compose.inputs.enabled]
-type = "boolean"
-default = true
-
-[workflows.compose.inputs.items]
-type = "json"
-default = ["alpha", "beta"]
-
-[workflows.compose.output]
-shape = "detail"
-type = "json"
-columns = ["one", "many", "skipped"]
-
-[workflows.compose.steps.seed]
-kind = "let"
-expr = ".input.items"
-
-[workflows.compose.steps.valid]
-kind = "assert"
-condition = "(.input.items | length) == 2"
-message = "two items are required"
-
-[workflows.compose.steps.one]
-kind = "call"
-call = "capture"
-when = ".input.enabled"
-with = { item = "single" }
-
-[workflows.compose.steps.many]
-kind = "for_each"
-items = { step = "seed" }
-as = "item"
-call = "capture"
-max_items = 2
-when = ".input.enabled"
-
-[workflows.compose.steps.skipped]
-kind = "run"
-run = ["version"]
-when = ".input.enabled == false"
-
-[commands.compose]
-path = ["compose"]
-workflow = "compose"
-about = "Exercise portable workflow composition"
-
-[commands.compose.options.enabled]
-kind = "boolean"
-long = "enabled"
-
-[commands.compose.options.items]
-kind = "json"
-long = "items"
-"#,
+        package.join("hubuum-extension.jsonc"),
+        r#"{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "composable",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "workflows": {
+    "capture": {
+      "inputs": { "item": { "type": "json", "required": true } },
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{ "id": "value", "kind": "let", "expr": ".input.item" }],
+      "result": "[.input.item]"
+    },
+    "compose": {
+      "inputs": {
+        "enabled": { "type": "boolean", "default": true },
+        "items": { "type": "json", "default": ["alpha", "beta"] }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["one", "many", "skipped"]
+      },
+      "steps": [
+        { "id": "seed", "kind": "let", "expr": ".input.items" },
+        {
+          "id": "valid",
+          "kind": "assert",
+          "condition": "(.input.items | length) == 2",
+          "message": "two items are required"
+        },
+        {
+          "id": "one",
+          "kind": "call",
+          "call": "capture",
+          "when": ".input.enabled",
+          "with": { "item": "single" }
+        },
+        {
+          "id": "many",
+          "kind": "for_each",
+          "items": { "step": "seed" },
+          "as": "item",
+          "call": "capture",
+          "max_items": 2,
+          "when": ".input.enabled"
+        },
+        {
+          "id": "skipped",
+          "kind": "run",
+          "run": ["version"],
+          "when": ".input.enabled == false"
+        }
+      ],
+      "result": "{ one: .steps.one[0], many: [.steps.many[][0]], skipped: .steps.skipped }"
+    }
+  },
+  "commands": {
+    "compose": {
+      "path": ["compose"],
+      "workflow": "compose",
+      "about": "Exercise portable workflow composition",
+      "options": {
+        "enabled": { "kind": "boolean", "long": "enabled" },
+        "items": { "kind": "json", "long": "items" }
+      }
+    }
+  }
+}"#,
     )
     .expect("workflow manifest");
     package
@@ -283,7 +270,7 @@ fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
 #[test]
 fn bundled_manifest_workflow_uses_the_current_language() {
     let manifest = ExtensionManifest::parse(include_str!(
-        "../examples/hubuum-inventory/hubuum-extension.toml"
+        "../examples/hubuum-inventory/hubuum-extension.jsonc"
     ))
     .expect("bundled workflow manifest");
     let snapshot_name = manifest
@@ -296,6 +283,24 @@ fn bundled_manifest_workflow_uses_the_current_language() {
 
     assert_eq!(snapshot.steps().len(), 3);
     assert!(snapshot.result().contains("hosts"));
+
+    let jacks = ExtensionManifest::parse(include_str!(
+        "../examples/hubuum-jacks/hubuum-extension.jsonc"
+    ))
+    .expect("bundled Jacks workflow manifest");
+    let jack_hosts_name = jacks
+        .commands()
+        .iter()
+        .filter_map(|command| command.workflow())
+        .find(|workflow| workflow.as_str() == "jack_hosts")
+        .expect("Jack Hosts workflow name");
+    let jack_hosts = jacks
+        .workflow(jack_hosts_name)
+        .expect("Jack Hosts workflow");
+
+    assert_eq!(jack_hosts.steps().len(), 2);
+    assert_eq!(jack_hosts.steps()[0].id().as_str(), "ignored_classes");
+    assert_eq!(jack_hosts.steps()[1].id().as_str(), "hosts");
 }
 
 #[test]
@@ -344,6 +349,17 @@ fn bundled_placement_extension_compiles_and_explains_composition() {
         explained["plan"]["workflows"][0]["steps"][3]["max_items"],
         100
     );
+    assert_eq!(
+        explained["plan"]["workflows"][0]["steps"][3]["items"]["step"],
+        "jack_names"
+    );
+    assert_eq!(
+        explained["plan"]["workflows"][0]["steps"][3]["with"]["host"]["input"],
+        "host"
+    );
+    assert!(explained["plan"]["workflows"][0]["result"]
+        .as_str()
+        .is_some_and(|result| result.contains("target_jack")));
 }
 
 #[test]
@@ -535,8 +551,8 @@ fn doctor_reports_invalid_manifests_without_loading_them() {
     let broken = user_root.join("broken");
     create_dir_all(&broken).expect("broken package");
     write(
-        broken.join("hubuum-extension.toml"),
-        "schema_version = 999\nname = 'broken'\n",
+        broken.join("hubuum-extension.jsonc"),
+        r#"{ "schema_version": 999, "name": "broken" }"#,
     )
     .expect("broken manifest");
     let config = temporary.path().join("config.toml");
@@ -782,41 +798,40 @@ fn doctor_rejects_incompatible_workflow_input_types() {
     let package = user_root.join("typed-flow");
     create_dir_all(&package).expect("workflow package");
     write(
-        package.join("hubuum-extension.toml"),
-        r#"schema_version = 1
-kind = "portable"
-name = "typed-flow"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.snapshot]
-result = ".steps.object"
-step_order = ["object"]
-
-[workflows.snapshot.inputs.depth]
-type = "string"
-
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-
-[workflows.snapshot.steps.object]
-kind = "run"
-run = ["object", "show"]
-
-[workflows.snapshot.steps.object.with]
-name = "server-01"
-class = "Hosts"
-max-depth = { input = "depth" }
-
-[commands.snapshot]
-path = ["snapshot"]
-workflow = "snapshot"
-
-[commands.snapshot.options.depth]
-kind = "string"
-long = "depth"
-"#,
+        package.join("hubuum-extension.jsonc"),
+        r#"{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "typed-flow",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "workflows": {
+    "snapshot": {
+      "inputs": { "depth": { "type": "string" } },
+      "output": { "shape": "detail", "type": "json" },
+      "steps": [{
+        "id": "object",
+        "kind": "run",
+        "run": ["object", "show"],
+        "with": {
+          "name": "server-01",
+          "class": "Hosts",
+          "max-depth": { "input": "depth" }
+        }
+      }],
+      "result": ".steps.object"
+    }
+  },
+  "commands": {
+    "snapshot": {
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "options": {
+        "depth": { "kind": "string", "long": "depth" }
+      }
+    }
+  }
+}"#,
     )
     .expect("workflow manifest");
     let config = temporary.path().join("config.toml");
@@ -1005,6 +1020,8 @@ fn bundled_extension_examples_appear_in_the_real_command_catalog() {
         .stdout(contains("extension host move"))
         .stdout(contains("extension inventory snapshot"))
         .stdout(contains("extension inventory classes"))
+        .stdout(contains("extension jacks hosts"))
+        .stdout(contains("extension jacks rooms"))
         .stdout(contains("extension placement host placement"))
         .stdout(contains("extension placement jack connect-room"))
         .stdout(contains("extension placement room jacks"));

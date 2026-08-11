@@ -1,7 +1,7 @@
 # Hubuum inventory workflow pack
 
 This portable workflow pack composes three built-in `object list` commands from
-one TOML manifest without starting a shell or another `hubuum-cli` process. Its
+one JSONC manifest without starting a shell or another `hubuum-cli` process. Its
 only runtime dependency is `hubuum-cli`.
 
 Install and run it with:

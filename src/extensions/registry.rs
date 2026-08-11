@@ -529,19 +529,20 @@ mod tests {
                 .expect("executable permissions");
         }
         write(
-            package.join("hubuum-extension.toml"),
+            package.join("hubuum-extension.jsonc"),
             format!(
-                r#"schema_version = 1
-kind = "executable"
-name = "{name}"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/extension"
-
-[commands.ping]
-path = ["ping"]
-"#
+                r#"{{
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "{name}",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/extension",
+  "commands": {{
+    "ping": {{ "path": ["ping"] }}
+  }}
+}}"#
             ),
         )
         .expect("manifest");
@@ -609,7 +610,7 @@ path = ["ping"]
     fn quarantines_incompatible_cli_versions() {
         let directory = tempdir().expect("temporary directory");
         write_pack(directory.path(), "future", "future");
-        let manifest = directory.path().join("future/hubuum-extension.toml");
+        let manifest = directory.path().join("future/hubuum-extension.jsonc");
         let contents = read_to_string(&manifest)
             .expect("read manifest")
             .replace(">=0.0.9,<0.1", ">=2.0.0,<3.0.0");

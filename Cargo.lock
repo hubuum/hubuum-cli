@@ -974,11 +974,11 @@ dependencies = [
 name = "hubuum-extension-protocol"
 version = "0.1.0"
 dependencies = [
+ "jsonc-parser",
  "semver",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "toml",
 ]
 
 [[package]]
@@ -1495,6 +1495,15 @@ checksum = "96b0db21af676c1ce64250b5f40f3ce2cf27e4e47cb91ed91eb6fe9350b430c1"
 dependencies = [
  "pest",
  "pest_derive",
+ "serde",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
+dependencies = [
  "serde",
 ]
 

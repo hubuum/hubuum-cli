@@ -3,7 +3,7 @@
 Extension packs add trusted, site-specific workflows to the Hubuum CLI command
 catalog without compiling them into the CLI.
 
-Portable workflow packs are declared in TOML, use bounded JQ expressions, and
+Portable workflow packs are declared in JSONC, use bounded JQ expressions, and
 depend only on `hubuum-cli`. They are the preferred choice for composable,
 distributable extensions. Executable packs invoke external programs such as
 Bash, Python, or compiled binaries. Use them only for integrations that cannot
@@ -56,43 +56,47 @@ pack. The complete effective application configuration is never exposed.
 
 ## Package manifest
 
-Every pack is a directory containing `hubuum-extension.toml`. The required
+Every pack is a directory containing `hubuum-extension.jsonc`. The required
 `kind` selects one of two deliberately separate execution models:
 
 | Kind | Implementation | Runtime dependencies | Intended use |
 | --- | --- | --- | --- |
-| `portable` | Typed TOML workflows and bounded JQ | `hubuum-cli` only | Preferred for built-in command composition |
+| `portable` | Typed JSONC workflows and bounded JQ | `hubuum-cli` only | Preferred for built-in command composition |
 | `executable` | A declared program behind the JSON protocol | The program and everything it requires | External I/O or behavior outside the workflow language |
 
 A portable workflow pack can consist of only its manifest:
 
 ```text
 inventory/
-└── hubuum-extension.toml
+└── hubuum-extension.jsonc
 ```
+
+The manifest accepts JSON comments and trailing commas. It otherwise uses
+strict JSON: object keys and strings require double quotes, and JSON5 features
+such as unquoted keys, single-quoted strings, hexadecimal numbers, and omitted
+commas are rejected. Unknown fields are also rejected. JSONC is an authoring
+format only; the CLI parses it into typed declarations and packs do not need a
+JSONC runtime or parser.
 
 Pack names, command path segments, and long option names use lowercase ASCII
 kebab-case. Supported option kinds are `string`, `integer`, `number`,
 `boolean`, `flag`, and `json`.
-Commands, options, workflow inputs, and workflow steps use named TOML tables.
-The table key is the declaration's stable name or step ID, keeping nested
-settings visibly attached to their owner. Positional options declare a
-one-based `position`; positions must be contiguous, and only the final
+Commands, options, workflows, and inputs are objects keyed by stable declaration
+names. Each workflow owns one ordered `steps` array; every tagged step carries
+its own stable `id`, implementation, bindings, and condition. Positional options
+declare a one-based `position`; positions must be contiguous, and only the final
 positional may be repeatable. The `values` list provides validation and static
-completion. Array-of-table command, option, input, and step declarations are
-not part of the schema. Command declaration keys, workflow names, and step IDs
-use lowercase ASCII snake-case; command paths remain the user-visible names.
-One command path cannot be a prefix of another command path in the same pack.
-Short and long option aliases share one namespace after removing their dashes,
-and aliases reserved by host rendering options are rejected. Manifest schema
-versions are strict: unknown top-level, command, option, workflow, step, and
-binding fields are rejected so misspellings cannot silently change behavior.
-Each command has exactly one implementation. `interactive` and executable
-`arguments` are invalid on workflow commands.
+completion. Command declaration keys, workflow names, and step IDs use
+lowercase ASCII snake_case; command paths remain the user-visible names. One
+command path cannot be a prefix of another command path in the same pack. Short
+and long option aliases share one namespace after removing their dashes, and
+aliases reserved by host rendering options are rejected. Each command has
+exactly one implementation. `interactive` and executable `arguments` are
+invalid on workflow commands.
 
 ## Portable workflow packs
 
-A portable workflow pack is explicitly classified with `kind = "portable"`.
+A portable workflow pack is explicitly classified with `"kind": "portable"`.
 It cannot declare `protocol`, `executable`, executable `arguments`, or
 interactive commands. Its only runtime dependency is the current `hubuum-cli`.
 
@@ -100,57 +104,70 @@ Workflows are reusable top-level declarations. Commands expose selected
 workflows, while other workflows remain private building blocks in the same
 pack:
 
-```toml
-schema_version = 1
-kind = "portable"
-name = "inventory"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
+```jsonc
+{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "inventory",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
 
-[config.hosts_class]
-type = "string"
-default = "Hosts"
-help = "Class containing Host objects"
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts",
+      "help": "Class containing Host objects"
+    }
+  },
 
-[workflows.snapshot]
-result = "{ hosts: .steps.hosts, first: .steps.first }"
-step_order = ["hosts", "first", "has_hosts"]
+  "workflows": {
+    "snapshot": {
+      "inputs": {
+        "enabled": { "type": "boolean", "default": true }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["hosts", "first"]
+      },
+      "steps": [
+        {
+          "id": "hosts",
+          "kind": "run",
+          "run": ["object", "list"],
+          "when": ".input.enabled",
+          "with": {
+            "class": { "config": "hosts_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "first",
+          "kind": "let",
+          "expr": ".steps.hosts[0]"
+        },
+        {
+          "id": "has_hosts",
+          "kind": "assert",
+          "condition": "(.steps.hosts | length) > 0",
+          "message": "No Hosts were found"
+        }
+      ],
+      "result": "{ hosts: .steps.hosts, first: .steps.first }"
+    }
+  },
 
-[workflows.snapshot.inputs.enabled]
-type = "boolean"
-default = true
-
-[workflows.snapshot.output]
-shape = "detail"
-type = "json"
-columns = ["hosts", "first"]
-
-[workflows.snapshot.steps.hosts]
-kind = "run"
-run = ["object", "list"]
-when = ".input.enabled"
-
-[workflows.snapshot.steps.hosts.with]
-class = { config = "hosts_class" }
-all = true
-
-[workflows.snapshot.steps.first]
-kind = "let"
-expr = ".steps.hosts[0]"
-
-[workflows.snapshot.steps.has_hosts]
-kind = "assert"
-condition = "(.steps.hosts | length) > 0"
-message = "No Hosts were found"
-
-[commands.snapshot]
-path = ["snapshot"]
-workflow = "snapshot"
-about = "Collect Hosts"
-
-[commands.snapshot.options.enabled]
-kind = "boolean"
-long = "enabled"
+  "commands": {
+    "snapshot": {
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "about": "Collect Hosts",
+      "options": {
+        "enabled": { "kind": "boolean", "long": "enabled" }
+      }
+    }
+  },
+}
 ```
 
 The command option interface must exactly match the referenced workflow's
@@ -162,9 +179,10 @@ values, and type mismatches quarantine an installed pack.
 
 ### Tagged steps
 
-Every step has a unique snake-case table key and one explicit `kind`. Each
-workflow lists those keys in `step_order`; TOML tables do not imply execution
-order, so the list makes data dependencies and control flow unambiguous:
+Every step has a unique snake_case `id` and one explicit `kind`. Array order is
+execution order. A binding such as `{ "step": "hosts" }` names an earlier
+producer at the point where its value is consumed, so control and data flow do
+not depend on detached ordering metadata:
 
 | Kind | Purpose | Conditional |
 | --- | --- | --- |
@@ -180,28 +198,34 @@ arguments. `call` and `for_each` bind declared workflow inputs. Cross-pack
 workflow calls are prohibited. `for_each` requires both an `as` input name and
 a positive `max_items` bound:
 
-```toml
-[workflows.snapshot.steps.details]
-kind = "for_each"
-items = { step = "hosts" }
-as = "host"
-call = "describe_host"
-max_items = 100
-when = ".input.enabled"
-
-[workflows.snapshot.steps.details.with]
-verbose = true
+```jsonc
+"steps": [
+  {
+    "id": "details",
+    "kind": "for_each",
+    "items": { "step": "hosts" },
+    "as": "host",
+    "call": "describe_host",
+    "max_items": 100,
+    "when": ".input.enabled",
+    "with": {
+      "verbose": true
+    }
+  }
+]
 ```
 
 A `with` value may be:
 
-- a literal TOML string, number, boolean, or array;
-- `{ literal = { key = "value" } }` for a literal object;
-- `{ input = "name" }` for a workflow input;
-- `{ config = "key" }` for declared pack configuration;
-- `{ step = "id", select = "jq expression" }` for an earlier step value.
+- a literal JSON string, number, Boolean, array, or `null`;
+- `{ "literal": { "key": "value" } }` for a literal object that might
+  otherwise resemble a binding;
+- `{ "input": "name" }` for a workflow input;
+- `{ "config": "key" }` for declared pack configuration;
+- `{ "step": "id", "select": "jq expression" }` for an earlier step value.
 
-Configuration defaults belong to `[config.<key>]`, not individual bindings.
+Configuration defaults belong to their declaration under `config`, not
+individual bindings.
 Forward step references are rejected. Dynamically selected values receive
 target validation immediately before execution.
 
@@ -250,7 +274,7 @@ sequential and deterministic. A false `when` records a skipped `null` step.
 `when` and `assert` must return a Boolean.
 
 Any expanded call graph that may change state requires
-`capabilities = ["mutate"]` on each calling workflow. An unsafe nested command
+`"capabilities": ["mutate"]` on each calling workflow. An unsafe nested command
 makes the exposed workflow unsafe to replay after reauthentication. Workflows
 do not provide transactions or compensating rollback.
 
@@ -262,7 +286,7 @@ hubuum-cli extension explain ./inventory
 hubuum-cli extension explain ./inventory --workflow snapshot
 ```
 
-TOML remains the declaration format; no second scripting language or external
+JSONC is the only manifest format; no second scripting language or external
 interpreter is required. JQ provides bounded transformation, and built-in
 commands provide effects. Work requiring external I/O or arbitrary recovery
 belongs in an explicitly executable pack.
@@ -271,51 +295,59 @@ See the dependency-free
 [`examples/hubuum-placement`](../examples/hubuum-placement/README.md) pack for
 a complete Host, Jack, and Room example. It demonstrates reusable private
 workflows, all workflow step kinds, typed configuration, relation mutations,
-and a bounded `for_each` move plan. The smaller
+and a bounded `for_each` move plan. The focused
+[`examples/hubuum-jacks`](../examples/hubuum-jacks/README.md) pack demonstrates
+typed inputs and an explicit step-to-step dependency. The smaller
 [`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack is a
 minimal read-only introduction.
 
 ## Executable packs
 
-An executable pack uses `kind = "executable"`, declares both `protocol` and
+An executable pack uses `"kind": "executable"`, declares both `protocol` and
 `executable`, and cannot declare workflows. Its executable path is relative to
 the manifest and must remain within the package:
 
 ```text
 site-inventory/
-├── hubuum-extension.toml
+├── hubuum-extension.jsonc
 └── bin/
     └── site-inventory
 ```
 
-The v1 executable manifest is also TOML:
+The v1 executable manifest uses the same JSONC declaration format:
 
-```toml
-schema_version = 1
-kind = "executable"
-name = "site-inventory"
-version = "1.2.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/site-inventory"
-
-[commands.host_show]
-path = ["host", "show"]
-arguments = ["host", "show"]
-about = "Show a Host and its physical placement"
-examples = ["extension site-inventory host show server-01"]
-
-[commands.host_show.options.identifier]
-kind = "string"
-position = 1
-required = true
-help = "Host name or installation-specific identifier"
-
-[commands.host_show.options.view]
-kind = "string"
-long = "view"
-help = "Output detail level"
-values = ["summary", "full"]
+```jsonc
+{
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "site-inventory",
+  "version": "1.2.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "bin/site-inventory",
+  "commands": {
+    "host_show": {
+      "path": ["host", "show"],
+      "arguments": ["host", "show"],
+      "about": "Show a Host and its physical placement",
+      "examples": ["extension site-inventory host show server-01"],
+      "options": {
+        "identifier": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Host name or installation-specific identifier"
+        },
+        "view": {
+          "kind": "string",
+          "long": "view",
+          "help": "Output detail level",
+          "values": ["summary", "full"]
+        }
+      }
+    }
+  }
+}
 ```
 
 The CLI validates the complete invocation before starting the process. It then
@@ -404,7 +436,9 @@ hubuum-cli extension reload
 
 `validate` accepts either pack kind. `explain` reports the compiled
 `WorkflowPlan` for a portable workflow pack; use `--workflow` to select one
-same-pack workflow from that plan.
+same-pack workflow from that plan. The explanation includes ordered tagged
+steps, normalized bindings, iteration sources, result expressions, expanded
+effects, call depth, operation cost, and host limits.
 
 Installation copies regular files and directories into the first configured
 user root, rejects symlinks and special files, validates the staged copy, then

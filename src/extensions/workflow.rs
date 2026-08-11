@@ -289,6 +289,7 @@ impl WorkflowPlan {
             "inputs": self.inputs().iter().map(PlanInput::explain_value).collect::<Vec<_>>(),
             "output": self.output.explain_value(),
             "steps": self.steps.iter().map(PlanStep::explain_value).collect::<Vec<_>>(),
+            "result": self.result(),
             "effects": if self.effects.may_mutate() { "mutating" } else { "read_only" },
             "reauthentication_retry": if self.reauthentication_retry == ReauthenticationRetry::Safe { "safe" } else { "unsafe" },
             "requires_authentication": self.requires_authentication,
@@ -456,24 +457,33 @@ impl PlanStep {
                 "id": step.id,
                 "kind": "run",
                 "run": step.run.display(),
+                "with": explain_bindings(&step.bindings),
                 "when": step.when,
             }),
             Self::Let(step) => json!({ "id": step.id, "kind": "let", "expr": step.expr }),
             Self::Assert(step) => {
-                json!({ "id": step.id, "kind": "assert", "condition": step.condition })
+                json!({
+                    "id": step.id,
+                    "kind": "assert",
+                    "condition": step.condition,
+                    "message": step.message,
+                })
             }
             Self::Call(step) => json!({
                 "id": step.id,
                 "kind": "call",
                 "call": step.call,
+                "with": explain_bindings(&step.bindings),
                 "when": step.when,
             }),
             Self::ForEach(step) => json!({
                 "id": step.id,
                 "kind": "for_each",
+                "items": step.items.explain_value(),
                 "call": step.call,
                 "as": step.item_name,
                 "max_items": step.max_items,
+                "with": explain_bindings(&step.bindings),
                 "when": step.when,
             }),
         }
@@ -618,6 +628,32 @@ pub enum PlanBinding {
         step: String,
         select: Option<String>,
     },
+}
+
+impl PlanBinding {
+    fn explain_value(&self) -> Value {
+        match self {
+            Self::Literal(value) => json!({ "literal": value }),
+            Self::Input(input) => json!({ "input": input }),
+            Self::Config(config) => json!({ "config": config }),
+            Self::Step { step, select } => {
+                let mut binding = Map::from_iter([("step".to_string(), json!(step))]);
+                if let Some(select) = select {
+                    binding.insert("select".to_string(), json!(select));
+                }
+                Value::Object(binding)
+            }
+        }
+    }
+}
+
+fn explain_bindings(bindings: &BTreeMap<String, PlanBinding>) -> Value {
+    Value::Object(
+        bindings
+            .iter()
+            .map(|(name, binding)| (name.clone(), binding.explain_value()))
+            .collect(),
+    )
 }
 
 struct DraftPlan {
@@ -1173,36 +1209,28 @@ mod tests {
     #[test]
     fn compiler_rejects_call_cycles() {
         let manifest = ExtensionManifest::parse(
-            r#"schema_version = 1
-kind = "portable"
-name = "cycle"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.first]
-result = ".steps.next"
-step_order = ["next"]
-[workflows.first.output]
-shape = "values"
-type = "json"
-[workflows.first.steps.next]
-kind = "call"
-call = "second"
-
-[workflows.second]
-result = ".steps.next"
-step_order = ["next"]
-[workflows.second.output]
-shape = "values"
-type = "json"
-[workflows.second.steps.next]
-kind = "call"
-call = "first"
-
-[commands.run]
-path = ["run"]
-workflow = "first"
-"#,
+            r#"{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "cycle",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "workflows": {
+    "first": {
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{ "id": "next", "kind": "call", "call": "second" }],
+      "result": ".steps.next"
+    },
+    "second": {
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{ "id": "next", "kind": "call", "call": "first" }],
+      "result": ".steps.next"
+    }
+  },
+  "commands": {
+    "run": { "path": ["run"], "workflow": "first" }
+  }
+}"#,
         )
         .expect("protocol-valid cycle");
         let error =
@@ -1213,58 +1241,49 @@ workflow = "first"
     #[test]
     fn compiler_rejects_excessive_expanded_work() {
         let manifest = ExtensionManifest::parse(
-            r#"schema_version = 1
-kind = "portable"
-name = "too-much-work"
-version = "0.1.0"
-requires_cli = ">=0.0.9,<0.1"
-
-[workflows.leaf]
-result = "[.input.item]"
-step_order = ["value"]
-[workflows.leaf.inputs.item]
-type = "json"
-required = true
-[workflows.leaf.output]
-shape = "values"
-type = "json"
-[workflows.leaf.steps.value]
-kind = "let"
-expr = ".input.item"
-
-[workflows.middle]
-result = ".steps.items"
-step_order = ["items"]
-[workflows.middle.inputs.item]
-type = "json"
-required = true
-[workflows.middle.output]
-shape = "values"
-type = "json"
-[workflows.middle.steps.items]
-kind = "for_each"
-items = [1]
-as = "item"
-call = "leaf"
-max_items = 100
-
-[workflows.outer]
-result = ".steps.items"
-step_order = ["items"]
-[workflows.outer.output]
-shape = "values"
-type = "json"
-[workflows.outer.steps.items]
-kind = "for_each"
-items = [1]
-as = "item"
-call = "middle"
-max_items = 100
-
-[commands.run]
-path = ["run"]
-workflow = "outer"
-"#,
+            r#"{
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "too-much-work",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1",
+  "workflows": {
+    "leaf": {
+      "inputs": { "item": { "type": "json", "required": true } },
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{ "id": "value", "kind": "let", "expr": ".input.item" }],
+      "result": "[.input.item]"
+    },
+    "middle": {
+      "inputs": { "item": { "type": "json", "required": true } },
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{
+        "id": "items",
+        "kind": "for_each",
+        "items": [1],
+        "as": "item",
+        "call": "leaf",
+        "max_items": 100
+      }],
+      "result": ".steps.items"
+    },
+    "outer": {
+      "output": { "shape": "values", "type": "json" },
+      "steps": [{
+        "id": "items",
+        "kind": "for_each",
+        "items": [1],
+        "as": "item",
+        "call": "middle",
+        "max_items": 100
+      }],
+      "result": ".steps.items"
+    }
+  },
+  "commands": {
+    "run": { "path": ["run"], "workflow": "outer" }
+  }
+}"#,
         )
         .expect("protocol-valid graph");
         let error = WorkflowProgram::compile(&manifest, &json!({}), |_| None)
@@ -1274,21 +1293,33 @@ workflow = "outer"
 
     #[test]
     fn compiler_rejects_excessive_call_depth() {
-        let mut workflows = String::new();
+        let mut workflows = serde_json::Map::new();
         for index in 0..=MAX_WORKFLOW_CALL_DEPTH {
-            workflows.push_str(&format!(
-                "[workflows.w{index}]\nresult = \".steps.value\"\nstep_order = [\"value\"]\n[workflows.w{index}.output]\nshape = \"values\"\ntype = \"json\"\n[workflows.w{index}.steps.value]\n"
-            ));
-            if index == MAX_WORKFLOW_CALL_DEPTH {
-                workflows.push_str("kind = \"let\"\nexpr = \"[1]\"\n\n");
+            let step = if index == MAX_WORKFLOW_CALL_DEPTH {
+                json!({ "id": "value", "kind": "let", "expr": "[1]" })
             } else {
-                workflows.push_str(&format!("kind = \"call\"\ncall = \"w{}\"\n\n", index + 1));
-            }
+                json!({ "id": "value", "kind": "call", "call": format!("w{}", index + 1) })
+            };
+            workflows.insert(
+                format!("w{index}"),
+                json!({
+                    "output": { "shape": "values", "type": "json" },
+                    "steps": [step],
+                    "result": ".steps.value",
+                }),
+            );
         }
-        let manifest = ExtensionManifest::parse(&format!(
-            "schema_version = 1\nkind = \"portable\"\nname = \"deep\"\nversion = \"0.1.0\"\nrequires_cli = \">=0.0.9,<0.1\"\n\n{workflows}[commands.run]\npath = [\"run\"]\nworkflow = \"w0\"\n"
-        ))
-        .expect("protocol-valid graph");
+        let manifest_json = json!({
+            "schema_version": 1,
+            "kind": "portable",
+            "name": "deep",
+            "version": "0.1.0",
+            "requires_cli": ">=0.0.9,<0.1",
+            "workflows": workflows,
+            "commands": { "run": { "path": ["run"], "workflow": "w0" } },
+        });
+        let manifest =
+            ExtensionManifest::parse(&manifest_json.to_string()).expect("protocol-valid graph");
         let error =
             WorkflowProgram::compile(&manifest, &json!({}), |_| None).expect_err("depth must fail");
         assert!(error.contains("call depth"));
