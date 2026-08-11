@@ -892,7 +892,7 @@ requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/run"
 
-[[commands]]
+[commands.ping]
 path = ["ping"]
 "#,
         )

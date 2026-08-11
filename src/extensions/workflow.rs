@@ -111,7 +111,6 @@ impl WorkflowProgram {
             });
         }
         let limits = WorkflowLimits::default();
-        validate_workflow_call_bindings(manifest)?;
         let mut drafts = BTreeMap::new();
         for workflow in manifest.workflows().values() {
             let draft = compile_workflow(
@@ -191,197 +190,6 @@ impl WorkflowProgram {
             "workflow_count": self.plans().count(),
             "workflows": workflows,
         }))
-    }
-}
-
-fn validate_workflow_call_bindings(manifest: &ExtensionManifest) -> Result<(), String> {
-    for workflow in manifest.workflows().values() {
-        for step in workflow.steps() {
-            let (target_name, bindings, item) = match step {
-                WorkflowStep::Call(step) => (step.call(), step.bindings(), None),
-                WorkflowStep::ForEach(step) => (
-                    step.call(),
-                    step.bindings(),
-                    Some((step.item_name(), step.items())),
-                ),
-                WorkflowStep::Run(_) | WorkflowStep::Let(_) | WorkflowStep::Assert(_) => continue,
-            };
-            let target = manifest
-                .workflow(target_name)
-                .expect("protocol validated same-pack workflow target");
-            for (name, binding) in bindings {
-                let input = target
-                    .inputs()
-                    .iter()
-                    .find(|input| input.name() == name.as_str())
-                    .expect("protocol validated call input name");
-                validate_declared_call_binding(workflow, step.id(), binding, input, manifest)
-                    .map_err(|message| {
-                        format!(
-                            "workflow '{}' step '{}' binding '{}': {message}",
-                            workflow.name().as_str(),
-                            step.id().as_str(),
-                            name.as_str()
-                        )
-                    })?;
-            }
-            if let Some((item_name, items)) = item {
-                let input = target
-                    .inputs()
-                    .iter()
-                    .find(|input| input.name() == item_name)
-                    .expect("protocol validated for_each item input");
-                validate_for_each_items(workflow, step.id(), items, input, manifest)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_declared_call_binding(
-    workflow: &WorkflowDeclaration,
-    step: &WorkflowStepId,
-    binding: &WorkflowBinding,
-    target: &WorkflowInputDeclaration,
-    manifest: &ExtensionManifest,
-) -> Result<(), String> {
-    match binding {
-        WorkflowBinding::Literal(value) => validate_workflow_input_value(value, target),
-        WorkflowBinding::Input { name } => {
-            let source = workflow
-                .inputs()
-                .iter()
-                .find(|input| input.name() == name)
-                .expect("protocol validated workflow input binding");
-            validate_declared_types(
-                source.value_type(),
-                source.repeatable(),
-                target,
-                "workflow input",
-            )
-        }
-        WorkflowBinding::Config { key } => {
-            let source = manifest
-                .config()
-                .get(key)
-                .expect("protocol validated config binding");
-            validate_declared_types(
-                source.value_type(),
-                source.repeatable(),
-                target,
-                "configuration value",
-            )
-        }
-        WorkflowBinding::Step { .. } => Ok(()),
-    }
-    .map_err(|message| format!("call input on step '{}': {message}", step.as_str()))
-}
-
-fn validate_declared_types(
-    source_type: DeclaredValueType,
-    source_repeatable: bool,
-    target: &WorkflowInputDeclaration,
-    source_label: &str,
-) -> Result<(), String> {
-    if source_repeatable != target.repeatable() {
-        return Err(format!(
-            "{source_label} repeatable={source_repeatable} does not match target input '{}' repeatable={}",
-            target.name(),
-            target.repeatable()
-        ));
-    }
-    if !target.value_type().accepts_type(source_type) {
-        return Err(format!(
-            "{source_label} type '{}' is incompatible with target input '{}' type '{}'",
-            source_type.as_str(),
-            target.name(),
-            target.value_type().as_str()
-        ));
-    }
-    Ok(())
-}
-
-fn validate_workflow_input_value(
-    value: &Value,
-    target: &WorkflowInputDeclaration,
-) -> Result<(), String> {
-    let valid = if target.repeatable() {
-        value
-            .as_array()
-            .is_some_and(|items| items.iter().all(|item| target.value_type().accepts(item)))
-    } else {
-        target.value_type().accepts(value)
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(format!(
-            "literal does not satisfy target input '{}' type '{}'{}",
-            target.name(),
-            target.value_type().as_str(),
-            if target.repeatable() { "[]" } else { "" }
-        ))
-    }
-}
-
-fn validate_for_each_items(
-    workflow: &WorkflowDeclaration,
-    step: &WorkflowStepId,
-    binding: &WorkflowBinding,
-    target: &WorkflowInputDeclaration,
-    manifest: &ExtensionManifest,
-) -> Result<(), String> {
-    let invalid = |message: String| {
-        format!(
-            "workflow '{}' for_each step '{}' items: {message}",
-            workflow.name().as_str(),
-            step.as_str()
-        )
-    };
-    match binding {
-        WorkflowBinding::Literal(value) => {
-            let items = value
-                .as_array()
-                .ok_or_else(|| invalid("literal must be an array".to_string()))?;
-            for item in items {
-                validate_workflow_input_value(item, target).map_err(&invalid)?;
-            }
-            Ok(())
-        }
-        WorkflowBinding::Input { name } => {
-            let source = workflow
-                .inputs()
-                .iter()
-                .find(|input| input.name() == name)
-                .expect("protocol validated workflow input binding");
-            if source.repeatable() {
-                validate_declared_types(source.value_type(), false, target, "iteration item")
-                    .map_err(invalid)
-            } else if source.value_type() == DeclaredValueType::Json {
-                Ok(())
-            } else {
-                Err(invalid(format!(
-                    "workflow input '{name}' is not repeatable or JSON"
-                )))
-            }
-        }
-        WorkflowBinding::Config { key } => {
-            let source = manifest
-                .config()
-                .get(key)
-                .expect("protocol validated config binding");
-            if source.repeatable() {
-                validate_declared_types(source.value_type(), false, target, "iteration item")
-                    .map_err(invalid)
-            } else if source.value_type() == DeclaredValueType::Json {
-                Ok(())
-            } else {
-                Err(invalid(format!(
-                    "configuration value '{key}' is not repeatable or JSON"
-                )))
-            }
-        }
-        WorkflowBinding::Step { .. } => Ok(()),
     }
 }
 
@@ -1373,25 +1181,25 @@ requires_cli = ">=0.0.9,<0.1"
 
 [workflows.first]
 result = ".steps.next"
+step_order = ["next"]
 [workflows.first.output]
 shape = "values"
 type = "json"
-[[workflows.first.steps]]
-id = "next"
+[workflows.first.steps.next]
 kind = "call"
 call = "second"
 
 [workflows.second]
 result = ".steps.next"
+step_order = ["next"]
 [workflows.second.output]
 shape = "values"
 type = "json"
-[[workflows.second.steps]]
-id = "next"
+[workflows.second.steps.next]
 kind = "call"
 call = "first"
 
-[[commands]]
+[commands.run]
 path = ["run"]
 workflow = "first"
 "#,
@@ -1413,29 +1221,27 @@ requires_cli = ">=0.0.9,<0.1"
 
 [workflows.leaf]
 result = "[.input.item]"
-[[workflows.leaf.inputs]]
-name = "item"
+step_order = ["value"]
+[workflows.leaf.inputs.item]
 type = "json"
 required = true
 [workflows.leaf.output]
 shape = "values"
 type = "json"
-[[workflows.leaf.steps]]
-id = "value"
+[workflows.leaf.steps.value]
 kind = "let"
 expr = ".input.item"
 
 [workflows.middle]
 result = ".steps.items"
-[[workflows.middle.inputs]]
-name = "item"
+step_order = ["items"]
+[workflows.middle.inputs.item]
 type = "json"
 required = true
 [workflows.middle.output]
 shape = "values"
 type = "json"
-[[workflows.middle.steps]]
-id = "items"
+[workflows.middle.steps.items]
 kind = "for_each"
 items = [1]
 as = "item"
@@ -1444,18 +1250,18 @@ max_items = 100
 
 [workflows.outer]
 result = ".steps.items"
+step_order = ["items"]
 [workflows.outer.output]
 shape = "values"
 type = "json"
-[[workflows.outer.steps]]
-id = "items"
+[workflows.outer.steps.items]
 kind = "for_each"
 items = [1]
 as = "item"
 call = "middle"
 max_items = 100
 
-[[commands]]
+[commands.run]
 path = ["run"]
 workflow = "outer"
 "#,
@@ -1471,7 +1277,7 @@ workflow = "outer"
         let mut workflows = String::new();
         for index in 0..=MAX_WORKFLOW_CALL_DEPTH {
             workflows.push_str(&format!(
-                "[workflows.w{index}]\nresult = \".steps.value\"\n[workflows.w{index}.output]\nshape = \"values\"\ntype = \"json\"\n[[workflows.w{index}.steps]]\nid = \"value\"\n"
+                "[workflows.w{index}]\nresult = \".steps.value\"\nstep_order = [\"value\"]\n[workflows.w{index}.output]\nshape = \"values\"\ntype = \"json\"\n[workflows.w{index}.steps.value]\n"
             ));
             if index == MAX_WORKFLOW_CALL_DEPTH {
                 workflows.push_str("kind = \"let\"\nexpr = \"[1]\"\n\n");
@@ -1480,7 +1286,7 @@ workflow = "outer"
             }
         }
         let manifest = ExtensionManifest::parse(&format!(
-            "schema_version = 1\nkind = \"portable\"\nname = \"deep\"\nversion = \"0.1.0\"\nrequires_cli = \">=0.0.9,<0.1\"\n\n{workflows}[[commands]]\npath = [\"run\"]\nworkflow = \"w0\"\n"
+            "schema_version = 1\nkind = \"portable\"\nname = \"deep\"\nversion = \"0.1.0\"\nrequires_cli = \">=0.0.9,<0.1\"\n\n{workflows}[commands.run]\npath = [\"run\"]\nworkflow = \"w0\"\n"
         ))
         .expect("protocol-valid graph");
         let error =

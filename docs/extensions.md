@@ -74,8 +74,14 @@ inventory/
 Pack names, command path segments, and long option names use lowercase ASCII
 kebab-case. Supported option kinds are `string`, `integer`, `number`,
 `boolean`, `flag`, and `json`.
-Positionals are ordered; only the final positional may be repeatable. The
-`values` list provides validation and static completion.
+Commands, options, workflow inputs, and workflow steps use named TOML tables.
+The table key is the declaration's stable name or step ID, keeping nested
+settings visibly attached to their owner. Positional options declare a
+one-based `position`; positions must be contiguous, and only the final
+positional may be repeatable. The `values` list provides validation and static
+completion. Array-of-table command, option, input, and step declarations are
+not part of the schema. Command declaration keys, workflow names, and step IDs
+use lowercase ASCII snake-case; command paths remain the user-visible names.
 One command path cannot be a prefix of another command path in the same pack.
 Short and long option aliases share one namespace after removing their dashes,
 and aliases reserved by host rendering options are rejected. Manifest schema
@@ -108,9 +114,9 @@ help = "Class containing Host objects"
 
 [workflows.snapshot]
 result = "{ hosts: .steps.hosts, first: .steps.first }"
+step_order = ["hosts", "first", "has_hosts"]
 
-[[workflows.snapshot.inputs]]
-name = "enabled"
+[workflows.snapshot.inputs.enabled]
 type = "boolean"
 default = true
 
@@ -119,34 +125,30 @@ shape = "detail"
 type = "json"
 columns = ["hosts", "first"]
 
-[[workflows.snapshot.steps]]
-id = "hosts"
+[workflows.snapshot.steps.hosts]
 kind = "run"
 run = ["object", "list"]
 when = ".input.enabled"
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.hosts.with]
 class = { config = "hosts_class" }
 all = true
 
-[[workflows.snapshot.steps]]
-id = "first"
+[workflows.snapshot.steps.first]
 kind = "let"
 expr = ".steps.hosts[0]"
 
-[[workflows.snapshot.steps]]
-id = "has_hosts"
+[workflows.snapshot.steps.has_hosts]
 kind = "assert"
 condition = "(.steps.hosts | length) > 0"
 message = "No Hosts were found"
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 about = "Collect Hosts"
 
-[[commands.options]]
-name = "enabled"
+[commands.snapshot.options.enabled]
 kind = "boolean"
 long = "enabled"
 ```
@@ -160,7 +162,9 @@ values, and type mismatches quarantine an installed pack.
 
 ### Tagged steps
 
-Every step has a unique snake-case `id` and one explicit `kind`:
+Every step has a unique snake-case table key and one explicit `kind`. Each
+workflow lists those keys in `step_order`; TOML tables do not imply execution
+order, so the list makes data dependencies and control flow unambiguous:
 
 | Kind | Purpose | Conditional |
 | --- | --- | --- |
@@ -177,8 +181,7 @@ workflow calls are prohibited. `for_each` requires both an `as` input name and
 a positive `max_items` bound:
 
 ```toml
-[[workflows.snapshot.steps]]
-id = "details"
+[workflows.snapshot.steps.details]
 kind = "for_each"
 items = { step = "hosts" }
 as = "host"
@@ -186,7 +189,7 @@ call = "describe_host"
 max_items = 100
 when = ".input.enabled"
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.details.with]
 verbose = true
 ```
 
@@ -296,21 +299,19 @@ requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/site-inventory"
 
-[[commands]]
+[commands.host_show]
 path = ["host", "show"]
 arguments = ["host", "show"]
 about = "Show a Host and its physical placement"
 examples = ["extension site-inventory host show server-01"]
 
-[[commands.options]]
-name = "identifier"
+[commands.host_show.options.identifier]
 kind = "string"
-positional = true
+position = 1
 required = true
 help = "Host name or installation-specific identifier"
 
-[[commands.options]]
-name = "view"
+[commands.host_show.options.view]
 kind = "string"
 long = "view"
 help = "Output detail level"

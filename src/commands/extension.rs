@@ -22,7 +22,7 @@ use crate::catalog::{
     WorkflowInputContract, WorkflowValueType,
 };
 use crate::command_line::shell_escape;
-use crate::commands::{render_format, standard_options, table_headers};
+use crate::commands::{render_format, standard_options, table_headers, CliOption};
 use crate::dispatch::{execute_offline_line, is_offline_builtin_command};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::extensions::{
@@ -44,15 +44,9 @@ pub(crate) fn register_extension_commands(
         };
         for command in manifest.commands() {
             if let Some(workflow) = command.workflow() {
-                register_workflow_command(
-                    builder,
-                    pack,
-                    manifest.clone(),
-                    command,
-                    workflow.as_str(),
-                );
+                register_workflow_command(builder, pack, &manifest, command, workflow.as_str());
             } else if let Some(executable) = pack.executable().map(PathBuf::from) {
-                register_external_command(builder, pack, manifest.clone(), executable, command);
+                register_external_command(builder, pack, &manifest, executable, command);
             }
         }
     }
@@ -61,58 +55,80 @@ pub(crate) fn register_extension_commands(
 fn register_external_command(
     builder: &mut CommandCatalogBuilder,
     pack: &ExtensionPack,
-    manifest: Arc<ExtensionManifest>,
+    manifest: &ExtensionManifest,
     executable: PathBuf,
     command: &CommandDeclaration,
 ) {
-    let segments = command.path().segments();
-    let Some(name) = segments.last() else {
-        return;
-    };
-    let mut path = vec![
-        "extension".to_string(),
-        manifest.name().as_str().to_string(),
-    ];
-    path.extend(segments[..segments.len() - 1].iter().cloned());
-    let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
-
-    let mut options = command
-        .options()
-        .iter()
-        .map(option_spec)
-        .collect::<Vec<_>>();
-    options.extend(standard_options().into_iter().map(|option| {
-        OptionSpec {
-            name: option.name,
-            short: option.short,
-            long: option.long,
-            help: option.help,
-            field_type_help: option.field_type_help,
-            field_type: option.field_type,
-            required: option.required,
-            flag: option.flag,
-            greedy: option.greedy,
-            nargs: option.nargs,
-            repeatable: option.repeatable,
-            value_source: option.value_source,
-            completion: option
-                .autocomplete
-                .map(CompletionSpec::Dynamic)
-                .unwrap_or(CompletionSpec::None),
-        }
-    }));
-
     let handler = ExternalCommandHandler {
         pack: manifest.name().as_str().to_string(),
         executable,
         declaration: command.clone(),
         config: pack.config().clone(),
     };
-    let mut spec = CommandSpec::new(
-        name,
-        options,
+    register_extension_command(
+        builder,
+        manifest,
+        command,
         ReauthenticationRetry::Unsafe,
         CommandEffects::Mutating,
+        handler,
+    );
+}
+
+fn register_workflow_command(
+    builder: &mut CommandCatalogBuilder,
+    pack: &ExtensionPack,
+    manifest: &ExtensionManifest,
+    command: &CommandDeclaration,
+    workflow: &str,
+) {
+    let Some(program) = pack.workflow_program_arc() else {
+        return;
+    };
+    let Some(plan) = program.plan(workflow) else {
+        return;
+    };
+
+    let handler = WorkflowCommandHandler {
+        pack: manifest.name().as_str().to_string(),
+        declaration: command.clone(),
+        program,
+        plan: plan.clone(),
+        config: pack.config().clone(),
+    };
+    register_extension_command(
+        builder,
+        manifest,
+        command,
+        plan.reauthentication_retry(),
+        plan.effects(),
+        handler,
+    );
+}
+
+fn register_extension_command<H>(
+    builder: &mut CommandCatalogBuilder,
+    manifest: &ExtensionManifest,
+    command: &CommandDeclaration,
+    reauthentication_retry: ReauthenticationRetry,
+    effects: CommandEffects,
+    handler: H,
+) where
+    H: AsyncCommandHandler + 'static,
+{
+    let (name, parents) = command.path().split_last();
+    let mut path = vec![
+        "extension".to_string(),
+        manifest.name().as_str().to_string(),
+    ];
+    path.extend(parents.iter().cloned());
+    let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let mut spec = CommandSpec::new(
+        name,
+        extension_command_options(command),
+        reauthentication_retry,
+        effects,
         Arc::new(handler),
     );
     spec.about = command.about().map(str::to_string);
@@ -121,73 +137,35 @@ fn register_external_command(
     builder.add_command(&path_refs, spec);
 }
 
-fn register_workflow_command(
-    builder: &mut CommandCatalogBuilder,
-    pack: &ExtensionPack,
-    manifest: Arc<ExtensionManifest>,
-    command: &CommandDeclaration,
-    workflow: &str,
-) {
-    let segments = command.path().segments();
-    let Some(name) = segments.last() else {
-        return;
-    };
-    let mut path = vec![
-        "extension".to_string(),
-        manifest.name().as_str().to_string(),
-    ];
-    path.extend(segments[..segments.len() - 1].iter().cloned());
-    let path_refs = path.iter().map(String::as_str).collect::<Vec<_>>();
-    let Some(program) = pack.workflow_program_arc() else {
-        return;
-    };
-    let Some(plan) = program.plan(workflow) else {
-        return;
-    };
-
+fn extension_command_options(command: &CommandDeclaration) -> Vec<OptionSpec> {
     let mut options = command
         .options()
         .iter()
         .map(option_spec)
         .collect::<Vec<_>>();
-    options.extend(standard_options().into_iter().map(|option| {
-        OptionSpec {
-            name: option.name,
-            short: option.short,
-            long: option.long,
-            help: option.help,
-            field_type_help: option.field_type_help,
-            field_type: option.field_type,
-            required: option.required,
-            flag: option.flag,
-            greedy: option.greedy,
-            nargs: option.nargs,
-            repeatable: option.repeatable,
-            value_source: option.value_source,
-            completion: option
-                .autocomplete
-                .map(CompletionSpec::Dynamic)
-                .unwrap_or(CompletionSpec::None),
-        }
-    }));
+    options.extend(standard_options().into_iter().map(standard_option_spec));
+    options
+}
 
-    let mut spec = CommandSpec::new(
-        name,
-        options,
-        plan.reauthentication_retry(),
-        plan.effects(),
-        Arc::new(WorkflowCommandHandler {
-            pack: manifest.name().as_str().to_string(),
-            declaration: command.clone(),
-            program,
-            plan: plan.clone(),
-            config: pack.config().clone(),
-        }),
-    );
-    spec.about = command.about().map(str::to_string);
-    spec.long_about = command.long_about().map(str::to_string);
-    spec.examples = (!command.examples().is_empty()).then(|| command.examples().join("\n"));
-    builder.add_command(&path_refs, spec);
+fn standard_option_spec(option: CliOption) -> OptionSpec {
+    OptionSpec {
+        name: option.name,
+        short: option.short,
+        long: option.long,
+        help: option.help,
+        field_type_help: option.field_type_help,
+        field_type: option.field_type,
+        required: option.required,
+        flag: option.flag,
+        greedy: option.greedy,
+        nargs: option.nargs,
+        repeatable: option.repeatable,
+        value_source: option.value_source,
+        completion: option
+            .autocomplete
+            .map(CompletionSpec::Dynamic)
+            .unwrap_or(CompletionSpec::None),
+    }
 }
 
 fn option_spec(option: &OptionDeclaration) -> OptionSpec {
@@ -1788,16 +1766,14 @@ requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/demo"
 
-[[commands]]
+[commands.inventory_list]
 path = ["inventory", "list"]
 
-[[commands.options]]
-name = "target"
+[commands.inventory_list.options.target]
 kind = "string"
-positional = true
+position = 1
 
-[[commands.options]]
-name = "state"
+[commands.inventory_list.options.state]
 kind = "string"
 long = "state"
 "#,
@@ -1829,16 +1805,14 @@ requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/demo"
 
-[[commands]]
+[commands.run]
 path = ["run"]
 
-[[commands.options]]
-name = "verbose"
+[commands.run.options.verbose]
 kind = "flag"
 long = "verbose"
 
-[[commands.options]]
-name = "tag"
+[commands.run.options.tag]
 kind = "string"
 long = "tag"
 repeatable = true
@@ -1923,9 +1897,9 @@ requires_cli = ">=0.0.9,<0.1"
 
 [workflows.snapshot]
 result = "{ requested: .input.target, items: .steps.items, selected: .steps.selected, input_echo: .steps.input_echo, legacy: .steps.legacy, items_output: .outputs.items, legacy_output: .outputs.legacy }"
+step_order = ["items", "selected", "input_echo", "legacy"]
 
-[[workflows.snapshot.inputs]]
-name = "target"
+[workflows.snapshot.inputs.target]
 type = "integer"
 required = true
 
@@ -1933,36 +1907,31 @@ required = true
 shape = "detail"
 type = "json"
 
-[[workflows.snapshot.steps]]
-id = "items"
+[workflows.snapshot.steps.items]
 kind = "run"
 run = ["object", "list"]
 
-[[workflows.snapshot.steps]]
-id = "selected"
+[workflows.snapshot.steps.selected]
 kind = "run"
 run = ["object", "echo"]
 with = { id = { step = "items", select = ".[0].id" } }
 
-[[workflows.snapshot.steps]]
-id = "input_echo"
+[workflows.snapshot.steps.input_echo]
 kind = "run"
 run = ["object", "echo"]
 with = { id = { input = "target" } }
 
-[[workflows.snapshot.steps]]
-id = "legacy"
+[workflows.snapshot.steps.legacy]
 kind = "run"
 run = ["object", "legacy"]
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 
-[[commands.options]]
-name = "target"
+[commands.snapshot.options.target]
 kind = "integer"
-positional = true
+position = 1
 required = true
 "#,
         )

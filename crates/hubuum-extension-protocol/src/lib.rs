@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
 
 use semver::{Version, VersionReq};
@@ -34,6 +35,8 @@ pub enum ProtocolError {
     ReservedPackName(String),
     #[error("invalid command path: {0}")]
     InvalidCommandPath(String),
+    #[error("invalid command declaration name '{0}': use lowercase ASCII snake_case")]
+    InvalidCommandDeclarationName(String),
     #[error("invalid executable path '{0}': use a relative path confined to the pack")]
     InvalidExecutablePath(String),
     #[error("invalid {kind} extension pack: {message}")]
@@ -114,6 +117,14 @@ impl CommandPath {
 
     pub fn segments(&self) -> &[String] {
         &self.0
+    }
+
+    pub fn split_last(&self) -> (&str, &[String]) {
+        let (name, parents) = self
+            .0
+            .split_last()
+            .expect("validated command paths are non-empty");
+        (name, parents)
     }
 
     pub fn display(&self) -> String {
@@ -199,6 +210,25 @@ impl ExtensionPackKind {
             Self::Portable => "portable",
             Self::Executable => "executable",
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct CommandDeclarationName(String);
+
+impl CommandDeclarationName {
+    pub fn new(value: impl Into<String>) -> Result<Self, ProtocolError> {
+        let value = value.into();
+        if is_snake_word(&value) {
+            Ok(Self(value))
+        } else {
+            Err(ProtocolError::InvalidCommandDeclarationName(value))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -360,56 +390,10 @@ impl ExtensionManifest {
             &raw.workflows,
         )?;
 
-        let config = raw
-            .config
-            .into_iter()
-            .map(|(key, declaration)| {
-                ConfigDeclaration::validate(key.clone(), declaration)
-                    .map(|declaration| (key, declaration))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-        let mut workflows = BTreeMap::new();
-        for (name, workflow) in raw.workflows {
-            let name = WorkflowName::new(name.clone())
-                .map_err(|message| invalid_named_workflow(&name, &message))?;
-            let workflow = WorkflowDeclaration::validate(&name, workflow, &config)?;
-            workflows.insert(name, workflow);
-        }
-        validate_workflow_calls(&workflows)?;
-
-        let mut command_paths = HashSet::new();
-        let mut commands: Vec<CommandDeclaration> = Vec::with_capacity(raw.commands.len());
-        for command in raw.commands {
-            let command = CommandDeclaration::validate(command, raw.kind, &workflows)?;
-            if !command_paths.insert(command.path.clone()) {
-                return Err(ProtocolError::DuplicateCommandPath(command.path.display()));
-            }
-            for existing in &commands {
-                let existing_path = existing.path().segments();
-                let command_path = command.path().segments();
-                let conflict = if existing_path.len() < command_path.len()
-                    && command_path.starts_with(existing_path)
-                {
-                    Some((existing.path().display(), command.path().display()))
-                } else if command_path.len() < existing_path.len()
-                    && existing_path.starts_with(command_path)
-                {
-                    Some((command.path().display(), existing.path().display()))
-                } else {
-                    None
-                };
-                if let Some((prefix, command)) = conflict {
-                    return Err(ProtocolError::CommandPathPrefix { prefix, command });
-                }
-            }
-            commands.push(command);
-        }
-        if commands.is_empty() {
-            return Err(ProtocolError::InvalidCommandPath(
-                "at least one command is required".to_string(),
-            ));
-        }
+        let config = normalize_config(raw.config)?;
+        let workflows = normalize_workflows(raw.workflows, &config)?;
+        validate_workflow_calls(&workflows, &config)?;
+        let commands = normalize_commands(raw.commands, raw.kind, &workflows)?;
 
         Ok(Self {
             kind: raw.kind,
@@ -509,6 +493,79 @@ impl ExtensionManifest {
     }
 }
 
+fn normalize_config(
+    raw: BTreeMap<String, RawValueDeclaration>,
+) -> Result<BTreeMap<String, ConfigDeclaration>, ProtocolError> {
+    raw.into_iter()
+        .map(|(key, declaration)| {
+            ConfigDeclaration::validate(key.clone(), declaration)
+                .map(|declaration| (key, declaration))
+        })
+        .collect()
+}
+
+fn normalize_workflows(
+    raw: BTreeMap<String, RawWorkflow>,
+    config: &BTreeMap<String, ConfigDeclaration>,
+) -> Result<BTreeMap<WorkflowName, WorkflowDeclaration>, ProtocolError> {
+    raw.into_iter()
+        .map(|(name, workflow)| {
+            let workflow_name = WorkflowName::new(name.clone())
+                .map_err(|message| invalid_named_workflow(&name, &message))?;
+            WorkflowDeclaration::validate(&workflow_name, workflow, config)
+                .map(|workflow| (workflow_name, workflow))
+        })
+        .collect()
+}
+
+fn normalize_commands(
+    raw: BTreeMap<String, RawCommand>,
+    kind: ExtensionPackKind,
+    workflows: &BTreeMap<WorkflowName, WorkflowDeclaration>,
+) -> Result<Vec<CommandDeclaration>, ProtocolError> {
+    if raw.is_empty() {
+        return Err(ProtocolError::InvalidCommandPath(
+            "at least one command is required".to_string(),
+        ));
+    }
+
+    let mut paths = HashSet::new();
+    let mut commands: Vec<CommandDeclaration> = Vec::with_capacity(raw.len());
+    for (name, command) in raw {
+        let command = CommandDeclaration::validate(
+            CommandDeclarationName::new(name)?,
+            command,
+            kind,
+            workflows,
+        )?;
+        if !paths.insert(command.path.clone()) {
+            return Err(ProtocolError::DuplicateCommandPath(command.path.display()));
+        }
+        for existing in &commands {
+            if let Some((prefix, command)) = command_path_conflict(existing.path(), command.path())
+            {
+                return Err(ProtocolError::CommandPathPrefix { prefix, command });
+            }
+        }
+        commands.push(command);
+    }
+    Ok(commands)
+}
+
+fn command_path_conflict(left: &CommandPath, right: &CommandPath) -> Option<(String, String)> {
+    if left.segments().len() < right.segments().len()
+        && right.segments().starts_with(left.segments())
+    {
+        Some((left.display(), right.display()))
+    } else if right.segments().len() < left.segments().len()
+        && left.segments().starts_with(right.segments())
+    {
+        Some((right.display(), left.display()))
+    } else {
+        None
+    }
+}
+
 fn validate_pack_kind(
     kind: ExtensionPackKind,
     protocol: Option<&ProtocolVersion>,
@@ -546,6 +603,7 @@ fn validate_pack_kind(
 
 #[derive(Debug, Clone)]
 pub struct CommandDeclaration {
+    declaration_name: CommandDeclarationName,
     path: CommandPath,
     about: Option<String>,
     long_about: Option<String>,
@@ -565,6 +623,7 @@ pub enum CommandImplementation {
 
 impl CommandDeclaration {
     fn validate(
+        declaration_name: CommandDeclarationName,
         raw: RawCommand,
         kind: ExtensionPackKind,
         workflows: &BTreeMap<WorkflowName, WorkflowDeclaration>,
@@ -577,64 +636,7 @@ impl CommandDeclaration {
             )));
         }
 
-        let mut names = HashSet::new();
-        let mut aliases = HashSet::new();
-        let mut options = Vec::with_capacity(raw.options.len());
-        let mut optional_positional_seen = false;
-        let positional_count = raw
-            .options
-            .iter()
-            .filter(|option| option.positional)
-            .count();
-        let mut positional_index = 0;
-
-        for option in raw.options {
-            let declaration = OptionDeclaration::validate(option, &path)?;
-            if !names.insert(declaration.name.clone()) {
-                return Err(invalid_option(
-                    &path,
-                    &declaration.name,
-                    "duplicate option name",
-                ));
-            }
-            if let Some(short) = declaration.short {
-                if !aliases.insert(short.to_string()) {
-                    return Err(invalid_option(
-                        &path,
-                        &declaration.name,
-                        "option aliases must be unique after removing dashes",
-                    ));
-                }
-            }
-            if let Some(long) = &declaration.long {
-                if !aliases.insert(long.clone()) {
-                    return Err(invalid_option(
-                        &path,
-                        &declaration.name,
-                        "option aliases must be unique after removing dashes",
-                    ));
-                }
-            }
-            if declaration.positional {
-                positional_index += 1;
-                if optional_positional_seen && declaration.required {
-                    return Err(invalid_option(
-                        &path,
-                        &declaration.name,
-                        "required positionals cannot follow optional positionals",
-                    ));
-                }
-                optional_positional_seen |= !declaration.required;
-                if declaration.repeatable && positional_index != positional_count {
-                    return Err(invalid_option(
-                        &path,
-                        &declaration.name,
-                        "only the final positional may be repeatable",
-                    ));
-                }
-            }
-            options.push(declaration);
-        }
+        let options = normalize_command_options(raw.options, &path)?;
 
         let implementation = match (kind, raw.workflow) {
             (ExtensionPackKind::Portable, Some(name)) => {
@@ -679,6 +681,7 @@ impl CommandDeclaration {
             },
         };
         Ok(Self {
+            declaration_name,
             path,
             about: nonempty(raw.about),
             long_about: nonempty(raw.long_about),
@@ -686,6 +689,10 @@ impl CommandDeclaration {
             options,
             implementation,
         })
+    }
+
+    pub fn declaration_name(&self) -> &CommandDeclarationName {
+        &self.declaration_name
     }
 
     pub fn path(&self) -> &CommandPath {
@@ -734,6 +741,87 @@ impl CommandDeclaration {
 
     pub fn implementation(&self) -> &CommandImplementation {
         &self.implementation
+    }
+}
+
+fn normalize_command_options(
+    raw: BTreeMap<String, RawOption>,
+    command: &CommandPath,
+) -> Result<Vec<OptionDeclaration>, ProtocolError> {
+    let mut options = raw
+        .into_iter()
+        .map(|(name, option)| OptionDeclaration::validate(name, option, command))
+        .collect::<Result<Vec<_>, _>>()?;
+    options.sort_by(|left, right| {
+        left.position()
+            .map_or((1, usize::MAX), |position| (0, position.get()))
+            .cmp(
+                &right
+                    .position()
+                    .map_or((1, usize::MAX), |position| (0, position.get())),
+            )
+            .then_with(|| left.name().cmp(right.name()))
+    });
+
+    let positional_count = options.iter().filter(|option| option.positional()).count();
+    let mut positions = HashSet::new();
+    let mut aliases = HashSet::new();
+    let mut optional_positional_seen = false;
+    for option in &options {
+        if let Some(position) = option.position() {
+            if !positions.insert(position.get()) {
+                return Err(invalid_option(
+                    command,
+                    option.name(),
+                    "positional option positions must be unique",
+                ));
+            }
+            if optional_positional_seen && option.required() {
+                return Err(invalid_option(
+                    command,
+                    option.name(),
+                    "required positionals cannot follow optional positionals",
+                ));
+            }
+            optional_positional_seen |= !option.required();
+            if option.repeatable() && position.get() != positional_count {
+                return Err(invalid_option(
+                    command,
+                    option.name(),
+                    "only the final positional may be repeatable",
+                ));
+            }
+        }
+        if let Some(short) = option.short() {
+            validate_unique_option_alias(command, option.name(), short.to_string(), &mut aliases)?;
+        }
+        if let Some(long) = option.long() {
+            validate_unique_option_alias(command, option.name(), long.to_string(), &mut aliases)?;
+        }
+    }
+    if (1..=positional_count).any(|position| !positions.contains(&position)) {
+        return Err(ProtocolError::InvalidCommandPath(format!(
+            "command '{}' positional option positions must be contiguous from 1",
+            command.display()
+        )));
+    }
+    Ok(options)
+}
+
+fn validate_unique_option_alias(
+    command: &CommandPath,
+    option: &str,
+    alias: String,
+    aliases: &mut HashSet<String>,
+) -> Result<(), ProtocolError> {
+    if aliases.insert(alias) {
+        Ok(())
+    } else {
+        Err(invalid_option(
+            command,
+            option,
+            "option aliases must be unique after removing dashes",
+        ))
     }
 }
 
@@ -813,13 +901,17 @@ pub struct WorkflowInputDeclaration {
 }
 
 impl WorkflowInputDeclaration {
-    fn validate(workflow: &WorkflowName, raw: RawWorkflowInput) -> Result<Self, ProtocolError> {
-        if !is_option_word(&raw.name) {
+    fn validate(
+        workflow: &WorkflowName,
+        name: String,
+        raw: RawWorkflowInput,
+    ) -> Result<Self, ProtocolError> {
+        if !is_option_word(&name) {
             return Err(invalid_named_workflow(
                 workflow.as_str(),
                 &format!(
                     "input '{}' must use lowercase ASCII letters, numbers, '-' or '_'",
-                    raw.name
+                    name
                 ),
             ));
         }
@@ -828,7 +920,7 @@ impl WorkflowInputDeclaration {
                 workflow.as_str(),
                 &format!(
                     "input '{}' cannot be required and also declare a default",
-                    raw.name
+                    name
                 ),
             ));
         }
@@ -836,7 +928,7 @@ impl WorkflowInputDeclaration {
             invalid_named_workflow(workflow.as_str(), &message)
         })?;
         Ok(Self {
-            name: raw.name,
+            name,
             value_type: raw.value_type,
             required: raw.required,
             repeatable: raw.repeatable,
@@ -974,45 +1066,9 @@ impl WorkflowDeclaration {
                 "result expression cannot be empty",
             ));
         }
-
-        let mut input_names = HashSet::new();
-        let mut inputs = Vec::with_capacity(raw.inputs.len());
-        for input in raw.inputs {
-            let input = WorkflowInputDeclaration::validate(name, input)?;
-            if !input_names.insert(input.name.clone()) {
-                return Err(invalid_named_workflow(
-                    name.as_str(),
-                    &format!("duplicate input '{}'", input.name()),
-                ));
-            }
-            inputs.push(input);
-        }
-
-        let mut capabilities = Vec::with_capacity(raw.capabilities.len());
-        for capability in raw.capabilities {
-            let capability = WorkflowCapability::new(&capability)
-                .map_err(|message| invalid_named_workflow(name.as_str(), &message))?;
-            if capabilities.contains(&capability) {
-                return Err(invalid_named_workflow(
-                    name.as_str(),
-                    &format!("duplicate workflow capability '{}'", capability.as_str()),
-                ));
-            }
-            capabilities.push(capability);
-        }
-
-        let mut ids = HashSet::new();
-        let mut steps = Vec::with_capacity(raw.steps.len());
-        for raw_step in raw.steps {
-            let step = WorkflowStep::validate(name, raw_step, &inputs, config, &ids)?;
-            if !ids.insert(step.id().clone()) {
-                return Err(invalid_named_workflow(
-                    name.as_str(),
-                    &format!("duplicate step id '{}'", step.id().as_str()),
-                ));
-            }
-            steps.push(step);
-        }
+        let inputs = normalize_workflow_inputs(name, raw.inputs)?;
+        let capabilities = normalize_workflow_capabilities(name, raw.capabilities)?;
+        let steps = normalize_workflow_steps(name, raw.step_order, raw.steps, &inputs, config)?;
         Ok(Self {
             name: name.clone(),
             inputs,
@@ -1098,6 +1154,79 @@ impl WorkflowDeclaration {
     }
 }
 
+fn normalize_workflow_inputs(
+    workflow: &WorkflowName,
+    raw: BTreeMap<String, RawWorkflowInput>,
+) -> Result<Vec<WorkflowInputDeclaration>, ProtocolError> {
+    raw.into_iter()
+        .map(|(name, input)| WorkflowInputDeclaration::validate(workflow, name, input))
+        .collect()
+}
+
+fn normalize_workflow_capabilities(
+    workflow: &WorkflowName,
+    raw: Vec<String>,
+) -> Result<Vec<WorkflowCapability>, ProtocolError> {
+    let mut capabilities = Vec::with_capacity(raw.len());
+    for capability in raw {
+        let capability = WorkflowCapability::new(&capability)
+            .map_err(|message| invalid_named_workflow(workflow.as_str(), &message))?;
+        if capabilities.contains(&capability) {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                &format!("duplicate workflow capability '{}'", capability.as_str()),
+            ));
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
+}
+
+fn normalize_workflow_steps(
+    workflow: &WorkflowName,
+    order: Vec<String>,
+    mut raw: BTreeMap<String, RawWorkflowStep>,
+    inputs: &[WorkflowInputDeclaration],
+    config: &BTreeMap<String, ConfigDeclaration>,
+) -> Result<Vec<WorkflowStep>, ProtocolError> {
+    let mut order_ids = HashSet::new();
+    for id in &order {
+        if !order_ids.insert(id.clone()) {
+            return Err(invalid_named_workflow(
+                workflow.as_str(),
+                &format!("step_order contains duplicate step '{id}'"),
+            ));
+        }
+    }
+    if order.len() != raw.len() {
+        return Err(invalid_named_workflow(
+            workflow.as_str(),
+            "step_order must name every declared step exactly once",
+        ));
+    }
+
+    let mut prior_ids = HashSet::new();
+    let mut steps = Vec::with_capacity(raw.len());
+    for id in order {
+        let raw_step = raw.remove(&id).ok_or_else(|| {
+            invalid_named_workflow(
+                workflow.as_str(),
+                &format!("step_order references undeclared step '{id}'"),
+            )
+        })?;
+        let step = WorkflowStep::validate(workflow, id, raw_step, inputs, config, &prior_ids)?;
+        prior_ids.insert(step.id().clone());
+        steps.push(step);
+    }
+    if let Some(id) = raw.keys().next() {
+        return Err(invalid_named_workflow(
+            workflow.as_str(),
+            &format!("step '{id}' is missing from step_order"),
+        ));
+    }
+    Ok(steps)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowCapability {
     Mutate,
@@ -1149,20 +1278,20 @@ pub enum WorkflowStep {
 impl WorkflowStep {
     fn validate(
         workflow: &WorkflowName,
+        id: String,
         raw: RawWorkflowStep,
         inputs: &[WorkflowInputDeclaration],
         config: &BTreeMap<String, ConfigDeclaration>,
         prior_step_ids: &HashSet<WorkflowStepId>,
     ) -> Result<Self, ProtocolError> {
         let invalid = |message: String| invalid_named_workflow(workflow.as_str(), &message);
+        let id = validate_step_id(workflow, id)?;
         match raw {
             RawWorkflowStep::Run {
-                id,
                 run,
                 bindings,
                 when,
             } => {
-                let id = validate_step_id(workflow, id)?;
                 let run = CommandPath::new(run)
                     .map_err(|error| invalid(format!("step '{}': {error}", id.as_str())))?;
                 if run
@@ -1188,40 +1317,35 @@ impl WorkflowStep {
                     when: validate_optional_expression(workflow, "when", when)?,
                 }))
             }
-            RawWorkflowStep::Let { id, expr } => Ok(Self::Let(WorkflowLetStep {
-                id: validate_step_id(workflow, id)?,
+            RawWorkflowStep::Let { expr } => Ok(Self::Let(WorkflowLetStep {
+                id,
                 expr: validate_expression(workflow, "let expression", expr)?,
             })),
-            RawWorkflowStep::Assert {
-                id,
-                condition,
-                message,
-            } => {
+            RawWorkflowStep::Assert { condition, message } => {
                 if message.trim().is_empty() || message.contains('\0') {
                     return Err(invalid(format!(
-                        "assert step '{id}' message must be non-empty and contain no NUL"
+                        "assert step '{}' message must be non-empty and contain no NUL",
+                        id.as_str()
                     )));
                 }
                 Ok(Self::Assert(WorkflowAssertStep {
-                    id: validate_step_id(workflow, id)?,
+                    id,
                     condition: validate_expression(workflow, "assert condition", condition)?,
                     message,
                 }))
             }
             RawWorkflowStep::Call {
-                id,
                 call,
                 bindings,
                 when,
             } => Ok(Self::Call(WorkflowCallStep {
-                id: validate_step_id(workflow, id)?,
+                id,
                 call: WorkflowName::new(call.clone())
                     .map_err(|message| invalid(format!("call target {message}")))?,
                 bindings: validate_bindings(workflow, bindings, inputs, config, prior_step_ids)?,
                 when: validate_optional_expression(workflow, "when", when)?,
             })),
             RawWorkflowStep::ForEach {
-                id,
                 items,
                 item_name,
                 call,
@@ -1229,7 +1353,6 @@ impl WorkflowStep {
                 max_items,
                 when,
             } => {
-                let id = validate_step_id(workflow, id)?;
                 if max_items == 0 {
                     return Err(invalid(format!(
                         "for_each step '{}' max_items must be greater than zero",
@@ -1534,14 +1657,17 @@ impl WorkflowBinding {
 
 fn validate_workflow_calls(
     workflows: &BTreeMap<WorkflowName, WorkflowDeclaration>,
+    config: &BTreeMap<String, ConfigDeclaration>,
 ) -> Result<(), ProtocolError> {
     for workflow in workflows.values() {
         for step in workflow.steps() {
-            let (target, item_name, bindings) = match step {
+            let (target, item, bindings) = match step {
                 WorkflowStep::Call(step) => (step.call(), None, step.bindings()),
-                WorkflowStep::ForEach(step) => {
-                    (step.call(), Some(step.item_name()), step.bindings())
-                }
+                WorkflowStep::ForEach(step) => (
+                    step.call(),
+                    Some((step.item_name(), step.items())),
+                    step.bindings(),
+                ),
                 WorkflowStep::Run(_) | WorkflowStep::Let(_) | WorkflowStep::Assert(_) => continue,
             };
             let target_workflow = workflows.get(target).ok_or_else(|| {
@@ -1554,24 +1680,33 @@ fn validate_workflow_calls(
                     ),
                 )
             })?;
-            for binding in bindings.keys() {
-                if !target_workflow
+            for (binding_name, binding) in bindings {
+                let target_input = target_workflow
                     .inputs()
                     .iter()
-                    .any(|input| input.name() == binding.as_str())
-                {
-                    return Err(invalid_named_workflow(
-                        workflow.name().as_str(),
-                        &format!(
-                            "step '{}' binds unknown input '{}' on workflow '{}'",
-                            step.id().as_str(),
-                            binding.as_str(),
-                            target.as_str()
-                        ),
-                    ));
-                }
+                    .find(|input| input.name() == binding_name.as_str())
+                    .ok_or_else(|| {
+                        invalid_named_workflow(
+                            workflow.name().as_str(),
+                            &format!(
+                                "step '{}' binds unknown input '{}' on workflow '{}'",
+                                step.id().as_str(),
+                                binding_name.as_str(),
+                                target.as_str()
+                            ),
+                        )
+                    })?;
+                validate_call_binding_type(
+                    workflow,
+                    step.id(),
+                    binding_name,
+                    binding,
+                    target_input,
+                    config,
+                )?;
             }
-            if let Some(item_name) = item_name {
+            let item_name = item.map(|(name, _)| name);
+            if let Some((item_name, items)) = item {
                 if bindings.keys().any(|binding| binding.as_str() == item_name) {
                     return Err(invalid_named_workflow(
                         workflow.name().as_str(),
@@ -1582,21 +1717,22 @@ fn validate_workflow_calls(
                         ),
                     ));
                 }
-                if !target_workflow
+                let target_input = target_workflow
                     .inputs()
                     .iter()
-                    .any(|input| input.name() == item_name)
-                {
-                    return Err(invalid_named_workflow(
-                        workflow.name().as_str(),
-                        &format!(
-                            "for_each step '{}' as value '{}' is not an input of workflow '{}'",
-                            step.id().as_str(),
-                            item_name,
-                            target.as_str()
-                        ),
-                    ));
-                }
+                    .find(|input| input.name() == item_name)
+                    .ok_or_else(|| {
+                        invalid_named_workflow(
+                            workflow.name().as_str(),
+                            &format!(
+                                "for_each step '{}' as value '{}' is not an input of workflow '{}'",
+                                step.id().as_str(),
+                                item_name,
+                                target.as_str()
+                            ),
+                        )
+                    })?;
+                validate_for_each_item_type(workflow, step.id(), items, target_input, config)?;
             }
             for input in target_workflow.inputs() {
                 let supplied = bindings
@@ -1619,6 +1755,165 @@ fn validate_workflow_calls(
         }
     }
     Ok(())
+}
+
+fn validate_call_binding_type(
+    workflow: &WorkflowDeclaration,
+    step: &WorkflowStepId,
+    binding_name: &WorkflowBindingName,
+    binding: &WorkflowBinding,
+    target: &WorkflowInputDeclaration,
+    config: &BTreeMap<String, ConfigDeclaration>,
+) -> Result<(), ProtocolError> {
+    let result = match binding {
+        WorkflowBinding::Literal(value) => validate_workflow_input_value(value, target),
+        WorkflowBinding::Input { name } => {
+            match workflow.inputs().iter().find(|input| input.name() == name) {
+                Some(source) => validate_declared_types(
+                    source.value_type(),
+                    source.repeatable(),
+                    target,
+                    "workflow input",
+                ),
+                None => Err(format!("source input '{name}' is not declared")),
+            }
+        }
+        WorkflowBinding::Config { key } => match config.get(key) {
+            Some(source) => validate_declared_types(
+                source.value_type(),
+                source.repeatable(),
+                target,
+                "configuration value",
+            ),
+            None => Err(format!("configuration value '{key}' is not declared")),
+        },
+        WorkflowBinding::Step { .. } => Ok(()),
+    };
+    result.map_err(|message| {
+        invalid_named_workflow(
+            workflow.name().as_str(),
+            &format!(
+                "step '{}' binding '{}': {message}",
+                step.as_str(),
+                binding_name.as_str()
+            ),
+        )
+    })
+}
+
+fn validate_declared_types(
+    source_type: WorkflowValueType,
+    source_repeatable: bool,
+    target: &WorkflowInputDeclaration,
+    source_label: &str,
+) -> Result<(), String> {
+    if source_repeatable != target.repeatable() {
+        return Err(format!(
+            "{source_label} repeatable={source_repeatable} does not match target input '{}' repeatable={}",
+            target.name(),
+            target.repeatable()
+        ));
+    }
+    if !target.value_type().accepts_type(source_type) {
+        return Err(format!(
+            "{source_label} type '{}' is incompatible with target input '{}' type '{}'",
+            source_type.as_str(),
+            target.name(),
+            target.value_type().as_str()
+        ));
+    }
+    Ok(())
+}
+
+fn validate_workflow_input_value(
+    value: &Value,
+    target: &WorkflowInputDeclaration,
+) -> Result<(), String> {
+    let valid = if target.repeatable() {
+        value
+            .as_array()
+            .is_some_and(|items| items.iter().all(|item| target.value_type().accepts(item)))
+    } else {
+        target.value_type().accepts(value)
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "literal does not satisfy target input '{}' type '{}'{}",
+            target.name(),
+            target.value_type().as_str(),
+            if target.repeatable() { "[]" } else { "" }
+        ))
+    }
+}
+
+fn validate_for_each_item_type(
+    workflow: &WorkflowDeclaration,
+    step: &WorkflowStepId,
+    binding: &WorkflowBinding,
+    target: &WorkflowInputDeclaration,
+    config: &BTreeMap<String, ConfigDeclaration>,
+) -> Result<(), ProtocolError> {
+    let invalid = |message: String| {
+        invalid_named_workflow(
+            workflow.name().as_str(),
+            &format!("for_each step '{}' items: {message}", step.as_str()),
+        )
+    };
+    match binding {
+        WorkflowBinding::Literal(value) => {
+            let items = value
+                .as_array()
+                .ok_or_else(|| invalid("literal must be an array".to_string()))?;
+            for item in items {
+                validate_workflow_input_value(item, target).map_err(&invalid)?;
+            }
+            Ok(())
+        }
+        WorkflowBinding::Input { name } => {
+            let source = workflow
+                .inputs()
+                .iter()
+                .find(|input| input.name() == name)
+                .ok_or_else(|| invalid(format!("workflow input '{name}' is not declared")))?;
+            validate_iteration_source(
+                source.value_type(),
+                source.repeatable(),
+                target,
+                &format!("workflow input '{name}'"),
+            )
+            .map_err(invalid)
+        }
+        WorkflowBinding::Config { key } => {
+            let source = config
+                .get(key)
+                .ok_or_else(|| invalid(format!("configuration value '{key}' is not declared")))?;
+            validate_iteration_source(
+                source.value_type(),
+                source.repeatable(),
+                target,
+                &format!("configuration value '{key}'"),
+            )
+            .map_err(invalid)
+        }
+        WorkflowBinding::Step { .. } => Ok(()),
+    }
+}
+
+fn validate_iteration_source(
+    source_type: WorkflowValueType,
+    source_repeatable: bool,
+    target: &WorkflowInputDeclaration,
+    source_label: &str,
+) -> Result<(), String> {
+    if source_repeatable {
+        validate_declared_types(source_type, false, target, "iteration item")
+    } else if source_type == WorkflowValueType::Json {
+        Ok(())
+    } else {
+        Err(format!("{source_label} is not repeatable or JSON"))
+    }
 }
 
 fn validate_step_id(
@@ -1762,13 +2057,28 @@ impl OptionKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct OptionPosition(NonZeroUsize);
+
+impl OptionPosition {
+    pub fn new(value: usize) -> Result<Self, String> {
+        NonZeroUsize::new(value)
+            .map(Self)
+            .ok_or_else(|| "position must be at least 1".to_string())
+    }
+
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OptionDeclaration {
     name: String,
     kind: OptionKind,
     short: Option<char>,
     long: Option<String>,
-    positional: bool,
+    position: Option<OptionPosition>,
     required: bool,
     repeatable: bool,
     help: String,
@@ -1776,18 +2086,22 @@ pub struct OptionDeclaration {
 }
 
 impl OptionDeclaration {
-    fn validate(raw: RawOption, command: &CommandPath) -> Result<Self, ProtocolError> {
-        if !is_option_word(&raw.name) {
+    fn validate(
+        name: String,
+        raw: RawOption,
+        command: &CommandPath,
+    ) -> Result<Self, ProtocolError> {
+        if !is_option_word(&name) {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "name must use lowercase ASCII letters, numbers, '-' or '_'",
             ));
         }
-        if RESERVED_LONG_OPTIONS.contains(&raw.name.as_str()) {
+        if RESERVED_LONG_OPTIONS.contains(&name.as_str()) {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "name is reserved by the host",
             ));
         }
@@ -1800,7 +2114,7 @@ impl OptionDeclaration {
                     (Some(value), None) if value.is_ascii_alphanumeric() => Ok(value),
                     _ => Err(invalid_option(
                         command,
-                        &raw.name,
+                        &name,
                         "short must be one ASCII letter or number without '-'",
                     )),
                 }
@@ -1809,7 +2123,7 @@ impl OptionDeclaration {
         if short.is_some_and(|short| RESERVED_SHORT_OPTIONS.contains(&short)) {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "short name is reserved by the host",
             ));
         }
@@ -1822,7 +2136,7 @@ impl OptionDeclaration {
                 } else {
                     Err(invalid_option(
                         command,
-                        &raw.name,
+                        &name,
                         "long must use lowercase ASCII kebab-case without '--'",
                     ))
                 }
@@ -1834,30 +2148,35 @@ impl OptionDeclaration {
         {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "long name is reserved by the host",
             ));
         }
 
-        if raw.positional {
+        let position = raw
+            .position
+            .map(OptionPosition::new)
+            .transpose()
+            .map_err(|message| invalid_option(command, &name, &message))?;
+        if position.is_some() {
             if short.is_some() || long.is_some() {
                 return Err(invalid_option(
                     command,
-                    &raw.name,
+                    &name,
                     "positional options cannot declare short or long names",
                 ));
             }
             if raw.kind == OptionKind::Flag {
                 return Err(invalid_option(
                     command,
-                    &raw.name,
+                    &name,
                     "positional options cannot be flags",
                 ));
             }
         } else if short.is_none() && long.is_none() {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "named options require a short or long name",
             ));
         }
@@ -1865,7 +2184,7 @@ impl OptionDeclaration {
         if raw.kind == OptionKind::Flag && !raw.values.is_empty() {
             return Err(invalid_option(
                 command,
-                &raw.name,
+                &name,
                 "flags cannot declare values",
             ));
         }
@@ -1873,7 +2192,7 @@ impl OptionDeclaration {
             if !raw.kind.validate_value(value) {
                 return Err(invalid_option(
                     command,
-                    &raw.name,
+                    &name,
                     &format!(
                         "allowed value '{value}' is not a valid {}",
                         raw.kind.type_name()
@@ -1883,11 +2202,11 @@ impl OptionDeclaration {
         }
 
         Ok(Self {
-            name: raw.name,
+            name,
             kind: raw.kind,
             short,
             long,
-            positional: raw.positional,
+            position,
             required: raw.required,
             repeatable: raw.repeatable,
             help: raw.help,
@@ -1912,7 +2231,11 @@ impl OptionDeclaration {
     }
 
     pub fn positional(&self) -> bool {
-        self.positional
+        self.position.is_some()
+    }
+
+    pub fn position(&self) -> Option<OptionPosition> {
+        self.position
     }
 
     pub fn required(&self) -> bool {
@@ -1947,7 +2270,7 @@ struct RawManifest {
     #[serde(default)]
     workflows: BTreeMap<String, RawWorkflow>,
     #[serde(default)]
-    commands: Vec<RawCommand>,
+    commands: BTreeMap<String, RawCommand>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1963,7 +2286,7 @@ struct RawCommand {
     #[serde(default)]
     interactive: bool,
     #[serde(default)]
-    options: Vec<RawOption>,
+    options: BTreeMap<String, RawOption>,
     workflow: Option<String>,
 }
 
@@ -1971,10 +2294,12 @@ struct RawCommand {
 #[serde(deny_unknown_fields)]
 struct RawWorkflow {
     #[serde(default)]
-    inputs: Vec<RawWorkflowInput>,
+    inputs: BTreeMap<String, RawWorkflowInput>,
     output: RawWorkflowOutput,
     #[serde(default)]
-    steps: Vec<RawWorkflowStep>,
+    step_order: Vec<String>,
+    #[serde(default)]
+    steps: BTreeMap<String, RawWorkflowStep>,
     #[serde(default)]
     capabilities: Vec<String>,
     result: String,
@@ -1984,30 +2309,25 @@ struct RawWorkflow {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum RawWorkflowStep {
     Run {
-        id: String,
         run: Vec<String>,
         #[serde(default, rename = "with")]
         bindings: BTreeMap<String, RawWorkflowBinding>,
         when: Option<String>,
     },
     Let {
-        id: String,
         expr: String,
     },
     Assert {
-        id: String,
         condition: String,
         message: String,
     },
     Call {
-        id: String,
         call: String,
         #[serde(default, rename = "with")]
         bindings: BTreeMap<String, RawWorkflowBinding>,
         when: Option<String>,
     },
     ForEach {
-        id: String,
         items: RawWorkflowBinding,
         #[serde(rename = "as")]
         item_name: String,
@@ -2053,7 +2373,6 @@ struct RawValueDeclaration {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawWorkflowInput {
-    name: String,
     #[serde(rename = "type")]
     value_type: WorkflowValueType,
     #[serde(default)]
@@ -2082,12 +2401,10 @@ fn default_workflow_value_type() -> WorkflowValueType {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawOption {
-    name: String,
     kind: OptionKind,
     short: Option<String>,
     long: Option<String>,
-    #[serde(default)]
-    positional: bool,
+    position: Option<usize>,
     #[serde(default)]
     required: bool,
     #[serde(default)]
@@ -2355,14 +2672,13 @@ executable = "bin/site-inventory"
 type = "string"
 required = true
 
-[[commands]]
+[commands.host_show]
 path = ["host", "show"]
 arguments = ["host", "show"]
 
-[[commands.options]]
-name = "identifier"
+[commands.host_show.options.identifier]
 kind = "string"
-positional = true
+position = 1
 "#;
 
     const PORTABLE_BODY: &str = r#"
@@ -2372,9 +2688,9 @@ default = "Hosts"
 
 [workflows.item]
 result = "[.input.item]"
+step_order = ["keep"]
 
-[[workflows.item.inputs]]
-name = "item"
+[workflows.item.inputs.item]
 type = "json"
 required = true
 
@@ -2382,21 +2698,19 @@ required = true
 shape = "values"
 type = "json"
 
-[[workflows.item.steps]]
-id = "keep"
+[workflows.item.steps.keep]
 kind = "let"
 expr = ".input.item"
 
 [workflows.snapshot]
 result = "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
+step_order = ["hosts", "selected", "valid", "one", "many"]
 
-[[workflows.snapshot.inputs]]
-name = "enabled"
+[workflows.snapshot.inputs.enabled]
 type = "boolean"
 default = true
 
-[[workflows.snapshot.inputs]]
-name = "items"
+[workflows.snapshot.inputs.items]
 type = "json"
 default = [1, 2]
 
@@ -2404,36 +2718,31 @@ default = [1, 2]
 shape = "detail"
 type = "json"
 
-[[workflows.snapshot.steps]]
-id = "hosts"
+[workflows.snapshot.steps.hosts]
 kind = "run"
 run = ["object", "list"]
 when = ".input.enabled"
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.hosts.with]
 class = { config = "hosts_class" }
 all = true
 
-[[workflows.snapshot.steps]]
-id = "selected"
+[workflows.snapshot.steps.selected]
 kind = "let"
 expr = ".steps.hosts"
 
-[[workflows.snapshot.steps]]
-id = "valid"
+[workflows.snapshot.steps.valid]
 kind = "assert"
 condition = ".input.enabled == true"
 message = "snapshot must be enabled"
 
-[[workflows.snapshot.steps]]
-id = "one"
+[workflows.snapshot.steps.one]
 kind = "call"
 call = "item"
 when = ".input.enabled"
 with = { item = "one" }
 
-[[workflows.snapshot.steps]]
-id = "many"
+[workflows.snapshot.steps.many]
 kind = "for_each"
 items = { input = "items" }
 as = "item"
@@ -2448,6 +2757,16 @@ when = ".input.enabled"
         assert_eq!(manifest.kind(), ExtensionPackKind::Executable);
         assert_eq!(manifest.protocol().expect("protocol").as_str(), PROTOCOL_V1);
         assert!(manifest.supports_cli(&Version::new(0, 0, 9)));
+        assert_eq!(
+            manifest.commands()[0].declaration_name().as_str(),
+            "host_show"
+        );
+        assert_eq!(
+            manifest.commands()[0].options()[0]
+                .position()
+                .map(|position| position.get()),
+            Some(1)
+        );
         assert!(matches!(
             manifest.commands()[0].implementation(),
             CommandImplementation::Executable { .. }
@@ -2487,16 +2806,15 @@ when = ".input.enabled"
             r#"
 [workflows.snapshot]
 result = ".steps.first"
+step_order = ["first", "later"]
 [workflows.snapshot.output]
 shape = "detail"
 type = "json"
-[[workflows.snapshot.steps]]
-id = "first"
+[workflows.snapshot.steps.first]
 kind = "run"
 run = ["object", "show"]
 with = { id = { step = "later" } }
-[[workflows.snapshot.steps]]
-id = "later"
+[workflows.snapshot.steps.later]
 kind = "run"
 run = ["object", "list"]
 "#,
@@ -2517,6 +2835,75 @@ run = ["object", "list"]
             .expect_err("missing max_items")
             .to_string()
             .contains("max_items"));
+    }
+
+    #[test]
+    fn rejects_ambiguous_declaration_order() {
+        let missing_step = PORTABLE_BODY.replace(
+            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"many\"]",
+            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\"]",
+        );
+        assert!(ExtensionManifest::parse(&portable_manifest(&missing_step))
+            .expect_err("missing step order entry")
+            .to_string()
+            .contains("step_order must name every declared step exactly once"));
+
+        let duplicate_step = PORTABLE_BODY.replace(
+            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"many\"]",
+            "step_order = [\"hosts\", \"selected\", \"valid\", \"one\", \"one\"]",
+        );
+        assert!(
+            ExtensionManifest::parse(&portable_manifest(&duplicate_step))
+                .expect_err("duplicate step order entry")
+                .to_string()
+                .contains("step_order contains duplicate step 'one'")
+        );
+
+        let skipped_position = EXECUTABLE.replace("position = 1", "position = 2");
+        assert!(ExtensionManifest::parse(&skipped_position)
+            .expect_err("non-contiguous positional order")
+            .to_string()
+            .contains("positions must be contiguous from 1"));
+    }
+
+    #[test]
+    fn rejects_incompatible_same_pack_bindings() {
+        let invalid_call_literal = PORTABLE_BODY.replace(
+            "[workflows.item.inputs.item]\ntype = \"json\"",
+            "[workflows.item.inputs.item]\ntype = \"integer\"",
+        );
+        assert!(
+            ExtensionManifest::parse(&portable_manifest(&invalid_call_literal))
+                .expect_err("incompatible call literal")
+                .to_string()
+                .contains("literal does not satisfy target input 'item' type 'integer'")
+        );
+
+        let invalid_iteration = PORTABLE_BODY.replace(
+            "items = { input = \"items\" }",
+            "items = { input = \"enabled\" }",
+        );
+        assert!(
+            ExtensionManifest::parse(&portable_manifest(&invalid_iteration))
+                .expect_err("non-iterable input")
+                .to_string()
+                .contains("workflow input 'enabled' is not repeatable or JSON")
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_arrays_and_invalid_declaration_names() {
+        let legacy = EXECUTABLE.replace("[commands.host_show]", "[[commands]]");
+        assert!(matches!(
+            ExtensionManifest::parse(&legacy),
+            Err(ProtocolError::InvalidManifestToml(_))
+        ));
+
+        let invalid_name = EXECUTABLE.replace("host_show", "host-show");
+        assert!(matches!(
+            ExtensionManifest::parse(&invalid_name),
+            Err(ProtocolError::InvalidCommandDeclarationName(name)) if name == "host-show"
+        ));
     }
 
     #[test]
@@ -2563,8 +2950,8 @@ run = ["object", "list"]
         );
 
         let true_flag = portable_manifest(PORTABLE_BODY).replace(
-            "name = \"enabled\"\nkind = \"boolean\"",
-            "name = \"enabled\"\nkind = \"flag\"",
+            "[commands.snapshot.options.enabled]\nkind = \"boolean\"",
+            "[commands.snapshot.options.enabled]\nkind = \"flag\"",
         );
         assert!(ExtensionManifest::parse(&true_flag)
             .expect_err("true default flag")
@@ -2576,8 +2963,8 @@ run = ["object", "list"]
             "type = \"boolean\"\nrepeatable = true",
         ))
         .replace(
-            "name = \"enabled\"\nkind = \"boolean\"",
-            "name = \"enabled\"\nkind = \"flag\"\nrepeatable = true",
+            "[commands.snapshot.options.enabled]\nkind = \"boolean\"",
+            "[commands.snapshot.options.enabled]\nkind = \"flag\"\nrepeatable = true",
         );
         assert!(ExtensionManifest::parse(&repeatable_flag)
             .expect_err("repeatable flag")
@@ -2625,17 +3012,15 @@ requires_cli = ">=0.0.9,<0.1"
 
 {body}
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 
-[[commands.options]]
-name = "enabled"
+[commands.snapshot.options.enabled]
 kind = "boolean"
 long = "enabled"
 
-[[commands.options]]
-name = "items"
+[commands.snapshot.options.items]
 kind = "json"
 long = "items"
 "#

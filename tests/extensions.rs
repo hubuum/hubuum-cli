@@ -54,23 +54,21 @@ executable = "bin/demo"
 type = "string"
 required = true
 
-[[commands]]
+[commands.demo]
 path = ["demo"]
 about = "Run a command sharing the pack name"
 
-[[commands.options]]
-name = "target"
+[commands.demo.options.target]
 kind = "string"
-positional = true
+position = 1
 required = true
 
-[[commands]]
+[commands.inventory_list]
 path = ["inventory", "list"]
 arguments = ["inventory", "list"]
 about = "List demo inventory"
 
-[[commands.options]]
-name = "state"
+[commands.inventory_list.options.state]
 kind = "string"
 long = "state"
 help = "Inventory state"
@@ -120,7 +118,7 @@ requires_cli = ">=0.0.9,<0.1"
 protocol = "hubuum-cli.extension/v1"
 executable = "bin/run"
 
-[[commands]]
+[commands.run]
 path = ["run"]
 about = "Run protocol fixture"
 "#
@@ -164,20 +162,20 @@ requires_cli = ">=0.0.9,<0.1"
 [workflows.snapshot]
 {capabilities}
 result = "{{ items: .steps.items }}"
+step_order = ["items"]
 
 [workflows.snapshot.output]
 shape = "detail"
 type = "json"
 
-[[workflows.snapshot.steps]]
-id = "items"
+[workflows.snapshot.steps.items]
 kind = "run"
 run = [{command}]
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.items.with]
 {bindings}
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 about = "Compose built-in commands"
@@ -200,9 +198,9 @@ requires_cli = ">=0.0.9,<0.1"
 
 [workflows.capture]
 result = "[.input.item]"
+step_order = ["value"]
 
-[[workflows.capture.inputs]]
-name = "item"
+[workflows.capture.inputs.item]
 type = "json"
 required = true
 
@@ -210,21 +208,19 @@ required = true
 shape = "values"
 type = "json"
 
-[[workflows.capture.steps]]
-id = "value"
+[workflows.capture.steps.value]
 kind = "let"
 expr = ".input.item"
 
 [workflows.compose]
 result = "{ one: .steps.one[0], many: [.steps.many[][0]], skipped: .steps.skipped }"
+step_order = ["seed", "valid", "one", "many", "skipped"]
 
-[[workflows.compose.inputs]]
-name = "enabled"
+[workflows.compose.inputs.enabled]
 type = "boolean"
 default = true
 
-[[workflows.compose.inputs]]
-name = "items"
+[workflows.compose.inputs.items]
 type = "json"
 default = ["alpha", "beta"]
 
@@ -233,26 +229,22 @@ shape = "detail"
 type = "json"
 columns = ["one", "many", "skipped"]
 
-[[workflows.compose.steps]]
-id = "seed"
+[workflows.compose.steps.seed]
 kind = "let"
 expr = ".input.items"
 
-[[workflows.compose.steps]]
-id = "valid"
+[workflows.compose.steps.valid]
 kind = "assert"
 condition = "(.input.items | length) == 2"
 message = "two items are required"
 
-[[workflows.compose.steps]]
-id = "one"
+[workflows.compose.steps.one]
 kind = "call"
 call = "capture"
 when = ".input.enabled"
 with = { item = "single" }
 
-[[workflows.compose.steps]]
-id = "many"
+[workflows.compose.steps.many]
 kind = "for_each"
 items = { step = "seed" }
 as = "item"
@@ -260,24 +252,21 @@ call = "capture"
 max_items = 2
 when = ".input.enabled"
 
-[[workflows.compose.steps]]
-id = "skipped"
+[workflows.compose.steps.skipped]
 kind = "run"
 run = ["version"]
 when = ".input.enabled == false"
 
-[[commands]]
+[commands.compose]
 path = ["compose"]
 workflow = "compose"
 about = "Exercise portable workflow composition"
 
-[[commands.options]]
-name = "enabled"
+[commands.compose.options.enabled]
 kind = "boolean"
 long = "enabled"
 
-[[commands.options]]
-name = "items"
+[commands.compose.options.items]
 kind = "json"
 long = "items"
 "#,
@@ -297,8 +286,11 @@ fn bundled_manifest_workflow_uses_the_current_language() {
         "../examples/hubuum-inventory/hubuum-extension.toml"
     ))
     .expect("bundled workflow manifest");
-    let snapshot_name = manifest.commands()[0]
-        .workflow()
+    let snapshot_name = manifest
+        .commands()
+        .iter()
+        .filter_map(|command| command.workflow())
+        .find(|workflow| workflow.as_str() == "snapshot")
         .expect("snapshot workflow name");
     let snapshot = manifest.workflow(snapshot_name).expect("snapshot workflow");
 
@@ -799,31 +791,29 @@ requires_cli = ">=0.0.9,<0.1"
 
 [workflows.snapshot]
 result = ".steps.object"
+step_order = ["object"]
 
-[[workflows.snapshot.inputs]]
-name = "depth"
+[workflows.snapshot.inputs.depth]
 type = "string"
 
 [workflows.snapshot.output]
 shape = "detail"
 type = "json"
 
-[[workflows.snapshot.steps]]
-id = "object"
+[workflows.snapshot.steps.object]
 kind = "run"
 run = ["object", "show"]
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.object.with]
 name = "server-01"
 class = "Hosts"
 max-depth = { input = "depth" }
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 
-[[commands.options]]
-name = "depth"
+[commands.snapshot.options.depth]
 kind = "string"
 long = "depth"
 "#,

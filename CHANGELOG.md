@@ -12,7 +12,9 @@
   points.
   Workflow commands use strict manifest schemas and a catalog contract with
   stable input IDs, portable types and cardinality, explicit effects, early
-  compatibility checks, and preserved step-output metadata.
+  compatibility checks, and preserved step-output metadata. Manifest commands,
+  options, inputs, and steps use named TOML tables, with explicit positional and
+  workflow step ordering.
 
 ## [0.0.9] - 2026-08-07
 

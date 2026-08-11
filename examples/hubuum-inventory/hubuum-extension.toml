@@ -20,6 +20,11 @@ default = "Rooms"
 help = "Class containing Room objects"
 
 [workflows.snapshot]
+step_order = [
+  "hosts",
+  "jacks",
+  "rooms",
+]
 result = "{ hosts: .steps.hosts, jacks: .steps.jacks, rooms: .steps.rooms }"
 
 [workflows.snapshot.output]
@@ -27,49 +32,48 @@ shape = "detail"
 type = "json"
 columns = ["hosts", "jacks", "rooms"]
 
-[[workflows.snapshot.steps]]
-id = "hosts"
+[workflows.snapshot.steps.hosts]
 kind = "run"
 run = ["object", "list"]
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.hosts.with]
 class = { config = "hosts_class" }
 all = true
 
-[[workflows.snapshot.steps]]
-id = "jacks"
+[workflows.snapshot.steps.jacks]
 kind = "run"
 run = ["object", "list"]
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.jacks.with]
 class = { config = "jacks_class" }
 all = true
 
-[[workflows.snapshot.steps]]
-id = "rooms"
+[workflows.snapshot.steps.rooms]
 kind = "run"
 run = ["object", "list"]
 
-[workflows.snapshot.steps.with]
+[workflows.snapshot.steps.rooms.with]
 class = { config = "rooms_class" }
 all = true
 
 [workflows.classes]
+step_order = [
+  "classes",
+]
 result = ".steps.classes"
 
 [workflows.classes.output]
 shape = "rows"
 type = "json"
 
-[[workflows.classes.steps]]
-id = "classes"
+[workflows.classes.steps.classes]
 kind = "run"
 run = ["class", "list"]
 
-[workflows.classes.steps.with]
+[workflows.classes.steps.classes.with]
 all = true
 
-[[commands]]
+[commands.snapshot]
 path = ["snapshot"]
 workflow = "snapshot"
 about = "Collect Hosts, Jacks, and Rooms in one response"
@@ -80,7 +84,7 @@ examples = [
   "extension inventory snapshot | JQ '.hosts | length'",
 ]
 
-[[commands]]
+[commands.classes]
 path = ["classes"]
 workflow = "classes"
 about = "List all classes through an in-process step"

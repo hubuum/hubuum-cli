@@ -26,7 +26,7 @@ default = "inventory"
 type = "string"
 default = "J-000"
 
-[[commands]]
+[commands.show]
 path = ["show"]
 arguments = ["host", "show"]
 about = "Show a Host and its physical placement"
@@ -36,26 +36,23 @@ examples = [
   "extension host show --verbose 00-11-22-33-44-55",
 ]
 
-[[commands.options]]
-name = "identifier"
+[commands.show.options.identifier]
 kind = "string"
-positional = true
+position = 1
 help = "Host name, ID, address, MAC address, or serial number"
 
-[[commands.options]]
-name = "id"
+[commands.show.options.id]
 kind = "string"
 long = "id"
 help = "Host identifier (alternative to the positional argument)"
 
-[[commands.options]]
-name = "verbose"
+[commands.show.options.verbose]
 kind = "flag"
 long = "verbose"
 short = "v"
 help = "Include every data leaf"
 
-[[commands]]
+[commands.create]
 path = ["create"]
 arguments = ["host", "create"]
 about = "Create a Host and optionally place it"
@@ -65,112 +62,95 @@ examples = [
   "extension host create --collection inventory --to R-301 --jack J-42 server-01",
 ]
 
-[[commands.options]]
-name = "hostname"
+[commands.create.options.hostname]
 kind = "string"
-positional = true
+position = 1
 help = "Host name or FQDN"
 
-[[commands.options]]
-name = "serial_argument"
+[commands.create.options.serial_argument]
 kind = "string"
-positional = true
+position = 2
 help = "Hardware serial number"
 
-[[commands.options]]
-name = "serial"
+[commands.create.options.serial]
 kind = "string"
 long = "serial"
 help = "Hardware serial number"
 
-[[commands.options]]
-name = "name"
+[commands.create.options.name]
 kind = "string"
 long = "name"
 help = "Hubuum object name"
 
-[[commands.options]]
-name = "fqdn"
+[commands.create.options.fqdn]
 kind = "string"
 long = "fqdn"
 help = "Canonical FQDN"
 
-[[commands.options]]
-name = "collection"
+[commands.create.options.collection]
 kind = "string"
 long = "collection"
 help = "Target collection"
 
-[[commands.options]]
-name = "description"
+[commands.create.options.description]
 kind = "string"
 long = "description"
 help = "Object description"
 
-[[commands.options]]
-name = "ipv4"
+[commands.create.options.ipv4]
 kind = "string"
 long = "ipv4"
 help = "Default IPv4 address"
 
-[[commands.options]]
-name = "ipv6"
+[commands.create.options.ipv6]
 kind = "string"
 long = "ipv6"
 help = "Default IPv6 address"
 
-[[commands.options]]
-name = "no_dns"
+[commands.create.options.no_dns]
 kind = "flag"
 long = "no-dns"
 help = "Skip forward DNS lookup"
 
-[[commands.options]]
-name = "to"
+[commands.create.options.to]
 kind = "string"
 long = "to"
 help = "Placement destination"
 
-[[commands.options]]
-name = "no_place"
+[commands.create.options.no_place]
 kind = "flag"
 long = "no-place"
 help = "Leave the Host unplaced"
 
-[[commands.options]]
-name = "target_type"
+[commands.create.options.target_type]
 kind = "string"
 long = "target-type"
 help = "Destination type"
 values = ["auto", "host", "jack", "room"]
 
-[[commands.options]]
-name = "jack"
+[commands.create.options.jack]
 kind = "string"
 long = "jack"
 help = "Specific Jack when the destination is a Room"
 
-[[commands.options]]
-name = "mode"
+[commands.create.options.mode]
 kind = "string"
 long = "mode"
 help = "Behavior for an occupied Jack"
 values = ["add", "switch"]
 
-[[commands.options]]
-name = "swap_with"
+[commands.create.options.swap_with]
 kind = "string"
 long = "swap-with"
 help = "Host to exchange with in switch mode"
 
-[[commands.options]]
-name = "yes"
+[commands.create.options.yes]
 kind = "flag"
 long = "yes"
 short = "y"
 help = "Skip creation and move confirmations"
 
-[[commands]]
+[commands.move]
 path = ["move"]
 arguments = ["host", "move"]
 about = "Move a Host to a Jack, Room, or another Host's Jack"
@@ -181,64 +161,54 @@ examples = [
   "extension host move server-01 J-42 --dry-run",
 ]
 
-[[commands.options]]
-name = "host"
+[commands.move.options.host]
 kind = "string"
-positional = true
+position = 1
 help = "Host to move"
 
-[[commands.options]]
-name = "destination"
+[commands.move.options.destination]
 kind = "string"
-positional = true
+position = 2
 help = "Jack, Room, Host, or 'none'"
 
-[[commands.options]]
-name = "from"
+[commands.move.options.from]
 kind = "string"
 long = "from"
 help = "Host to move (alternative to the positional argument)"
 
-[[commands.options]]
-name = "to"
+[commands.move.options.to]
 kind = "string"
 long = "to"
 help = "Destination (alternative to the positional argument)"
 
-[[commands.options]]
-name = "target_type"
+[commands.move.options.target_type]
 kind = "string"
 long = "target-type"
 help = "Destination type"
 values = ["auto", "host", "jack", "room"]
 
-[[commands.options]]
-name = "jack"
+[commands.move.options.jack]
 kind = "string"
 long = "jack"
 help = "Specific Jack when the destination is a Room"
 
-[[commands.options]]
-name = "mode"
+[commands.move.options.mode]
 kind = "string"
 long = "mode"
 help = "Behavior for an occupied Jack"
 values = ["add", "switch"]
 
-[[commands.options]]
-name = "swap_with"
+[commands.move.options.swap_with]
 kind = "string"
 long = "swap-with"
 help = "Host to exchange with in switch mode"
 
-[[commands.options]]
-name = "dry_run"
+[commands.move.options.dry_run]
 kind = "flag"
 long = "dry-run"
 help = "Show the relation plan without applying it"
 
-[[commands.options]]
-name = "yes"
+[commands.move.options.yes]
 kind = "flag"
 long = "yes"
 short = "y"
