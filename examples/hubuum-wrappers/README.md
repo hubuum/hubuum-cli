@@ -3,20 +3,20 @@
 These example programs provide convenient Host inventory and placement
 workflows without becoming built-in Hubuum commands. They are both standalone
 Bash wrappers and the `host` pilot for the
-[external command pack protocol](../../docs/extensions.md). Every server
+[executable extension protocol](../../docs/extensions.md#executable-packs). Every server
 operation invokes `hubuum-cli`; the wrappers do not use a Hubuum API client
 library.
 
-For the dependency-free, manifest-only Host, Jack, and Room implementation,
+For the dependency-free Host, Jack, and Room implementation,
 see [`examples/hubuum-placement`](../hubuum-placement/README.md). That portable
-pack runs built-in commands in-process and uses reusable typed workflows. These
-shell-backed wrappers remain as the executable-pack and standalone-program
-comparison, including their richer DNS discovery, prompting, and rollback
-behavior.
+workflow pack runs built-in commands in-process and uses reusable typed TOML/JQ
+workflows. These shell-backed wrappers are intentionally an executable pack and
+standalone-program comparison, including their richer DNS discovery, prompting,
+and rollback behavior.
 
 Keep the manifest, protocol dispatcher, wrappers, and common file in this
 directory together. Put the directory on `PATH` for standalone use, or install
-the directory as a local command pack:
+the directory as a local executable pack:
 
 ```sh
 hubuum-cli extension install examples/hubuum-wrappers
@@ -24,8 +24,9 @@ hubuum-cli extension host show server-01
 hubuum-cli extension host move server-01 J-42
 ```
 
-The wrappers support the Bash 3.2 shipped by older macOS releases
-and require `jq`, `mktemp`, and a working `hubuum-cli` configuration.
+Unlike portable workflow packs, these wrappers have runtime dependencies. They
+support the Bash 3.2 shipped by older macOS releases and require `jq`, `mktemp`,
+and a working `hubuum-cli` configuration.
 `hubuum-host-new` also uses the common `host` DNS utility unless `--no-dns` is
 selected.
 

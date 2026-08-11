@@ -97,7 +97,7 @@ command = "object list --class Hosts | P Name"
 description = "List known hosts"
 ```
 
-Larger site workflows can be installed as manifest-driven command packs. They
+Larger site workflows can be installed as extension packs. They
 live under the reserved `extension <pack> ...` namespace and join the normal
 help tree, validation, completion, semantic output, pipeline, and redirect
 machinery:
@@ -112,16 +112,17 @@ hubuum-cli extension placement room jacks R-301
 hubuum-cli extension doctor
 ```
 
-Portable packs run reusable, typed TOML workflows in-process and require no
-runtime dependency other than `hubuum-cli`. They support bounded JQ
-expressions, conditions, assertions, same-pack calls, and bounded iteration.
-Executable-backed packs
-remain available through a small versioned JSON process protocol; they are
-trusted, not native plugins, and not sandboxed. See the
-[extension command pack guide](docs/extensions.md) for manifests, discovery,
+Portable workflow packs are the preferred extension kind. They run reusable,
+typed TOML workflows in-process, require no runtime dependency other than
+`hubuum-cli`, and support bounded JQ expressions, conditions, assertions,
+same-pack calls, and bounded iteration. Executable packs remain available for
+work that cannot be expressed through built-in commands and JQ. They use a
+small versioned JSON process protocol, may add runtime dependencies, and are
+trusted rather than sandboxed. See the
+[extension pack guide](docs/extensions.md) for manifests, discovery,
 configuration, lifecycle operations, security boundaries, and troubleshooting.
 The [placement example](examples/hubuum-placement/README.md) combines Host,
-Jack, and Room operations in one dependency-free portable pack.
+Jack, and Room operations in one dependency-free portable workflow pack.
 
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in

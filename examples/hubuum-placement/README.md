@@ -1,14 +1,15 @@
-# Hubuum placement extension
+# Hubuum placement workflow pack
 
-This portable extension combines the Host, Jack, and Room inventory examples
-into one manifest-only pack. It invokes built-in commands in-process and has no
-runtime dependency other than `hubuum-cli`.
+This portable workflow pack combines the Host, Jack, and Room inventory
+examples in one TOML manifest. It invokes built-in commands in-process and has
+no runtime dependency other than `hubuum-cli`; it does not start a shell or an
+external interpreter.
 
 Validate, inspect, and install it with:
 
 ```console
 hubuum-cli extension validate examples/hubuum-placement
-hubuum-cli extension explain examples/hubuum-placement
+hubuum-cli extension explain examples/hubuum-placement --workflow host_move
 hubuum-cli extension install examples/hubuum-placement
 ```
 
@@ -81,5 +82,5 @@ relation_depth = 1
 
 The pack demonstrates all compositional parts of the TOML workflow language:
 private reusable workflows, typed inputs and configuration, declared output
-shapes, `run`, `let`, `call`, bounded `for_each`, `when`, mutating capability
-propagation, and JQ result construction.
+shapes, `run`, `let`, `assert`, `call`, bounded `for_each`, `when`, mutating
+capability propagation, and JQ result construction.

@@ -2,15 +2,17 @@
 
 ## [Unreleased]
 
-- Added manifest-driven external command packs under `extension <pack>`, with a
-  versioned argv/JSON protocol, deterministic system and user discovery,
-  catalog help and static completion, semantic output pipelines, diagnostics,
-  typed manifest-only workflows, and local user-package lifecycle commands.
-  The Host wrappers now double as a tested pilot pack while preserving their
-  standalone entry points. Workflow commands use strict manifest schemas and a
-  catalog contract with stable input IDs, portable types and cardinality,
-  explicit effects, early compatibility checks, and preserved step-output
-  metadata.
+- Added extension packs under `extension <pack>`, with dependency-free portable
+  TOML/JQ workflow packs as the preferred kind and a versioned argv/JSON
+  protocol for explicitly executable packs. Packs have deterministic system and
+  user discovery, catalog help and static completion, semantic output pipelines,
+  diagnostics, and local user-package lifecycle commands. The Host, Jack, and
+  Room placement example is one portable workflow pack; the Host shell wrappers
+  remain a tested executable pack pilot and retain their standalone entry
+  points.
+  Workflow commands use strict manifest schemas and a catalog contract with
+  stable input IDs, portable types and cardinality, explicit effects, early
+  compatibility checks, and preserved step-output metadata.
 
 ## [0.0.9] - 2026-08-07
 

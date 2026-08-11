@@ -1,8 +1,8 @@
-# Hubuum inventory workflow
+# Hubuum inventory workflow pack
 
-This manifest-only extension composes three built-in `object list` commands
-without starting a shell or another `hubuum-cli` process. Its only runtime
-dependency is `hubuum-cli`.
+This portable workflow pack composes three built-in `object list` commands from
+one TOML manifest without starting a shell or another `hubuum-cli` process. Its
+only runtime dependency is `hubuum-cli`.
 
 Install and run it with:
 

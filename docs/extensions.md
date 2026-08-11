@@ -1,12 +1,17 @@
-# Extension command packs
+# Extension packs
 
 Extension packs add trusted, site-specific workflows to the Hubuum CLI command
-catalog without compiling them into the CLI. A manifest-only workflow invokes
-built-in commands in-process and needs no runtime other than
-`hubuum-cli`. Packs may also declare executable-backed commands implemented in
-Bash, Python, Rust, or another language. Both forms participate in help, REPL
-scopes, declared option validation, static completion, semantic pipelines,
-output formats, and redirects.
+catalog without compiling them into the CLI.
+
+Portable workflow packs are declared in TOML, use bounded JQ expressions, and
+depend only on `hubuum-cli`. They are the preferred choice for composable,
+distributable extensions. Executable packs invoke external programs such as
+Bash, Python, or compiled binaries. Use them only for integrations that cannot
+be expressed as portable workflows, and treat their additional runtime
+dependencies as part of the installation.
+
+Both kinds participate in help, REPL scopes, declared option validation, static
+completion, semantic pipelines, output formats, and redirects.
 
 Extension commands use a reserved namespace:
 
@@ -51,58 +56,24 @@ pack. The complete effective application configuration is never exposed.
 
 ## Package manifest
 
-A manifest-only package contains one file:
+Every pack is a directory containing `hubuum-extension.toml`. The required
+`kind` selects one of two deliberately separate execution models:
+
+| Kind | Implementation | Runtime dependencies | Intended use |
+| --- | --- | --- | --- |
+| `portable` | Typed TOML workflows and bounded JQ | `hubuum-cli` only | Preferred for built-in command composition |
+| `executable` | A declared program behind the JSON protocol | The program and everything it requires | External I/O or behavior outside the workflow language |
+
+A portable workflow pack can consist of only its manifest:
 
 ```text
-site-inventory/
+inventory/
 └── hubuum-extension.toml
 ```
 
-An executable-backed package also contains the executable referenced relative
-to the manifest:
-
-```text
-site-inventory/
-├── hubuum-extension.toml
-└── bin/
-    └── site-inventory
-```
-
-The v1 executable-backed manifest is TOML:
-
-```toml
-schema_version = 1
-kind = "executable"
-name = "site-inventory"
-version = "1.2.0"
-requires_cli = ">=0.0.9,<0.1"
-protocol = "hubuum-cli.extension/v1"
-executable = "bin/site-inventory"
-
-[[commands]]
-path = ["host", "show"]
-arguments = ["host", "show"]
-about = "Show a Host and its physical placement"
-examples = ["extension site-inventory host show server-01"]
-
-[[commands.options]]
-name = "identifier"
-kind = "string"
-positional = true
-required = true
-help = "Host name or installation-specific identifier"
-
-[[commands.options]]
-name = "view"
-kind = "string"
-long = "view"
-help = "Output detail level"
-values = ["summary", "full"]
-```
-
 Pack names, command path segments, and long option names use lowercase ASCII
-kebab-case. The executable path must remain within the package. Supported
-option kinds are `string`, `integer`, `number`, `boolean`, `flag`, and `json`.
+kebab-case. Supported option kinds are `string`, `integer`, `number`,
+`boolean`, `flag`, and `json`.
 Positionals are ordered; only the final positional may be repeatable. The
 `values` list provides validation and static completion.
 One command path cannot be a prefix of another command path in the same pack.
@@ -113,12 +84,11 @@ binding fields are rejected so misspellings cannot silently change behavior.
 Each command has exactly one implementation. `interactive` and executable
 `arguments` are invalid on workflow commands.
 
-## Portable workflows
+## Portable workflow packs
 
-A portable pack is explicitly classified with `kind = "portable"`. It cannot
-declare `protocol` or `executable`; its only runtime dependency is the current
-`hubuum-cli`. An executable pack uses `kind = "executable"`, must declare both
-process fields, and cannot mix in workflow declarations.
+A portable workflow pack is explicitly classified with `kind = "portable"`.
+It cannot declare `protocol`, `executable`, executable `arguments`, or
+interactive commands. Its only runtime dependency is the current `hubuum-cli`.
 
 Workflows are reusable top-level declarations. Commands expose selected
 workflows, while other workflows remain private building blocks in the same
@@ -257,11 +227,12 @@ CLI pipelines.
 
 ### Compilation and limits
 
-The CLI compiles every portable pack into a stable `WorkflowPlan` intermediate
-representation before registering commands. Compilation resolves built-in
-command contracts, expands the same-pack call graph, detects cycles, computes
-effects and retry safety, and rejects graphs that exceed fixed host limits.
-Installed failures quarantine the whole pack and appear in `extension doctor`.
+The CLI compiles every portable workflow pack into a stable `WorkflowPlan`
+intermediate representation before registering commands. Compilation resolves
+built-in command contracts, expands the same-pack call graph, detects cycles,
+computes effects and retry safety, and rejects graphs that exceed fixed host
+limits. Installed failures quarantine the whole pack and appear in
+`extension doctor`.
 
 The v1 limits are mandatory and cannot be weakened by a pack:
 
@@ -296,12 +267,55 @@ belongs in an explicitly executable pack.
 See the dependency-free
 [`examples/hubuum-placement`](../examples/hubuum-placement/README.md) pack for
 a complete Host, Jack, and Room example. It demonstrates reusable private
-workflows, all executable step kinds, typed configuration, relation mutations,
+workflows, all workflow step kinds, typed configuration, relation mutations,
 and a bounded `for_each` move plan. The smaller
 [`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack is a
 minimal read-only introduction.
 
-## Executable commands
+## Executable packs
+
+An executable pack uses `kind = "executable"`, declares both `protocol` and
+`executable`, and cannot declare workflows. Its executable path is relative to
+the manifest and must remain within the package:
+
+```text
+site-inventory/
+├── hubuum-extension.toml
+└── bin/
+    └── site-inventory
+```
+
+The v1 executable manifest is also TOML:
+
+```toml
+schema_version = 1
+kind = "executable"
+name = "site-inventory"
+version = "1.2.0"
+requires_cli = ">=0.0.9,<0.1"
+protocol = "hubuum-cli.extension/v1"
+executable = "bin/site-inventory"
+
+[[commands]]
+path = ["host", "show"]
+arguments = ["host", "show"]
+about = "Show a Host and its physical placement"
+examples = ["extension site-inventory host show server-01"]
+
+[[commands.options]]
+name = "identifier"
+kind = "string"
+positional = true
+required = true
+help = "Host name or installation-specific identifier"
+
+[[commands.options]]
+name = "view"
+kind = "string"
+long = "view"
+help = "Output detail level"
+values = ["summary", "full"]
+```
 
 The CLI validates the complete invocation before starting the process. It then
 executes the declared executable directly, without a shell, followed by the
@@ -373,19 +387,23 @@ The initial lifecycle accepts local package directories only. It does not use
 an online registry, download code, verify signatures, or provide a sandbox.
 
 ```console
-hubuum-cli extension list
-hubuum-cli extension show site-inventory
-hubuum-cli extension doctor
+hubuum-cli extension validate ./inventory
+hubuum-cli extension explain ./inventory --workflow snapshot
 hubuum-cli extension validate ./site-inventory
-hubuum-cli extension explain ./site-inventory --workflow snapshot
+hubuum-cli extension install ./inventory
+hubuum-cli extension list
+hubuum-cli extension show inventory
+hubuum-cli extension doctor
+hubuum-cli extension upgrade ./inventory-v2
+hubuum-cli extension disable inventory
+hubuum-cli extension enable inventory
+hubuum-cli extension remove inventory
 hubuum-cli extension reload
-
-hubuum-cli extension install ./site-inventory
-hubuum-cli extension upgrade ./site-inventory-v2
-hubuum-cli extension disable site-inventory
-hubuum-cli extension enable site-inventory
-hubuum-cli extension remove site-inventory
 ```
+
+`validate` accepts either pack kind. `explain` reports the compiled
+`WorkflowPlan` for a portable workflow pack; use `--workflow` to select one
+same-pack workflow from that plan.
 
 Installation copies regular files and directories into the first configured
 user root, rejects symlinks and special files, validates the staged copy, then
@@ -406,6 +424,8 @@ remain visible in `extension list` and `extension show` but register no commands
 
 For common failures:
 
+- run `extension validate` and `extension explain` to locate portable manifest,
+  binding, call-graph, capability, output-contract, or limit errors;
 - correct the path and executable mode reported by `executable_invalid`;
 - update `requires_cli` or the installed CLI for `cli_incompatible`;
 - remove or rename every conflicting copy for `duplicate_pack_name`;
@@ -413,9 +433,9 @@ For common failures:
   error, ensuring that prompts and logs go to stderr;
 - run `extension reload` after manual package or configuration changes.
 
-The portable placement pack in
+The portable placement workflow pack in
 [`examples/hubuum-placement`](../examples/hubuum-placement/README.md) combines
 Host, Jack, and Room operations while depending only on `hubuum-cli`. The
 legacy shell pilot in
 [`examples/hubuum-wrappers`](../examples/hubuum-wrappers/README.md) remains an
-executable-pack and standalone-wrapper example.
+executable pack and standalone-wrapper example.

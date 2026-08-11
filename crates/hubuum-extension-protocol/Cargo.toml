@@ -2,7 +2,7 @@
 name = "hubuum-extension-protocol"
 version = "0.1.0"
 edition = "2021"
-description = "Manifest and process protocol types for Hubuum CLI command packs"
+description = "Manifest and process protocol types for Hubuum CLI extension packs"
 license = "MIT"
 
 [dependencies]
