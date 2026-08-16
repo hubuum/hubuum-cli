@@ -1,5 +1,6 @@
 // An executable pack for behavior outside the portable workflow language.
 {
+  "$schema": "../../schemas/hubuum-extension.schema.json",
   "schema_version": 1,
   "kind": "executable",
   "name": "host",
@@ -38,8 +39,8 @@
       "about": "Show a Host and its physical placement",
       "long_about": "Resolve a Host by name, ID, hostname, address, MAC address, or serial number, then show related Jacks and Rooms.",
       "examples": [
-        "extension host show server-01",
-        "extension host show --verbose 00-11-22-33-44-55"
+        "server-01",
+        "--verbose 00-11-22-33-44-55"
       ],
       "options": {
         "identifier": {
@@ -66,8 +67,8 @@
       "about": "Create a Host and optionally place it",
       "interactive": true,
       "examples": [
-        "extension host create --collection inventory server-01.example.org SERIAL123",
-        "extension host create --collection inventory --to R-301 --jack J-42 server-01"
+        "--collection inventory server-01.example.org SERIAL123",
+        "--collection inventory --to R-301 --jack J-42 server-01"
       ],
       "options": {
         "hostname": {
@@ -166,9 +167,9 @@
       "about": "Move a Host to a Jack, Room, or another Host's Jack",
       "interactive": true,
       "examples": [
-        "extension host move server-01 J-42",
-        "extension host move --from server-01 --to R-301 --jack J-42",
-        "extension host move server-01 J-42 --dry-run"
+        "server-01 J-42",
+        "--from server-01 --to R-301 --jack J-42",
+        "server-01 J-42 --dry-run"
       ],
       "options": {
         "host": {

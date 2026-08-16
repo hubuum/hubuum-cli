@@ -923,10 +923,7 @@ fn validate_run_bindings(
             })?;
     }
     for input in contract.inputs() {
-        if input.required()
-            && !bindings.keys().any(|name| name.as_str() == input.id())
-            && !["help", "json", "output", "table-headers"].contains(&input.id())
-        {
+        if input.required() && !bindings.keys().any(|name| name.as_str() == input.id()) {
             return Err(format!(
                 "workflow '{}' step '{}' required input '{}' has no binding",
                 workflow.name().as_str(),

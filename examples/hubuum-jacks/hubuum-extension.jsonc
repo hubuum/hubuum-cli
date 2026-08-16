@@ -1,5 +1,6 @@
 // A small, read-only pack for inspecting physical Jack placement.
 {
+  "$schema": "../../schemas/hubuum-extension.schema.json",
   "schema_version": 1,
   "kind": "portable",
   "name": "jacks",
@@ -120,13 +121,13 @@
       "path": ["list"],
       "workflow": "jack_list",
       "about": "List Jacks",
-      "examples": ["extension jacks list"]
+      "examples": [""]
     },
     "jack_hosts": {
       "path": ["hosts"],
       "workflow": "jack_hosts",
       "about": "List Hosts related to a Jack",
-      "examples": ["extension jacks hosts J-42"],
+      "examples": ["J-42"],
       "options": {
         "jack": {
           "kind": "string",
@@ -140,7 +141,7 @@
       "path": ["rooms"],
       "workflow": "jack_rooms",
       "about": "List Rooms related to a Jack",
-      "examples": ["extension jacks rooms J-42"],
+      "examples": ["J-42"],
       "options": {
         "jack": {
           "kind": "string",

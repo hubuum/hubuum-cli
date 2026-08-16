@@ -1,35 +1,88 @@
 # Extension packs
 
-Extension packs add trusted, site-specific workflows to the Hubuum CLI command
-catalog without compiling them into the CLI.
-
-Portable workflow packs are declared in JSONC, use bounded JQ expressions, and
-depend only on `hubuum-cli`. They are the preferred choice for composable,
-distributable extensions. Executable packs invoke external programs such as
-Bash, Python, or compiled binaries. Use them only for integrations that cannot
-be expressed as portable workflows, and treat their additional runtime
-dependencies as part of the installation.
-
-Both kinds participate in help, REPL scopes, declared option validation, static
-completion, semantic pipelines, output formats, and redirects.
-
-Extension commands use a reserved namespace:
+Extension packs add trusted, site-specific commands to Hubuum CLI without
+compiling them into the binary. Their commands join normal help, REPL scopes,
+option validation, completion, semantic pipelines, output formats, and
+redirects under a reserved namespace:
 
 ```console
 hubuum-cli extension placement host placement server-01
 hubuum-cli extension placement room jacks R-301
 ```
 
-Built-in management names are reserved and packs cannot shadow built-in
-commands. Pack discovery is deterministic; duplicate pack names quarantine all
-copies rather than selecting one based on load order.
+## Choose a guide
 
-## Discovery and configuration
+- [Your first portable extension](extension-tutorial.md) is a ten-minute path
+  from an empty directory to an installed, useful command.
+- [Extension JSONC reference](extension-reference.md) lists every field, step,
+  binding, output shape, naming rule, and mandatory limit.
+- [Portable workflow recipes](extension-recipes.md) covers common composition
+  patterns and annotates a real compiled plan.
 
-The default system and user extension roots are `extensions.d` next to the
-corresponding Hubuum CLI configuration file. Missing roots are ignored. Both
-roots are searched and discovered packs are enabled by default. Override them
-with absolute paths when an installation has a different layout:
+The JSON Schema for editor validation and completion is
+[`schemas/hubuum-extension.schema.json`](../schemas/hubuum-extension.schema.json).
+
+## Portable or executable
+
+| Kind | Implementation | Runtime dependencies | Use |
+| --- | --- | --- | --- |
+| `portable` | Typed JSONC workflows and bounded JQ | `hubuum-cli` only | Preferred for built-in command composition |
+| `executable` | Program behind a versioned JSON protocol | Program and everything it needs | External I/O or behavior outside workflows |
+
+Portable packs are deterministic and explainable. Their `run` steps invoke
+built-in commands in-process; authors never construct a shell command or start
+a second CLI process. Top-level workflows provide typed inputs and outputs,
+same-pack reuse, assertions, conditions, and bounded iteration. The compiler
+creates a stable `WorkflowPlan`, expands the call graph, rejects cycles, derives
+effects and replay safety, and enforces fixed host limits.
+
+JSONC is the sole workflow declaration language. JQ is its bounded expression
+language. No external interpreter is required.
+
+Executable packs remain useful when arbitrary code is the real requirement.
+They are trusted local programs, not sandboxes, and their dependencies are an
+installation concern. Keep a pack portable whenever built-in commands and JQ
+can express it.
+
+## Start and discover
+
+Generate a pack whose manifest is already checked against this CLI:
+
+```console
+hubuum-cli extension init ./my-pack --template minimal
+hubuum-cli extension init ./inventory --template read-only
+hubuum-cli extension init ./external --template executable
+```
+
+Discover the typed contract available to a portable `run` step:
+
+```console
+hubuum-cli extension contract --list
+hubuum-cli extension contract object list
+hubuum-cli extension contract relation object create --output json
+```
+
+Contract details include canonical input IDs, types, cardinality, required
+state, effects, authentication, and replay safety. Rendering options remain on
+the outer extension command and are not workflow bindings.
+
+Validate and inspect a local package without installing or executing it:
+
+```console
+hubuum-cli extension validate ./inventory
+hubuum-cli extension explain ./inventory
+hubuum-cli extension explain ./inventory --workflow snapshot
+```
+
+## Discovery and local configuration
+
+The default system and user roots are `extensions.d` next to their corresponding
+Hubuum CLI configuration files. Each immediate, non-hidden child directory is
+one package containing `hubuum-extension.jsonc`. Missing roots are ignored.
+Symlinked packages are ignored and diagnosed. Duplicate pack names quarantine
+every copy instead of making precedence depend on discovery order.
+
+Override roots and disable packs in the normal TOML application configuration:
 
 ```toml
 [extensions]
@@ -45,384 +98,18 @@ inventory_collection = "inventory"
 relation_depth = 1
 ```
 
-Each immediate, non-hidden child directory is one package. Hidden directories
-are reserved for staging and trash. Symlinked package directories are ignored
-and reported by `extension doctor`. Extension roots, disabled state, and pack
-configuration are local configuration; they are not included in portable
-personal preference export.
+This is the only TOML involved: pack declarations themselves are JSONC. Only
+the named `extensions.config.<pack>` table is resolved against that pack's
+typed declarations. The complete application configuration is never exposed.
+Extension roots and state remain local and are omitted from portable preference
+export.
 
-Only the named table under `extensions.config.<pack>` is serialized for that
-pack. The complete effective application configuration is never exposed.
+## Lifecycle
 
-## Package manifest
-
-Every pack is a directory containing `hubuum-extension.jsonc`. The required
-`kind` selects one of two deliberately separate execution models:
-
-| Kind | Implementation | Runtime dependencies | Intended use |
-| --- | --- | --- | --- |
-| `portable` | Typed JSONC workflows and bounded JQ | `hubuum-cli` only | Preferred for built-in command composition |
-| `executable` | A declared program behind the JSON protocol | The program and everything it requires | External I/O or behavior outside the workflow language |
-
-A portable workflow pack can consist of only its manifest:
-
-```text
-inventory/
-└── hubuum-extension.jsonc
-```
-
-The manifest accepts JSON comments and trailing commas. It otherwise uses
-strict JSON: object keys and strings require double quotes, and JSON5 features
-such as unquoted keys, single-quoted strings, hexadecimal numbers, and omitted
-commas are rejected. Unknown fields are also rejected. JSONC is an authoring
-format only; the CLI parses it into typed declarations and packs do not need a
-JSONC runtime or parser.
-
-Pack names, command path segments, and long option names use lowercase ASCII
-kebab-case. Supported option kinds are `string`, `integer`, `number`,
-`boolean`, `flag`, and `json`.
-Commands, options, workflows, and inputs are objects keyed by stable declaration
-names. Each workflow owns one ordered `steps` array; every tagged step carries
-its own stable `id`, implementation, bindings, and condition. Positional options
-declare a one-based `position`; positions must be contiguous, and only the final
-positional may be repeatable. The `values` list provides validation and static
-completion. Command declaration keys, workflow names, and step IDs use
-lowercase ASCII snake_case; command paths remain the user-visible names. One
-command path cannot be a prefix of another command path in the same pack. Short
-and long option aliases share one namespace after removing their dashes, and
-aliases reserved by host rendering options are rejected. Each command has
-exactly one implementation. `interactive` and executable `arguments` are
-invalid on workflow commands.
-
-## Portable workflow packs
-
-A portable workflow pack is explicitly classified with `"kind": "portable"`.
-It cannot declare `protocol`, `executable`, executable `arguments`, or
-interactive commands. Its only runtime dependency is the current `hubuum-cli`.
-
-Workflows are reusable top-level declarations. Commands expose selected
-workflows, while other workflows remain private building blocks in the same
-pack:
-
-```jsonc
-{
-  "schema_version": 1,
-  "kind": "portable",
-  "name": "inventory",
-  "version": "0.1.0",
-  "requires_cli": ">=0.0.9,<0.1",
-
-  "config": {
-    "hosts_class": {
-      "type": "string",
-      "default": "Hosts",
-      "help": "Class containing Host objects"
-    }
-  },
-
-  "workflows": {
-    "snapshot": {
-      "inputs": {
-        "enabled": { "type": "boolean", "default": true }
-      },
-      "output": {
-        "shape": "detail",
-        "type": "json",
-        "columns": ["hosts", "first"]
-      },
-      "steps": [
-        {
-          "id": "hosts",
-          "kind": "run",
-          "run": ["object", "list"],
-          "when": ".input.enabled",
-          "with": {
-            "class": { "config": "hosts_class" },
-            "all": true
-          }
-        },
-        {
-          "id": "first",
-          "kind": "let",
-          "expr": ".steps.hosts[0]"
-        },
-        {
-          "id": "has_hosts",
-          "kind": "assert",
-          "condition": "(.steps.hosts | length) > 0",
-          "message": "No Hosts were found"
-        }
-      ],
-      "result": "{ hosts: .steps.hosts, first: .steps.first }"
-    }
-  },
-
-  "commands": {
-    "snapshot": {
-      "path": ["snapshot"],
-      "workflow": "snapshot",
-      "about": "Collect Hosts",
-      "options": {
-        "enabled": { "kind": "boolean", "long": "enabled" }
-      }
-    }
-  },
-}
-```
-
-The command option interface must exactly match the referenced workflow's
-public inputs by name, type, required state, and repeatability. Internal
-workflows need no command. Input and configuration types are `string`,
-`integer`, `number`, `boolean`, and `json`. Declarations can be required,
-repeatable, or have a typed default. Unknown configured keys, missing required
-values, and type mismatches quarantine an installed pack.
-
-### Tagged steps
-
-Every step has a unique snake_case `id` and one explicit `kind`. Array order is
-execution order. A binding such as `{ "step": "hosts" }` names an earlier
-producer at the point where its value is consumed, so control and data flow do
-not depend on detached ordering metadata:
-
-| Kind | Purpose | Conditional |
-| --- | --- | --- |
-| `run` | Invoke a built-in Hubuum CLI command in-process | `when` |
-| `let` | Store the result of a JQ expression | Always |
-| `assert` | Require a JQ expression to return `true` | Always |
-| `call` | Invoke another workflow in this pack | `when` |
-| `for_each` | Invoke one same-pack workflow for every array item | `when` |
-
-`run` binds values to canonical input IDs from the built-in command catalog.
-Authors do not construct shell commands, spell flags, or order positional
-arguments. `call` and `for_each` bind declared workflow inputs. Cross-pack
-workflow calls are prohibited. `for_each` requires both an `as` input name and
-a positive `max_items` bound:
-
-```jsonc
-"steps": [
-  {
-    "id": "details",
-    "kind": "for_each",
-    "items": { "step": "hosts" },
-    "as": "host",
-    "call": "describe_host",
-    "max_items": 100,
-    "when": ".input.enabled",
-    "with": {
-      "verbose": true
-    }
-  }
-]
-```
-
-A `with` value may be:
-
-- a literal JSON string, number, Boolean, array, or `null`;
-- `{ "literal": { "key": "value" } }` for a literal object that might
-  otherwise resemble a binding;
-- `{ "input": "name" }` for a workflow input;
-- `{ "config": "key" }` for declared pack configuration;
-- `{ "step": "id", "select": "jq expression" }` for an earlier step value.
-
-Configuration defaults belong to their declaration under `config`, not
-individual bindings.
-Forward step references are rejected. Dynamically selected values receive
-target validation immediately before execution.
-
-### Expressions and outputs
-
-JQ is the workflow expression language. `let`, `assert`, `when`, step
-selectors, and the mandatory workflow `result` all evaluate against JSON.
-Workflow expressions see:
-
-- `.input` for resolved typed inputs;
-- `.config` for resolved typed pack configuration;
-- `.steps` for normalized values keyed by step ID;
-- `.outputs` for source and semantic-output metadata.
-
-The workflow output declaration is mandatory. It fixes the semantic `shape`,
-item or scalar `type`, and optional columns before execution. Supported shapes
-are `empty`, `lines`, `rows`, `detail`, `message`, and `values`. The final JQ
-value must satisfy that contract; the caller's pipeline and output renderer run
-only after validation.
-
-Workflow JQ uses a bounded profile. User definitions and variables, recursive
-descent, multiplication, multiple array generators, `combinations`, `walk`,
-`recurse`, `repeat`, `range`, `while`, `until`, `foreach`, and `reduce` are
-rejected. This profile is intentionally smaller than JQ available in ordinary
-CLI pipelines.
-
-### Compilation and limits
-
-The CLI compiles every portable workflow pack into a stable `WorkflowPlan`
-intermediate representation before registering commands. Compilation resolves
-built-in command contracts, expands the same-pack call graph, detects cycles,
-computes effects and retry safety, and rejects graphs that exceed fixed host
-limits. Installed failures quarantine the whole pack and appear in
-`extension doctor`.
-
-The v1 limits are mandatory and cannot be weakened by a pack:
-
-- call depth: 16;
-- worst-case and runtime operations: 10,000;
-- one `for_each`: 1,000 items, further restricted by its `max_items`;
-- cumulative workflow output: 4 MiB;
-- one JQ expression: 4 KiB source, 1 MiB input, 128 outputs, and 1 MiB output.
-
-Static checks and runtime counters both enforce the limits. Iteration is
-sequential and deterministic. A false `when` records a skipped `null` step.
-`when` and `assert` must return a Boolean.
-
-Any expanded call graph that may change state requires
-`"capabilities": ["mutate"]` on each calling workflow. An unsafe nested command
-makes the exposed workflow unsafe to replay after reauthentication. Workflows
-do not provide transactions or compensating rollback.
-
-Use these read-only commands while authoring a pack:
+The current lifecycle works with local package directories. It does not use an
+online registry, download code, verify signatures, or provide a sandbox.
 
 ```console
-hubuum-cli extension validate ./inventory
-hubuum-cli extension explain ./inventory
-hubuum-cli extension explain ./inventory --workflow snapshot
-```
-
-JSONC is the only manifest format; no second scripting language or external
-interpreter is required. JQ provides bounded transformation, and built-in
-commands provide effects. Work requiring external I/O or arbitrary recovery
-belongs in an explicitly executable pack.
-
-See the dependency-free
-[`examples/hubuum-placement`](../examples/hubuum-placement/README.md) pack for
-a complete Host, Jack, and Room example. It demonstrates reusable private
-workflows, all workflow step kinds, typed configuration, relation mutations,
-and a bounded `for_each` move plan. The focused
-[`examples/hubuum-jacks`](../examples/hubuum-jacks/README.md) pack demonstrates
-typed inputs and an explicit step-to-step dependency. The smaller
-[`examples/hubuum-inventory`](../examples/hubuum-inventory/README.md) pack is a
-minimal read-only introduction.
-
-## Executable packs
-
-An executable pack uses `"kind": "executable"`, declares both `protocol` and
-`executable`, and cannot declare workflows. Its executable path is relative to
-the manifest and must remain within the package:
-
-```text
-site-inventory/
-├── hubuum-extension.jsonc
-└── bin/
-    └── site-inventory
-```
-
-The v1 executable manifest uses the same JSONC declaration format:
-
-```jsonc
-{
-  "schema_version": 1,
-  "kind": "executable",
-  "name": "site-inventory",
-  "version": "1.2.0",
-  "requires_cli": ">=0.0.9,<0.1",
-  "protocol": "hubuum-cli.extension/v1",
-  "executable": "bin/site-inventory",
-  "commands": {
-    "host_show": {
-      "path": ["host", "show"],
-      "arguments": ["host", "show"],
-      "about": "Show a Host and its physical placement",
-      "examples": ["extension site-inventory host show server-01"],
-      "options": {
-        "identifier": {
-          "kind": "string",
-          "position": 1,
-          "required": true,
-          "help": "Host name or installation-specific identifier"
-        },
-        "view": {
-          "kind": "string",
-          "long": "view",
-          "help": "Output detail level",
-          "values": ["summary", "full"]
-        }
-      }
-    }
-  }
-}
-```
-
-The CLI validates the complete invocation before starting the process. It then
-executes the declared executable directly, without a shell, followed by the
-command's fixed `arguments` and the caller's argument vector. Host rendering
-options such as `--output` and pipeline syntax are retained by Hubuum CLI and
-are not forwarded.
-
-Set `interactive = true` on a command that may prompt. Only a declared
-interactive command inherits stdin, and only when Hubuum CLI itself has a
-terminal. Other commands receive a closed stdin.
-
-## Process protocol
-
-The child receives these environment variables:
-
-- `HUBUUM_EXTENSION_PROTOCOL=hubuum-cli.extension/v1`;
-- `HUBUUM_EXTENSION_PACK` with the pack name;
-- `HUBUUM_EXTENSION_CONFIG_JSON` with only the pack's namespaced configuration;
-- `HUBUUM_CLI_BIN` with the current CLI executable, for trusted nested calls;
-- non-secret server connection settings and, when configured, the token-file
-  path.
-
-Passwords and bearer token values are explicitly removed. A pack is a trusted
-local program and is not sandboxed, so normal process privileges and readable
-files still define its effective access.
-
-The child writes diagnostics and prompts to stderr and exactly one tagged JSON
-response to stdout. A successful response exits zero:
-
-```json
-{
-  "protocol": "hubuum-cli.extension/v1",
-  "status": "ok",
-  "output": {
-    "shape": "rows",
-    "value": [{"name": "server-01", "jack": "J-42"}],
-    "columns": ["name", "jack"]
-  },
-  "warnings": []
-}
-```
-
-Supported shapes are `empty`, `lines`, `rows`, `detail`, `message`, and
-`values`. Their JSON value must match the declared shape. Hubuum CLI validates
-the response, applies its semantic pipeline, renders the requested text,
-JSON, JSONL, CSV, or TSV output, and finally handles redirects.
-
-An unsuccessful response exits nonzero and uses a stable snake-case code:
-
-```json
-{
-  "protocol": "hubuum-cli.extension/v1",
-  "status": "error",
-  "error": {
-    "code": "host_not_found",
-    "message": "No Host matched server-01",
-    "details": {"identifier": "server-01"}
-  },
-  "warnings": []
-}
-```
-
-A mismatched exit status, unsupported protocol, malformed JSON, or invalid
-semantic shape is reported as an extension protocol error.
-
-## Lifecycle commands
-
-The initial lifecycle accepts local package directories only. It does not use
-an online registry, download code, verify signatures, or provide a sandbox.
-
-```console
-hubuum-cli extension validate ./inventory
-hubuum-cli extension explain ./inventory --workflow snapshot
-hubuum-cli extension validate ./site-inventory
 hubuum-cli extension install ./inventory
 hubuum-cli extension list
 hubuum-cli extension show inventory
@@ -434,43 +121,52 @@ hubuum-cli extension remove inventory
 hubuum-cli extension reload
 ```
 
-`validate` accepts either pack kind. `explain` reports the compiled
-`WorkflowPlan` for a portable workflow pack; use `--workflow` to select one
-same-pack workflow from that plan. The explanation includes ordered tagged
-steps, normalized bindings, iteration sources, result expressions, expanded
-effects, call depth, operation cost, and host limits.
+Installation copies only regular files and directories, rejects symlinks and
+special files, validates a staged copy, and renames it into the first user
+root. Upgrade requires a higher semantic version unless `--force` is passed.
+System packs cannot be upgraded or removed by user commands. Replaced and
+removed user packages move under `.trash`, so the operation remains
+recoverable. Mutations rebuild the live catalog; `reload` does the same after
+manual administrator changes.
 
-Installation copies regular files and directories into the first configured
-user root, rejects symlinks and special files, validates the staged copy, then
-renames it into place. Upgrade requires an increasing semantic version unless
-`--force` is supplied. System packs cannot be upgraded or removed by user
-commands. Replaced and removed packages are moved under the user root's
-`.trash` directory so recovery remains possible. Every mutation reloads
-configuration and replaces the live command catalog; `extension reload` does
-the same after an administrator changes files manually.
+`extension doctor --output json` provides stable diagnostic codes for
+automation. Invalid manifests, incompatible CLI requirements, configuration
+errors, missing executables, compilation failures, and duplicate names
+quarantine packs without registering their commands.
 
-## Diagnostics
+## Runtime and trust boundaries
 
-Use `extension doctor --output json` for automation. Diagnostics include a
-stable code, severity, pack when known, source path, and actionable message.
-The registry quarantines invalid manifests, incompatible CLI requirements,
-missing or non-executable programs, and duplicate pack names. Quarantined packs
-remain visible in `extension list` and `extension show` but register no commands.
+Portable workflows can access only declared inputs, declared pack
+configuration, earlier normalized step results, and step output metadata.
+Cross-pack calls are prohibited. Mandatory bounds cover call depth, static and
+runtime work, iteration, individual JQ evaluations, and cumulative output.
+Mutating call graphs require an explicit `mutate` capability at every calling
+boundary. They do not provide transactions or compensating rollback.
 
-For common failures:
+Executable children receive the protocol version, pack name, current CLI path,
+non-secret server settings, token-file path when configured, and the pack's
+namespaced configuration. Password and bearer token values are removed. A
+trusted program can still read files and environment available to its normal
+process identity, so review executable packs as code.
 
-- run `extension validate` and `extension explain` to locate portable manifest,
-  binding, call-graph, capability, output-contract, or limit errors;
-- correct the path and executable mode reported by `executable_invalid`;
-- update `requires_cli` or the installed CLI for `cli_incompatible`;
-- remove or rename every conflicting copy for `duplicate_pack_name`;
-- validate stdout independently when a command reports an extension protocol
-  error, ensuring that prompts and logs go to stderr;
-- run `extension reload` after manual package or configuration changes.
+The program writes diagnostics to stderr and one tagged JSON response to
+stdout. Hubuum CLI validates its status and semantic shape before applying the
+ordinary pipeline, renderer, and redirect. See the
+[executable reference](extension-reference.md#executable-packs) for the wire
+format.
 
-The portable placement workflow pack in
-[`examples/hubuum-placement`](../examples/hubuum-placement/README.md) combines
-Host, Jack, and Room operations while depending only on `hubuum-cli`. The
-legacy shell pilot in
-[`examples/hubuum-wrappers`](../examples/hubuum-wrappers/README.md) remains an
-executable pack and standalone-wrapper example.
+## Examples
+
+All portable examples depend only on `hubuum-cli`:
+
+- [`hubuum-inventory`](../examples/hubuum-inventory/README.md) is the smallest
+  useful read-only pack.
+- [`hubuum-jacks`](../examples/hubuum-jacks/README.md) introduces typed inputs
+  and explicit step dependencies.
+- [`hubuum-recipes`](../examples/hubuum-recipes/README.md) compile-checks every
+  tagged step and binding form.
+- [`hubuum-placement`](../examples/hubuum-placement/README.md) is one complete
+  Host, Jack, Room, inventory, relation, and bounded move extension.
+
+The legacy [`hubuum-wrappers`](../examples/hubuum-wrappers/README.md) pack is an
+executable protocol and standalone-wrapper example.

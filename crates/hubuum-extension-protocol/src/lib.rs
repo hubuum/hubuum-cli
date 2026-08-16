@@ -23,8 +23,8 @@ const MANIFEST_PARSE_OPTIONS: ParseOptions = ParseOptions {
 };
 
 const RESERVED_PACK_NAMES: &[&str] = &[
-    "disable", "doctor", "enable", "explain", "install", "list", "reload", "remove", "show",
-    "upgrade", "validate",
+    "contract", "disable", "doctor", "enable", "explain", "init", "install", "list", "reload",
+    "remove", "show", "upgrade", "validate",
 ];
 const RESERVED_LONG_OPTIONS: &[&str] = &["help", "json", "output", "table-headers"];
 const RESERVED_SHORT_OPTIONS: &[char] = &['h', 'j', 'o'];
@@ -2250,6 +2250,8 @@ impl OptionDeclaration {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawManifest {
+    #[serde(default, rename = "$schema")]
+    _schema: Option<String>,
     schema_version: u32,
     kind: ExtensionPackKind,
     name: String,
@@ -2813,6 +2815,28 @@ mod workflow_language_tests {
             .expect_err("unknown key")
             .to_string()
             .contains("unknown configuration key"));
+    }
+
+    #[test]
+    fn accepts_an_editor_schema_reference() {
+        let manifest = EXECUTABLE.replace(
+            "  \"schema_version\": 1,",
+            concat!(
+                "  \"$schema\": \"../../../schemas/hubuum-extension.schema.json\",\n",
+                "  \"schema_version\": 1,"
+            ),
+        );
+        ExtensionManifest::parse(&manifest).expect("manifest with $schema");
+    }
+
+    #[test]
+    fn bundled_json_schema_is_valid_json() {
+        let schema = include_str!("../../../schemas/hubuum-extension.schema.json");
+        let parsed: serde_json::Value = serde_json::from_str(schema).expect("valid JSON Schema");
+        assert_eq!(
+            parsed["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
     }
 
     #[test]

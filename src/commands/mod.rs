@@ -23,6 +23,7 @@ mod event_sink;
 mod event_subscription;
 mod export;
 mod extension;
+mod extension_authoring;
 mod extension_management;
 mod group;
 mod help;
@@ -67,6 +68,17 @@ use crate::{
 };
 
 pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
+
+fn required_positional<'a>(tokens: &'a CommandTokenizer, label: &str) -> Result<&'a str, AppError> {
+    match tokens.get_positionals() {
+        [value] => Ok(value),
+        [] => Err(AppError::ParseError(format!("missing required {label}"))),
+        values => Err(AppError::ParseError(format!(
+            "expected one {label}, got {}",
+            values.len()
+        ))),
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]

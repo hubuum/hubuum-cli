@@ -1,5 +1,6 @@
 // A complete Host, Jack, and Room inventory with an explainable move plan.
 {
+  "$schema": "../../schemas/hubuum-extension.schema.json",
   "schema_version": 1,
   "kind": "portable",
   "name": "placement",
@@ -802,13 +803,13 @@
       "path": ["host", "list"],
       "workflow": "host_list",
       "about": "List Hosts",
-      "examples": ["extension placement host list"]
+      "examples": [""]
     },
     "host_show": {
       "path": ["host", "show"],
       "workflow": "host_show",
       "about": "Show a Host and its related placement objects",
-      "examples": ["extension placement host show server-01"],
+      "examples": ["server-01"],
       "options": {
         "name": {
           "kind": "string",
@@ -822,7 +823,7 @@
       "path": ["host", "create"],
       "workflow": "host_create",
       "about": "Create a Host in the configured inventory collection",
-      "examples": ["extension placement host create server-01 --data '{\"facts\":{}}'"],
+      "examples": ["server-01 --data '{\"facts\":{}}'"],
       "options": {
         "name": {
           "kind": "string",
@@ -846,7 +847,7 @@
       "path": ["host", "placement"],
       "workflow": "host_placement",
       "about": "Show the Jacks and Rooms containing a Host",
-      "examples": ["extension placement host placement server-01"],
+      "examples": ["server-01"],
       "options": {
         "host": {
           "kind": "string",
@@ -860,7 +861,7 @@
       "path": ["host", "connect-jack"],
       "workflow": "host_connect_jack",
       "about": "Relate a Host to a Jack",
-      "examples": ["extension placement host connect-jack server-01 J-42"],
+      "examples": ["server-01 J-42"],
       "options": {
         "host": {
           "kind": "string",
@@ -880,7 +881,7 @@
       "path": ["host", "disconnect-jack"],
       "workflow": "host_disconnect_jack",
       "about": "Remove a Host-to-Jack relation",
-      "examples": ["extension placement host disconnect-jack server-01 J-42"],
+      "examples": ["server-01 J-42"],
       "options": {
         "host": {
           "kind": "string",
@@ -902,8 +903,8 @@
       "about": "Preview or apply moving a Host to one Jack",
       "long_about": "List the Host's current Jacks, remove those relations, and add the requested Jack relation. The default is a read-only preview; pass --apply to mutate.",
       "examples": [
-        "extension placement host move server-01 J-42",
-        "extension placement host move server-01 J-42 --apply"
+        "server-01 J-42",
+        "server-01 J-42 --apply"
       ],
       "options": {
         "host": {
@@ -929,13 +930,13 @@
       "path": ["jack", "list"],
       "workflow": "jack_list",
       "about": "List Jacks",
-      "examples": ["extension placement jack list"]
+      "examples": [""]
     },
     "jack_show": {
       "path": ["jack", "show"],
       "workflow": "jack_show",
       "about": "Show a Jack and its related placement objects",
-      "examples": ["extension placement jack show J-42"],
+      "examples": ["J-42"],
       "options": {
         "name": {
           "kind": "string",
@@ -949,7 +950,7 @@
       "path": ["jack", "create"],
       "workflow": "jack_create",
       "about": "Create a Jack in the configured inventory collection",
-      "examples": ["extension placement jack create J-42"],
+      "examples": ["J-42"],
       "options": {
         "name": {
           "kind": "string",
@@ -973,7 +974,7 @@
       "path": ["jack", "hosts"],
       "workflow": "jack_hosts",
       "about": "List Hosts related to a Jack",
-      "examples": ["extension placement jack hosts J-42"],
+      "examples": ["J-42"],
       "options": {
         "jack": {
           "kind": "string",
@@ -987,7 +988,7 @@
       "path": ["jack", "rooms"],
       "workflow": "jack_rooms",
       "about": "List Rooms related to a Jack",
-      "examples": ["extension placement jack rooms J-42"],
+      "examples": ["J-42"],
       "options": {
         "jack": {
           "kind": "string",
@@ -1001,7 +1002,7 @@
       "path": ["jack", "connect-room"],
       "workflow": "jack_connect_room",
       "about": "Relate a Jack to a Room",
-      "examples": ["extension placement jack connect-room J-42 R-301"],
+      "examples": ["J-42 R-301"],
       "options": {
         "jack": {
           "kind": "string",
@@ -1021,7 +1022,7 @@
       "path": ["jack", "disconnect-room"],
       "workflow": "jack_disconnect_room",
       "about": "Remove a Jack-to-Room relation",
-      "examples": ["extension placement jack disconnect-room J-42 R-301"],
+      "examples": ["J-42 R-301"],
       "options": {
         "jack": {
           "kind": "string",
@@ -1041,13 +1042,13 @@
       "path": ["room", "list"],
       "workflow": "room_list",
       "about": "List Rooms",
-      "examples": ["extension placement room list"]
+      "examples": [""]
     },
     "room_show": {
       "path": ["room", "show"],
       "workflow": "room_show",
       "about": "Show a Room and its related placement objects",
-      "examples": ["extension placement room show R-301"],
+      "examples": ["R-301"],
       "options": {
         "name": {
           "kind": "string",
@@ -1061,7 +1062,7 @@
       "path": ["room", "create"],
       "workflow": "room_create",
       "about": "Create a Room in the configured inventory collection",
-      "examples": ["extension placement room create R-301"],
+      "examples": ["R-301"],
       "options": {
         "name": {
           "kind": "string",
@@ -1085,7 +1086,7 @@
       "path": ["room", "jacks"],
       "workflow": "room_jacks",
       "about": "List Jacks related to a Room",
-      "examples": ["extension placement room jacks R-301"],
+      "examples": ["R-301"],
       "options": {
         "room": {
           "kind": "string",

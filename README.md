@@ -103,6 +103,8 @@ help tree, validation, completion, semantic output, pipeline, and redirect
 machinery:
 
 ```sh
+hubuum-cli extension init ./my-pack --template minimal
+hubuum-cli extension contract object list
 hubuum-cli extension validate examples/hubuum-placement
 hubuum-cli extension explain examples/hubuum-placement
 hubuum-cli extension install examples/hubuum-placement
@@ -118,13 +120,17 @@ typed JSONC workflows in-process, require no runtime dependency other than
 same-pack calls, and bounded iteration. Executable packs remain available for
 work that cannot be expressed through built-in commands and JQ. They use a
 small versioned JSON process protocol, may add runtime dependencies, and are
-trusted rather than sandboxed. See the
-[extension pack guide](docs/extensions.md) for manifests, discovery,
-configuration, lifecycle operations, security boundaries, and troubleshooting.
+trusted rather than sandboxed. Start with the
+[ten-minute extension tutorial](docs/extension-tutorial.md), then use the
+[extension overview](docs/extensions.md),
+[JSONC reference](docs/extension-reference.md), and
+[portable recipes](docs/extension-recipes.md) for the complete model.
 The [placement example](examples/hubuum-placement/README.md) combines Host,
 Jack, and Room operations in one dependency-free portable workflow pack.
 The [Jacks example](examples/hubuum-jacks/README.md) is a smaller introduction
 to typed inputs and explicit step dependencies.
+The [recipes example](examples/hubuum-recipes/README.md) is a compile-checked
+catalog of every tagged workflow step and binding form.
 
 Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in

@@ -1,5 +1,6 @@
 // A minimal portable pack: one manifest and no runtime but hubuum-cli.
 {
+  "$schema": "../../schemas/hubuum-extension.schema.json",
   "schema_version": 1,
   "kind": "portable",
   "name": "inventory",
@@ -83,16 +84,16 @@
       "about": "Collect Hosts, Jacks, and Rooms in one response",
       "long_about": "Run three built-in object list commands in-process and compose their semantic JSON output.",
       "examples": [
-        "extension inventory snapshot",
-        "extension inventory snapshot --output json",
-        "extension inventory snapshot | JQ '.hosts | length'"
+        "",
+        "--output json",
+        "| JQ '.hosts | length'"
       ]
     },
     "classes": {
       "path": ["classes"],
       "workflow": "classes",
       "about": "List all classes through an in-process step",
-      "examples": ["extension inventory classes --output json"]
+      "examples": ["--output json"]
     }
   },
 }

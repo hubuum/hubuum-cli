@@ -46,6 +46,13 @@ impl CommandEffects {
     pub fn may_mutate(self) -> bool {
         self == Self::Mutating
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::Mutating => "mutating",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +88,16 @@ impl WorkflowValueType {
             _ => Self::Text,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "string",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Json => "json",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +106,24 @@ pub enum WorkflowCardinality {
     Repeated,
     Fixed(usize),
     RepeatedFixed(usize),
+}
+
+impl WorkflowCardinality {
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::One => "one",
+            Self::Repeated => "repeated",
+            Self::Fixed(_) => "fixed",
+            Self::RepeatedFixed(_) => "repeated_fixed",
+        }
+    }
+
+    pub fn group_size(self) -> Option<usize> {
+        match self {
+            Self::Fixed(count) | Self::RepeatedFixed(count) => Some(count),
+            Self::One | Self::Repeated => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -159,9 +194,12 @@ impl WorkflowCommandContract {
         let mut input_indices = BTreeMap::new();
         for (index, option) in options.iter().enumerate() {
             let input = WorkflowInputContract::new(index, option);
+            if ["help", "json", "output", "table-headers"].contains(&input.id.as_str()) {
+                continue;
+            }
             let id = input.id.clone();
             assert!(
-                input_indices.insert(id.clone(), index).is_none(),
+                input_indices.insert(id.clone(), inputs.len()).is_none(),
                 "command '{command_id}' exposes duplicate workflow input id '{id}'"
             );
             inputs.push(input);
@@ -658,11 +696,13 @@ impl CommandCatalog {
             help.push_str(&paint(ThemeRole::Heading, "Examples:"));
             help.push('\n');
             for line in examples.lines() {
-                help.push_str(&paint_command(format!(
-                    "  {} {}",
-                    command_path.join(" "),
-                    line
-                )));
+                let command = command_path.join(" ");
+                let example = if line.is_empty() {
+                    format!("  {command}")
+                } else {
+                    format!("  {command} {line}")
+                };
+                help.push_str(&paint_command(example));
                 help.push('\n');
             }
         }

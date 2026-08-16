@@ -1,0 +1,419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hubuum/hubuum-cli/main/schemas/hubuum-extension.schema.json",
+  "title": "Hubuum CLI extension pack",
+  "description": "Schema version 1 for portable workflow and executable extension manifests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "name",
+    "version",
+    "requires_cli",
+    "commands"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri-reference" },
+    "schema_version": { "const": 1 },
+    "kind": { "enum": ["portable", "executable"] },
+    "name": {
+      "allOf": [
+        { "$ref": "#/$defs/kebabName" },
+        {
+          "not": {
+            "enum": [
+              "contract",
+              "disable",
+              "doctor",
+              "enable",
+              "explain",
+              "init",
+              "install",
+              "list",
+              "reload",
+              "remove",
+              "show",
+              "upgrade",
+              "validate"
+            ]
+          }
+        }
+      ]
+    },
+    "version": { "type": "string", "minLength": 1 },
+    "requires_cli": { "type": "string", "minLength": 1 },
+    "protocol": { "const": "hubuum-cli.extension/v1" },
+    "executable": { "type": "string", "minLength": 1 },
+    "config": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/snakeName" },
+      "additionalProperties": { "$ref": "#/$defs/valueDeclaration" }
+    },
+    "workflows": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/snakeName" },
+      "additionalProperties": { "$ref": "#/$defs/workflow" }
+    },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/snakeName" },
+      "additionalProperties": { "$ref": "#/$defs/command" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "portable" } } },
+      "then": {
+        "required": ["workflows"],
+        "properties": {
+          "workflows": { "minProperties": 1 },
+          "protocol": false,
+          "executable": false,
+          "commands": {
+            "additionalProperties": { "$ref": "#/$defs/portableCommand" }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "executable" } } },
+      "then": {
+        "required": ["protocol", "executable"],
+        "properties": {
+          "workflows": { "maxProperties": 0 },
+          "commands": {
+            "additionalProperties": { "$ref": "#/$defs/executableCommand" }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "snakeName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "kebabName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "optionName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$"
+    },
+    "valueType": {
+      "enum": ["string", "integer", "number", "boolean", "json"]
+    },
+    "valueDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/valueType" },
+        "required": { "type": "boolean", "default": false },
+        "repeatable": { "type": "boolean", "default": false },
+        "default": true,
+        "help": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["required"],
+            "properties": { "required": { "const": true } }
+          },
+          "then": { "not": { "required": ["default"] } }
+        }
+      ]
+    },
+    "workflowInput": {
+      "$ref": "#/$defs/valueDeclaration"
+    },
+    "workflowOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape"],
+      "properties": {
+        "shape": {
+          "enum": ["empty", "lines", "rows", "detail", "message", "values"]
+        },
+        "type": { "$ref": "#/$defs/valueType", "default": "json" },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["columns"],
+            "properties": { "columns": { "minItems": 1 } }
+          },
+          "then": {
+            "properties": { "shape": { "enum": ["rows", "detail"] } }
+          }
+        }
+      ]
+    },
+    "inputBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input"],
+      "properties": { "input": { "$ref": "#/$defs/snakeName" } }
+    },
+    "configBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config"],
+      "properties": { "config": { "$ref": "#/$defs/snakeName" } }
+    },
+    "stepBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step"],
+      "properties": {
+        "step": { "$ref": "#/$defs/snakeName" },
+        "select": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "literalBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["literal"],
+      "properties": { "literal": true }
+    },
+    "binding": {
+      "oneOf": [
+        { "type": ["string", "number", "boolean", "array", "null"] },
+        { "$ref": "#/$defs/inputBinding" },
+        { "$ref": "#/$defs/configBinding" },
+        { "$ref": "#/$defs/stepBinding" },
+        { "$ref": "#/$defs/literalBinding" }
+      ]
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/optionName" },
+      "additionalProperties": { "$ref": "#/$defs/binding" }
+    },
+    "runStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "run"],
+      "properties": {
+        "id": { "$ref": "#/$defs/snakeName" },
+        "kind": { "const": "run" },
+        "run": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/kebabName" }
+        },
+        "with": { "$ref": "#/$defs/bindings" },
+        "when": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "letStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "expr"],
+      "properties": {
+        "id": { "$ref": "#/$defs/snakeName" },
+        "kind": { "const": "let" },
+        "expr": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "assertStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "condition", "message"],
+      "properties": {
+        "id": { "$ref": "#/$defs/snakeName" },
+        "kind": { "const": "assert" },
+        "condition": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "callStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "call"],
+      "properties": {
+        "id": { "$ref": "#/$defs/snakeName" },
+        "kind": { "const": "call" },
+        "call": { "$ref": "#/$defs/snakeName" },
+        "with": { "$ref": "#/$defs/bindings" },
+        "when": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "forEachStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "items", "as", "call", "max_items"],
+      "properties": {
+        "id": { "$ref": "#/$defs/snakeName" },
+        "kind": { "const": "for_each" },
+        "items": { "$ref": "#/$defs/binding" },
+        "as": { "$ref": "#/$defs/snakeName" },
+        "call": { "$ref": "#/$defs/snakeName" },
+        "with": { "$ref": "#/$defs/bindings" },
+        "max_items": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "when": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "step": {
+      "oneOf": [
+        { "$ref": "#/$defs/runStep" },
+        { "$ref": "#/$defs/letStep" },
+        { "$ref": "#/$defs/assertStep" },
+        { "$ref": "#/$defs/callStep" },
+        { "$ref": "#/$defs/forEachStep" }
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output", "steps", "result"],
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snakeName" },
+          "additionalProperties": { "$ref": "#/$defs/workflowInput" }
+        },
+        "output": { "$ref": "#/$defs/workflowOutput" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "const": "mutate" },
+          "uniqueItems": true
+        },
+        "result": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["string", "integer", "number", "boolean", "flag", "json"]
+        },
+        "short": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]$",
+          "not": { "enum": ["h", "j", "o"] }
+        },
+        "long": {
+          "allOf": [
+            { "$ref": "#/$defs/kebabName" },
+            { "not": { "enum": ["help", "json", "output", "table-headers"] } }
+          ]
+        },
+        "position": { "type": "integer", "minimum": 1 },
+        "required": { "type": "boolean", "default": false },
+        "repeatable": { "type": "boolean", "default": false },
+        "help": { "type": "string" },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": ["position"],
+              "not": {
+                "anyOf": [
+                  { "required": ["short"] },
+                  { "required": ["long"] }
+                ]
+              }
+            },
+            {
+              "anyOf": [
+                { "required": ["short"] },
+                { "required": ["long"] }
+              ],
+              "not": { "required": ["position"] }
+            }
+          ]
+        },
+        {
+          "if": { "properties": { "kind": { "const": "flag" } } },
+          "then": {
+            "not": { "required": ["position"] },
+            "properties": { "values": { "maxItems": 0 } }
+          }
+        }
+      ]
+    },
+    "commandProperties": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/kebabName" }
+        },
+        "about": { "type": "string" },
+        "long_about": { "type": "string" },
+        "examples": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "options": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/optionName" },
+          "additionalProperties": { "$ref": "#/$defs/option" }
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": ["path"]
+    },
+    "portableCommand": {
+      "allOf": [
+        { "$ref": "#/$defs/commandProperties" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "workflow"],
+          "properties": {
+            "path": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/kebabName" } },
+            "about": { "type": "string" },
+            "long_about": { "type": "string" },
+            "examples": { "type": "array", "items": { "type": "string" } },
+            "options": { "type": "object", "additionalProperties": { "$ref": "#/$defs/option" } },
+            "workflow": { "$ref": "#/$defs/snakeName" }
+          }
+        }
+      ]
+    },
+    "executableCommand": {
+      "allOf": [
+        { "$ref": "#/$defs/commandProperties" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/kebabName" } },
+            "arguments": { "type": "array", "items": { "type": "string" } },
+            "about": { "type": "string" },
+            "long_about": { "type": "string" },
+            "examples": { "type": "array", "items": { "type": "string" } },
+            "interactive": { "type": "boolean", "default": false },
+            "options": { "type": "object", "additionalProperties": { "$ref": "#/$defs/option" } }
+          }
+        }
+      ]
+    }
+  }
+}

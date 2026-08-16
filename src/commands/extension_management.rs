@@ -1,13 +1,12 @@
 use std::any::TypeId;
-use std::fs::{self, create_dir_all, read_dir, read_to_string, rename};
+use std::fs::{self, create_dir_all, read_dir, rename};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use hubuum_extension_protocol::{ExtensionManifest, MANIFEST_FILENAME};
+use hubuum_extension_protocol::ExtensionManifest;
 use hubuum_filter::OutputEnvelope;
-use semver::Version;
 use serde_json::{json, to_value, Value};
 
 use crate::catalog::{
@@ -17,12 +16,17 @@ use crate::catalog::{
 use crate::commands::{build_command_catalog, render_format, standard_options, table_headers};
 use crate::config::{get_config, reload_runtime_config, set_persisted_value};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::extensions::{ExtensionOrigin, ExtensionPack, ExtensionPackState, WorkflowProgram};
+use crate::extensions::{
+    validate_package_source, ExtensionOrigin, ExtensionPack, ExtensionPackState, WorkflowProgram,
+};
 use crate::output::{
     reset_output, set_pipeline, set_pipeline_suffix, set_render_format, set_semantic_output,
     set_table_headers, take_output,
 };
 use crate::tokenizer::CommandTokenizer;
+
+use super::extension_authoring::{contract_command, init_command};
+use super::required_positional;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     let pack_names = builder
@@ -72,6 +76,29 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         vec![
             positional("source", "Local package directory", true, Vec::new()),
             named("workflow", "Workflow to explain"),
+        ],
+    );
+    register(
+        builder,
+        "contract",
+        "Show the workflow contract for built-in commands",
+        vec![
+            repeatable_positional("command", "Built-in command path"),
+            flag("list", None, "List every built-in workflow contract"),
+        ],
+    );
+    register(
+        builder,
+        "init",
+        "Create a validated extension pack from a starter template",
+        vec![
+            positional("target", "New package directory", true, Vec::new()),
+            named_values(
+                "template",
+                "Starter template",
+                vec!["minimal", "read-only", "executable"],
+            ),
+            named("name", "Pack name (defaults to the target directory name)"),
         ],
     );
     register(
@@ -127,7 +154,9 @@ fn register(
 ) {
     options.extend(standard_option_specs());
     let effects = match name {
-        "list" | "show" | "doctor" | "validate" | "explain" => CommandEffects::ReadOnly,
+        "list" | "show" | "doctor" | "validate" | "explain" | "contract" => {
+            CommandEffects::ReadOnly
+        }
         _ => CommandEffects::Mutating,
     };
     let mut spec = CommandSpec::new(
@@ -144,14 +173,19 @@ fn register(
 
 fn management_examples(name: &str) -> Option<String> {
     match name {
-        "install" | "upgrade" | "validate" => Some(format!("extension {name} ./my-pack")),
-        "explain" => Some("extension explain ./my-pack --workflow snapshot".to_string()),
-        "enable" | "disable" | "remove" | "show" => {
-            Some(format!("extension {name} site-inventory"))
-        }
-        "list" | "doctor" | "reload" => Some(format!("extension {name}")),
+        "install" | "upgrade" | "validate" => Some("./my-pack".to_string()),
+        "explain" => Some("./my-pack --workflow snapshot".to_string()),
+        "contract" => Some("object list\n--list".to_string()),
+        "init" => Some("./my-pack --template minimal".to_string()),
+        "enable" | "disable" | "remove" | "show" => Some("site-inventory".to_string()),
         _ => None,
     }
+}
+
+fn repeatable_positional(name: &str, help: &str) -> OptionSpec {
+    let mut option = positional(name, help, false, Vec::new());
+    option.repeatable = true;
+    option
 }
 
 fn positional(name: &str, help: &str, required: bool, values: Vec<String>) -> OptionSpec {
@@ -212,6 +246,12 @@ fn named(name: &str, help: &str) -> OptionSpec {
     }
 }
 
+fn named_values(name: &str, help: &str, values: Vec<&str>) -> OptionSpec {
+    let mut option = named(name, help);
+    option.completion = CompletionSpec::Static(values.into_iter().map(str::to_string).collect());
+    option
+}
+
 fn standard_option_specs() -> Vec<OptionSpec> {
     standard_options()
         .into_iter()
@@ -251,20 +291,30 @@ impl AsyncCommandHandler for ManagementHandler {
         let tokens = prepare_output(&ctx, &invocation)?;
         match self.operation {
             "list" => list(&ctx)?,
-            "show" => show(&ctx, one_positional(&tokens, "pack")?)?,
+            "show" => show(&ctx, required_positional(&tokens, "pack")?)?,
             "doctor" => doctor(&ctx)?,
-            "validate" => validate_command(&ctx, one_positional(&tokens, "source")?)?,
+            "validate" => validate_command(&ctx, required_positional(&tokens, "source")?)?,
             "explain" => explain_command(
                 &ctx,
-                one_positional(&tokens, "source")?,
+                required_positional(&tokens, "source")?,
                 tokens.get_options().get("workflow").map(String::as_str),
             )?,
+            "contract" => contract_command(&ctx, &tokens)?,
+            "init" => init_command(&ctx, &tokens)?,
             "reload" => reload(&ctx)?,
-            "install" => install(&ctx, one_positional(&tokens, "source")?, force(&tokens))?,
-            "upgrade" => upgrade(&ctx, one_positional(&tokens, "source")?, force(&tokens))?,
-            "enable" => set_enabled(&ctx, one_positional(&tokens, "pack")?, true)?,
-            "disable" => set_enabled(&ctx, one_positional(&tokens, "pack")?, false)?,
-            "remove" => remove(&ctx, one_positional(&tokens, "pack")?, force(&tokens))?,
+            "install" => install(
+                &ctx,
+                required_positional(&tokens, "source")?,
+                force(&tokens),
+            )?,
+            "upgrade" => upgrade(
+                &ctx,
+                required_positional(&tokens, "source")?,
+                force(&tokens),
+            )?,
+            "enable" => set_enabled(&ctx, required_positional(&tokens, "pack")?, true)?,
+            "disable" => set_enabled(&ctx, required_positional(&tokens, "pack")?, false)?,
+            "remove" => remove(&ctx, required_positional(&tokens, "pack")?, force(&tokens))?,
             operation => {
                 return Err(AppError::CommandExecutionError(format!(
                     "unknown extension management operation '{operation}'"
@@ -306,17 +356,6 @@ fn prepare_output(
     set_render_format(render_format(&tokens)?)?;
     set_table_headers(table_headers(&tokens)?)?;
     Ok(tokens)
-}
-
-fn one_positional<'a>(tokens: &'a CommandTokenizer, label: &str) -> Result<&'a str, AppError> {
-    match tokens.get_positionals() {
-        [value] => Ok(value),
-        [] => Err(AppError::ParseError(format!("missing required {label}"))),
-        values => Err(AppError::ParseError(format!(
-            "expected one {label}, got {}",
-            values.len()
-        ))),
-    }
 }
 
 fn force(tokens: &CommandTokenizer) -> bool {
@@ -641,38 +680,11 @@ fn reload_catalog(ctx: &CommandContext) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_source(source: &Path) -> Result<ExtensionManifest, AppError> {
-    if !source.is_dir() {
-        return Err(AppError::CommandExecutionError(format!(
-            "extension source '{}' is not a directory",
-            source.display()
-        )));
-    }
-    let manifest_path = source.join(MANIFEST_FILENAME);
-    let manifest = ExtensionManifest::parse(&read_to_string(&manifest_path)?).map_err(|error| {
-        AppError::CommandExecutionError(format!(
-            "invalid extension manifest '{}': {error}",
-            manifest_path.display()
-        ))
-    })?;
-    let cli_version = Version::parse(env!("CARGO_PKG_VERSION")).expect("valid package version");
-    if !manifest.supports_cli(&cli_version) {
-        return Err(AppError::CommandExecutionError(format!(
-            "extension requires CLI {}, but this CLI is {cli_version}",
-            manifest.requires_cli()
-        )));
-    }
-    if let Some(executable) = manifest.executable() {
-        validate_executable(&source.join(executable.as_path()))?;
-    }
-    Ok(manifest)
-}
-
 fn validate_source_for_catalog(
     ctx: &CommandContext,
     source: &Path,
 ) -> Result<(ExtensionManifest, Option<WorkflowProgram>), AppError> {
-    let manifest = validate_source(source)?;
+    let manifest = validate_package_source(source)?;
     let raw_config = get_config()
         .extensions
         .config
@@ -699,32 +711,6 @@ fn validate_source_for_catalog(
         None
     };
     Ok((manifest, program))
-}
-
-fn validate_executable(path: &Path) -> Result<(), AppError> {
-    let metadata = path.metadata().map_err(|error| {
-        AppError::CommandExecutionError(format!(
-            "could not inspect extension executable '{}': {error}",
-            path.display()
-        ))
-    })?;
-    if !metadata.is_file() {
-        return Err(AppError::CommandExecutionError(format!(
-            "extension executable '{}' is not a file",
-            path.display()
-        )));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return Err(AppError::CommandExecutionError(format!(
-                "extension executable '{}' is not executable",
-                path.display()
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn install_package(
@@ -758,7 +744,7 @@ fn install_package(
     copy_package(source, &staging).inspect_err(|_| {
         let _ = fs::remove_dir_all(&staging);
     })?;
-    validate_source(&staging).inspect_err(|_| {
+    validate_package_source(&staging).inspect_err(|_| {
         let _ = fs::remove_dir_all(&staging);
     })?;
 
@@ -865,7 +851,8 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{copy_package, validate_source};
+    use super::copy_package;
+    use crate::extensions::validate_package_source;
 
     #[test]
     fn validates_and_copies_a_local_package() {
@@ -899,9 +886,9 @@ mod tests {
         )
         .expect("write manifest");
 
-        validate_source(&source).expect("valid source");
+        validate_package_source(&source).expect("valid source");
         copy_package(&source, &destination).expect("copy package");
-        validate_source(&destination).expect("valid copied package");
+        validate_package_source(&destination).expect("valid copied package");
     }
 
     #[test]
@@ -909,7 +896,7 @@ mod tests {
         let package = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
             .join("hubuum-wrappers");
-        let manifest = validate_source(&package).expect("valid Host pilot package");
+        let manifest = validate_package_source(&package).expect("valid Host pilot package");
 
         assert_eq!(manifest.name().as_str(), "host");
         assert_eq!(manifest.commands().len(), 3);
@@ -920,7 +907,7 @@ mod tests {
         let package = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
             .join("hubuum-placement");
-        let manifest = validate_source(&package).expect("valid placement package");
+        let manifest = validate_package_source(&package).expect("valid placement package");
 
         assert_eq!(manifest.name().as_str(), "placement");
         assert!(manifest.is_portable());

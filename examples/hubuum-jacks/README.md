@@ -1,5 +1,9 @@
 # Hubuum Jacks workflow pack
 
+This focused portable example follows the
+[extension tutorial](../../docs/extension-tutorial.md) and uses only
+`hubuum-cli` at runtime.
+
 This small portable pack shows how a JSONC manifest keeps workflows, ordered
 steps, bindings, and their public commands visibly nested. It lists Jacks and
 looks up the Hosts or Rooms related to one Jack. Every operation runs through

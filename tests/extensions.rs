@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use hubuum_extension_protocol::ExtensionManifest;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::{json, Value};
 use tempfile::tempdir;
@@ -268,6 +269,148 @@ fn json_stdout(assertion: assert_cmd::assert::Assert) -> Value {
 }
 
 #[test]
+fn built_in_workflow_contracts_are_discoverable() {
+    let contract = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "contract",
+                "object",
+                "list",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(contract["command"], "object list");
+    assert_eq!(contract["effects"], "read_only");
+    assert_eq!(contract["reauthentication_retry"], "safe");
+    assert_eq!(contract["step_output"]["shape"], "runtime");
+    let inputs = contract["inputs"].as_array().expect("contract inputs");
+    let where_input = inputs
+        .iter()
+        .find(|input| input["id"] == "where")
+        .expect("where input");
+    assert_eq!(where_input["cardinality"]["kind"], "repeated_fixed");
+    assert_eq!(where_input["cardinality"]["count"], 3);
+    assert!(!inputs.iter().any(|input| input["id"] == "output"));
+
+    let listed = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args(["extension", "contract", "--list", "--output", "json"])
+            .assert(),
+    );
+    assert!(listed
+        .as_array()
+        .expect("contract list")
+        .iter()
+        .any(|command| command["command"] == "object list"));
+    assert!(!listed
+        .as_array()
+        .expect("contract list")
+        .iter()
+        .any(|command| command["command"] == "extension validate"));
+
+    let mutation = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "contract",
+                "relation",
+                "object",
+                "create",
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(mutation["effects"], "mutating");
+    assert_eq!(mutation["reauthentication_retry"], "unsafe");
+}
+
+#[test]
+fn extension_management_help_examples_are_not_duplicated() {
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "extension", "validate"])
+        .assert()
+        .success()
+        .stdout(contains("extension validate ./my-pack"))
+        .stdout(contains("extension validate extension validate").not());
+}
+
+#[test]
+fn init_creates_valid_starter_templates_without_overwriting() {
+    let temporary = tempdir().expect("temporary directory");
+    for template in ["minimal", "read-only", "executable"] {
+        let target = temporary.path().join(template);
+        let created = json_stdout(
+            cargo_bin_cmd!("hubuum-cli")
+                .args([
+                    "extension",
+                    "init",
+                    target.to_str().expect("target path"),
+                    "--template",
+                    template,
+                    "--output",
+                    "json",
+                ])
+                .assert(),
+        );
+        assert_eq!(created["status"], "created");
+        assert_eq!(created["template"], template);
+        let source =
+            read_to_string(target.join("hubuum-extension.jsonc")).expect("generated manifest");
+        let manifest = ExtensionManifest::parse(&source).expect("generated manifest parses");
+        assert_eq!(manifest.name().as_str(), template);
+
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "validate",
+                target.to_str().expect("target path"),
+            ])
+            .assert()
+            .success();
+
+        cargo_bin_cmd!("hubuum-cli")
+            .args(["extension", "init", target.to_str().expect("target path")])
+            .assert()
+            .failure()
+            .stdout(contains("already exists"));
+    }
+}
+
+#[test]
+fn tutorial_manifest_is_kept_valid_by_ci() {
+    let tutorial = include_str!("../docs/extension-tutorial.md");
+    let marked = tutorial
+        .split_once("<!-- extension-manifest-example-start -->")
+        .expect("tutorial example start")
+        .1
+        .split_once("<!-- extension-manifest-example-end -->")
+        .expect("tutorial example end")
+        .0
+        .trim();
+    let manifest = marked
+        .strip_prefix("```jsonc\n")
+        .and_then(|value| value.strip_suffix("\n```"))
+        .expect("one fenced JSONC manifest");
+    ExtensionManifest::parse(manifest).expect("tutorial manifest parses");
+
+    let temporary = tempdir().expect("temporary directory");
+    write(temporary.path().join("hubuum-extension.jsonc"), manifest)
+        .expect("tutorial manifest fixture");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "extension",
+            "validate",
+            temporary.path().to_str().expect("fixture path"),
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
 fn bundled_manifest_workflow_uses_the_current_language() {
     let manifest = ExtensionManifest::parse(include_str!(
         "../examples/hubuum-inventory/hubuum-extension.jsonc"
@@ -360,6 +503,35 @@ fn bundled_placement_extension_compiles_and_explains_composition() {
     assert!(explained["plan"]["workflows"][0]["result"]
         .as_str()
         .is_some_and(|result| result.contains("target_jack")));
+}
+
+#[test]
+fn bundled_recipe_extension_compiles_every_language_form() {
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("hubuum-recipes");
+    let validated = json_stdout(
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "extension",
+                "validate",
+                package.to_str().expect("recipe package path"),
+                "--output",
+                "json",
+            ])
+            .assert(),
+    );
+    assert_eq!(validated["status"], "valid");
+    assert_eq!(validated["workflow_plan"]["workflow_count"], 3);
+    let workflows = validated["workflow_plan"]["workflows"]
+        .as_array()
+        .expect("workflow plans");
+    let tour = workflows
+        .iter()
+        .find(|workflow| workflow["name"] == "tour")
+        .expect("tour workflow");
+    assert_eq!(tour["call_depth"], 2);
+    assert_eq!(tour["worst_case_operations"], 38);
 }
 
 #[test]
@@ -1025,4 +1197,18 @@ fn bundled_extension_examples_appear_in_the_real_command_catalog() {
         .stdout(contains("extension placement host placement"))
         .stdout(contains("extension placement jack connect-room"))
         .stdout(contains("extension placement room jacks"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "help",
+            "extension",
+            "inventory",
+            "snapshot",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("extension inventory snapshot --output json"))
+        .stdout(contains("extension inventory snapshot extension inventory").not());
 }

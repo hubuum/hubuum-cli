@@ -4,6 +4,10 @@ This portable workflow pack composes three built-in `object list` commands from
 one JSONC manifest without starting a shell or another `hubuum-cli` process. Its
 only runtime dependency is `hubuum-cli`.
 
+If this is your first pack, follow the
+[ten-minute tutorial](../../docs/extension-tutorial.md) before changing this
+example.
+
 Install and run it with:
 
 ```console
