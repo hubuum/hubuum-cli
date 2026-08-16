@@ -14,7 +14,7 @@
     "commands"
   ],
   "properties": {
-    "$schema": { "type": "string", "format": "uri-reference" },
+    "$schema": { "type": "string" },
     "schema_version": { "const": 1 },
     "kind": { "enum": ["portable", "executable"] },
     "name": {
@@ -68,10 +68,11 @@
       "then": {
         "required": ["workflows"],
         "properties": {
-          "workflows": { "minProperties": 1 },
+          "workflows": { "type": "object", "minProperties": 1 },
           "protocol": false,
           "executable": false,
           "commands": {
+            "type": "object",
             "additionalProperties": { "$ref": "#/$defs/portableCommand" }
           }
         }
@@ -82,8 +83,9 @@
       "then": {
         "required": ["protocol", "executable"],
         "properties": {
-          "workflows": { "maxProperties": 0 },
+          "workflows": { "type": "object", "maxProperties": 0 },
           "commands": {
+            "type": "object",
             "additionalProperties": { "$ref": "#/$defs/executableCommand" }
           }
         }
@@ -149,7 +151,7 @@
         {
           "if": {
             "required": ["columns"],
-            "properties": { "columns": { "minItems": 1 } }
+            "properties": { "columns": { "type": "array", "minItems": 1 } }
           },
           "then": {
             "properties": { "shape": { "enum": ["rows", "detail"] } }
@@ -186,7 +188,15 @@
     },
     "binding": {
       "oneOf": [
-        { "type": ["string", "number", "boolean", "array", "null"] },
+        {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "array" },
+            { "type": "null" }
+          ]
+        },
         { "$ref": "#/$defs/inputBinding" },
         { "$ref": "#/$defs/configBinding" },
         { "$ref": "#/$defs/stepBinding" },
@@ -348,7 +358,7 @@
           "if": { "properties": { "kind": { "const": "flag" } } },
           "then": {
             "not": { "required": ["position"] },
-            "properties": { "values": { "maxItems": 0 } }
+            "properties": { "values": { "type": "array", "maxItems": 0 } }
           }
         }
       ]
