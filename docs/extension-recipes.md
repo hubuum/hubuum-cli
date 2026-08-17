@@ -4,9 +4,16 @@ These patterns assume a portable pack, so they execute in-process and depend
 only on `hubuum-cli`. Copy the complete, compile-checked versions from
 [`examples/hubuum-recipes`](../examples/hubuum-recipes/README.md).
 
-## Find the right run bindings
+## Find the right bindings for a `run` step
 
-List all callable built-ins or inspect one contract:
+A **command contract** is the CLI's description of how a workflow may call one
+of its built-in commands. It names the keys accepted by the step's `with`
+object and describes each key's value type, whether it is required, and whether
+it accepts one value or a repeated group. The contract also reports operational
+properties such as whether the command needs authentication or may change data.
+
+`contract --list` lists the built-ins that a `run` step may call. Pass one of
+those command paths to inspect its contract:
 
 ```sh
 hubuum-cli extension contract --list

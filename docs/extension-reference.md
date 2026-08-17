@@ -2,7 +2,9 @@
 
 Every package contains `hubuum-extension.jsonc`. The CLI accepts comments and
 trailing commas, while retaining strict JSON strings, keys, numbers, and comma
-rules. Unknown fields are errors. Add the repository's
+rules. Use comments to document why a site-specific value or workflow step
+exists; the compiler ignores them, so they have no runtime semantics. Unknown
+fields are errors. Add the repository's
 [`hubuum-extension.schema.json`](../schemas/hubuum-extension.schema.json) as
 `$schema` for editor validation and completion.
 

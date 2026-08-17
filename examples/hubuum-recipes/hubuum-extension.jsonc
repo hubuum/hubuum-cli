@@ -57,6 +57,7 @@
         "columns": ["configured", "filtered", "selected", "literal", "each"]
       },
       "steps": [
+        // `when` makes execution conditional without hiding it in a script.
         {
           "id": "configured",
           "kind": "run",
@@ -88,6 +89,7 @@
           "kind": "run",
           "run": ["object", "list"],
           "with": {
+            // `select` extracts one binding value from a previous JSON result.
             "class": { "step": "classes", "select": ".[0].name" },
             "all": true
           }
@@ -120,6 +122,7 @@
         {
           "id": "each",
           "kind": "for_each",
+          // Iteration always has an explicit safety bound.
           "items": { "input": "classes" },
           "as": "class",
           "call": "list_one",

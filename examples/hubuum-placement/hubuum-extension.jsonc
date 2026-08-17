@@ -449,6 +449,7 @@
           "type": "string",
           "required": true
         },
+        // Preview moves by default; mutating steps require apply=true.
         "apply": {
           "type": "boolean",
           "default": false

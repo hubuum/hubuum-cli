@@ -36,8 +36,12 @@ same-pack reuse, assertions, conditions, and bounded iteration. The compiler
 creates a stable `WorkflowPlan`, expands the call graph, rejects cycles, derives
 effects and replay safety, and enforces fixed host limits.
 
-JSONC is the sole workflow declaration language. JQ is its bounded expression
-language. No external interpreter is required.
+JSONC is the sole workflow declaration language. Its nested structure keeps
+workflows, steps, and dependencies together, while comments let authors record
+site-specific intent next to the setting or step it explains. Comments and
+trailing commas are authoring conveniences only; they do not change the
+compiled workflow. JQ is the bounded expression language. No external
+interpreter is required.
 
 Executable packs remain useful when arbitrary code is the real requirement.
 They are trusted local programs, not sandboxes, and their dependencies are an
