@@ -80,7 +80,7 @@ async fn main() -> Result<(), AppError> {
     }
 
     init_logging()?;
-    let client = login(config.clone()).await?;
+    let (config, client) = login(config).await?.into_parts();
 
     let services = Arc::new(AppServices::new(
         client,

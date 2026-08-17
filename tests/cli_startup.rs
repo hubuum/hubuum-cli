@@ -4,6 +4,7 @@ use std::net::TcpListener;
 use std::thread;
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use tempfile::tempdir;
 
@@ -126,33 +127,43 @@ fn metrics_uses_the_configured_path_without_authentication() {
         .expect("metrics listener should have an address")
         .port();
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("metrics request should arrive");
-        let mut request = Vec::new();
-        let mut buffer = [0_u8; 4096];
-        loop {
-            let count = stream
-                .read(&mut buffer)
-                .expect("request should be readable");
-            if count == 0 {
-                break;
+        for request_number in 0..2 {
+            let (mut stream, _) = listener.accept().expect("HTTP request should arrive");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let count = stream
+                    .read(&mut buffer)
+                    .expect("request should be readable");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
             }
-            request.extend_from_slice(&buffer[..count]);
-            if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                break;
-            }
+
+            let request = String::from_utf8(request).expect("request should be UTF-8");
+            let (content_type, body) = if request_number == 0 {
+                assert!(request.starts_with("GET /healthz HTTP/1.1\r\n"));
+                ("application/json", r#"{"status":"ok"}"#)
+            } else {
+                assert!(request.starts_with("GET /internal/metrics HTTP/1.1\r\n"));
+                (
+                    "text/plain; version=0.0.4",
+                    "# TYPE hubuum_up gauge\nhubuum_up 1\n",
+                )
+            };
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .expect("HTTP response should be written");
         }
-
-        let request = String::from_utf8(request).expect("request should be UTF-8");
-        assert!(request.starts_with("GET /internal/metrics HTTP/1.1\r\n"));
-        assert!(!request.to_ascii_lowercase().contains("authorization:"));
-
-        let body = "# TYPE hubuum_up gauge\nhubuum_up 1\n";
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-        .expect("metrics response should be written");
     });
 
     cargo_bin_cmd!("hubuum-cli")
@@ -173,6 +184,34 @@ fn metrics_uses_the_configured_path_without_authentication() {
         .stdout(contains("hubuum_up 1"));
 
     server.join().expect("metrics server should finish");
+}
+
+#[test]
+fn unreachable_server_fails_before_password_prompt() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("temporary listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("temporary listener should have an address")
+        .port();
+    drop(listener);
+    let directory = tempdir().expect("temporary directory");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .env("XDG_DATA_HOME", directory.path())
+        .args([
+            "--protocol",
+            "http",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "--username",
+            "admin",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("ServerUnreachable").and(contains("Password for").not()));
 }
 
 #[test]

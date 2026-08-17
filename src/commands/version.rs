@@ -6,6 +6,7 @@ use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
+use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
@@ -101,7 +102,7 @@ pub(crate) fn render_version(tokens: &CommandTokenizer) -> Result<(), AppError> 
 }
 
 fn fetch_server_version() -> Result<String, AppError> {
-    let config = get_config();
+    let config = reachable_server_config(get_config())?;
     let url = format!(
         "{}://{}:{}/api-doc/openapi.json",
         config.server.protocol, config.server.hostname, config.server.port

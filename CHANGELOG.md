@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Server startup now checks the unauthenticated health endpoint before asking
+  for an interactive password. Unconfigured ports are tried in order on 443 and
+  8080, while an explicitly configured port remains authoritative.
+
 ## [0.0.9] - 2026-08-07
 
 - Updated `hubuum_client` to 0.9.0 for Hubuum server v0.0.9. The CLI now

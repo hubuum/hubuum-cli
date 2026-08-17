@@ -1,8 +1,10 @@
+use std::error::Error as StdError;
 use std::fs::read_to_string;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use clap::ArgMatches;
 use hubuum_client::{
@@ -17,13 +19,17 @@ use tracing_subscriber::EnvFilter;
 use crate::catalog::CommandCatalog;
 use crate::cli::{get_cli_config_path, update_config_from_cli};
 use crate::config::{
-    get_config, init_config, init_config_state, inspect_config_state, load_config, AppConfig,
+    get_config, get_config_state, init_config, init_config_state, inspect_config_state,
+    load_config, update_runtime_server_port, AppConfig, ConfigSource,
 };
+use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_log_file, get_token_from_tokenfile, write_token_to_tokenfile};
 use crate::models::TokenEntry;
 use crate::services::AppServices;
 use crate::theme::{paint, ThemeRole};
+
+const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct AppRuntime {
@@ -112,14 +118,32 @@ pub fn load_app_config(matches: &ArgMatches) -> Result<Arc<AppConfig>, AppError>
     Ok(Arc::new(config))
 }
 
-pub async fn login(config: Arc<AppConfig>) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
-    login_with_cached_token(config, CachedToken::Allow).await
+pub struct LoginSession {
+    config: Arc<AppConfig>,
+    client: Arc<BlockingClient<Authenticated>>,
+}
+
+impl LoginSession {
+    pub fn into_parts(self) -> (Arc<AppConfig>, Arc<BlockingClient<Authenticated>>) {
+        (self.config, self.client)
+    }
+}
+
+pub async fn login(config: Arc<AppConfig>) -> Result<LoginSession, AppError> {
+    let ports = ServerPorts::from_config(&config);
+    let session = login_with_cached_token(config, CachedToken::Allow, ports).await?;
+    init_config(session.config.clone())?;
+    update_runtime_server_port(session.config.server.port)?;
+    Ok(session)
 }
 
 pub async fn reauthenticate(
     config: Arc<AppConfig>,
 ) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
-    login_with_cached_token(config, CachedToken::Skip).await
+    let port = config.server.port;
+    login_with_cached_token(config, CachedToken::Skip, ServerPorts::configured(port))
+        .await
+        .map(|session| session.client)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -131,18 +155,13 @@ enum CachedToken {
 async fn login_with_cached_token(
     config: Arc<AppConfig>,
     cached_token: CachedToken,
-) -> Result<Arc<BlockingClient<Authenticated>>, AppError> {
+    ports: ServerPorts,
+) -> Result<LoginSession, AppError> {
     spawn_blocking(move || {
-        let baseurl = BaseUrl::from_str(&format!(
-            "{}://{}:{}",
-            config.server.protocol, config.server.hostname, config.server.port
-        ))?;
+        let config = reachable_server_config_on_ports(config, &ports)?;
+        let client = build_client(&config)?;
 
-        let client = BlockingClient::builder(baseurl)
-            .validate_certs(config.server.ssl_validation)
-            .build()?;
-
-        authenticate(
+        let client = authenticate(
             client,
             config.server.hostname.as_str(),
             config.server.identity_scope.as_deref(),
@@ -150,11 +169,147 @@ async fn login_with_cached_token(
             config.server.password.clone(),
             config.server.token_file.as_deref(),
             cached_token,
-        )
-        .map(Arc::new)
+        )?;
+
+        Ok(LoginSession {
+            config,
+            client: Arc::new(client),
+        })
     })
     .await
     .map_err(|err| AppError::CommandExecutionError(err.to_string()))?
+}
+
+pub(crate) fn reachable_server_config(config: Arc<AppConfig>) -> Result<Arc<AppConfig>, AppError> {
+    let ports = ServerPorts::from_config(&config);
+    reachable_server_config_on_ports(config, &ports)
+}
+
+fn reachable_server_config_on_ports(
+    config: Arc<AppConfig>,
+    ports: &ServerPorts,
+) -> Result<Arc<AppConfig>, AppError> {
+    let port = select_reachable_server_port(&config.server.hostname, ports, |port| {
+        probe_server(&config, port)
+    })?;
+
+    if port == config.server.port {
+        return Ok(config);
+    }
+
+    let mut selected = (*config).clone();
+    selected.server.port = port;
+    Ok(Arc::new(selected))
+}
+
+fn server_base_url(config: &AppConfig, port: u16) -> Result<BaseUrl, AppError> {
+    let baseurl = BaseUrl::from_str(&format!(
+        "{}://{}:{port}",
+        config.server.protocol, config.server.hostname
+    ))?;
+    Ok(baseurl)
+}
+
+fn build_client(config: &AppConfig) -> Result<BlockingClient<Unauthenticated>, AppError> {
+    let baseurl = server_base_url(config, config.server.port)?;
+    BlockingClient::builder(baseurl)
+        .validate_certs(config.server.ssl_validation)
+        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
+        .build()
+        .map_err(AppError::from)
+}
+
+fn probe_server(config: &AppConfig, port: u16) -> Result<(), String> {
+    let baseurl = server_base_url(config, port).map_err(|error| error.to_string())?;
+    let url = format!("{}healthz", baseurl.as_str());
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(!config.server.ssl_validation)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(SERVER_PROBE_TIMEOUT)
+        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
+        .build()
+        .map_err(|error| error_chain(&error))?;
+    client
+        .get(url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map(|_| ())
+        .map_err(|error| error_chain(&error))
+}
+
+fn error_chain(error: &dyn StdError) -> String {
+    let mut messages = vec![error.to_string()];
+    let mut source = error.source();
+    while let Some(error) = source {
+        let message = error.to_string();
+        if messages.last() != Some(&message) {
+            messages.push(message);
+        }
+        source = error.source();
+    }
+    messages.join(": ")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServerPorts(Vec<u16>);
+
+impl ServerPorts {
+    fn from_config(config: &AppConfig) -> Self {
+        let uses_default = config.server.port == Defaults::SERVER_PORT
+            && get_config_state()
+                .entry("server.port")
+                .is_some_and(|entry| entry.source == ConfigSource::Default);
+        if uses_default {
+            Self::defaults()
+        } else {
+            Self::configured(config.server.port)
+        }
+    }
+
+    fn defaults() -> Self {
+        Self(Defaults::SERVER_PORTS.to_vec())
+    }
+
+    fn configured(port: u16) -> Self {
+        Self(vec![port])
+    }
+
+    fn iter(&self) -> impl Iterator<Item = u16> + '_ {
+        self.0.iter().copied()
+    }
+
+    fn description(&self) -> String {
+        let ports = self
+            .iter()
+            .map(|port| port.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if self.0.len() == 1 {
+            format!("port {ports}")
+        } else {
+            format!("ports {ports}")
+        }
+    }
+}
+
+fn select_reachable_server_port(
+    hostname: &str,
+    ports: &ServerPorts,
+    mut probe: impl FnMut(u16) -> Result<(), String>,
+) -> Result<u16, AppError> {
+    let mut failures = Vec::new();
+    for port in ports.iter() {
+        match probe(port) {
+            Ok(()) => return Ok(port),
+            Err(error) => failures.push(format!("port {port}: {error}")),
+        }
+    }
+
+    Err(AppError::ServerUnreachable {
+        hostname: hostname.to_string(),
+        ports: ports.description(),
+        failures: failures.join("; "),
+    })
 }
 
 fn authenticate(
@@ -300,7 +455,48 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::BearerTokenFile;
+    use super::{select_reachable_server_port, BearerTokenFile, ServerPorts};
+    use crate::defaults::Defaults;
+
+    #[test]
+    fn default_server_ports_prefer_https_then_legacy_port() {
+        assert_eq!(ServerPorts::defaults().0, vec![443, 8080]);
+        assert_eq!(Defaults::SERVER_PORT, 443);
+    }
+
+    #[test]
+    fn server_port_selection_tries_candidates_in_order() {
+        let ports = ServerPorts::defaults();
+        let mut attempts = Vec::new();
+
+        let selected = select_reachable_server_port("hubuum.example.com", &ports, |port| {
+            attempts.push(port);
+            if port == 8080 {
+                Ok(())
+            } else {
+                Err("connection refused".to_string())
+            }
+        })
+        .expect("the fallback port should be selected");
+
+        assert_eq!(attempts, vec![443, 8080]);
+        assert_eq!(selected, 8080);
+    }
+
+    #[test]
+    fn configured_server_port_is_the_only_candidate() {
+        let ports = ServerPorts::configured(8443);
+        let mut attempts = Vec::new();
+
+        let error = select_reachable_server_port("hubuum.example.com", &ports, |port| {
+            attempts.push(port);
+            Err("connection refused".to_string())
+        })
+        .expect_err("an unreachable configured port should fail");
+
+        assert_eq!(attempts, vec![8443]);
+        assert!(error.to_string().contains("port 8443"));
+    }
 
     #[test]
     fn bearer_token_file_trims_surrounding_whitespace() {

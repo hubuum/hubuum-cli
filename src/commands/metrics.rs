@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::CliCommand;
+use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
@@ -51,7 +52,7 @@ impl CliCommand for Metrics {
 
 pub(crate) fn render_metrics(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let query = Metrics::parse_tokens(tokens)?;
-    let config = get_config();
+    let config = reachable_server_config(get_config())?;
     let base_url = format!(
         "{}://{}:{}",
         config.server.protocol, config.server.hostname, config.server.port

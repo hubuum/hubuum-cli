@@ -8,6 +8,7 @@ use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::CliCommand;
+use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::CommandCatalogBuilder;
 use crate::config::get_config;
@@ -46,7 +47,7 @@ impl CliCommand for AuthProviders {
 
 pub(crate) fn render_auth_providers(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let _query = AuthProviders::parse_tokens(tokens)?;
-    let config = get_config();
+    let config = reachable_server_config(get_config())?;
     let base_url = format!(
         "{}://{}:{}",
         config.server.protocol, config.server.hostname, config.server.port

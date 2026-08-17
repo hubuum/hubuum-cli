@@ -49,6 +49,28 @@ pub fn init_config_state(state: ConfigState) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn update_runtime_server_port(port: u16) -> Result<(), AppError> {
+    let mut state = CONFIG_STATE
+        .write()
+        .map_err(|_| AppError::GeneralConfigError("Failed to update config state".to_string()))?;
+    let state = state.as_mut().ok_or_else(|| {
+        AppError::GeneralConfigError(
+            "Config state not initialized before selecting a server port".to_string(),
+        )
+    })?;
+    let entry = state
+        .entries
+        .iter_mut()
+        .find(|entry| entry.key == "server.port")
+        .ok_or_else(|| {
+            AppError::GeneralConfigError("Server port is missing from config state".to_string())
+        })?;
+    let value = port.to_string();
+    entry.value.clone_from(&value);
+    entry.display_value = value;
+    Ok(())
+}
+
 pub fn get_config_state() -> ConfigState {
     CONFIG_STATE
         .read()
