@@ -65,10 +65,24 @@ pub fn update_runtime_server_port(port: u16) -> Result<(), AppError> {
         .ok_or_else(|| {
             AppError::GeneralConfigError("Server port is missing from config state".to_string())
         })?;
+    if entry.source == ConfigSource::Default && port != Defaults::SERVER_PORT {
+        mark_discovered_server_port(entry, port);
+    } else {
+        update_server_port_value(entry, port);
+    }
+    Ok(())
+}
+
+fn update_server_port_value(entry: &mut ConfigEntry, port: u16) {
     let value = port.to_string();
     entry.value.clone_from(&value);
     entry.display_value = value;
-    Ok(())
+}
+
+fn mark_discovered_server_port(entry: &mut ConfigEntry, port: u16) {
+    update_server_port_value(entry, port);
+    entry.source = ConfigSource::Discovered;
+    entry.source_detail = Some("selected from default ports".to_string());
 }
 
 pub fn get_config_state() -> ConfigState {
@@ -108,6 +122,7 @@ pub struct ConfigEntry {
 #[serde(rename_all = "snake_case")]
 pub enum ConfigSource {
     Default,
+    Discovered,
     SystemFile,
     UserFile,
     CustomFile,
@@ -851,6 +866,7 @@ fn merge_user_preferences(
 
 pub fn reload_runtime_config() -> Result<(), AppError> {
     let previous_state = get_config_state();
+    let discovered_server_port = discovered_server_port(&previous_state);
     let custom = previous_state.paths.custom.clone();
     let runtime_cli_keys: Vec<String> = previous_state
         .entries
@@ -875,13 +891,43 @@ pub fn reload_runtime_config() -> Result<(), AppError> {
         .map(str::to_string)
         .collect();
 
-    let state = if runtime_cli_args.is_empty() {
+    let mut state = if runtime_cli_args.is_empty() {
         inspect_config_state_without_cli(&config, custom)
     } else {
         inspect_config_state_with_runtime_cli(&config, custom, &runtime_cli_args)
     };
+    preserve_discovered_server_port(discovered_server_port, &mut config, &mut state)?;
     init_config_state(state)?;
     init_config(config)?;
+    Ok(())
+}
+
+fn discovered_server_port(state: &ConfigState) -> Option<u16> {
+    state
+        .entry("server.port")
+        .filter(|entry| entry.source == ConfigSource::Discovered)
+        .and_then(|entry| entry.value.parse::<u16>().ok())
+}
+
+fn preserve_discovered_server_port(
+    discovered_port: Option<u16>,
+    config: &mut AppConfig,
+    state: &mut ConfigState,
+) -> Result<(), AppError> {
+    let Some(port) = discovered_port else {
+        return Ok(());
+    };
+    let entry = state
+        .entries
+        .iter_mut()
+        .find(|entry| entry.key == "server.port")
+        .ok_or_else(|| {
+            AppError::GeneralConfigError("Server port is missing from config state".to_string())
+        })?;
+    if entry.source == ConfigSource::Default {
+        config.server.port = port;
+        mark_discovered_server_port(entry, port);
+    }
     Ok(())
 }
 
@@ -2597,6 +2643,85 @@ object_show_data = false
 
         let _ = remove_file(config_path);
         clear_env();
+    }
+
+    #[test]
+    fn discovered_server_port_survives_default_source_reload() {
+        let mut previous_entry = ConfigEntry {
+            key: "server.port".to_string(),
+            value: Defaults::SERVER_PORT.to_string(),
+            display_value: Defaults::SERVER_PORT.to_string(),
+            source: ConfigSource::Default,
+            source_detail: None,
+            sensitive: false,
+        };
+        mark_discovered_server_port(&mut previous_entry, 8080);
+        let previous_state = ConfigState {
+            paths: ConfigPaths {
+                system: PathBuf::from("/etc/hubuum_cli/config.toml"),
+                user: PathBuf::from("/tmp/hubuum-cli-user.toml"),
+                custom: None,
+                write_target: PathBuf::from("/tmp/hubuum-cli-user.toml"),
+            },
+            entries: vec![previous_entry],
+        };
+        let mut reloaded_config = AppConfig::default();
+        let mut reloaded_state = ConfigState {
+            paths: previous_state.paths.clone(),
+            entries: vec![ConfigEntry {
+                key: "server.port".to_string(),
+                value: Defaults::SERVER_PORT.to_string(),
+                display_value: Defaults::SERVER_PORT.to_string(),
+                source: ConfigSource::Default,
+                source_detail: None,
+                sensitive: false,
+            }],
+        };
+
+        preserve_discovered_server_port(
+            discovered_server_port(&previous_state),
+            &mut reloaded_config,
+            &mut reloaded_state,
+        )
+        .expect("discovered port should be preserved");
+
+        assert_eq!(reloaded_config.server.port, 8080);
+        let entry = reloaded_state
+            .entry("server.port")
+            .expect("server port state should exist");
+        assert_eq!(entry.value, "8080");
+        assert_eq!(entry.source, ConfigSource::Discovered);
+    }
+
+    #[test]
+    fn configured_server_port_replaces_discovered_runtime_port_on_reload() {
+        let mut config = AppConfig::default();
+        config.server.port = 8443;
+        let mut state = ConfigState {
+            paths: ConfigPaths {
+                system: PathBuf::from("/etc/hubuum_cli/config.toml"),
+                user: PathBuf::from("/tmp/hubuum-cli-user.toml"),
+                custom: None,
+                write_target: PathBuf::from("/tmp/hubuum-cli-user.toml"),
+            },
+            entries: vec![ConfigEntry {
+                key: "server.port".to_string(),
+                value: "8443".to_string(),
+                display_value: "8443".to_string(),
+                source: ConfigSource::UserFile,
+                source_detail: Some("/tmp/hubuum-cli-user.toml".to_string()),
+                sensitive: false,
+            }],
+        };
+
+        preserve_discovered_server_port(Some(8080), &mut config, &mut state)
+            .expect("configured port should remain valid");
+
+        assert_eq!(config.server.port, 8443);
+        assert_eq!(
+            state.entry("server.port").map(|entry| &entry.source),
+            Some(&ConfigSource::UserFile)
+        );
     }
 
     #[test]

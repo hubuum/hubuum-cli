@@ -189,17 +189,18 @@ fn reachable_server_config_on_ports(
     config: Arc<AppConfig>,
     ports: &ServerPorts,
 ) -> Result<Arc<AppConfig>, AppError> {
-    let port = select_reachable_server_port(&config.server.hostname, ports, |port| {
-        probe_server(&config, port)
-    })?;
+    try_server_configs(config, ports, probe_server).map(|(config, ())| config)
+}
 
-    if port == config.server.port {
-        return Ok(config);
-    }
-
-    let mut selected = (*config).clone();
-    selected.server.port = port;
-    Ok(Arc::new(selected))
+pub(crate) fn request_with_server_port_fallback<T>(
+    config: Arc<AppConfig>,
+    mut request: impl FnMut(&AppConfig) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let ports = ServerPorts::from_config(&config);
+    try_server_configs(config, &ports, |candidate| {
+        request(candidate).map_err(|error| error.to_string())
+    })
+    .map(|(_, response)| response)
 }
 
 fn server_base_url(config: &AppConfig, port: u16) -> Result<BaseUrl, AppError> {
@@ -219,8 +220,8 @@ fn build_client(config: &AppConfig) -> Result<BlockingClient<Unauthenticated>, A
         .map_err(AppError::from)
 }
 
-fn probe_server(config: &AppConfig, port: u16) -> Result<(), String> {
-    let baseurl = server_base_url(config, port).map_err(|error| error.to_string())?;
+fn probe_server(config: &AppConfig) -> Result<(), String> {
+    let baseurl = server_base_url(config, config.server.port).map_err(|error| error.to_string())?;
     let url = format!("{}healthz", baseurl.as_str());
     let client = reqwest::blocking::Client::builder()
         .danger_accept_invalid_certs(!config.server.ssl_validation)
@@ -229,12 +230,15 @@ fn probe_server(config: &AppConfig, port: u16) -> Result<(), String> {
         .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
         .build()
         .map_err(|error| error_chain(&error))?;
-    client
+    let response = client
         .get(url)
         .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map(|_| ())
-        .map_err(|error| error_chain(&error))
+        .map_err(|error| error_chain(&error))?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("health probe returned HTTP {}", response.status()))
+    }
 }
 
 fn error_chain(error: &dyn StdError) -> String {
@@ -292,21 +296,28 @@ impl ServerPorts {
     }
 }
 
-fn select_reachable_server_port(
-    hostname: &str,
+fn try_server_configs<T>(
+    config: Arc<AppConfig>,
     ports: &ServerPorts,
-    mut probe: impl FnMut(u16) -> Result<(), String>,
-) -> Result<u16, AppError> {
+    mut request: impl FnMut(&AppConfig) -> Result<T, String>,
+) -> Result<(Arc<AppConfig>, T), AppError> {
     let mut failures = Vec::new();
     for port in ports.iter() {
-        match probe(port) {
-            Ok(()) => return Ok(port),
+        let candidate = if port == config.server.port {
+            config.clone()
+        } else {
+            let mut candidate = (*config).clone();
+            candidate.server.port = port;
+            Arc::new(candidate)
+        };
+        match request(&candidate) {
+            Ok(response) => return Ok((candidate, response)),
             Err(error) => failures.push(format!("port {port}: {error}")),
         }
     }
 
     Err(AppError::ServerUnreachable {
-        hostname: hostname.to_string(),
+        hostname: config.server.hostname.clone(),
         ports: ports.description(),
         failures: failures.join("; "),
     })
@@ -452,11 +463,17 @@ impl AppRuntime {
 #[cfg(test)]
 mod tests {
     use std::fs::write;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::thread;
 
     use tempfile::tempdir;
 
-    use super::{select_reachable_server_port, BearerTokenFile, ServerPorts};
+    use super::{probe_server, try_server_configs, BearerTokenFile, ServerPorts};
+    use crate::config::AppConfig;
     use crate::defaults::Defaults;
+    use crate::models::Protocol;
 
     #[test]
     fn default_server_ports_prefer_https_then_legacy_port() {
@@ -468,8 +485,10 @@ mod tests {
     fn server_port_selection_tries_candidates_in_order() {
         let ports = ServerPorts::defaults();
         let mut attempts = Vec::new();
+        let config = Arc::new(AppConfig::default());
 
-        let selected = select_reachable_server_port("hubuum.example.com", &ports, |port| {
+        let (selected, ()) = try_server_configs(config, &ports, |candidate| {
+            let port = candidate.server.port;
             attempts.push(port);
             if port == 8080 {
                 Ok(())
@@ -480,22 +499,68 @@ mod tests {
         .expect("the fallback port should be selected");
 
         assert_eq!(attempts, vec![443, 8080]);
-        assert_eq!(selected, 8080);
+        assert_eq!(selected.server.port, 8080);
     }
 
     #[test]
     fn configured_server_port_is_the_only_candidate() {
         let ports = ServerPorts::configured(8443);
         let mut attempts = Vec::new();
+        let config = Arc::new(AppConfig::default());
 
-        let error = select_reachable_server_port("hubuum.example.com", &ports, |port| {
+        let error = try_server_configs(config, &ports, |candidate| {
+            let port = candidate.server.port;
             attempts.push(port);
-            Err("connection refused".to_string())
+            Err::<(), _>("connection refused".to_string())
         })
         .expect_err("an unreachable configured port should fail");
 
         assert_eq!(attempts, vec![8443]);
         assert!(error.to_string().contains("port 8443"));
+    }
+
+    #[test]
+    fn health_probe_rejects_redirect_responses() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("health listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("health listener should have an address")
+            .port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("health request should arrive");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let count = stream
+                    .read(&mut buffer)
+                    .expect("request should be readable");
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            assert!(String::from_utf8(request)
+                .expect("request should be UTF-8")
+                .starts_with("GET /healthz HTTP/1.1\r\n"));
+            write!(
+                stream,
+                "HTTP/1.1 302 Found\r\nLocation: /login\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .expect("redirect response should be written");
+        });
+
+        let mut config = AppConfig::default();
+        config.server.hostname = "127.0.0.1".to_string();
+        config.server.port = port;
+        config.server.protocol = Protocol::Http;
+
+        let error = probe_server(&config).expect_err("redirect should not pass the health probe");
+
+        assert!(error.contains("HTTP 302 Found"));
+        server.join().expect("health server should finish");
     }
 
     #[test]
