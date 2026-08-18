@@ -308,19 +308,19 @@ fn parse_object_data_patch(source: &str) -> Result<ObjectDataPatchDocument, AppE
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ObjectInfo {
     #[option(
-        short = "n",
-        long = "name",
-        help = "Name of the object",
-        autocomplete = "objects_from_class"
-    )]
-    pub name: Option<String>,
-    #[option(
         short = "c",
         long = "class",
         help = "Class of the object",
         autocomplete = "classes"
     )]
     pub class: String,
+    #[option(
+        short = "n",
+        long = "name",
+        help = "Name of the object",
+        autocomplete = "objects_from_class"
+    )]
+    pub name: Option<String>,
     #[option(
         short = "d",
         long = "data",
@@ -508,7 +508,7 @@ mod tests {
         first_seen_data_keys, object_data_column_label, object_field_summaries, object_list_row,
         object_show_pipeline_value, parse_object_data_patch, where_result_data_keys,
         ComputedFieldSelection, ComputedValueColumn, ComputedValueScope, ObjectAggregate,
-        ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
+        ObjectInfo, ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::commands::command_options;
@@ -523,6 +523,15 @@ mod tests {
     #[test]
     fn display_json_value_unquotes_strings() {
         assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    fn object_show_completes_class_before_class_dependent_name() {
+        let options = command_options::<ObjectInfo>();
+
+        assert_eq!(options[0].long.as_deref(), Some("--class"));
+        assert_eq!(options[1].long.as_deref(), Some("--name"));
+        assert!(options[1].autocomplete.is_some());
     }
 
     #[test]
