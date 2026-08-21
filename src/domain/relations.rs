@@ -265,6 +265,7 @@ pub fn build_related_object_tree(
                 !ignore_same_class
                     || object_class_map.get(object_id).copied().unwrap_or_default() != root_class_id
             })
+            .filter(|object_id| nodes.contains_key(object_id))
             .collect::<Vec<_>>();
         if path.last().copied() != Some(object.id.into()) {
             path.push(object.id.into());
@@ -496,6 +497,23 @@ mod tests {
             (3, class(3, 1, "Jacks")),
             (4, class(4, 1, "Rooms")),
         ]);
+        let collection_map = HashMap::from([(1, collection(1, "default"))]);
+
+        let tree = build_related_object_tree(&objects, &class_map, &collection_map, 9, 1, true);
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].label(), "Jacks/Jack-1");
+        assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].label(), "Rooms/Room-1");
+    }
+
+    #[test]
+    fn build_related_object_tree_keeps_descendants_behind_absent_nodes() {
+        let objects = vec![
+            related_object(11, 3, 1, "Jack-1", &[9, 10, 11]),
+            related_object(12, 4, 1, "Room-1", &[9, 10, 11, 12]),
+        ];
+        let class_map = HashMap::from([(3, class(3, 1, "Jacks")), (4, class(4, 1, "Rooms"))]);
         let collection_map = HashMap::from([(1, collection(1, "default"))]);
 
         let tree = build_related_object_tree(&objects, &class_map, &collection_map, 9, 1, true);

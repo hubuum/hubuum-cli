@@ -256,14 +256,21 @@ impl HubuumGateway {
             let computed = self.client().computed_object(class.id(), object.id())?;
             object_record = object_record.with_computed(serde_json::to_value(computed.computed)?);
         }
-        let related_graph = object
-            .related_graph()
-            .filter(
-                "depth",
-                FilterOperator::Lte { is_negated: false },
-                options.max_depth,
+        let related_graph_request = object.related_graph().filter(
+            "depth",
+            FilterOperator::Lte { is_negated: false },
+            options.max_depth,
+        );
+        let related_graph_request = if options.include_self_class {
+            related_graph_request
+        } else {
+            related_graph_request.filter(
+                "class_id",
+                FilterOperator::Equals { is_negated: true },
+                class.id(),
             )
-            .send()?;
+        };
+        let related_graph = related_graph_request.send()?;
         let graph_class_map = self.class_map_from_ids(
             related_graph
                 .objects
@@ -739,9 +746,10 @@ mod tests {
     use std::thread;
 
     use hubuum_client::{
-        blocking::Client as BlockingClient, BaseUrl, ObjectDataPatchDocument,
-        ObjectDataPatchOperation, Token,
+        blocking::Client as BlockingClient, BaseUrl, MockTransport, ObjectDataPatchDocument,
+        ObjectDataPatchOperation, Token, TransportResponse,
     };
+    use reqwest::StatusCode;
     use serde_json::json;
 
     use crate::domain::{ObjectDataMutationOutcome, ResolvedObjectRecord};
@@ -749,8 +757,96 @@ mod tests {
 
     use super::{
         initial_data_from_patch, sort_objects_locally, validate_object_sort_clauses, HubuumGateway,
-        ObjectDataPatchInput, ObjectSortClause, ObjectUpdateInput, OBJECT_FILTER_SPECS,
+        ObjectDataPatchInput, ObjectSortClause, ObjectUpdateInput, RelationTraversalOptions,
+        OBJECT_FILTER_SPECS,
     };
+
+    #[test]
+    fn object_show_excludes_same_class_objects_in_the_graph_request() {
+        for (include_self_class, expected_class_filter) in [(false, Some("9")), (true, None)] {
+            let transport = MockTransport::default();
+            let collection = json!({
+                "id": 7,
+                "name": "Infrastructure",
+                "description": "",
+                "parent_collection_id": null,
+                "revision": 1,
+                "created_at": "2026-07-21T12:00:00Z",
+                "updated_at": "2026-07-21T12:00:00Z"
+            });
+            transport.push_response(
+                TransportResponse::json(
+                    StatusCode::OK,
+                    &json!({
+                        "id": 9,
+                        "name": "Hosts",
+                        "description": "",
+                        "collection": collection.clone(),
+                        "json_schema": null,
+                        "validate_schema": null,
+                        "revision": 1,
+                        "created_at": "2026-07-21T12:00:00Z",
+                        "updated_at": "2026-07-21T12:00:00Z"
+                    }),
+                )
+                .expect("class response should serialize"),
+            );
+            transport.push_response(
+                TransportResponse::json(
+                    StatusCode::OK,
+                    &json!([{
+                        "id": 42,
+                        "name": "srv-01",
+                        "collection_id": 7,
+                        "hubuum_class_id": 9,
+                        "description": "",
+                        "data": {},
+                        "revision": 1,
+                        "created_at": "2026-07-21T12:00:00Z",
+                        "updated_at": "2026-07-21T12:00:00Z"
+                    }]),
+                )
+                .expect("object response should serialize"),
+            );
+            transport.push_response(
+                TransportResponse::json(StatusCode::OK, &collection)
+                    .expect("collection response should serialize"),
+            );
+            transport.push_response(
+                TransportResponse::json(StatusCode::OK, &json!({"objects": [], "relations": []}))
+                    .expect("graph response should serialize"),
+            );
+            let client = BlockingClient::builder_from_url("https://example.invalid")
+                .expect("base URL should parse")
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .expect("client should build")
+                .authenticate(Token::new("test-token"));
+            let gateway = HubuumGateway::new(Arc::new(client));
+
+            gateway
+                .object_show_details(
+                    "Hosts",
+                    "srv-01",
+                    &RelationTraversalOptions {
+                        include_self_class,
+                        max_depth: 2,
+                    },
+                    false,
+                )
+                .expect("object details should load");
+
+            let requests = transport.requests();
+            let graph_request = requests
+                .iter()
+                .find(|request| request.url.path().ends_with("/related/graph"))
+                .expect("related graph should be requested");
+            let class_filter = graph_request.url.query_pairs().find_map(|(key, value)| {
+                (key == "class_id__not_equals").then(|| value.into_owned())
+            });
+            assert_eq!(class_filter.as_deref(), expected_class_filter);
+        }
+    }
 
     #[test]
     fn reclassified_object_resolves_the_returned_class() {
