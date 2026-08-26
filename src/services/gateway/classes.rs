@@ -9,7 +9,7 @@ use crate::list_query::{
     SortFieldSpec,
 };
 
-use super::{HubuumGateway, RelationTraversalOptions};
+use super::{apply_related_graph_limit, HubuumGateway, RelationTraversalOptions};
 
 #[derive(Debug, Clone)]
 pub struct CreateClassInput {
@@ -75,14 +75,15 @@ impl HubuumGateway {
             .into_iter()
             .map(|object| ObjectRecord::from(object.resource()))
             .collect();
-        let related_graph = class
-            .related_graph()
-            .filter(
+        let related_graph = apply_related_graph_limit(
+            class.related_graph().filter(
                 "depth",
                 FilterOperator::Lte { is_negated: false },
-                options.max_depth,
-            )
-            .send()?;
+                options.max_depth(),
+            ),
+            options.graph_limit(),
+        )
+        .send()?;
         let collection_map = self.collection_map_from_ids(
             related_graph
                 .classes
@@ -98,7 +99,7 @@ impl HubuumGateway {
                 &related_graph.classes,
                 &collection_map,
                 class.id().into(),
-                !options.include_self_class,
+                !options.include_self_class(),
             ),
         })
     }

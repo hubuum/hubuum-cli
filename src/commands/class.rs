@@ -16,7 +16,9 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, render_related_class_tree_with_key, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_key_value, append_line};
-use crate::services::{AppServices, ClassUpdateInput, CreateClassInput, RelationTraversalOptions};
+use crate::services::{
+    AppServices, ClassUpdateInput, CreateClassInput, RelatedGraphLimit, RelationTraversalOptions,
+};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -155,6 +157,11 @@ pub struct ClassInfo {
         help = "Maximum traversal depth to include in related class output"
     )]
     pub max_depth: Option<i32>,
+    #[option(
+        long = "limit",
+        help = "Maximum number of related classes allowed in the graph"
+    )]
+    pub limit: Option<usize>,
 }
 
 impl CliCommand for ClassInfo {
@@ -166,12 +173,13 @@ impl CliCommand for ClassInfo {
         let config = get_config();
         let details = services.gateway().class_show_details(
             &name,
-            &RelationTraversalOptions {
-                include_self_class: query
+            &RelationTraversalOptions::new(
+                query
                     .include_self_class
                     .unwrap_or(!config.relations.ignore_same_class),
-                max_depth: query.max_depth.unwrap_or(config.relations.max_depth),
-            },
+                query.max_depth.unwrap_or(config.relations.max_depth),
+            )
+            .with_graph_limit(query.limit.map(RelatedGraphLimit::new).transpose()?),
         )?;
 
         match desired_format(tokens) {
@@ -361,9 +369,25 @@ mod tests {
     use serde_json::{from_value, json};
     use serial_test::serial;
 
-    use super::render_class_show_text;
+    use super::{render_class_show_text, ClassInfo};
+    use crate::commands::command_options;
     use crate::domain::{ClassRecord, ClassShowRecord, RelatedClassTreeNode};
     use crate::output::{reset_output, take_output};
+    use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    fn class_show_parses_related_graph_limit() {
+        let tokens = CommandTokenizer::new(
+            "class show --name Hosts --limit 250",
+            "show",
+            &command_options::<ClassInfo>(),
+        )
+        .expect("class show options should tokenize");
+
+        let query = ClassInfo::parse_tokens(&tokens).expect("class show options should parse");
+
+        assert_eq!(query.limit, Some(250));
+    }
 
     #[test]
     #[serial]

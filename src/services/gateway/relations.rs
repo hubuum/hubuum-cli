@@ -20,8 +20,9 @@ use crate::list_query::{
 };
 
 use super::{
+    apply_related_graph_limit,
     shared::{class_collection_id, fetch_entities_for_ids, find_entities_by_ids},
-    HubuumGateway,
+    HubuumGateway, RelatedGraphLimit,
 };
 
 #[derive(Debug, Clone)]
@@ -123,8 +124,36 @@ pub struct RelatedObjectOptions {
 
 #[derive(Debug, Clone, Copy)]
 pub struct RelationTraversalOptions {
-    pub include_self_class: bool,
-    pub max_depth: i32,
+    include_self_class: bool,
+    max_depth: i32,
+    graph_limit: Option<RelatedGraphLimit>,
+}
+
+impl RelationTraversalOptions {
+    pub fn new(include_self_class: bool, max_depth: i32) -> Self {
+        Self {
+            include_self_class,
+            max_depth,
+            graph_limit: None,
+        }
+    }
+
+    pub fn with_graph_limit(mut self, graph_limit: Option<RelatedGraphLimit>) -> Self {
+        self.graph_limit = graph_limit;
+        self
+    }
+
+    pub fn include_self_class(self) -> bool {
+        self.include_self_class
+    }
+
+    pub fn max_depth(self) -> i32 {
+        self.max_depth
+    }
+
+    pub fn graph_limit(self) -> Option<RelatedGraphLimit> {
+        self.graph_limit
+    }
 }
 
 impl HubuumGateway {
@@ -178,6 +207,7 @@ impl HubuumGateway {
         &self,
         root_class: &str,
         filters: &[FilterClause],
+        graph_limit: Option<RelatedGraphLimit>,
     ) -> Result<ResolvedRelatedClassGraph, AppError> {
         let validated = validate_filter_clauses(filters, RELATED_CLASS_FILTER_SPECS)?;
         let class = self.class_handle_by_name(root_class)?;
@@ -185,7 +215,8 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = class.related_graph().filters(filters).send()?;
+        let graph = apply_related_graph_limit(class.related_graph().filters(filters), graph_limit)
+            .send()?;
 
         let class_map = self.class_map_from_ids(
             graph
@@ -362,6 +393,7 @@ impl HubuumGateway {
         &self,
         root: &RelationRoot,
         filters: &[FilterClause],
+        graph_limit: Option<RelatedGraphLimit>,
     ) -> Result<ResolvedRelatedObjectGraph, AppError> {
         let validated = validate_filter_clauses(filters, RELATED_OBJECT_FILTER_SPECS)?;
         let object = self.object_handle_by_name(&root.root_class, &root.root_object)?;
@@ -369,7 +401,8 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = object.related_graph().filters(filters).send()?;
+        let graph = apply_related_graph_limit(object.related_graph().filters(filters), graph_limit)
+            .send()?;
 
         let class_map = self.class_map_from_ids(
             graph

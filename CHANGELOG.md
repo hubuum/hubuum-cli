@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Graph-producing class, object, and relation commands accept `--limit` to
+  override the server's related-resource guardrail. Omitting it preserves the
+  server-configured default.
+
 ## [0.0.9] - 2026-08-07
 
 - Updated `hubuum_client` to 0.9.0 for Hubuum server v0.0.9. The CLI now

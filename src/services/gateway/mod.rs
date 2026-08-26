@@ -21,10 +21,15 @@ mod tasks;
 mod tokens;
 mod users;
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
+use hubuum_client::{
+    blocking::{Client as BlockingClient, GraphRequest},
+    Authenticated,
+};
 
+use crate::errors::AppError;
 use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
 use super::AuthenticatedClient;
@@ -63,6 +68,31 @@ pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
 pub use tasks::{ListTasksInput, TaskLookupInput};
 pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RelatedGraphLimit(NonZeroUsize);
+
+impl RelatedGraphLimit {
+    pub fn new(value: usize) -> Result<Self, AppError> {
+        NonZeroUsize::new(value).map(Self).ok_or_else(|| {
+            AppError::InvalidOption("Related graph limit must be greater than zero".to_string())
+        })
+    }
+
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+fn apply_related_graph_limit<T>(
+    request: GraphRequest<T>,
+    limit: Option<RelatedGraphLimit>,
+) -> GraphRequest<T> {
+    match limit {
+        Some(limit) => request.set_query_param("limit", limit.get()),
+        None => request,
+    }
+}
 
 #[derive(Clone)]
 pub struct HubuumGateway {
@@ -201,5 +231,21 @@ pub(crate) fn sort_specs_for_command_path(
             Some(imports::IMPORT_RESULT_SORT_SPECS)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RelatedGraphLimit;
+
+    #[test]
+    fn related_graph_limit_requires_a_positive_value() {
+        assert_eq!(
+            RelatedGraphLimit::new(250)
+                .expect("positive limit should be valid")
+                .get(),
+            250
+        );
+        assert!(RelatedGraphLimit::new(0).is_err());
     }
 }

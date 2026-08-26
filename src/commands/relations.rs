@@ -20,7 +20,8 @@ use crate::formatting::{append_json, append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::services::{
-    AppServices, CreateClassRelationInput, RelatedObjectOptions, RelationRoot, RelationTarget,
+    AppServices, CreateClassRelationInput, RelatedGraphLimit, RelatedObjectOptions, RelationRoot,
+    RelationTarget,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -464,6 +465,11 @@ pub struct RelatedClassGraphCommand {
     )]
     pub max_depth: Option<i32>,
     #[option(
+        long = "limit",
+        help = "Maximum number of related classes allowed in the graph"
+    )]
+    pub limit: Option<usize>,
+    #[option(
         long = "where",
         help = "Filter clause: 'field op value'",
         nargs = 3,
@@ -494,6 +500,7 @@ impl CliCommand for RelatedClassGraphCommand {
                 )),
             )?
             .filters,
+            query.limit.map(RelatedGraphLimit::new).transpose()?,
         )?;
         render_related_class_graph(tokens, &graph)
     }
@@ -838,6 +845,11 @@ pub struct RelatedObjectGraphCommand {
     )]
     pub max_depth: Option<i32>,
     #[option(
+        long = "limit",
+        help = "Maximum number of related objects allowed in the graph"
+    )]
+    pub limit: Option<usize>,
+    #[option(
         long = "where",
         help = "Filter clause: 'field op value'",
         nargs = 3,
@@ -871,6 +883,7 @@ impl CliCommand for RelatedObjectGraphCommand {
                 )),
             )?
             .filters,
+            query.limit.map(RelatedGraphLimit::new).transpose()?,
         )?;
         render_related_object_graph(tokens, &graph)
     }
@@ -943,7 +956,7 @@ fn render_related_class_graph(
 mod tests {
     use hubuum_client::ApiError;
 
-    use super::ClassRelationCreate;
+    use super::{ClassRelationCreate, RelatedClassGraphCommand, RelatedObjectGraphCommand};
     use crate::commands::command_options;
     use crate::errors::AppError;
     use crate::tokenizer::CommandTokenizer;
@@ -982,5 +995,29 @@ mod tests {
                 value: 0
             }))
         ));
+    }
+
+    #[test]
+    fn relation_graph_commands_parse_limits() {
+        let class_tokens = CommandTokenizer::new(
+            "relation class graph --root-class Hosts --limit 200",
+            "graph",
+            &command_options::<RelatedClassGraphCommand>(),
+        )
+        .expect("class graph options should tokenize");
+        let object_tokens = CommandTokenizer::new(
+            "relation object graph --root-class Hosts --root-object nommo.uio.no --limit 250",
+            "graph",
+            &command_options::<RelatedObjectGraphCommand>(),
+        )
+        .expect("object graph options should tokenize");
+
+        let class_query = RelatedClassGraphCommand::parse_tokens(&class_tokens)
+            .expect("class graph options should parse");
+        let object_query = RelatedObjectGraphCommand::parse_tokens(&object_tokens)
+            .expect("object graph options should parse");
+
+        assert_eq!(class_query.limit, Some(200));
+        assert_eq!(object_query.limit, Some(250));
     }
 }

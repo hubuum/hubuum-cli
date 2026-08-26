@@ -45,7 +45,7 @@ use crate::output::{
 use crate::services::{
     AppServices, CreateObjectInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
     ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
-    RelationTraversalOptions,
+    RelatedGraphLimit, RelationTraversalOptions,
 };
 use crate::terminal::terminal_width;
 
@@ -346,6 +346,11 @@ pub struct ObjectInfo {
     )]
     pub max_depth: Option<i32>,
     #[option(
+        long = "limit",
+        help = "Maximum number of related objects allowed in the graph"
+    )]
+    pub limit: Option<usize>,
+    #[option(
         long = "computed",
         help = "Computed field to show: S:key, P:key, all, or none (repeatable)",
         nargs = 1,
@@ -371,12 +376,13 @@ impl CliCommand for ObjectInfo {
         let object = services.gateway().object_show_details(
             &query.class,
             object_name,
-            &RelationTraversalOptions {
-                include_self_class: query
+            &RelationTraversalOptions::new(
+                query
                     .include_self_class
                     .unwrap_or(!config.relations.ignore_same_class),
-                max_depth: query.max_depth.unwrap_or(config.relations.max_depth),
-            },
+                query.max_depth.unwrap_or(config.relations.max_depth),
+            )
+            .with_graph_limit(query.limit.map(RelatedGraphLimit::new).transpose()?),
             computed_selection.requests_values(),
         )?;
 
@@ -532,6 +538,20 @@ mod tests {
         assert_eq!(options[0].long.as_deref(), Some("--class"));
         assert_eq!(options[1].long.as_deref(), Some("--name"));
         assert!(options[1].autocomplete.is_some());
+    }
+
+    #[test]
+    fn object_show_parses_related_graph_limit() {
+        let tokens = CommandTokenizer::new(
+            "object show --class Hosts --name nommo.uio.no --limit 250",
+            "show",
+            &command_options::<ObjectInfo>(),
+        )
+        .expect("object show options should tokenize");
+
+        let query = ObjectInfo::parse_tokens(&tokens).expect("object show options should parse");
+
+        assert_eq!(query.limit, Some(250));
     }
 
     #[test]
