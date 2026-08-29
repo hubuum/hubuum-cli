@@ -151,7 +151,7 @@ fn render_search_response(
     tokens: &CommandTokenizer,
     response: &SearchResponseRecord,
 ) -> Result<(), AppError> {
-    if matches!(desired_format(tokens), OutputFormat::Json) {
+    if matches!(desired_format(tokens)?, OutputFormat::Json) {
         append_json(response)?;
         return apply_next_page_state(tokens, &response.next, false, true);
     }
@@ -172,7 +172,7 @@ fn render_search_stream(
     tokens: &CommandTokenizer,
     events: &[SearchStreamEvent],
 ) -> Result<(), AppError> {
-    if matches!(desired_format(tokens), OutputFormat::Json) {
+    if matches!(desired_format(tokens)?, OutputFormat::Json) {
         append_json(events)?;
         let next = next_from_stream(events);
         return apply_next_page_state(tokens, &next, false, false);

@@ -197,7 +197,7 @@ impl CliCommand for RemoteTargetCreate {
                 timeout_ms: new.timeout_ms,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => target.format_json_noreturn()?,
             OutputFormat::Text => target.format_noreturn()?,
         }
@@ -271,7 +271,7 @@ impl CliCommand for RemoteTargetShow {
 
         let target = services.gateway().remote_target(&name)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => target.format_json_noreturn()?,
             OutputFormat::Text => target.format_noreturn()?,
         }
@@ -394,7 +394,7 @@ impl CliCommand for RemoteTargetUpdate {
                 timeout_ms: query.timeout_ms,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => target.format_json_noreturn()?,
             OutputFormat::Text => target.format_noreturn()?,
         }
@@ -422,7 +422,7 @@ impl CliCommand for RemoteTargetDelete {
 
         let message = format!("Remote target '{}' deleted", target_name);
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }

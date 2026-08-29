@@ -64,7 +64,7 @@ use crate::{
         PageSelection, PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
     },
     models::{OutputFormat, TableHeaders},
-    output::{add_warning, append_line},
+    output::{add_warning, append_line, has_pipeline},
 };
 
 pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
@@ -330,11 +330,15 @@ pub fn validate_flag_options<C: CommandArgs>(tokens: &CommandTokenizer) -> Resul
     Ok(())
 }
 
-pub fn desired_format(tokens: &CommandTokenizer) -> OutputFormat {
+pub fn desired_format(tokens: &CommandTokenizer) -> Result<OutputFormat, AppError> {
+    if has_pipeline()? {
+        return Ok(OutputFormat::Text);
+    }
+
     if want_json(tokens) || output_format_name(tokens).as_deref() == Some("json") {
-        OutputFormat::Json
+        Ok(OutputFormat::Json)
     } else {
-        OutputFormat::Text
+        Ok(OutputFormat::Text)
     }
 }
 
@@ -377,11 +381,11 @@ pub fn render_list_page<T>(
 where
     T: Serialize + Clone + TableRenderable,
 {
-    render_paged_result(tokens, paged, desired_format(tokens))
+    render_paged_result(tokens, paged, desired_format(tokens)?)
 }
 
 pub fn render_task_record(tokens: &CommandTokenizer, task: &TaskRecord) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(task)?)?,
         OutputFormat::Text => task.format_noreturn()?,
     }
@@ -396,7 +400,7 @@ fn render_issued_token(
     owner: &str,
     token: &IssuedTokenRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
@@ -428,7 +432,7 @@ fn render_cloned_token(
         SourceTokenRevocation::Failed(error) => (true, Some(false), Some(error.as_str())),
     };
 
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
@@ -521,7 +525,7 @@ pub fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, A
 }
 
 pub fn render_json_record(tokens: &CommandTokenizer, record: &JsonRecord) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => record.format_json_noreturn(),
         OutputFormat::Text => record.format_noreturn(),
     }

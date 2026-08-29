@@ -88,7 +88,7 @@ impl CliCommand for JobsList {
         services.background().require_enabled()?;
         let jobs = services.background().list_jobs();
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&jobs)?)?,
             OutputFormat::Text => {
                 jobs.format_noreturn()?;
@@ -126,7 +126,7 @@ impl CliCommand for JobsShow {
             .job(id)
             .ok_or_else(|| AppError::EntityNotFound(format!("background job {id}")))?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&job)?)?,
             OutputFormat::Text => {
                 job.format_noreturn()?;
@@ -166,7 +166,7 @@ impl CliCommand for JobsOutput {
             .job(local_id)
             .ok_or_else(|| AppError::EntityNotFound(format!("background job {local_id}")))?;
         let output = services.gateway().task_output(job.task_id)?;
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
@@ -217,7 +217,7 @@ impl CliCommand for JobsWatch {
             )
         };
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => {
                 append_line(message)?;
@@ -251,7 +251,7 @@ impl CliCommand for JobsForget {
         }
 
         let message = format!("Forgot background job {id}");
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }

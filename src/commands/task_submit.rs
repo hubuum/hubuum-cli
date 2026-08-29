@@ -58,7 +58,7 @@ pub fn run_task_backed(
             poll_interval_secs: opts.poll_interval_secs,
         })?;
         let output = services.gateway().task_output(task_id)?;
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 final_task.format_noreturn()?;
@@ -71,7 +71,7 @@ pub fn run_task_backed(
     }
 
     let registration = services.background().watch_task(task.clone(), label);
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&task)?)?,
         OutputFormat::Text => {
             append_line(format!("submitted task #{task_id} ({kind})"))?;

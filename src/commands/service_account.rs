@@ -188,7 +188,7 @@ impl CliCommand for ServiceAccountCreate {
                 owner_group_id: services.gateway().group_id_by_name(&query.owner_group)?,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => sa.format_json_noreturn()?,
             OutputFormat::Text => sa.format_noreturn()?,
         }
@@ -274,7 +274,7 @@ impl CliCommand for ServiceAccountShow {
 
         let sa = services.gateway().service_account(&name)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => sa.format_json_noreturn()?,
             OutputFormat::Text => sa.format_noreturn()?,
         }
@@ -302,7 +302,7 @@ impl CliCommand for ServiceAccountDelete {
         services.gateway().delete_service_account(&name)?;
 
         let message = format!("Service account '{}' deleted", name);
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -329,7 +329,7 @@ impl CliCommand for ServiceAccountDisable {
 
         let sa = services.gateway().disable_service_account(&name)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => sa.format_json_noreturn()?,
             OutputFormat::Text => {
                 append_line(format!("Service account '{}' disabled", name))?;
@@ -369,7 +369,7 @@ impl CliCommand for ServiceAccountTokenList {
             .gateway()
             .service_account_tokens(&name, query.state)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => {
                 append_line(to_string_pretty(&token_list)?)?;
             }
@@ -416,7 +416,7 @@ impl CliCommand for ServiceAccountTokenShow {
         )?;
         let token = services.gateway().service_account_token(&name, token_id)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => token.format_json_noreturn()?,
             OutputFormat::Text => token.format_noreturn()?,
         }
@@ -607,7 +607,7 @@ impl CliCommand for ServiceAccountTokenRevoke {
             "Token {} revoked for service account '{}'",
             query.token_id, name
         );
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }

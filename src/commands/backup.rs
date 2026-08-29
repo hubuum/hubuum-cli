@@ -276,7 +276,7 @@ impl CliCommand for RestoreStage {
         if let Some(object) = value.as_object_mut() {
             object.insert("receipt_file".to_string(), json!(query.receipt));
         }
-        render_structured_value(value, desired_format(tokens))
+        render_structured_value(value, desired_format(tokens)?)
     }
 }
 
@@ -299,7 +299,7 @@ impl CliCommand for RestoreStatus {
         let query = Self::parse_tokens(tokens)?;
         let receipt = load_receipt(&query.receipt)?;
         let status = services.gateway().restore_status(&receipt)?;
-        render_structured_value(to_value(status)?, desired_format(tokens))
+        render_structured_value(to_value(status)?, desired_format(tokens)?)
     }
 }
 
@@ -331,7 +331,7 @@ impl CliCommand for RestoreConfirm {
         }
         let receipt = load_receipt(&query.receipt)?;
         let status = services.gateway().confirm_restore(&receipt)?;
-        render_structured_value(to_value(status)?, desired_format(tokens))
+        render_structured_value(to_value(status)?, desired_format(tokens)?)
     }
 }
 
@@ -344,7 +344,7 @@ fn render_backup_saved(
     path: &str,
     artifact: &BackupArtifact,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => set_semantic_output(OutputEnvelope::detail(
             json!({"file": path, "backup": artifact.summary()}),
             Vec::new(),

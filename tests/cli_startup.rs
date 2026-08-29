@@ -314,15 +314,56 @@ fn offline_config_show_supports_semantic_output_formats() {
 
 #[test]
 fn offline_config_show_supports_semantic_pipeline_projection() {
-    cargo_bin_cmd!("hubuum-cli")
-        .args([
-            "--command",
-            "config show | F output | P key value | S key | L 1",
-        ])
-        .assert()
-        .success()
-        .stdout(contains("key"))
-        .stdout(contains("output."));
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --output {format} | F output | P key value | S key | L 1"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("key"))
+            .stdout(contains("output."));
+    }
+}
+
+#[test]
+fn structured_pipeline_semantics_are_stable_across_renderers() {
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!(
+                    "config show --output {format} | JQ '[{{\"g\":\"x\",\"v\":2}},{{\"g\":\"x\",\"v\":1}}]' | F v>=1 | G g | A sum(v) AS total | S total AS num | Z | P g total | VALUE total"
+                ),
+            ])
+            .assert()
+            .success()
+            .stdout(contains('3'));
+    }
+}
+
+#[test]
+fn detail_and_list_pipelines_are_stable_across_renderers() {
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --key output.format --output {format} | P key value"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("output.format"));
+
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("theme list --output {format} | P name | L 1"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("name"));
+    }
 }
 
 #[test]

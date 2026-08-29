@@ -173,10 +173,10 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
                 config_key_names().join(", ")
             ))
         })?;
-        return render_single_entry(entry, desired_format(tokens));
+        return render_single_entry(entry, desired_format(tokens)?);
     }
 
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
         OutputFormat::Text => render_config_entries(&state.entries)?,
     }
@@ -199,7 +199,7 @@ impl CliCommand for ConfigPaths {
 pub(crate) fn render_config_paths(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let _query = ConfigPaths::parse_tokens(tokens)?;
     let paths = &get_config_state().paths;
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(paths)?)?,
         OutputFormat::Text => {
             append_key_value("System", paths.system.display(), 12)?;
@@ -245,15 +245,11 @@ impl CliCommand for ConfigSet {
             path: path.display().to_string(),
             note: "Saved and reloaded for this CLI session.".to_string(),
         };
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(to_string_pretty(&message)?)?,
-            OutputFormat::Text => {
-                append_line(format!(
-                    "Saved '{}' to {} and reloaded the current session.",
-                    message.key, message.path
-                ))?;
-            }
-        }
+        let text = format!(
+            "Saved '{}' to {} and reloaded the current session.",
+            message.key, message.path
+        );
+        render_persist_message(&message, text)?;
         Ok(())
     }
 }
@@ -283,15 +279,11 @@ impl CliCommand for ConfigUnset {
             path: path.display().to_string(),
             note: "Removed and reloaded for this CLI session.".to_string(),
         };
-        match desired_format(tokens) {
-            OutputFormat::Json => append_line(to_string_pretty(&message)?)?,
-            OutputFormat::Text => {
-                append_line(format!(
-                    "Removed '{}' from {} and reloaded the current session.",
-                    message.key, message.path
-                ))?;
-            }
-        }
+        let text = format!(
+            "Removed '{}' from {} and reloaded the current session.",
+            message.key, message.path
+        );
+        render_persist_message(&message, text)?;
         Ok(())
     }
 }
@@ -306,7 +298,7 @@ impl CliCommand for ConfigRemote {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
         let stored = services.gateway().server_user_preferences()?;
-        super::admin::render_structured_value(to_value(stored)?, desired_format(tokens))
+        super::admin::render_structured_value(to_value(stored)?, desired_format(tokens)?)
     }
 }
 
@@ -369,7 +361,7 @@ impl CliCommand for ConfigStore {
             if query.enabled { "enabled" } else { "disabled" },
             path.display()
         );
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&json!({
                 "enabled": query.enabled,
                 "path": path,
@@ -385,7 +377,7 @@ fn render_preferences_result(
     preferences: &UserPreferences,
     message: &str,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(preferences)?)?,
         OutputFormat::Text => append_line(message)?,
     }
@@ -397,6 +389,15 @@ struct PersistMessage {
     key: String,
     path: String,
     note: String,
+}
+
+fn render_persist_message(message: &PersistMessage, text: String) -> Result<(), AppError> {
+    let mut value = to_value(message)?
+        .as_object()
+        .cloned()
+        .expect("persist message serializes as an object");
+    value.insert("message".to_string(), Value::String(text));
+    set_semantic_output(OutputEnvelope::message(Value::Object(value)))
 }
 
 fn render_single_entry(entry: &ConfigEntry, format: OutputFormat) -> Result<(), AppError> {

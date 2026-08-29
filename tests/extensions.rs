@@ -617,6 +617,22 @@ fn extension_commands_are_first_class_and_lifecycle_managed() {
         "inventory list --state active\n"
     );
 
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "--command",
+                &format!(
+                    "extension demo inventory list --state active --output {format} | P name | L 1"
+                ),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("name"))
+            .stdout(contains("alpha"));
+    }
+
     write(user_root.join("demo/invocation"), "not-called\n").expect("reset invocation");
     cargo_bin_cmd!("hubuum-cli")
         .args([
@@ -714,6 +730,34 @@ fn extension_commands_are_first_class_and_lifecycle_managed() {
     assert_eq!(removed["status"], "removed");
     assert!(!user_root.join("demo").exists());
     assert!(user_root.join(".trash").is_dir());
+}
+
+#[test]
+fn extension_message_pipelines_are_stable_across_renderers() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).expect("extension root");
+    write_response_pack(
+        &user_root,
+        "message",
+        r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"ready","columns":[]},"warnings":[]}"#,
+        0,
+    );
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().expect("config path"),
+                "--command",
+                &format!("extension message run --output {format} | F ready"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("ready"));
+    }
 }
 
 #[test]

@@ -165,7 +165,7 @@ impl CliCommand for TaskQueue {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let state = services.gateway().task_queue_state()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
             OutputFormat::Text => state.format_noreturn()?,
         }
@@ -242,7 +242,7 @@ impl CliCommand for TaskOutputCmd {
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
         let output = services.gateway().task_output(task_id)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {

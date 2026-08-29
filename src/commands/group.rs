@@ -130,7 +130,7 @@ impl CliCommand for GroupNew {
             description: new.description,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => group.format_json_noreturn()?,
             OutputFormat::Text => group.format_noreturn()?,
         }
@@ -165,7 +165,7 @@ impl CliCommand for GroupAddUser {
 
         let message = format!("User '{}' added to group '{}'", new.username, new.groupname);
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -203,7 +203,7 @@ impl CliCommand for GroupRemoveUser {
             new.username, new.groupname
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -242,7 +242,7 @@ impl CliCommand for GroupAddServiceAccount {
             new.name, new.groupname
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -281,7 +281,7 @@ impl CliCommand for GroupRemoveServiceAccount {
             new.name, new.groupname
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -308,7 +308,7 @@ impl CliCommand for GroupInfo {
         let new = Self::parse_tokens(tokens)?;
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&details)?)?,
             OutputFormat::Text => {
                 details.group.format()?;
@@ -346,7 +346,7 @@ impl CliCommand for GroupModify {
             description: query.description,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => group.format_json_noreturn()?,
             OutputFormat::Text => group.format_noreturn()?,
         }

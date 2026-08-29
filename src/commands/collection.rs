@@ -165,7 +165,7 @@ impl CliCommand for CollectionNew {
                 owner: new.owner,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => collection.format_json_noreturn()?,
             OutputFormat::Text => collection.format_noreturn()?,
         }
@@ -273,7 +273,7 @@ impl CliCommand for CollectionInfo {
         let name = required_option_or_pos(query.name, tokens, 0, "collection")?;
         let collection = services.gateway().get_collection(&name)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => collection.format_json_noreturn()?,
             OutputFormat::Text => collection.format_noreturn()?,
         }
@@ -301,7 +301,7 @@ impl CliCommand for CollectionDelete {
 
         let message = format!("Collection '{}' deleted", collection_name);
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -342,7 +342,7 @@ impl CliCommand for CollectionModify {
                 description: query.description,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => collection.format_json_noreturn()?,
             OutputFormat::Text => collection.format_noreturn()?,
         }
@@ -374,7 +374,7 @@ impl CliCommand for CollectionPermissions {
 
         let empty_message = format!("No permissions found for collection '{name}'");
 
-        match (desired_format(tokens), permissions.entries.is_empty()) {
+        match (desired_format(tokens)?, permissions.entries.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => append_json(&permissions.entries)?,
             (OutputFormat::Text, true) => append_line(empty_message)?,
@@ -648,7 +648,7 @@ impl CliCommand for CollectionPermissionsSet {
             perm_string, new.group, collection
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -700,7 +700,7 @@ impl CliCommand for CollectionPrincipalPermissions {
             new.principal, name
         );
 
-        match (desired_format(tokens), permissions.is_empty()) {
+        match (desired_format(tokens)?, permissions.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => append_json(&permissions)?,
             (OutputFormat::Text, true) => append_line(empty_message)?,

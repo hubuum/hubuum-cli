@@ -220,7 +220,7 @@ impl CliCommand for ObjectNew {
             data: new.data,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }
@@ -282,7 +282,7 @@ impl CliCommand for ObjectDataPatch {
         }
         let result = services.gateway().patch_object_data(input)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => result.format_json_noreturn()?,
             OutputFormat::Text => result.format_noreturn()?,
         }
@@ -1300,7 +1300,7 @@ impl CliCommand for ObjectDelete {
             object_name, class_name
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -1419,7 +1419,7 @@ fn render_object_aggregate_page(
     columns: Vec<String>,
 ) -> Result<(), AppError> {
     warn_on_partial_pipeline(aggregates)?;
-    match (desired_format(tokens), has_pipeline()?) {
+    match (desired_format(tokens)?, has_pipeline()?) {
         (OutputFormat::Json, false) => set_paged_json_output(tokens, aggregates),
         (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
             let rows = aggregates
@@ -1695,7 +1695,7 @@ fn render_object_list_page(
     computed_selection: &ComputedFieldSelection,
 ) -> Result<(), AppError> {
     warn_on_partial_pipeline(objects)?;
-    match (desired_format(tokens), has_pipeline()?) {
+    match (desired_format(tokens)?, has_pipeline()?) {
         (OutputFormat::Json, false) => render_paged_result(
             tokens,
             &computed_selection.project_page(objects),
@@ -2445,7 +2445,7 @@ impl CliCommand for ObjectModify {
             data,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => object.format_json_noreturn()?,
             OutputFormat::Text => object.format_noreturn()?,
         }

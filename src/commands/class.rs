@@ -126,7 +126,7 @@ impl CliCommand for ClassNew {
             validate_schema: new.validate_schema,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => result.format_json_noreturn()?,
             OutputFormat::Text => result.format_noreturn()?,
         }
@@ -175,7 +175,7 @@ impl CliCommand for ClassInfo {
             },
         )?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => {
                 append_line(to_string_pretty(&details)?)?;
             }
@@ -216,7 +216,7 @@ impl CliCommand for ClassDelete {
 
         let message = format!("Class '{name}' deleted successfully");
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -279,7 +279,7 @@ impl CliCommand for ClassModify {
             validate_schema: query.validate_schema,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => updated.format_json_noreturn()?,
             OutputFormat::Text => updated.format_noreturn()?,
         }

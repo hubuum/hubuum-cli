@@ -87,7 +87,7 @@ pub(crate) fn render_version(tokens: &CommandTokenizer) -> Result<(), AppError> 
         server_version,
     };
 
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&info)?)?,
         OutputFormat::Text => {
             append_key_value("CLI", info.cli_version, 10)?;

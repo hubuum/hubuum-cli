@@ -248,6 +248,19 @@ object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | Z
 object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 ```
 
+## Line-shaped Output
+
+Most command results enter the pipeline as semantic rows, details, messages, or
+values regardless of the selected renderer. Commands whose result is inherently
+prose or a text stream enter as an explicit `Lines` shape. Lines support broad
+or value regex filtering (`F`, `V`, bare filters, and `reject`), `head`/`L`,
+`tail`, `C`, and whole-line `S`/`sort`. Field-aware stages fail because lines do
+not contain structured fields.
+
+After a line pipeline, text emits the retained lines, JSON emits an array of
+strings, JSONL emits one JSON string per line, and CSV/TSV emit a `value` column.
+Selecting one of those renderers does not change which lines reach the stages.
+
 ## JQ
 
 `JQ` evaluates a jq-compatible expression against the current semantic payload

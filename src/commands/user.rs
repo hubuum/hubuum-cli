@@ -210,7 +210,7 @@ impl CliCommand for UserNew {
             password: password.clone(),
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => {
                 append_line(to_string_pretty(&created)?)?;
             }
@@ -243,7 +243,7 @@ impl CliCommand for UserDelete {
 
         let message = format!("User '{}' deleted", username);
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -289,7 +289,7 @@ impl CliCommand for UserInfo {
             updated_at: query.updated_at,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => user.format_json_noreturn()?,
             OutputFormat::Text => user.format_noreturn()?,
         }
@@ -406,7 +406,7 @@ impl CliCommand for UserModify {
             email: query.email,
         })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => user.format_json_noreturn()?,
             OutputFormat::Text => user.format_noreturn()?,
         }
@@ -455,7 +455,7 @@ impl CliCommand for UserSetPassword {
             .set_user_password(&username, password.as_str())?;
 
         let message = format!("Password updated for user '{}'", username);
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -530,7 +530,7 @@ impl CliCommand for UserTokenList {
 
         let token_list = services.gateway().user_tokens(&username, query.state)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => {
                 append_line(to_string_pretty(&token_list)?)?;
             }
@@ -577,7 +577,7 @@ impl CliCommand for UserTokenShow {
         )?;
         let token = services.gateway().user_token(&username, token_id)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => token.format_json_noreturn()?,
             OutputFormat::Text => token.format_noreturn()?,
         }
@@ -763,7 +763,7 @@ impl CliCommand for UserTokenRevoke {
             .user_token_revoke(&username, query.token_id)?;
 
         let message = format!("Token {} revoked for user '{}'", query.token_id, username);
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
