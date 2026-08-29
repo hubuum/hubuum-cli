@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use anstream::{AutoStream, ColorChoice};
 use dirs::home_dir;
-use hubuum_filter::{group_summary_rows, scalar_text, select_values, OutputShape, Selector};
+use hubuum_filter::{
+    group_summary_rows, scalar_text, select_values, split_pipeline, OutputShape, Selector,
+};
 use serde_json::Value;
 use shlex::split;
 
@@ -356,7 +358,7 @@ fn sanitize_path_value(value: &str) -> String {
 fn final_redirect_operator(line: &str) -> Option<(usize, usize)> {
     let mut quote = None;
     let mut escaped = false;
-    let mut candidate = None;
+    let mut candidates = Vec::new();
     let mut iter = line.char_indices().peekable();
 
     while let Some((index, ch)) = iter.next() {
@@ -380,14 +382,17 @@ fn final_redirect_operator(line: &str) -> Option<(usize, usize)> {
                     1
                 };
                 if has_token_boundaries(line, index, operator_len) {
-                    candidate = Some((index, operator_len));
+                    candidates.push((index, operator_len));
                 }
             }
             _ => {}
         }
     }
 
-    candidate
+    candidates.into_iter().rev().find(|(start, _)| {
+        let command = line[..*start].trim_end();
+        !command.is_empty() && split_pipeline(command).is_ok()
+    })
 }
 
 fn has_token_boundaries(line: &str, start: usize, len: usize) -> bool {
@@ -430,7 +435,7 @@ mod tests {
     };
     use crate::output::{OutputSnapshot, RenderFormat};
     use anstream::ColorChoice;
-    use hubuum_filter::OutputEnvelope;
+    use hubuum_filter::{OutputEnvelope, Pipeline};
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -509,6 +514,87 @@ mod tests {
                 "comparison was treated as a redirect: {line}"
             );
         }
+    }
+
+    #[test]
+    fn typed_comparisons_are_disambiguated_from_redirects() {
+        for line in [
+            "object list | F WHERE age > 3",
+            "object list | F WHERE age >= 3",
+            "object list | reject WHERE age > 3 OR state == \"retired\"",
+            "object list | F WHERE age >",
+        ] {
+            assert!(
+                split_redirect_candidate(line)
+                    .expect("redirect discovery should succeed")
+                    .is_none(),
+                "typed comparison was treated as a redirect: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn redirect_after_spaced_typed_comparison_uses_the_complete_predicate_prefix() {
+        let candidate = split_redirect_candidate(
+            "object list | F WHERE age > 3 AND state == \"active\" > adults.json",
+        )
+        .expect("redirect discovery should succeed")
+        .expect("redirect should be found");
+
+        assert_eq!(
+            candidate.line,
+            "object list | F WHERE age > 3 AND state == \"active\""
+        );
+        assert_eq!(
+            candidate.redirect.target,
+            RedirectTarget::File(PathBuf::from("adults.json"))
+        );
+    }
+
+    #[test]
+    fn each_redirect_after_typed_predicate_remains_supported() {
+        let candidate = split_redirect_candidate(
+            "object list | F WHERE state == \"active\" > each:hosts/{Name}.json",
+        )
+        .expect("redirect discovery should succeed")
+        .expect("redirect should be found");
+
+        assert!(matches!(candidate.redirect.target, RedirectTarget::Each(_)));
+    }
+
+    #[test]
+    fn each_redirect_writes_the_rows_retained_by_a_typed_predicate() {
+        let dir = tempdir().expect("tempdir");
+        let template = dir.path().join("{Name}.json");
+        let command = format!(
+            "object list | F WHERE age AS num > 3 > each:{}",
+            template.display()
+        );
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, pipeline) = hubuum_filter::split_pipeline(&candidate.line)
+            .expect("typed pipeline should remain complete");
+        let output = Pipeline::from_stages(pipeline)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"Name": "alpha", "age": 2}),
+                    json!({"Name": "beta", "age": 4}),
+                ],
+                vec!["Name".to_string(), "age".to_string()],
+            ))
+            .expect("typed predicate should apply");
+        let snapshot = OutputSnapshot {
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("each redirect should write");
+
+        assert!(!dir.path().join("alpha.json").exists());
+        assert!(dir.path().join("beta.json").exists());
     }
 
     #[test]

@@ -63,6 +63,8 @@ the input.
 The current native stages provide:
 
 - broad, value-only, key-only, field, reject, and truthiness filtering;
+- typed boolean predicates with explicit casts, null/missing tests, fanout,
+  quoted JSON literals, and `NOT`/`AND`/`OR` composition;
 - projection and selector-based value extraction;
 - line or field sorting with string, numeric, and IP casts;
 - head, tail, and count;

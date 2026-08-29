@@ -10,7 +10,8 @@ use crate::verbs::collection::{
 use crate::verbs::jq::jq_envelope;
 use crate::verbs::project::{project_envelope, value_envelope};
 use crate::verbs::search::{
-    filter_envelope, key_search_envelope, truthy_envelope, value_search_envelope,
+    filter_envelope, key_search_envelope, predicate_envelope, truthy_envelope,
+    value_search_envelope,
 };
 
 impl PipeStage {
@@ -48,6 +49,8 @@ impl PipeStage {
                 Ok(sorted)
             }
             Self::KeySearch(_)
+            | Self::TypedFilter(_)
+            | Self::TypedReject(_)
             | Self::Truthy(_)
             | Self::Columns(_)
             | Self::SortColumn { .. }
@@ -104,10 +107,12 @@ fn apply_semantic_stage(
 
     match stage {
         PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false, settings),
+        PipeStage::TypedFilter(predicate) => predicate_envelope(envelope, predicate, false),
         PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern, settings),
         PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern, settings),
         PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_ref()),
         PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true, settings),
+        PipeStage::TypedReject(predicate) => predicate_envelope(envelope, predicate, true),
         PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
         PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
         PipeStage::Count => count_envelope(envelope),

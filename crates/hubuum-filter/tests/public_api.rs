@@ -29,6 +29,32 @@ fn parsed_pipeline_is_usable_without_cli_types() {
 }
 
 #[test]
+fn typed_predicates_are_reusable_through_the_public_pipeline_api() {
+    let pipeline =
+        Pipeline::parse("F WHERE data.cores AS num >= 8 AND state IN [\"ready\", \"running\"]")
+            .expect("valid typed predicate");
+    let input = OutputEnvelope::rows(
+        vec![
+            json!({"name": "alpha", "state": "ready", "data": {"cores": "16"}}),
+            json!({"name": "beta", "state": "ready", "data": {"cores": "4"}}),
+            json!({"name": "gamma", "state": "retired", "data": {"cores": "32"}}),
+        ],
+        vec!["name".to_string(), "state".to_string()],
+    );
+
+    let output = pipeline.apply(input).expect("typed pipeline output");
+
+    assert_eq!(
+        output.value(),
+        &json!([{
+            "name": "alpha",
+            "state": "ready",
+            "data": {"cores": "16"}
+        }])
+    );
+}
+
+#[test]
 fn caller_settings_replace_application_specific_search_policy() {
     let pipeline = Pipeline::parse("F 2026").expect("valid pipeline");
     let input = OutputEnvelope::rows(

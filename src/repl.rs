@@ -1281,6 +1281,13 @@ fn field_completion_stage(stage: &str) -> bool {
 fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_space: bool) -> bool {
     match stage {
         "P" | "columns" => pipe_parts.len() >= 2 || ends_with_space,
+        "grep" | "F" | "reject"
+            if pipe_parts
+                .get(1)
+                .is_some_and(|part| part.eq_ignore_ascii_case("WHERE")) =>
+        {
+            typed_predicate_expects_field(pipe_parts, ends_with_space)
+        }
         "VAL" | "VALUE" | "S" | "sort" | "grep" | "F" | "V" | "K" | "?" | "reject" | "G" | "U"
         | "A" => {
             (pipe_parts.len() == 1 && ends_with_space)
@@ -1288,6 +1295,27 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
         }
         _ => false,
     }
+}
+
+fn typed_predicate_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
+    if ends_with_space {
+        pipe_parts.last().is_some_and(|part| {
+            matches_keyword(part, &["WHERE", "AND", "OR", "NOT"]) || part.ends_with('(')
+        })
+    } else {
+        let previous_starts_operand = pipe_parts
+            .get(pipe_parts.len().saturating_sub(2))
+            .is_some_and(|part| {
+                matches_keyword(part, &["WHERE", "AND", "OR", "NOT"]) || part.ends_with('(')
+            });
+        pipe_parts.len() == 3 || previous_starts_operand
+    }
+}
+
+fn matches_keyword(value: &str, keywords: &[&str]) -> bool {
+    keywords
+        .iter()
+        .any(|keyword| value.eq_ignore_ascii_case(keyword))
 }
 
 fn field_uses_comma_segments(stage: &str) -> bool {
@@ -2085,6 +2113,19 @@ mod tests {
         assert_eq!(context.kind, PipeCompletionKind::Field);
         assert_eq!(context.prefix, "da");
         assert_eq!(context.replacement_start, line.len() - "da".len());
+    }
+
+    #[test]
+    fn pipe_completion_context_completes_typed_predicate_operands() {
+        for line in [
+            "object list --class Hosts | F WHERE da",
+            "object list --class Hosts | reject WHERE owner IS NULL OR da",
+        ] {
+            let context = pipe_completion_context(line, line.len()).expect("field context");
+            assert_eq!(context.kind, PipeCompletionKind::Field);
+            assert_eq!(context.prefix, "da");
+            assert_eq!(context.replacement_start, line.len() - "da".len());
+        }
     }
 
     #[test]

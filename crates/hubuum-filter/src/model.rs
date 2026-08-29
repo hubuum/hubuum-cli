@@ -5,15 +5,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::PipelineError;
+use crate::predicate::Predicate;
 use crate::selector::Selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeStage {
     Grep(String),
+    TypedFilter(Predicate),
     ValueSearch(String),
     KeySearch(String),
     Truthy(Option<Selector>),
     Reject(String),
+    TypedReject(Predicate),
     Head {
         count: usize,
         offset: usize,
@@ -101,10 +104,12 @@ impl PipeStage {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Grep(_) => "F",
+            Self::TypedFilter(_) => "F WHERE",
             Self::ValueSearch(_) => "V",
             Self::KeySearch(_) => "K",
             Self::Truthy(_) => "?",
             Self::Reject(_) => "reject",
+            Self::TypedReject(_) => "reject WHERE",
             Self::Head { .. } => "L",
             Self::Tail(_) => "tail",
             Self::Count => "C",
@@ -122,9 +127,12 @@ impl PipeStage {
     pub fn accepted_input_shapes(&self) -> &'static [OutputShape] {
         match self {
             Self::Grep(_) | Self::ValueSearch(_) | Self::Reject(_) | Self::Count => ALL_SHAPES,
-            Self::KeySearch(_) | Self::Truthy(_) | Self::Jq(_) | Self::Value(_) => {
-                STRUCTURED_SHAPES
-            }
+            Self::TypedFilter(_)
+            | Self::TypedReject(_)
+            | Self::KeySearch(_)
+            | Self::Truthy(_)
+            | Self::Jq(_)
+            | Self::Value(_) => STRUCTURED_SHAPES,
             Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => COLLECTION_SHAPES,
             Self::Columns(_) => PROJECT_SHAPES,
             Self::SortColumn { .. } | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
@@ -139,7 +147,11 @@ impl PipeStage {
     ) -> Result<&'static [OutputShape], PipelineError> {
         self.validate_input_shape(input)?;
         let shapes = match self {
-            Self::Grep(_) | Self::ValueSearch(_) | Self::Reject(_) => match input {
+            Self::Grep(_)
+            | Self::TypedFilter(_)
+            | Self::ValueSearch(_)
+            | Self::Reject(_)
+            | Self::TypedReject(_) => match input {
                 OutputShape::Empty => EMPTY_ONLY,
                 OutputShape::Lines => LINES_ONLY,
                 OutputShape::Rows => ROWS_ONLY,

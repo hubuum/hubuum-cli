@@ -88,6 +88,8 @@ fn validate_stage(stage: &PipeStage) -> Result<(), PipelineError> {
         }
         PipeStage::Jq(expression) => validate_jq_expression(expression),
         PipeStage::Truthy(_)
+        | PipeStage::TypedFilter(_)
+        | PipeStage::TypedReject(_)
         | PipeStage::Head { .. }
         | PipeStage::Tail(_)
         | PipeStage::Count

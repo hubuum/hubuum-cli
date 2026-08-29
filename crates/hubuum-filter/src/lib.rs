@@ -5,8 +5,10 @@ mod eval;
 mod model;
 mod parse;
 mod pipeline;
+mod predicate;
 mod selector;
 mod settings;
+mod value_cast;
 mod verbs;
 
 #[cfg(test)]
@@ -20,6 +22,9 @@ pub use model::{
 };
 pub use parse::split_pipeline;
 pub use pipeline::Pipeline;
+pub use predicate::{
+    Comparison, Predicate, PredicateExpr, PredicateOperator, PredicateTest, TypedLiteral, ValueCast,
+};
 pub use selector::{scalar_text, select_values, Selector};
 pub use settings::PipelineSettings;
 pub use verbs::collection::group_summary_rows;

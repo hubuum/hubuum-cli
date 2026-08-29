@@ -13,9 +13,10 @@ command output
 The DSL is useful when a command already returns the right kind of data and you
 want a smaller local view without adding another API flag.
 
-The proposed next native-language increment is specified separately in
-[RFC 0001](rfcs/0001-native-pipeline-dsl.md). Its syntax is not implemented by
-the current parser until the RFC's individual delivery slices land.
+The next native-language increment is specified in
+[RFC 0001](rfcs/0001-native-pipeline-dsl.md) and is landing in independently
+reviewable slices. Typed boolean predicates are implemented; later RFC sections
+remain proposals until their linked delivery issues land.
 
 Grouping with `G` and aggregation with `A` are local pipe operations over the
 rows returned by the preceding command. For permission-scoped aggregation over
@@ -113,6 +114,35 @@ object list --class Hosts | K ipv4
 ```text
 object list --class Hosts | reject os_version '^9'
 ```
+
+`F WHERE` starts the typed predicate grammar. It preserves quoted strings and
+JSON literal types, supports `NOT`, `AND`, `OR`, and parentheses, and leaves all
+legacy filter forms unchanged. Precedence is parentheses, `NOT`, a field test,
+`AND`, then `OR`:
+
+```text
+object list --class Hosts | F WHERE data.cpu.cores AS num >= 8 AND state IN ["ready", "running"]
+object list --class Hosts | F WHERE NOT (owner IS MISSING OR owner IS NULL)
+object list --class Hosts | reject WHERE status == "retired" OR disabled == true
+```
+
+Typed tests support `=`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `~`, `!~`,
+`MATCHES`, `[NOT] IN [...]`, `IS [NOT] NULL`, and `IS [NOT] MISSING`.
+Keywords are ASCII case-insensitive. Double-quoted strings use JSON escapes;
+single-quoted strings accept `\\` and `\'` and otherwise preserve their text.
+Numbers, booleans, and `null` are unquoted JSON literals; strings must be
+quoted, so `3` differs from `"3"`.
+
+An optional `AS str|num|bool|ip|datetime|version|natural` cast makes conversion
+explicit. Invalid literals fail while parsing. An invalid selected value stops
+evaluation and reports the stage, selector, cast, 1-based row, and offending
+JSON value. Boolean evaluation short-circuits left to right.
+
+Positive comparisons, matches, and `IN` are existential for fanout selectors.
+Their negative forms require at least one selected value and require every
+selected value to pass, so a missing selector does not satisfy `!=`, `!~`, or
+`NOT IN`. `IS NULL` detects selected JSON null; `IS MISSING` detects no selector
+matches. Their `IS NOT` forms and general `NOT` are exact logical negations.
 
 `?` removes empty values, or keeps rows where a selector is truthy:
 
@@ -291,7 +321,8 @@ derives `Empty`, `Rows`, `Detail`, `Message`, or `Values` from its JSON result.
 
 | Stage | Empty | Lines | Rows | Detail | Message | Values | Groups |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| bare, `F`, `reject` | same | same | same | same/E | same/E | same | same |
+| bare, legacy `F`, legacy `reject` | same | same | same | same/E | same/E | same | same |
+| `F WHERE`, `reject WHERE` | same | error | same | same/E | same/E | same | same |
 | `V` | same | same | same | same/E | same/E | same | same |
 | `K` | same | error | Rows | Detail/E | Detail/E | Rows | Groups |
 | `?` | same | error | same | same/E | same/E | same | same |
@@ -319,9 +350,9 @@ described above.
 Most command results enter the pipeline as semantic rows, details, messages, or
 values regardless of the selected renderer. Commands whose result is inherently
 prose or a text stream enter as an explicit `Lines` shape. Lines support broad
-or value regex filtering (`F`, `V`, bare filters, and `reject`), `head`/`L`,
-`tail`, `C`, and whole-line `S`/`sort`. Field-aware stages fail because lines do
-not contain structured fields.
+or value regex filtering (legacy `F`, `V`, bare filters, and legacy `reject`),
+`head`/`L`, `tail`, `C`, and whole-line `S`/`sort`. Typed predicates and other
+field-aware stages fail because lines do not contain structured fields.
 
 `C` turns `Lines` into a one-element `Values` result containing the numeric line
 count. Other supported line stages retain the `Lines` shape.
@@ -394,8 +425,11 @@ before any files are written, and placeholder values are sanitized for paths.
 Redirect paths support quoting, `~/...` expansion, and REPL file path
 completion. The `>` and `>>` operators must be standalone,
 whitespace-delimited tokens. Compact comparisons such as `F age>3` remain
-filter expressions, and command filters such as `--where age > 3` are retained
-when the command before `>` would otherwise be invalid.
+filter expressions. A spaced comparison in `F WHERE age > 3` remains part of
+the predicate because the prefix before `>` is not a complete pipeline. A
+later standalone operator redirects once its preceding pipeline is complete.
+Command filters such as `--where age > 3` are likewise retained when the
+command before `>` would otherwise be invalid.
 
 Redirect files honor the configured color mode. `auto` and `never` strip ANSI
 styling from non-terminal files; `always` preserves it. In one-shot POSIX shell
