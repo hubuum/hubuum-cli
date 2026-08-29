@@ -14,6 +14,8 @@ command result
 terminal rendering, config, command dispatch, and REPL behavior.
 
 See [DSL.md](DSL.md) for the delivered user-facing DSL spec and examples.
+See [RFC 0001](rfcs/0001-native-pipeline-dsl.md) for the proposed compatible
+next language increment and staged delivery plan.
 
 ## User Model
 

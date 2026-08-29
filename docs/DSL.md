@@ -13,6 +13,10 @@ command output
 The DSL is useful when a command already returns the right kind of data and you
 want a smaller local view without adding another API flag.
 
+The proposed next native-language increment is specified separately in
+[RFC 0001](rfcs/0001-native-pipeline-dsl.md). Its syntax is not implemented by
+the current parser until the RFC's individual delivery slices land.
+
 Grouping with `G` and aggregation with `A` are local pipe operations over the
 rows returned by the preceding command. For permission-scoped aggregation over
 the complete matching object set before pagination, use `object aggregate`; see
