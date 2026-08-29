@@ -273,6 +273,43 @@ object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 After `G`, `U` instead unrolls an array in the visible group summary and keeps
 the original member rows attached to every resulting group.
 
+## Shape Contracts
+
+Every pipeline value has one of seven shapes: `Empty`, `Lines`, `Rows`,
+`Detail`, `Message`, `Values`, or `Groups`. A stage validates its input shape
+before doing any work. Unsupported combinations fail with the stage name, the
+current shape, and every accepted shape; a transforming stage never silently
+passes through non-empty input.
+
+The table is the complete input and result contract. `same` retains the input
+shape, `/E` means the predicate may produce `Empty`, and `dynamic` means JQ
+derives `Empty`, `Rows`, `Detail`, `Message`, or `Values` from its JSON result.
+
+| Stage | Empty | Lines | Rows | Detail | Message | Values | Groups |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| bare, `F`, `reject` | same | same | same | same/E | same/E | same | same |
+| `V` | same | same | same | same/E | same/E | same | same |
+| `K` | same | error | Rows | Detail/E | Detail/E | Rows | Groups |
+| `?` | same | error | same | same/E | same/E | same | same |
+| `L`, `head`, `tail` | same | same | same | error | error | same | same |
+| `C`, `count` | Values | Values | Values | Values | Values | Values | Rows |
+| whole-line `S`, `sort` | same | same | same | error | error | same | same |
+| field `S`, `sort` | same | error | same | error | error | same | same |
+| `P`, `columns` | same | error | Rows | Detail | Detail | error | Groups |
+| `G` | Groups | error | Groups | Groups | Groups | Groups | error |
+| `A` | error | error | error | error | error | error | Groups |
+| `Z` | error | error | error | error | error | error | Rows |
+| `U` | same | error | same | error | error | same | same |
+| `JQ` | dynamic | error | dynamic | dynamic | dynamic | dynamic | dynamic |
+| `VALUE`, `VAL` | Values | error | Values | Values | Values | Values | Values |
+
+`Empty` is an intentional identity only for stages that retain, order, limit,
+project, or unroll an existing collection. `C`, `G`, `JQ`, and `VALUE` make an
+explicit shape transition from `Empty`; `A` and `Z` still require `Groups`.
+`P` and `K` turn a structured `Message` into `Detail` because projection removes
+message presentation semantics. Grouped `C` is the special summary-row result
+described above.
+
 ## Line-shaped Output
 
 Most command results enter the pipeline as semantic rows, details, messages, or
@@ -281,6 +318,9 @@ prose or a text stream enter as an explicit `Lines` shape. Lines support broad
 or value regex filtering (`F`, `V`, bare filters, and `reject`), `head`/`L`,
 `tail`, `C`, and whole-line `S`/`sort`. Field-aware stages fail because lines do
 not contain structured fields.
+
+`C` turns `Lines` into a one-element `Values` result containing the numeric line
+count. Other supported line stages retain the `Lines` shape.
 
 After a line pipeline, text emits the retained lines, JSON emits an array of
 strings, JSONL emits one JSON string per line, and CSV/TSV emit a `value` column.
@@ -374,6 +414,7 @@ help pipe sort
 help pipe limit
 help pipe group
 help pipe selectors
+help pipe shapes
 help pipe redirects
 help pipe jq
 ```

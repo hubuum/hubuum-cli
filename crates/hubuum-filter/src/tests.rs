@@ -73,6 +73,159 @@ fn drop(selector: &str) -> ProjectTerm {
     ProjectTerm::drop(selector).expect("valid projection selector")
 }
 
+fn representative_stages() -> Vec<PipeStage> {
+    vec![
+        PipeStage::Grep(".*".to_string()),
+        PipeStage::ValueSearch(".*".to_string()),
+        PipeStage::KeySearch("field".to_string()),
+        PipeStage::Truthy(None),
+        PipeStage::Reject("does-not-match".to_string()),
+        PipeStage::Head {
+            count: 1,
+            offset: 0,
+        },
+        PipeStage::Tail(1),
+        PipeStage::Count,
+        PipeStage::SortLines { descending: false },
+        PipeStage::Columns(vec![keep("field")]),
+        PipeStage::SortColumn {
+            selector: selector("field"),
+            descending: false,
+            cast: SortCast::Auto,
+        },
+        PipeStage::Group(vec![group_key("field", "group")]),
+        PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+        PipeStage::CollapseGroups,
+        PipeStage::Unroll(selector("items")),
+        PipeStage::Jq(".".to_string()),
+        PipeStage::Value(selector("field")),
+    ]
+}
+
+fn envelope_for_shape(shape: OutputShape) -> OutputEnvelope {
+    let record = json!({"field": 1, "items": [1, 2]});
+    match shape {
+        OutputShape::Empty => OutputEnvelope::empty(),
+        OutputShape::Lines => OutputEnvelope::lines(vec!["line".to_string()]),
+        OutputShape::Rows => {
+            OutputEnvelope::rows(vec![record], vec!["field".to_string(), "items".to_string()])
+        }
+        OutputShape::Detail => {
+            OutputEnvelope::detail(record, vec!["field".to_string(), "items".to_string()])
+        }
+        OutputShape::Message => OutputEnvelope::message(record),
+        OutputShape::Values => OutputEnvelope::values(vec![record]),
+        OutputShape::Groups => OutputEnvelope::groups(
+            vec![json!({
+                "groups": {"field": 1, "items": [1, 2]},
+                "aggregates": {},
+                "rows": [{"field": 1}]
+            })],
+            vec!["field".to_string(), "items".to_string()],
+        ),
+    }
+}
+
+#[test]
+fn every_stage_enforces_and_fulfils_its_shape_contract() {
+    let shapes = [
+        OutputShape::Empty,
+        OutputShape::Lines,
+        OutputShape::Rows,
+        OutputShape::Detail,
+        OutputShape::Message,
+        OutputShape::Values,
+        OutputShape::Groups,
+    ];
+
+    for stage in representative_stages() {
+        for shape in shapes {
+            let contract = stage.resulting_shapes(shape);
+            assert_eq!(
+                contract.is_ok(),
+                stage.accepted_input_shapes().contains(&shape),
+                "{} on {shape}",
+                stage.name()
+            );
+
+            match contract {
+                Ok(resulting_shapes) => {
+                    let output = apply_pipeline(envelope_for_shape(shape), &[stage.clone()])
+                        .unwrap_or_else(|error| {
+                            panic!("{} should accept {shape}: {error}", stage.name())
+                        });
+                    assert!(
+                        resulting_shapes.contains(&output.shape),
+                        "{} on {shape} produced undocumented {}",
+                        stage.name(),
+                        output.shape
+                    );
+                }
+                Err(contract_error) => {
+                    let evaluation_error =
+                        apply_pipeline(envelope_for_shape(shape), &[stage.clone()])
+                            .expect_err("unsupported shape should fail");
+                    let message = evaluation_error.to_string();
+                    assert_eq!(message, contract_error.to_string());
+                    assert!(message.contains(&format!("stage '{}'", stage.name())));
+                    assert!(message.contains(&shape.to_string()));
+                    assert!(message.contains("expected one of:"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn empty_is_identity_only_for_row_preserving_stages() {
+    let empty = OutputEnvelope::empty();
+    let identity_stages = representative_stages()
+        .into_iter()
+        .filter(|stage| {
+            stage
+                .resulting_shapes(OutputShape::Empty)
+                .is_ok_and(|shapes| shapes == [OutputShape::Empty])
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        identity_stages
+            .iter()
+            .map(PipeStage::name)
+            .collect::<Vec<_>>(),
+        vec!["F", "V", "K", "?", "reject", "L", "tail", "S", "P", "S", "U"]
+    );
+    for stage in identity_stages {
+        assert_eq!(
+            apply_pipeline(empty.clone(), &[stage]).expect("empty identity"),
+            empty
+        );
+    }
+}
+
+#[test]
+fn important_shape_transitions_compose_across_multiple_stages() {
+    let output = apply_pipeline(
+        OutputEnvelope::detail(
+            json!({"items": [{"g": "x", "v": [1, 2]}]}),
+            vec!["items".to_string()],
+        ),
+        &[
+            PipeStage::Jq(".items".to_string()),
+            PipeStage::Unroll(selector("v")),
+            PipeStage::Group(vec![group_key("g", "g")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Sum(selector("v")), "total")),
+            PipeStage::CollapseGroups,
+            PipeStage::Value(selector("total")),
+            PipeStage::Count,
+        ],
+    )
+    .expect("valid shape transition chain");
+
+    assert_eq!(output.shape, OutputShape::Values);
+    assert_eq!(output.value, json!([1]));
+}
+
 #[test]
 fn value_and_key_search_have_distinct_scope() {
     let values = apply_pipeline(

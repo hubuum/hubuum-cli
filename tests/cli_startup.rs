@@ -363,6 +363,24 @@ fn grouped_summary_filters_keep_aggregates_consistent_across_renderers() {
 }
 
 #[test]
+fn unsupported_shape_transitions_report_stage_current_and_expected_shapes() {
+    for (command, stage, shape) in [
+        ("config show | VALUE key | P key", "P", "Values"),
+        ("config show --key output.format | L 1", "L", "Detail"),
+        ("config show | G source | G source", "G", "Groups"),
+        ("config show --key output.format | U value", "U", "Detail"),
+    ] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args(["--command", command])
+            .assert()
+            .failure()
+            .stdout(contains(format!("stage '{stage}'")))
+            .stdout(contains(shape))
+            .stdout(contains("expected one of:"));
+    }
+}
+
+#[test]
 fn detail_and_list_pipelines_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")

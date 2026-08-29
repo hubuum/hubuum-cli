@@ -50,6 +50,11 @@ object list --class Hosts | contact
 - Transforming verbs should be explicit about shape changes.
 - Table formatting should be a renderer concern, not a pipe parser concern.
 
+Each stage exposes its accepted input shapes and possible resulting shapes from
+`hubuum-filter`. Evaluation checks that contract before applying the stage, and
+unsupported combinations report the stage, current shape, and accepted shapes.
+The complete matrix is in [DSL.md](DSL.md#shape-contracts).
+
 ## Implementation Notes
 
 The semantic output value is based on `serde_json::Value`, with wrappers for

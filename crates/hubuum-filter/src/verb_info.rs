@@ -45,6 +45,11 @@ pub fn help_topics() -> &'static [HelpTopic] {
             summary: "Dotted paths, indexes, [*], [], negative indexes, and slices.",
         },
         HelpTopic {
+            name: "shapes",
+            title: "Shape Contracts",
+            summary: "Accepted input and resulting output shapes for every stage.",
+        },
+        HelpTopic {
             name: "jq",
             title: "JQ",
             summary: "JQ transforms over the current semantic payload.",
@@ -141,6 +146,9 @@ pub fn topic_help(topic: &str) -> Option<&'static str> {
         ),
         "selectors" => Some(
             "Selectors:\n  name                         field lookup\n  data.owner                   dotted path\n  data.network.interfaces[0]   array index\n  data.network.interfaces[-1]  negative index\n  data.network.interfaces[*]   fan out array\n  data.network.interfaces[]    fan out array\n  data.network.interfaces[:2]  slice",
+        ),
+        "shapes" => Some(
+            "Shape contracts:\n  Shapes are Empty, Lines, Rows, Detail, Message, Values, and Groups.\n  F, V, and reject accept every shape. K and ? accept every shape except Lines.\n  L, head, tail, and whole-line S accept Empty, Lines, Rows, Values, and Groups.\n  Field S and U accept Empty, Rows, Values, and Groups.\n  P accepts Empty, Rows, Detail, Message, and Groups.\n  G accepts Empty, Rows, Detail, Message, and Values; A and Z require Groups.\n  JQ and VALUE accept every structured shape but not Lines. C accepts every shape.\n\nUnsupported combinations fail before transformation with the stage, current shape, and accepted shapes. Empty is identity only for row-preserving stages. See docs/DSL.md for the complete result-shape matrix.",
         ),
         "jq" => Some(
             "JQ stage:\n  | JQ <expression> - run a jq-compatible transform with the in-process jaq interpreter.\n\nExamples:\n  object list --class Hosts --json | JQ 'map({Name, os_version})'\n  object list --class Hosts --json | JQ '.[] | .Name'\n\nJQ runs against the semantic payload after earlier stages.\nZero outputs become empty output. One output is shaped from its JSON type.\nMultiple outputs become semantic rows or values. Existing column metadata is cleared.",

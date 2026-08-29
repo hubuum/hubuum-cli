@@ -419,7 +419,7 @@ fn is_nullish(value: Option<&Value>) -> bool {
 
 fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
     match cast {
-        SortCast::String => scalar_text(left).cmp(&scalar_text(right)),
+        SortCast::String => sortable_text(left).cmp(&sortable_text(right)),
         SortCast::Number => number_for_sort(left)
             .partial_cmp(&number_for_sort(right))
             .unwrap_or(Ordering::Equal),
@@ -431,9 +431,13 @@ fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
                 .unwrap_or(Ordering::Equal),
             (Value::String(left), Value::String(right)) => left.cmp(right),
             (Value::Bool(left), Value::Bool(right)) => left.cmp(right),
-            _ => scalar_text(left).cmp(&scalar_text(right)),
+            _ => sortable_text(left).cmp(&sortable_text(right)),
         },
     }
+}
+
+fn sortable_text(value: &Value) -> String {
+    scalar_text(value).unwrap_or_else(|| value.to_string())
 }
 
 fn number_for_sort(value: &Value) -> Option<f64> {

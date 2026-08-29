@@ -13,17 +13,8 @@ use crate::verbs::search::{
 };
 
 impl PipeStage {
-    pub fn apply_all(
-        stages: &[Self],
-        mut lines: Vec<String>,
-    ) -> Result<Vec<String>, PipelineError> {
-        for stage in stages {
-            lines = stage.apply(lines)?;
-        }
-        Ok(lines)
-    }
-
     fn apply(&self, lines: Vec<String>) -> Result<Vec<String>, PipelineError> {
+        self.validate_input_shape(OutputShape::Lines)?;
         match self {
             Self::Grep(pattern) | Self::ValueSearch(pattern) => {
                 let regex = Regex::new(pattern)?;
@@ -64,9 +55,7 @@ impl PipeStage {
             | Self::CollapseGroups
             | Self::Unroll(_)
             | Self::Jq(_)
-            | Self::Value(_) => Err(PipelineError::Pipe(
-                "Pipe stage requires structured table output".to_string(),
-            )),
+            | Self::Value(_) => unreachable!("line input shape was validated"),
         }
     }
 }
@@ -86,6 +75,7 @@ fn apply_semantic_stage(
     envelope: OutputEnvelope,
     stage: &PipeStage,
 ) -> Result<OutputEnvelope, PipelineError> {
+    stage.validate_input_shape(envelope.shape)?;
     if envelope.shape == OutputShape::Lines {
         let lines = envelope
             .value
@@ -94,6 +84,11 @@ fn apply_semantic_stage(
             .flatten()
             .filter_map(|value| value.as_str().map(str::to_string))
             .collect::<Vec<_>>();
+        if matches!(stage, PipeStage::Count) {
+            return Ok(OutputEnvelope::values(vec![serde_json::Value::Number(
+                lines.len().into(),
+            )]));
+        }
         return Ok(OutputEnvelope::lines(stage.apply(lines)?));
     }
 
