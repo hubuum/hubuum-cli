@@ -7,7 +7,8 @@ pub struct Defaults;
 
 impl Defaults {
     pub const SERVER_HOSTNAME: &'static str = "localhost";
-    pub const SERVER_PORT: u16 = 8080;
+    pub const SERVER_PORTS: [u16; 2] = [443, 8080];
+    pub const SERVER_PORT: u16 = Self::SERVER_PORTS[0];
     pub const SERVER_SSL_VALIDATION: bool = true;
     pub const USER_USERNAME: &'static str = "default_user";
     pub const CACHE_TIME: u64 = 3600;

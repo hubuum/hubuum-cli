@@ -168,6 +168,11 @@ Global configuration flags go before the command:
 hubuum-cli --hostname api.example.com --username alice object list --limit 5
 ```
 
+Before requesting an interactive password, Hubuum CLI checks the server's
+unauthenticated health endpoint. When `server.port` has not been configured, it
+tries port 443 first and then port 8080. A port supplied by a config file, the
+environment, or `--port` is authoritative and is the only port tried.
+
 Discover identity providers before login, then select one for scoped credentials:
 
 ```sh

@@ -7,9 +7,10 @@ use serde::Serialize;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::CliCommand;
+use crate::app::request_with_server_port_fallback;
 use crate::build_info;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
-use crate::config::get_config;
+use crate::config::{get_config, AppConfig};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::output::set_semantic_output;
 use crate::services::AppServices;
@@ -54,7 +55,16 @@ impl CliCommand for Metrics {
 
 pub(crate) fn render_metrics(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let query = Metrics::parse_tokens(tokens)?;
-    let config = get_config();
+    let path = query.path.as_deref();
+    let metrics =
+        request_with_server_port_fallback(get_config(), |config| fetch_metrics(config, path))?;
+
+    set_semantic_output(OutputEnvelope::lines(
+        metrics.lines().map(str::to_string).collect(),
+    ))
+}
+
+fn fetch_metrics(config: &AppConfig, path: Option<&str>) -> Result<String, AppError> {
     let base_url = format!(
         "{}://{}:{}",
         config.server.protocol, config.server.hostname, config.server.port
@@ -64,14 +74,11 @@ pub(crate) fn render_metrics(tokens: &CommandTokenizer) -> Result<(), AppError> 
         .timeout(METRICS_TIMEOUT)
         .user_agent(format!("hubuum-cli/{}", build_info::VERSION))
         .build()?;
-    let metrics = match query.path.as_deref() {
+    let metrics = match path {
         Some(path) => client.metrics_at(path)?,
         None => client.metrics()?,
     };
-
-    set_semantic_output(OutputEnvelope::lines(
-        metrics.lines().map(str::to_string).collect(),
-    ))
+    Ok(metrics)
 }
 
 #[cfg(test)]

@@ -16,6 +16,9 @@
   options, workflows, and inputs use nested named objects. Workflow steps are
   tagged objects in ordered arrays, keeping IDs, bindings, conditions, and
   dependency references together.
+- Server startup now checks the unauthenticated health endpoint before asking
+  for an interactive password. Unconfigured ports are tried in order on 443 and
+  8080, while an explicitly configured port remains authoritative.
 
 ## [0.0.9] - 2026-08-07
 

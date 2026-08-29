@@ -4,6 +4,7 @@ use std::net::TcpListener;
 use std::thread;
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use tempfile::tempdir;
 
@@ -173,6 +174,34 @@ fn metrics_uses_the_configured_path_without_authentication() {
         .stdout(contains("hubuum_up 1"));
 
     server.join().expect("metrics server should finish");
+}
+
+#[test]
+fn unreachable_server_fails_before_password_prompt() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("temporary listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("temporary listener should have an address")
+        .port();
+    drop(listener);
+    let directory = tempdir().expect("temporary directory");
+
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .env("XDG_DATA_HOME", directory.path())
+        .args([
+            "--protocol",
+            "http",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "--username",
+            "admin",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("ServerUnreachable").and(contains("Password for").not()));
 }
 
 #[test]

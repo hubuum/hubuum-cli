@@ -57,6 +57,13 @@ pub enum AppError {
     #[error("HTTP Error: {0}")]
     HttpError(String),
 
+    #[error("Unable to reach Hubuum server {hostname} on {ports}: {failures}")]
+    ServerUnreachable {
+        hostname: String,
+        ports: String,
+        failures: String,
+    },
+
     #[error("Regular expression error: {0}")]
     RegexError(#[from] RegexError),
 

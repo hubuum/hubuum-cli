@@ -453,6 +453,7 @@ fn format_source(entry: &ConfigEntry) -> String {
 fn format_source_kind(entry: &ConfigEntry) -> &'static str {
     match entry.source {
         ConfigSource::Default => "default",
+        ConfigSource::Discovered => "discovered",
         ConfigSource::SystemFile => "system file",
         ConfigSource::UserFile => "user file",
         ConfigSource::CustomFile => "custom file",
@@ -480,6 +481,18 @@ mod tests {
                 sensitive: false,
             }),
             "env"
+        );
+
+        assert_eq!(
+            format_source_kind(&ConfigEntry {
+                key: "server.port".to_string(),
+                value: "8080".to_string(),
+                display_value: "8080".to_string(),
+                source: ConfigSource::Discovered,
+                source_detail: Some("selected from default ports".to_string()),
+                sensitive: false,
+            }),
+            "discovered"
         );
     }
 
