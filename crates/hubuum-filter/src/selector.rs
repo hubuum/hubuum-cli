@@ -33,6 +33,10 @@ impl Selector {
     pub(crate) fn tokens(&self) -> &[SelectorToken] {
         &self.tokens
     }
+
+    pub fn remove_matches(&self, value: &mut Value) {
+        remove_selected(value, &self.tokens);
+    }
 }
 
 impl Display for Selector {
@@ -223,6 +227,63 @@ fn parse_bracket(
 
 fn invalid_selector(selector: &str, detail: &str) -> PipelineError {
     PipelineError::Pipe(format!("Invalid selector '{selector}': {detail}"))
+}
+
+fn remove_selected(value: &mut Value, tokens: &[SelectorToken]) {
+    let Some((token, remaining)) = tokens.split_first() else {
+        return;
+    };
+
+    match token {
+        SelectorToken::Field(field) => {
+            let Value::Object(object) = value else {
+                return;
+            };
+            if remaining.is_empty() {
+                object.remove(field);
+            } else if let Some(value) = object.get_mut(field) {
+                remove_selected(value, remaining);
+            }
+        }
+        SelectorToken::Index(index) => {
+            let Value::Array(values) = value else {
+                return;
+            };
+            let Some(index) = resolve_index(values.len(), *index) else {
+                return;
+            };
+            if remaining.is_empty() {
+                values.remove(index);
+            } else if let Some(value) = values.get_mut(index) {
+                remove_selected(value, remaining);
+            }
+        }
+        SelectorToken::All => {
+            let Value::Array(values) = value else {
+                return;
+            };
+            if remaining.is_empty() {
+                values.clear();
+            } else {
+                for value in values {
+                    remove_selected(value, remaining);
+                }
+            }
+        }
+        SelectorToken::Slice(start, end) => {
+            let Value::Array(values) = value else {
+                return;
+            };
+            let (start, end) = resolve_slice(values.len(), *start, *end);
+            if remaining.is_empty() {
+                values.drain(start..end);
+            } else {
+                for value in &mut values[start..end] {
+                    remove_selected(value, remaining);
+                }
+            }
+        }
+    }
 }
 
 pub fn scalar_text(value: &Value) -> Option<String> {
@@ -444,5 +505,58 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![json!("first"), json!("second")]
         );
+    }
+
+    #[test]
+    fn selectors_remove_fields_through_fanout_indexes_and_slices() {
+        let original = json!({
+            "items": [
+                {"name": "first", "secret": 1},
+                {"name": "second", "secret": 2},
+                {"name": "third", "secret": 3}
+            ]
+        });
+
+        let mut fanout = original.clone();
+        selector("items[].secret").remove_matches(&mut fanout);
+        assert_eq!(
+            fanout,
+            json!({"items": [{"name": "first"}, {"name": "second"}, {"name": "third"}]})
+        );
+
+        let mut index = original.clone();
+        selector("items[-1].secret").remove_matches(&mut index);
+        assert_eq!(index["items"][0]["secret"], json!(1));
+        assert_eq!(index["items"][1]["secret"], json!(2));
+        assert!(index["items"][2].get("secret").is_none());
+
+        let mut slice = original;
+        selector("items[:2].secret").remove_matches(&mut slice);
+        assert!(slice["items"][0].get("secret").is_none());
+        assert!(slice["items"][1].get("secret").is_none());
+        assert_eq!(slice["items"][2]["secret"], json!(3));
+    }
+
+    #[test]
+    fn terminal_array_selectors_remove_only_selected_elements() {
+        let mut value = json!({"items": ["zero", "one", "two", "three"]});
+        selector("items[1:3]").remove_matches(&mut value);
+        assert_eq!(value, json!({"items": ["zero", "three"]}));
+
+        selector("items[-1]").remove_matches(&mut value);
+        assert_eq!(value, json!({"items": ["zero"]}));
+
+        selector("items[*]").remove_matches(&mut value);
+        assert_eq!(value, json!({"items": []}));
+    }
+
+    #[test]
+    fn removing_missing_selector_matches_is_harmless() {
+        let mut value = json!({"items": [{"name": "first"}]});
+        let original = value.clone();
+
+        selector("missing[].secret").remove_matches(&mut value);
+
+        assert_eq!(value, original);
     }
 }

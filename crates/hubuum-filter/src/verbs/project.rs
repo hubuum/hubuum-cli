@@ -76,7 +76,7 @@ pub(crate) fn project_value(value: &Value, terms: &[ProjectTerm]) -> Value {
     };
 
     for term in terms.iter().filter(|term| term.is_drop()) {
-        drop_path(&mut projected, term.selector().as_str());
+        term.selector().remove_matches(&mut projected);
     }
 
     projected
@@ -129,35 +129,4 @@ fn output_columns(terms: &[ProjectTerm]) -> Vec<String> {
         .filter(|term| !term.is_drop())
         .map(|term| term.selector().to_string())
         .collect()
-}
-
-fn drop_path(value: &mut Value, selector: &str) {
-    let mut parts = selector.split('.').collect::<Vec<_>>();
-    if parts.is_empty() {
-        return;
-    }
-    drop_path_parts(value, &mut parts);
-}
-
-fn drop_path_parts(value: &mut Value, parts: &mut [&str]) {
-    if parts.is_empty() {
-        return;
-    }
-
-    match value {
-        Value::Object(object) if parts.len() == 1 => {
-            object.remove(parts[0]);
-        }
-        Value::Object(object) => {
-            if let Some(next) = object.get_mut(parts[0]) {
-                drop_path_parts(next, &mut parts[1..]);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                drop_path_parts(value, parts);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
 }
