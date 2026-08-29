@@ -7,10 +7,10 @@ use std::thread::spawn;
 
 use crossterm::event::{Event, KeyEvent};
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Completer, EditMode, Emacs, FileBackedHistory,
-    KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
-    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, ReedlineRawEvent, Signal,
-    Span, Suggestion,
+    default_emacs_keybindings, ColumnarMenu, Completer, CompletionResult, EditMode, Emacs,
+    FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode,
+    PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu,
+    ReedlineRawEvent, Signal, Span, Suggestion,
 };
 use shlex::split;
 use tokio::runtime::Handle;
@@ -331,7 +331,13 @@ struct ReplCompleter {
 }
 
 impl Completer for ReplCompleter {
-    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+    fn complete(&mut self, line: &str, pos: usize) -> CompletionResult {
+        CompletionResult::fresh(self.suggestions(line, pos))
+    }
+}
+
+impl ReplCompleter {
+    fn suggestions(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let prefix_line = &line[..safe_prefix_end(line, pos)];
         if let Some(suggestions) = self.quoted_where_suggestions(prefix_line, pos) {
             return suggestions;
