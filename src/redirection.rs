@@ -732,6 +732,56 @@ mod tests {
     }
 
     #[test]
+    fn file_and_each_redirects_use_stable_distinct_rows() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("distinct.json");
+        let command = format!("object list | D state > {}", path.display());
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) =
+            hubuum_filter::split_pipeline(&candidate.line).expect("distinct pipeline should parse");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "state": "up"}),
+                    json!({"name": "discarded", "state": "up"}),
+                    json!({"name": "beta", "state": "down"}),
+                ],
+                vec!["name".to_string(), "state".to_string()],
+            ))
+            .expect("distinct should apply");
+        let lines = serde_json::to_string_pretty(output.value())
+            .expect("distinct JSON should render")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let snapshot = OutputSnapshot {
+            lines,
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("file redirect should write");
+        let rendered = read_to_string(path).expect("redirect output");
+        assert!(rendered.contains("alpha"), "{rendered}");
+        assert!(rendered.contains("beta"), "{rendered}");
+        assert!(!rendered.contains("discarded"), "{rendered}");
+
+        let template = dir.path().join("{name}.json");
+        let each = split_redirect_candidate(&format!("object list > each:{}", template.display()))
+            .expect("each redirect should parse")
+            .expect("each redirect should exist")
+            .redirect;
+        write_output(&snapshot, &each).expect("each redirect should write");
+        assert!(dir.path().join("alpha.json").exists());
+        assert!(dir.path().join("beta.json").exists());
+        assert!(!dir.path().join("discarded.json").exists());
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

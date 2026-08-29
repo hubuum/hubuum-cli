@@ -365,6 +365,40 @@ fn projection_aliases_work_across_renderers_and_each_redirects() {
 }
 
 #[test]
+fn stable_distinct_works_across_renderers_and_each_redirects() {
+    let rows = r#"[{"name":"alpha","state":"up"},{"name":"discarded","state":"up"},{"name":"beta","state":"down"}]"#;
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --output {format} | JQ '{rows}' | D state"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("alpha"))
+            .stdout(contains("beta"))
+            .stdout(contains("discarded").not());
+    }
+
+    let directory = tempdir().expect("temporary directory");
+    let target = directory.path().join("{name}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            &format!(
+                "config show --output json | JQ '{rows}' | D state > each:{}",
+                target.display()
+            ),
+        ])
+        .assert()
+        .success();
+
+    assert!(directory.path().join("alpha.json").exists());
+    assert!(directory.path().join("beta.json").exists());
+    assert!(!directory.path().join("discarded.json").exists());
+}
+
+#[test]
 fn structured_pipeline_semantics_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")
@@ -403,6 +437,7 @@ fn grouped_summary_filters_keep_aggregates_consistent_across_renderers() {
 fn unsupported_shape_transitions_report_stage_current_and_expected_shapes() {
     for (command, stage, shape) in [
         ("config show | VALUE key | P key", "P", "Values"),
+        ("config show --key output.format | D", "D", "Detail"),
         ("config show --key output.format | L 1", "L", "Detail"),
         ("config show | G source | G source", "G", "Groups"),
         ("config show --key output.format | U value", "U", "Detail"),

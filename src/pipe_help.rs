@@ -30,6 +30,11 @@ pub fn help_topics() -> &'static [HelpTopic] {
             summary: "S and sort, including typed casts.",
         },
         HelpTopic {
+            name: "distinct",
+            title: "Stable Distinct",
+            summary: "D and distinct over visible values or selector tuples.",
+        },
+        HelpTopic {
             name: "limit",
             title: "Limits And Counts",
             summary: "L, head, tail, and C.",
@@ -95,6 +100,11 @@ pub fn verb_summaries() -> &'static [VerbSummary] {
             summary: "Sort rows by a field or line value.",
         },
         VerbSummary {
+            names: "D, distinct",
+            topic: "distinct",
+            summary: "Keep the first row for each visible value or selector tuple.",
+        },
+        VerbSummary {
             names: "L, head, tail",
             topic: "limit",
             summary: "Keep a subset of rows.",
@@ -137,6 +147,9 @@ pub fn topic_help(topic: &str) -> Option<&'static str> {
         ),
         "sort" => Some(
             "Sort stages:\n  | S <field> - sort rows ascending by one selector.\n  | S !<field> - sort rows descending by one selector.\n  | S <key>, <key> - stable lexicographic multi-key sort.\n\nEach key accepts asc|desc, AS str|num|bool|ip|datetime|version|natural, USING first|min|max, and NULLS FIRST|LAST in that order. Missing and null keys default to last for both directions. USING first is the fanout compatibility default. AS ip strictly validates std::net::IpAddr values, orders IPv4 before IPv6 ascending, and keeps mapped IPv6 in the IPv6 family.\n\nExamples:\n  object list --class Hosts | S os_version\n  object list --class Hosts | S state asc, updated_at desc AS datetime, Name AS natural\n  object list --class Hosts | S data.network.interfaces[].ipv4 AS ip USING min, Name\n  object list --class Hosts | G os_version AS \"OS Version\" | A count AS Hosts | S Hosts desc AS num",
+        ),
+        "distinct" => Some(
+            "Stable distinct stages:\n  | D - keep the first occurrence of each complete visible JSON value.\n  | D <selector>, <selector> - keep the first occurrence of each ordered selector tuple.\n  | distinct <selector> AS <cast> - use a strict typed identity.\n\nKeys accept AS str|num|bool|ip|datetime|version|natural. Fanout selectors contribute their complete ordered sequence; missing differs from JSON null. Object field order does not affect whole-value equality. Empty, lines, rows, values, and groups are supported; grouped equality sees summaries and never merges members. Detail and message output are rejected.\n\nExamples:\n  object list --class Hosts | D\n  object list --class Hosts | D owner, os_version\n  object list --class Hosts | D data.network.interfaces[].ipv4 AS ip\n  object list --class Hosts | G rack | A count AS Hosts | D Hosts AS num",
         ),
         "limit" => Some(
             "Limit and count stages:\n  | L [count] [offset] - keep a window of rows from the current result.\n  | head [count] [offset] - readable alias for L.\n  | tail [count] - keep rows from the end of the current result.\n  | C - replace rows with a count.\n  | count - readable alias for C.\n\nExamples:\n  object list --class Hosts | L 10\n  object list --class Hosts | L 10 20\n  object list --class Hosts | os_version contains 26 | C",

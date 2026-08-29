@@ -16,8 +16,8 @@ want a smaller local view without adding another API flag.
 The native-language increments are specified in
 [RFC 0001](rfcs/0001-native-pipeline-dsl.md) and land in independently
 reviewable slices. Typed boolean predicates, multi-key sorting, strict IP
-sorting, and projection aliases are implemented; later RFC sections remain
-proposals until their linked delivery issues land.
+sorting, projection aliases, and stable distinct are implemented; later RFC
+sections remain proposals until their linked delivery issues land.
 
 Grouping with `G` and aggregation with `A` are local pipe operations over the
 rows returned by the preceding command. For permission-scoped aggregation over
@@ -198,6 +198,33 @@ the class default; `--computed none` disables it for one command.
 object list --class Hosts | VALUE data.network.interfaces[*].ipv4
 object list --class Hosts | VAL Name
 ```
+
+## Stable Distinct
+
+`D` and `distinct` retain the first occurrence and preserve input order, shape,
+and column metadata. With no keys, equality uses the complete visible JSON
+value and ignores object field order:
+
+```text
+object list --class Hosts | D
+```
+
+Comma-separated keys form an ordered selector tuple. A fanout selector's whole
+ordered sequence participates in equality; it is not reduced to its first
+match. Missing is a distinct sentinel and does not equal a selected JSON null.
+Keys accept the shared strict casts `str`, `num`, `bool`, `ip`, `datetime`,
+`version`, and `natural`.
+
+```text
+object list --class Hosts | D owner, os_version
+object list --class Hosts | D data.network.interfaces[].ipv4 AS ip
+```
+
+Distinct supports empty, line, row, value, and grouped collections while
+rejecting detail and message output explicitly. Whole-value line distinct uses
+`D` without keys. For groups, equality sees only visible group and aggregate
+summaries, and duplicate whole groups are removed without merging hidden member
+rows.
 
 ## Sorting, Limits, And Counts
 

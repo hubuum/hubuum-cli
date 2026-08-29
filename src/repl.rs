@@ -1177,8 +1177,8 @@ struct PipeCompletionContext<'a> {
 }
 
 const PIPE_STAGES: &[&str] = &[
-    "grep", "F", "V", "K", "?", "reject", "P", "columns", "S", "sort", "G", "A", "L", "head",
-    "tail", "C", "count", "U", "Z", "JQ", "VALUE", "VAL",
+    "grep", "F", "V", "K", "?", "reject", "P", "columns", "S", "sort", "D", "distinct", "G", "A",
+    "L", "head", "tail", "C", "count", "U", "Z", "JQ", "VALUE", "VAL",
 ];
 
 fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompletionContext<'_>> {
@@ -1266,6 +1266,8 @@ fn field_completion_stage(stage: &str) -> bool {
             | "VALUE"
             | "S"
             | "sort"
+            | "D"
+            | "distinct"
             | "grep"
             | "F"
             | "V"
@@ -1282,6 +1284,7 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
     match stage {
         "P" | "columns" => projection_expects_field(pipe_parts, ends_with_space),
         "S" | "sort" => sort_expects_field(pipe_parts, ends_with_space),
+        "D" | "distinct" => distinct_expects_field(pipe_parts, ends_with_space),
         "grep" | "F" | "reject"
             if pipe_parts
                 .get(1)
@@ -1295,6 +1298,22 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
         }
         _ => false,
     }
+}
+
+fn distinct_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
+    if pipe_parts.len() == 1 {
+        return ends_with_space;
+    }
+    if pipe_parts.len() == 2 && !ends_with_space {
+        return true;
+    }
+    if ends_with_space {
+        return pipe_parts.last().is_some_and(|part| part.ends_with(','));
+    }
+    pipe_parts.last().is_some_and(|part| part.contains(','))
+        || pipe_parts
+            .get(pipe_parts.len().saturating_sub(2))
+            .is_some_and(|part| part.ends_with(','))
 }
 
 fn projection_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
@@ -1355,7 +1374,7 @@ fn matches_keyword(value: &str, keywords: &[&str]) -> bool {
 }
 
 fn field_uses_comma_segments(stage: &str) -> bool {
-    matches!(stage, "P" | "columns" | "S" | "sort")
+    matches!(stage, "P" | "columns" | "S" | "sort" | "D" | "distinct")
 }
 
 fn last_unquoted_pipe(line: &str) -> Option<usize> {
@@ -2166,6 +2185,23 @@ mod tests {
             assert_eq!(context.replacement_start, line.len() - 2);
             assert!(!context.needs_leading_space);
         }
+    }
+
+    #[test]
+    fn pipe_completion_context_completes_each_distinct_key() {
+        for line in [
+            "object list --class Hosts | D state,na",
+            "object list --class Hosts | distinct state AS str, na",
+        ] {
+            let context = pipe_completion_context(line, line.len()).expect("distinct context");
+            assert_eq!(context.kind, PipeCompletionKind::Field);
+            assert_eq!(context.prefix, "na");
+            assert_eq!(context.replacement_start, line.len() - 2);
+            assert!(!context.needs_leading_space);
+        }
+
+        let complete = "object list --class Hosts | D state AS str ";
+        assert!(pipe_completion_context(complete, complete.len()).is_none());
     }
 
     #[test]

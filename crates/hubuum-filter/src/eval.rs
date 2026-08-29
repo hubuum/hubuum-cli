@@ -7,6 +7,7 @@ use crate::verbs::collection::{
     aggregate_envelope, collapse_groups, count_envelope, group_envelope, limit_envelope,
     sort_columns_envelope, sort_whole_envelope, unroll_envelope,
 };
+use crate::verbs::distinct::{distinct_envelope, distinct_lines};
 use crate::verbs::jq::jq_envelope;
 use crate::verbs::project::{project_envelope, value_envelope};
 use crate::verbs::search::{
@@ -48,6 +49,7 @@ impl PipeStage {
                 }
                 Ok(sorted)
             }
+            Self::Distinct(_) => Ok(distinct_lines(lines)),
             Self::KeySearch(_)
             | Self::TypedFilter(_)
             | Self::TypedReject(_)
@@ -119,6 +121,7 @@ fn apply_semantic_stage(
         PipeStage::SortLines { descending } => sort_whole_envelope(envelope, *descending),
         PipeStage::Columns(columns) => project_envelope(envelope, columns),
         PipeStage::SortColumns(spec) => sort_columns_envelope(envelope, spec),
+        PipeStage::Distinct(spec) => distinct_envelope(envelope, spec),
         PipeStage::Group(keys) => group_envelope(envelope, keys),
         PipeStage::Aggregate(spec) => aggregate_envelope(envelope, spec),
         PipeStage::CollapseGroups => collapse_groups(envelope),

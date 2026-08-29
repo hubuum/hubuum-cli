@@ -1,6 +1,7 @@
 use hubuum_filter::{
-    JqLimits, NullOrder, OutputEnvelope, OutputShape, PipeStage, Pipeline, PipelineSettings,
-    ProjectTerm, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
+    DistinctKey, DistinctSpec, JqLimits, NullOrder, OutputEnvelope, OutputShape, PipeStage,
+    Pipeline, PipelineSettings, ProjectTerm, SortCast, SortDirection, SortKey, SortReduction,
+    SortSpec, ValueCast,
 };
 use serde_json::json;
 
@@ -105,6 +106,16 @@ fn programmatic_pipeline_construction_validates_public_inputs() {
     let valid = Pipeline::from_stages(vec![PipeStage::SortColumns(sort)])
         .expect("valid programmatic sort pipeline");
     assert_eq!(valid.stages()[0].name(), "S");
+
+    assert!(DistinctSpec::by_keys(Vec::new()).is_err());
+    let distinct = DistinctSpec::by_keys(vec![DistinctKey::new("address")
+        .expect("valid selector")
+        .with_cast(ValueCast::Ip)])
+    .expect("valid keyed distinct");
+    assert_eq!(distinct.keys()[0].cast(), Some(ValueCast::Ip));
+    let valid = Pipeline::from_stages(vec![PipeStage::Distinct(distinct)])
+        .expect("valid programmatic distinct pipeline");
+    assert_eq!(valid.stages()[0].name(), "D");
 }
 
 #[test]

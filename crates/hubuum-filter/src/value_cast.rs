@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
@@ -29,6 +30,25 @@ impl CastValue {
             (Self::Version(left), Self::Version(right)) => Some(left.cmp(right)),
             (Self::Natural(left), Self::Natural(right)) => Some(compare_natural(left, right)),
             _ => None,
+        }
+    }
+}
+
+impl Eq for CastValue {}
+
+impl Hash for CastValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::String(value) | Self::Natural(value) => value.hash(state),
+            Self::Number(value) => {
+                let normalized = if *value == 0.0 { 0.0 } else { *value };
+                normalized.to_bits().hash(state);
+            }
+            Self::Boolean(value) => value.hash(state),
+            Self::Ip(value) => value.hash(state),
+            Self::DateTime(value) => value.hash(state),
+            Self::Version(value) => value.hash(state),
         }
     }
 }
