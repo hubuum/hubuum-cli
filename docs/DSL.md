@@ -196,6 +196,27 @@ object list --class Hosts | F os_version 26 | C
 These stages operate locally on the current semantic rows. They do not call the
 server's object-aggregate endpoint.
 
+`G` establishes a grouped-state boundary. Stages before `G` operate on member
+rows. Stages after `G` operate on each visible summary, which is the flattened
+set of group aliases and aggregate aliases:
+
+- `F`, `V`, `reject`, and `? field` keep or remove whole groups by testing the
+  visible summary. They never edit hidden members. A member-only selector after
+  `G` therefore matches no group.
+- `K` projects matching summary key paths, while `P` projects selected summary
+  fields. `U` unrolls a summary array into multiple groups with the same member
+  rows. `S`, `L`, and `tail` order or limit whole groups.
+- `A` reads the unchanged members of each retained group, so aggregates added
+  before or after a summary filter remain accurate. `Z` emits one visible row
+  per retained group.
+- Grouped `C` is a terminal collapse that emits one summary row per group with
+  a `count` field for its member count.
+
+Grouping never creates an empty group, and summary filters remove whole groups,
+so they cannot make a retained group member-empty. A pre-existing empty group
+is retained or removed solely by the same visible-summary predicate as any
+other group.
+
 Group by one or more fields:
 
 ```text
@@ -223,11 +244,12 @@ object list --class Hosts | G os_version AS "OS Version" | A min(Name) AS First
 object list --class Hosts | G os_version AS "OS Version" | A max(Name) AS Last
 ```
 
-Aggregates are ordinary output columns, so later stages can sort, project, or
-redirect them:
+Aggregates are ordinary visible output columns, so later stages can filter,
+sort, project, or redirect them:
 
 ```text
 object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num | L 10
+object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | F Hosts>=2
 ```
 
 `C` after grouping returns one count row per group:
@@ -242,11 +264,14 @@ object list --class Hosts | G os_version AS "OS Version" | C
 object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | Z
 ```
 
-`U` unrolls array members into rows:
+Before `G`, `U` unrolls member arrays into rows:
 
 ```text
 object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 ```
+
+After `G`, `U` instead unrolls an array in the visible group summary and keeps
+the original member rows attached to every resulting group.
 
 ## Line-shaped Output
 

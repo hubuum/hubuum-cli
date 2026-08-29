@@ -1,8 +1,6 @@
+use serde_json::{to_string, Map, Number, Value};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::mem::take;
-
-use serde_json::{to_string, Map, Number, Value};
 
 use crate::error::PipelineError;
 use crate::model::{
@@ -72,8 +70,11 @@ pub(crate) fn sort_envelope(
 ) -> Result<OutputEnvelope, PipelineError> {
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values | OutputShape::Groups => {
+            let grouped = envelope.shape == OutputShape::Groups;
             let mut values = array_values(&envelope.value)?;
-            values.sort_by(|left, right| compare_selected(left, right, selector, descending, cast));
+            values.sort_by(|left, right| {
+                compare_selected(left, right, selector, descending, cast, grouped)
+            });
             Ok(OutputEnvelope {
                 value: Value::Array(values),
                 ..envelope
@@ -202,14 +203,11 @@ pub(crate) fn unroll_envelope(
         OutputShape::Groups => {
             let groups = array_values(&envelope.value)?
                 .into_iter()
-                .map(|mut group| {
-                    if let Some(rows) = group.get_mut("rows").and_then(Value::as_array_mut) {
-                        *rows = take(rows)
-                            .into_iter()
-                            .flat_map(|row| unroll_row(&row, selector))
-                            .collect();
-                    }
-                    group
+                .flat_map(|group| {
+                    group_summary_row(&group)
+                        .into_iter()
+                        .flat_map(|summary| unroll_row(&summary, selector))
+                        .filter_map(move |summary| replace_group_summary(group.clone(), summary))
                 })
                 .collect();
             Ok(OutputEnvelope::groups(groups, envelope.columns))
@@ -292,13 +290,21 @@ fn selected_min_max(rows: &[Value], selector: &Selector, max: bool) -> Value {
     }
 }
 
-fn group_summary_row(group: &Value) -> Option<Value> {
+pub(crate) fn group_summary_row(group: &Value) -> Option<Value> {
     let mut object = Map::new();
     object.extend(group.get("groups")?.as_object()?.clone());
     if let Some(aggregates) = group.get("aggregates").and_then(Value::as_object) {
         object.extend(aggregates.clone());
     }
     Some(Value::Object(object))
+}
+
+pub(crate) fn replace_group_summary(mut group: Value, summary: Value) -> Option<Value> {
+    let group = group.as_object_mut()?;
+    let summary = summary.as_object()?.clone();
+    group.insert("groups".to_string(), Value::Object(summary));
+    group.insert("aggregates".to_string(), Value::Object(Map::new()));
+    Some(Value::Object(group.clone()))
 }
 
 fn group_count_rows(value: &Value) -> Vec<Value> {
@@ -359,24 +365,28 @@ fn compare_selected(
     selector: Option<&Selector>,
     descending: bool,
     cast: SortCast,
+    grouped: bool,
 ) -> Ordering {
-    let left = selected_sort_value(left, selector);
-    let right = selected_sort_value(right, selector);
+    let left = selected_sort_value(left, selector, grouped);
+    let right = selected_sort_value(right, selector, grouped);
     compare_sort_values(left.as_ref(), right.as_ref(), descending, cast)
 }
 
-fn selected_sort_value(value: &Value, selector: Option<&Selector>) -> Option<Value> {
+fn selected_sort_value(value: &Value, selector: Option<&Selector>, grouped: bool) -> Option<Value> {
+    if grouped {
+        let summary = group_summary_row(value)?;
+        return match selector {
+            Some(selector) => select_values(&summary, selector)
+                .first()
+                .map(|value| (*value).clone()),
+            None => Some(summary),
+        };
+    }
+
     match selector {
         Some(selector) => select_values(value, selector)
             .first()
-            .map(|value| (*value).clone())
-            .or_else(|| {
-                group_summary_row(value).and_then(|summary| {
-                    select_values(&summary, selector)
-                        .first()
-                        .map(|value| (*value).clone())
-                })
-            }),
+            .map(|value| (*value).clone()),
         None => Some(value.clone()),
     }
 }

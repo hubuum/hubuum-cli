@@ -2,7 +2,6 @@ use regex::Regex;
 use serde_json::{Map, Value};
 use shlex::split;
 use std::cmp::Ordering;
-use std::mem::take;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
@@ -10,6 +9,7 @@ use crate::selector::{
     compact_empty, is_bookkeeping_key, key_paths, scalar_text, select_values, truthy, Selector,
 };
 use crate::verbs::array_values;
+use crate::verbs::collection::{group_summary_row, replace_group_summary};
 
 #[derive(Debug)]
 enum SemanticFilter {
@@ -84,7 +84,7 @@ pub(crate) fn filter_envelope(
                 Ok(OutputEnvelope::empty())
             }
         }
-        OutputShape::Groups => filter_group_rows(envelope, expression, invert),
+        OutputShape::Groups => filter_group_summaries(envelope, &filter, invert),
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
     }
@@ -113,7 +113,16 @@ pub(crate) fn value_search_envelope(
                 Ok(OutputEnvelope::empty())
             }
         }
-        OutputShape::Groups => filter_group_rows(envelope, pattern, false),
+        OutputShape::Groups => {
+            let groups = array_values(&envelope.value)?
+                .into_iter()
+                .filter(|group| {
+                    group_summary_row(group)
+                        .is_some_and(|summary| value_search_match(&summary, &regex))
+                })
+                .collect();
+            Ok(OutputEnvelope::groups(groups, envelope.columns))
+        }
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
     }
@@ -135,7 +144,24 @@ pub(crate) fn key_search_envelope(
         OutputShape::Detail | OutputShape::Message => Ok(key_projection(&envelope.value, &regex)
             .map(|value| OutputEnvelope::detail(value, Vec::new()))
             .unwrap_or_else(OutputEnvelope::empty)),
-        OutputShape::Groups => filter_group_rows(envelope, pattern, false),
+        OutputShape::Groups => {
+            let mut columns = Vec::new();
+            let groups = array_values(&envelope.value)?
+                .into_iter()
+                .filter_map(|group| {
+                    let projection = key_projection(&group_summary_row(&group)?, &regex)?;
+                    if let Some(object) = projection.as_object() {
+                        for key in object.keys() {
+                            if !columns.contains(key) {
+                                columns.push(key.clone());
+                            }
+                        }
+                    }
+                    replace_group_summary(group, projection)
+                })
+                .collect();
+            Ok(OutputEnvelope::groups(groups, columns))
+        }
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
     }
@@ -179,7 +205,27 @@ pub(crate) fn truthy_envelope(
         (OutputShape::Detail | OutputShape::Message, None) => Ok(compact_empty(envelope.value)
             .map(|value| OutputEnvelope::detail(value, envelope.columns))
             .unwrap_or_else(OutputEnvelope::empty)),
-        (OutputShape::Groups, _) => Ok(envelope),
+        (OutputShape::Groups, Some(selector)) => {
+            let groups = array_values(&envelope.value)?
+                .into_iter()
+                .filter(|group| {
+                    group_summary_row(group).is_some_and(|summary| {
+                        select_values(&summary, selector).into_iter().any(truthy)
+                    })
+                })
+                .collect();
+            Ok(OutputEnvelope::groups(groups, envelope.columns))
+        }
+        (OutputShape::Groups, None) => {
+            let groups = array_values(&envelope.value)?
+                .into_iter()
+                .filter_map(|group| {
+                    let summary = compact_empty(group_summary_row(&group)?)?;
+                    replace_group_summary(group, summary)
+                })
+                .collect();
+            Ok(OutputEnvelope::groups(groups, envelope.columns))
+        }
         (OutputShape::Empty, _) => Ok(envelope),
         (OutputShape::Lines, _) => unreachable!("line output is handled before semantic filtering"),
     }
@@ -308,21 +354,25 @@ pub(crate) fn validate_filter_expression(expression: &str) -> Result<(), Pipelin
     SemanticFilter::parse(expression).map(|_| ())
 }
 
-fn filter_group_rows(
+fn filter_group_summaries(
     envelope: OutputEnvelope,
-    expression: &str,
+    filter: &SemanticFilter,
     invert: bool,
 ) -> Result<OutputEnvelope, PipelineError> {
     let groups = array_values(&envelope.value)?
         .into_iter()
-        .map(|mut group| {
-            let Some(rows) = group.get_mut("rows").and_then(Value::as_array_mut) else {
-                return Ok(group);
-            };
-            let row_envelope = OutputEnvelope::rows(take(rows), Vec::new());
-            let row_envelope = filter_envelope(row_envelope, expression, invert)?;
-            *rows = array_values(&row_envelope.value)?;
-            Ok(group)
+        .filter_map(|group| {
+            let summary = group_summary_row(&group)?;
+            Some(
+                filter
+                    .match_result(&summary, &envelope.columns)
+                    .map(|result| (group, result)),
+            )
+        })
+        .filter_map(|result| match result {
+            Ok((group, result)) if result.matched != invert => Some(Ok(group)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
         })
         .collect::<Result<Vec<_>, PipelineError>>()?;
     Ok(OutputEnvelope::groups(groups, envelope.columns))

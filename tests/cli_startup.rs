@@ -344,6 +344,25 @@ fn structured_pipeline_semantics_are_stable_across_renderers() {
 }
 
 #[test]
+fn grouped_summary_filters_keep_aggregates_consistent_across_renderers() {
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!(
+                    "config show --output {format} | JQ '[{{\"g\":\"x\",\"v\":1}},{{\"g\":\"x\",\"v\":2}},{{\"g\":\"y\",\"v\":3}}]' | G g | A count AS n | F n>=2 | A sum(v) AS total | Z"
+                ),
+            ])
+            .assert()
+            .success()
+            .stdout(contains('x'))
+            .stdout(contains('2'))
+            .stdout(contains('3'))
+            .stdout(contains('y').not());
+    }
+}
+
+#[test]
 fn detail_and_list_pipelines_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")
