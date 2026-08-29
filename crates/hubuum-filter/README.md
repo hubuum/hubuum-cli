@@ -65,7 +65,7 @@ The current native stages provide:
 - broad, value-only, key-only, field, reject, and truthiness filtering;
 - typed boolean predicates with explicit casts, null/missing tests, fanout,
   quoted JSON literals, and `NOT`/`AND`/`OR` composition;
-- projection and selector-based value extraction;
+- projection with validated output aliases and selector-based value extraction;
 - stable multi-key sorting with strict scalar, date, version, natural, and
   IPv4/IPv6 casts, fanout reduction, and null order;
 - head, tail, and count;

@@ -1280,7 +1280,7 @@ fn field_completion_stage(stage: &str) -> bool {
 
 fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_space: bool) -> bool {
     match stage {
-        "P" | "columns" => pipe_parts.len() >= 2 || ends_with_space,
+        "P" | "columns" => projection_expects_field(pipe_parts, ends_with_space),
         "S" | "sort" => sort_expects_field(pipe_parts, ends_with_space),
         "grep" | "F" | "reject"
             if pipe_parts
@@ -1295,6 +1295,26 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
         }
         _ => false,
     }
+}
+
+fn projection_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
+    if pipe_parts.len() == 1 {
+        return ends_with_space;
+    }
+    let has_alias = pipe_parts
+        .iter()
+        .skip(1)
+        .any(|part| part.eq_ignore_ascii_case("AS"));
+    if !has_alias {
+        return true;
+    }
+    if ends_with_space {
+        return pipe_parts.last().is_some_and(|part| part.ends_with(','));
+    }
+    pipe_parts.last().is_some_and(|part| part.contains(','))
+        || pipe_parts
+            .get(pipe_parts.len().saturating_sub(2))
+            .is_some_and(|part| part.ends_with(','))
 }
 
 fn sort_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
@@ -2108,6 +2128,29 @@ mod tests {
         assert_eq!(context.prefix, "co");
         assert_eq!(context.replacement_start, line.len() - "co".len());
         assert!(!context.needs_leading_space);
+    }
+
+    #[test]
+    fn pipe_completion_context_handles_aliased_projection_boundaries() {
+        for line in [
+            "object list --class Hosts | P Name AS Host,co",
+            "object list --class Hosts | P Name AS Host, co",
+        ] {
+            let context = pipe_completion_context(line, line.len()).expect("projection context");
+            assert_eq!(context.kind, PipeCompletionKind::Field);
+            assert_eq!(context.prefix, "co");
+            assert_eq!(context.replacement_start, line.len() - 2);
+            assert!(!context.needs_leading_space);
+        }
+
+        let alias = "object list --class Hosts | P Name AS Ho";
+        assert!(pipe_completion_context(alias, alias.len()).is_none());
+        let needs_comma = "object list --class Hosts | P Name AS Host ";
+        assert!(pipe_completion_context(needs_comma, needs_comma.len()).is_none());
+
+        let legacy = "object list --class Hosts | P Name co";
+        let context = pipe_completion_context(legacy, legacy.len()).expect("legacy projection");
+        assert_eq!(context.prefix, "co");
     }
 
     #[test]

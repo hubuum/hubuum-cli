@@ -1621,9 +1621,13 @@ mod tests {
         let group = catalog
             .render_pipe_topic_help(Some("group"))
             .expect("pipe group should render");
+        let project = catalog
+            .render_pipe_topic_help(Some("project"))
+            .expect("pipe project should render");
         let help = strip_ansi(&help);
         let search = strip_ansi(&search);
         let group = strip_ansi(&group);
+        let project = strip_ansi(&project);
 
         assert!(help.contains("help pipe search"));
         assert!(help.contains("help pipe group"));
@@ -1632,6 +1636,9 @@ mod tests {
         assert!(search.contains("K ipv4"));
         assert!(group.contains("G os_version AS"));
         assert!(group.contains("A count AS Hosts"));
+        assert!(project.contains("P <field> AS <name>"));
+        assert!(project.contains("commas are required"));
+        assert!(project.contains("no match becomes null"));
     }
 
     #[test]

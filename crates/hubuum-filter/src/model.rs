@@ -229,6 +229,7 @@ impl PipeStage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTerm {
     selector: Selector,
+    alias: Option<OutputName>,
     drop: bool,
 }
 
@@ -236,6 +237,18 @@ impl ProjectTerm {
     pub fn keep(selector: impl Into<String>) -> Result<Self, PipelineError> {
         Ok(Self {
             selector: Selector::new(selector)?,
+            alias: None,
+            drop: false,
+        })
+    }
+
+    pub fn aliased(
+        selector: impl Into<String>,
+        alias: impl Into<String>,
+    ) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
+            alias: Some(OutputName::new(alias)?),
             drop: false,
         })
     }
@@ -243,6 +256,7 @@ impl ProjectTerm {
     pub fn drop(selector: impl Into<String>) -> Result<Self, PipelineError> {
         Ok(Self {
             selector: Selector::new(selector)?,
+            alias: None,
             drop: true,
         })
     }
@@ -253,6 +267,14 @@ impl ProjectTerm {
 
     pub fn is_drop(&self) -> bool {
         self.drop
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.alias.as_ref().map(OutputName::as_str)
+    }
+
+    pub fn output_name(&self) -> &str {
+        self.alias().unwrap_or_else(|| self.selector.as_str())
     }
 }
 
@@ -349,7 +371,7 @@ pub(crate) fn validate_projection_terms(terms: &[ProjectTerm]) -> Result<(), Pip
         terms
             .iter()
             .filter(|term| !term.is_drop())
-            .map(|term| term.selector().as_str()),
+            .map(ProjectTerm::output_name),
     )
 }
 

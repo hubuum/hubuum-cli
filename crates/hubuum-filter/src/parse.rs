@@ -65,10 +65,18 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
                 }
             }
             PipeStage::Columns(terms) if grouped_names.is_some() => {
+                let names = grouped_names.as_ref().expect("group names exist");
+                for alias in terms.iter().filter_map(ProjectTerm::alias) {
+                    if names.contains(alias) {
+                        return Err(PipelineError::Pipe(format!(
+                            "Pipe stage 'P' alias '{alias}' conflicts with a group or aggregate output name"
+                        )));
+                    }
+                }
                 let keepers = terms
                     .iter()
                     .filter(|term| !term.is_drop())
-                    .map(|term| term.selector().to_string())
+                    .map(|term| term.output_name().to_string())
                     .collect::<HashSet<_>>();
                 if !keepers.is_empty() {
                     grouped_names = Some(keepers);
@@ -137,6 +145,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     if let Some(typed) = parse_typed_predicate_stage(stage) {
         return typed;
     }
+    if let Some(projection) = parse_projection_stage_source(stage) {
+        return projection;
+    }
     if let Some(sort) = parse_sort_stage_source(stage) {
         return sort;
     }
@@ -163,7 +174,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             require_arg_count(parts[0].as_str(), &parts, 1)?;
             Ok(PipeStage::Count)
         }
-        "columns" | "P" => parse_columns_stage(&parts),
+        "columns" | "P" => {
+            unreachable!("projection stages are parsed from their original source")
+        }
         "sort" | "S" => unreachable!("sort stages are parsed from their original source"),
         "G" => parse_group_stage(&parts),
         "A" => parse_aggregate_stage(&parts),
@@ -306,38 +319,142 @@ fn parse_count(name: &str, value: Option<&String>) -> Result<Option<usize>, Pipe
         .transpose()
 }
 
-fn parse_columns_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
-    if parts.len() < 2 {
+fn parse_projection_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
+    let verb_end = stage
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(stage.len());
+    let verb = &stage[..verb_end];
+    if !matches!(verb, "P" | "columns") {
+        return None;
+    }
+
+    let source = stage[verb_end..].trim();
+    Some(parse_projection_source(verb, source))
+}
+
+fn parse_projection_source(name: &str, source: &str) -> Result<PipeStage, PipelineError> {
+    if source.is_empty() {
         return Err(PipelineError::Pipe(format!(
             "Pipe stage '{}' requires at least one column",
-            parts[0]
+            name
         )));
     }
 
-    let columns = parts
+    let parts = split(source).ok_or_else(|| {
+        PipelineError::Parse("Parsing quoted projection terms failed".to_string())
+    })?;
+    let has_alias = parts
         .iter()
         .skip(1)
-        .flat_map(|part| part.split(','))
-        .map(str::trim)
-        .filter(|column| !column.is_empty())
-        .map(|column| {
-            column
-                .strip_prefix('!')
-                .map(ProjectTerm::drop)
-                .unwrap_or_else(|| ProjectTerm::keep(column))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .any(|part| part.eq_ignore_ascii_case("AS"));
+    let columns = if has_alias {
+        split_projection_terms(source)?
+            .into_iter()
+            .enumerate()
+            .map(|(index, term)| parse_projection_term(term, index + 1))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        parts
+            .iter()
+            .flat_map(|part| part.split(','))
+            .map(str::trim)
+            .filter(|column| !column.is_empty())
+            .map(|column| {
+                column
+                    .strip_prefix('!')
+                    .map(ProjectTerm::drop)
+                    .unwrap_or_else(|| ProjectTerm::keep(column))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     if columns.is_empty() {
         return Err(PipelineError::Pipe(format!(
             "Pipe stage '{}' requires at least one column",
-            parts[0]
+            name
         )));
     }
 
     validate_projection_terms(&columns)?;
 
     Ok(PipeStage::Columns(columns))
+}
+
+fn split_projection_terms(source: &str) -> Result<Vec<&str>, PipelineError> {
+    let mut terms = Vec::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut start = 0;
+    for (index, ch) in source.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => {}
+            None if matches!(ch, '\'' | '"') => quote = Some(ch),
+            None if ch == ',' => {
+                let term = source[start..index].trim();
+                if term.is_empty() {
+                    return Err(PipelineError::Parse(
+                        "Projection terms cannot be empty".to_string(),
+                    ));
+                }
+                terms.push(term);
+                start = index + ch.len_utf8();
+            }
+            None => {}
+        }
+    }
+    let term = source[start..].trim();
+    if term.is_empty() {
+        return Err(PipelineError::Parse(
+            "Projection terms cannot be empty".to_string(),
+        ));
+    }
+    terms.push(term);
+    Ok(terms)
+}
+
+fn parse_projection_term(source: &str, term_number: usize) -> Result<ProjectTerm, PipelineError> {
+    let parts = split(source).ok_or_else(|| {
+        PipelineError::Parse(format!(
+            "Parsing quoted projection term {term_number} failed"
+        ))
+    })?;
+    let Some(selector) = parts.first() else {
+        return Err(PipelineError::Parse(format!(
+            "Projection term {term_number} cannot be empty"
+        )));
+    };
+    let (selector, drop) = selector
+        .strip_prefix('!')
+        .map_or((selector.as_str(), false), |selector| (selector, true));
+
+    if parts.len() == 1 {
+        return if drop {
+            ProjectTerm::drop(selector)
+        } else {
+            ProjectTerm::keep(selector)
+        };
+    }
+    if parts.len() != 3 || !parts[1].eq_ignore_ascii_case("AS") {
+        return Err(PipelineError::Parse(format!(
+            "Projection term {term_number} must be selector [AS output-name]; commas are required between terms when any alias is used"
+        )));
+    }
+    if drop {
+        return Err(PipelineError::Parse(format!(
+            "Projection drop term {term_number} cannot use AS"
+        )));
+    }
+    ProjectTerm::aliased(selector, &parts[2])
 }
 
 fn parse_sort_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
@@ -729,6 +846,42 @@ mod tests {
     }
 
     #[test]
+    fn projection_aliases_parse_with_mixed_and_quoted_terms() {
+        let (_, stages) = split_pipeline(
+            "object list | P Name AS Host, data.interfaces[].ip AS 'IP Addresses', state, !secret",
+        )
+        .expect("aliased projection");
+        let PipeStage::Columns(terms) = &stages[0] else {
+            panic!("expected projection")
+        };
+
+        assert_eq!(terms.len(), 4);
+        assert_eq!(terms[0].selector().as_str(), "Name");
+        assert_eq!(terms[0].alias(), Some("Host"));
+        assert_eq!(terms[1].alias(), Some("IP Addresses"));
+        assert_eq!(terms[2].output_name(), "state");
+        assert!(terms[3].is_drop());
+    }
+
+    #[test]
+    fn aliased_projection_terms_require_commas_and_reject_drop_aliases() {
+        let missing_comma = split_pipeline("object list | P Name AS Host state AS State")
+            .expect_err("aliased terms need commas");
+        assert!(missing_comma.to_string().contains("commas are required"));
+
+        let drop_alias = split_pipeline("object list | P Name AS Host, !secret AS Hidden")
+            .expect_err("drop aliases must fail");
+        assert!(drop_alias.to_string().contains("drop term 2 cannot use AS"));
+
+        for source in [
+            "object list | P Name AS Host,",
+            "object list | P Name AS Host,, state",
+        ] {
+            assert!(split_pipeline(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
     fn typed_predicates_preserve_quotes_and_legacy_filters() {
         let (_command, stages) = split_pipeline(
             "object list | F WHERE age AS num >= 3 AND (state == \"active\" OR owner IS NULL) | reject WHERE disabled == true",
@@ -865,6 +1018,8 @@ mod tests {
     fn output_names_must_be_unique_during_parsing() {
         for (line, stage, name) in [
             ("object list | P a a", "P", "a"),
+            ("object list | P a AS x, b AS x", "P", "x"),
+            ("object list | P x, b AS x", "P", "x"),
             ("object list | G a AS x b AS x", "G", "x"),
             ("object list | G a AS x | A count AS x", "A", "x"),
             ("object list | G a | A count AS n | A count AS n", "A", "n"),
@@ -879,11 +1034,15 @@ mod tests {
     #[test]
     fn quoted_output_aliases_with_spaces_remain_valid() {
         let (_, stages) =
-            split_pipeline("object list | G os_version AS 'OS Version' | A count AS 'Host Count'")
+            split_pipeline("object list | P Name AS 'Host, Name' | G os_version AS 'OS Version' | A count AS 'Host Count'")
                 .expect("spaced aliases should parse");
 
         assert!(matches!(
-            &stages[..],
+            &stages[0],
+            PipeStage::Columns(terms) if terms[0].alias() == Some("Host, Name")
+        ));
+        assert!(matches!(
+            &stages[1..],
             [PipeStage::Group(keys), PipeStage::Aggregate(spec)]
                 if keys[0].alias() == "OS Version" && spec.alias() == "Host Count"
         ));
@@ -892,11 +1051,29 @@ mod tests {
     #[test]
     fn empty_output_aliases_are_rejected() {
         for line in [
+            "object list | P name AS ''",
             "object list | G name AS ''",
             "object list | G name | A count AS ''",
         ] {
             let error = split_pipeline(line).expect_err("empty alias should fail");
             assert!(error.to_string().contains("output name cannot be empty"));
+        }
+    }
+
+    #[test]
+    fn projection_aliases_cannot_overwrite_group_or_aggregate_names() {
+        for (line, name) in [
+            ("object list | G rack AS Rack | P name AS Rack", "Rack"),
+            (
+                "object list | G rack AS Rack | A count AS Hosts | P name AS Hosts",
+                "Hosts",
+            ),
+        ] {
+            let error = split_pipeline(line).expect_err("grouped alias collision should fail");
+            let message = error.to_string();
+            assert!(message.contains("stage 'P'"), "{message}");
+            assert!(message.contains(name), "{message}");
+            assert!(message.contains("group or aggregate"), "{message}");
         }
     }
 }
