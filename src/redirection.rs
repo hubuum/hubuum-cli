@@ -692,6 +692,46 @@ mod tests {
     }
 
     #[test]
+    fn each_redirect_placeholders_use_projection_aliases() {
+        let dir = tempdir().expect("tempdir");
+        let template = dir.path().join("{Host}.json");
+        let command = format!(
+            "object list | P Name AS Host, address AS IP > each:{}",
+            template.display()
+        );
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) = hubuum_filter::split_pipeline(&candidate.line)
+            .expect("projection alias pipeline should parse");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"Name": "alpha", "address": "192.0.2.1"}),
+                    json!({"Name": "beta", "address": "192.0.2.2"}),
+                ],
+                vec!["Name".to_string(), "address".to_string()],
+            ))
+            .expect("projection should apply");
+        let snapshot = OutputSnapshot {
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("each redirect should write");
+
+        for host in ["alpha", "beta"] {
+            let rendered = read_to_string(dir.path().join(format!("{host}.json")))
+                .expect("aliased output file");
+            assert!(rendered.contains("\"Host\""), "{rendered}");
+            assert!(rendered.contains("\"IP\""), "{rendered}");
+            assert!(!rendered.contains("\"Name\""), "{rendered}");
+        }
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

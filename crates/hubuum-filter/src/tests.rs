@@ -74,6 +74,10 @@ fn drop(selector: &str) -> ProjectTerm {
     ProjectTerm::drop(selector).expect("valid projection selector")
 }
 
+fn alias(selector: &str, output_name: &str) -> ProjectTerm {
+    ProjectTerm::aliased(selector, output_name).expect("valid projection alias")
+}
+
 fn apply_dsl(
     envelope: OutputEnvelope,
     source: &str,
@@ -669,6 +673,99 @@ fn projection_droppers_and_value_extraction_still_work() {
     )
     .expect("value");
     assert_eq!(values.value, json!(["10.0.0.10", "129.240.1.11"]));
+}
+
+#[test]
+fn projection_aliases_preserve_zero_one_and_many_cardinality() {
+    let projected = apply_pipeline(
+        OutputEnvelope::rows(
+            vec![
+                json!({
+                    "name": "alpha",
+                    "interfaces": [{"ip": "192.0.2.1"}, {"ip": "2001:db8::1"}]
+                }),
+                json!({"name": "beta", "interfaces": []}),
+            ],
+            vec!["name".to_string(), "interfaces".to_string()],
+        ),
+        &[PipeStage::Columns(vec![
+            alias("name", "Host"),
+            alias("interfaces[].ip", "Addresses"),
+            alias("owner", "Owner"),
+        ])],
+    )
+    .expect("aliased projection");
+
+    assert_eq!(projected.columns, ["Host", "Addresses", "Owner"]);
+    assert_eq!(
+        projected.value,
+        json!([
+            {
+                "Host": "alpha",
+                "Addresses": ["192.0.2.1", "2001:db8::1"],
+                "Owner": null
+            },
+            {"Host": "beta", "Addresses": null, "Owner": null}
+        ])
+    );
+
+    let detail = apply_dsl(
+        OutputEnvelope::detail(
+            json!({"name": "gamma", "interfaces": [{"ip": "192.0.2.3"}]}),
+            vec!["name".to_string(), "interfaces".to_string()],
+        ),
+        "columns name AS Host, interfaces[].ip AS Addresses, owner AS Owner",
+    )
+    .expect("long-form detail alias projection");
+    assert_eq!(detail.shape, OutputShape::Detail);
+    assert_eq!(detail.columns, ["Host", "Addresses", "Owner"]);
+    assert_eq!(
+        detail.value,
+        json!({"Host": "gamma", "Addresses": "192.0.2.3", "Owner": null})
+    );
+}
+
+#[test]
+fn grouped_projection_aliases_keep_member_rows_attached() {
+    let projected = apply_dsl(
+        grouped_value_rows(),
+        "G g AS Group | A count AS Members | P Group AS Category, Members AS Count",
+    )
+    .expect("grouped alias projection");
+
+    assert_eq!(projected.shape, OutputShape::Groups);
+    assert_eq!(projected.columns, ["Category", "Count"]);
+    assert_eq!(
+        group_summary_rows(&projected.value),
+        [
+            json!({"Category": "x", "Count": 2}),
+            json!({"Category": "y", "Count": 1}),
+        ]
+    );
+    let groups = projected.value.as_array().expect("groups");
+    assert_eq!(groups[0]["rows"].as_array().expect("members").len(), 2);
+    assert_eq!(groups[1]["rows"].as_array().expect("members").len(), 1);
+}
+
+#[test]
+fn aliases_on_prebuilt_groups_reject_existing_summary_names() {
+    let groups = OutputEnvelope::groups(
+        vec![json!({
+            "groups": {"Rack": "a"},
+            "aggregates": {"Hosts": 2},
+            "rows": [{"name": "one"}, {"name": "two"}]
+        })],
+        vec!["Rack".to_string(), "Hosts".to_string()],
+    );
+
+    for name in ["Rack", "Hosts"] {
+        let error = apply_pipeline(
+            groups.clone(),
+            &[PipeStage::Columns(vec![alias("missing", name)])],
+        )
+        .expect_err("existing group output name must be protected");
+        assert!(error.to_string().contains(name));
+    }
 }
 
 #[test]

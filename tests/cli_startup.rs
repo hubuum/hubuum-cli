@@ -328,6 +328,43 @@ fn offline_config_show_supports_semantic_pipeline_projection() {
 }
 
 #[test]
+fn projection_aliases_work_across_renderers_and_each_redirects() {
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!(
+                    "config show --key output.format --output {format} | P key AS Setting, value AS Current"
+                ),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("Setting"))
+            .stdout(contains("Current"))
+            .stdout(contains("output.format"));
+    }
+
+    let directory = tempdir().expect("temporary directory");
+    let target = directory.path().join("{Setting}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            &format!(
+                "config show --key output.format --output json | P key AS Setting, value AS Current > each:{}",
+                target.display()
+            ),
+        ])
+        .assert()
+        .success();
+
+    let redirected = directory.path().join("output.format.json");
+    let contents = std::fs::read_to_string(redirected).expect("aliased each output");
+    assert!(contents.contains("\"Setting\""), "{contents}");
+    assert!(contents.contains("\"Current\""), "{contents}");
+    assert!(!contents.contains("\"key\""), "{contents}");
+}
+
+#[test]
 fn structured_pipeline_semantics_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")

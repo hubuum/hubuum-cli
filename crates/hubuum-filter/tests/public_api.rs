@@ -86,6 +86,14 @@ fn programmatic_pipeline_construction_validates_public_inputs() {
     .expect("valid programmatic pipeline");
     assert_eq!(valid.into_stages().len(), 1);
 
+    let aliased = ProjectTerm::aliased("name", "Host").expect("valid alias");
+    assert_eq!(aliased.selector().as_str(), "name");
+    assert_eq!(aliased.alias(), Some("Host"));
+    assert_eq!(aliased.output_name(), "Host");
+    let valid = Pipeline::from_stages(vec![PipeStage::Columns(vec![aliased])])
+        .expect("valid programmatic alias pipeline");
+    assert_eq!(valid.stages()[0].name(), "P");
+
     assert!(SortSpec::new(Vec::new()).is_err());
     let sort = SortSpec::new(vec![SortKey::new("scores[]")
         .expect("valid selector")

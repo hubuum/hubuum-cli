@@ -72,7 +72,7 @@ pub(crate) fn project_value(value: &Value, terms: &[ProjectTerm]) -> Value {
                 [single] => (*single).clone(),
                 many => Value::Array(many.iter().map(|value| (*value).clone()).collect()),
             };
-            object.insert(term.selector().to_string(), value);
+            object.insert(term.output_name().to_string(), value);
         }
         Value::Object(object)
     };
@@ -88,7 +88,20 @@ fn project_group_rows(
     envelope: OutputEnvelope,
     terms: &[ProjectTerm],
 ) -> Result<OutputEnvelope, PipelineError> {
-    let groups = array_values(&envelope.value)?
+    let groups = array_values(&envelope.value)?;
+    for summary in groups.iter().filter_map(group_summary_row) {
+        let Some(summary) = summary.as_object() else {
+            continue;
+        };
+        for alias in terms.iter().filter_map(ProjectTerm::alias) {
+            if summary.contains_key(alias) {
+                return Err(PipelineError::Pipe(format!(
+                    "Pipe stage 'P' alias '{alias}' conflicts with a group or aggregate output name"
+                )));
+            }
+        }
+    }
+    let groups = groups
         .into_iter()
         .filter_map(|group| {
             let summary = group_summary_row(&group)?;
@@ -109,6 +122,6 @@ fn output_columns(terms: &[ProjectTerm]) -> Vec<String> {
     terms
         .iter()
         .filter(|term| !term.is_drop())
-        .map(|term| term.selector().to_string())
+        .map(|term| term.output_name().to_string())
         .collect()
 }

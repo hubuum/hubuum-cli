@@ -13,10 +13,11 @@ command output
 The DSL is useful when a command already returns the right kind of data and you
 want a smaller local view without adding another API flag.
 
-The next native-language increment is specified in
-[RFC 0001](rfcs/0001-native-pipeline-dsl.md) and is landing in independently
-reviewable slices. Typed boolean predicates are implemented; later RFC sections
-remain proposals until their linked delivery issues land.
+The native-language increments are specified in
+[RFC 0001](rfcs/0001-native-pipeline-dsl.md) and land in independently
+reviewable slices. Typed boolean predicates, multi-key sorting, strict IP
+sorting, and projection aliases are implemented; later RFC sections remain
+proposals until their linked delivery issues land.
 
 Grouping with `G` and aggregation with `A` are local pipe operations over the
 rows returned by the preceding command. For permission-scoped aggregation over
@@ -158,6 +159,7 @@ object list --class Hosts | ? data.network.interfaces[]
 ```text
 object list --class Hosts | P Name os_version
 object list --class Hosts | P Name,data.cpu.cores
+object list --class Hosts | P Name AS Host, data.network.interfaces[].ipv4 AS Addresses
 object list --class Hosts | P Name data !data.secrets
 object list --class Hosts | P data.network.interfaces !data.network.interfaces[].mac
 object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
@@ -169,7 +171,16 @@ as keep terms. A terminal index removes that array element, a terminal slice
 removes the selected range, and a terminal `[]` or `[*]` empties the selected
 array. Missing paths are harmless. Array traversal must be explicit, so use
 `!items[].secret`, not `!items.secret`, to remove a field from every item.
-Repeating the same projected output column is an error.
+An optional `AS` alias creates one top-level output field. No selector match
+becomes null, one match stays scalar, and multiple matches become an array. If
+any term uses `AS`, commas are required between every term so alias boundaries
+are unambiguous. Drop terms cannot use `AS`.
+
+Aliases use the crate's validated output-name type. Empty names, duplicate
+final names, and names that would overwrite an existing group or aggregate
+field fail before rendering. Grouped projection changes only visible summaries
+and keeps member rows attached for later aggregation. Unaliased and drop terms
+retain their existing behavior and whitespace-separated legacy syntax.
 
 Shared and personal computed fields use the ordinary top-level selectors
 `S:<key>` and `P:<key>` after they are selected with the repeatable
