@@ -2,6 +2,7 @@ use crate::{
     apply_pipeline, apply_pipeline_with_settings, group_summary_rows, split_pipeline,
     validate_jq_expression, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope,
     OutputShape, PipeStage, PipelineSettings, Predicate, ProjectTerm, Selector, SortCast,
+    SortDirection, SortKey, SortSpec,
 };
 use serde_json::json;
 
@@ -73,6 +74,24 @@ fn drop(selector: &str) -> ProjectTerm {
     ProjectTerm::drop(selector).expect("valid projection selector")
 }
 
+fn apply_dsl(
+    envelope: OutputEnvelope,
+    source: &str,
+) -> Result<OutputEnvelope, crate::PipelineError> {
+    let (_, stages) = split_pipeline(&format!("command | {source}"))?;
+    apply_pipeline(envelope, &stages)
+}
+
+fn output_ids(envelope: &OutputEnvelope) -> Vec<&str> {
+    envelope
+        .value
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["id"].as_str().expect("string id"))
+        .collect()
+}
+
 fn representative_stages() -> Vec<PipeStage> {
     vec![
         PipeStage::Grep(".*".to_string()),
@@ -90,11 +109,10 @@ fn representative_stages() -> Vec<PipeStage> {
         PipeStage::Count,
         PipeStage::SortLines { descending: false },
         PipeStage::Columns(vec![keep("field")]),
-        PipeStage::SortColumn {
-            selector: selector("field"),
-            descending: false,
-            cast: SortCast::Auto,
-        },
+        PipeStage::SortColumns(
+            SortSpec::new(vec![SortKey::new("field").expect("valid sort selector")])
+                .expect("valid sort"),
+        ),
         PipeStage::Group(vec![group_key("field", "group")]),
         PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
         PipeStage::CollapseGroups,
@@ -450,11 +468,13 @@ fn grouped_output_sorts_by_aggregate_alias() {
         &[
             PipeStage::Group(vec![group_key("os_version", "OS Version")]),
             PipeStage::Aggregate(aggregate(AggregateFunction::Count, "Hosts")),
-            PipeStage::SortColumn {
-                selector: selector("Hosts"),
-                descending: true,
-                cast: SortCast::Number,
-            },
+            PipeStage::SortColumns(
+                SortSpec::new(vec![SortKey::new("Hosts")
+                    .expect("valid sort selector")
+                    .with_direction(SortDirection::Descending)
+                    .with_cast(SortCast::Number)])
+                .expect("valid sort"),
+            ),
         ],
     )
     .expect("group aggregate sort");
@@ -791,4 +811,139 @@ fn programmatic_stages_cannot_create_duplicate_output_names() {
 fn parsing_rejects_unknown_single_letter_stages() {
     assert!(split_pipeline("object list --class Hosts | X foo").is_err());
     assert!(split_pipeline("object list --class Hosts | owner").is_ok());
+}
+
+#[test]
+fn multi_key_sorting_is_lexicographic_and_stable() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"id": "one", "state": "b", "rank": 1}),
+            json!({"id": "two", "state": "a", "rank": 1}),
+            json!({"id": "three", "state": "a", "rank": 2}),
+            json!({"id": "four", "state": "a", "rank": 2}),
+        ],
+        vec!["id".to_string(), "state".to_string(), "rank".to_string()],
+    );
+
+    let sorted = apply_dsl(rows, "S state asc, rank desc AS num").expect("multi-key sort");
+
+    assert_eq!(output_ids(&sorted), ["three", "four", "two", "one"]);
+}
+
+#[test]
+fn nulls_default_last_independently_of_direction_and_can_be_overridden() {
+    let rows = || {
+        OutputEnvelope::rows(
+            vec![
+                json!({"id": "missing"}),
+                json!({"id": "null", "score": null}),
+                json!({"id": "one", "score": 1}),
+                json!({"id": "two", "score": 2}),
+            ],
+            vec!["id".to_string(), "score".to_string()],
+        )
+    };
+
+    let default = apply_dsl(rows(), "S score desc AS num").expect("default null ordering");
+    assert_eq!(output_ids(&default), ["two", "one", "missing", "null"]);
+
+    let first = apply_dsl(rows(), "S score desc AS num NULLS FIRST").expect("nulls first");
+    assert_eq!(output_ids(&first), ["missing", "null", "two", "one"]);
+}
+
+#[test]
+fn fanout_sorting_supports_first_min_and_max_reduction() {
+    let rows = || {
+        OutputEnvelope::rows(
+            vec![
+                json!({"id": "wide", "scores": [9, 1]}),
+                json!({"id": "middle", "scores": [5]}),
+            ],
+            vec!["id".to_string(), "scores".to_string()],
+        )
+    };
+
+    let first = apply_dsl(rows(), "S scores[] AS num").expect("first reduction");
+    assert_eq!(output_ids(&first), ["middle", "wide"]);
+    let minimum = apply_dsl(rows(), "S scores[] AS num USING min").expect("min reduction");
+    assert_eq!(output_ids(&minimum), ["wide", "middle"]);
+    let maximum = apply_dsl(rows(), "S scores[] AS num USING max").expect("max reduction");
+    assert_eq!(output_ids(&maximum), ["middle", "wide"]);
+}
+
+#[test]
+fn sorting_uses_the_shared_strict_cast_policy() {
+    for (source, values, expected) in [
+        (
+            "S value AS str",
+            vec![
+                json!({"id": "two", "value": 2}),
+                json!({"id": "ten", "value": 10}),
+            ],
+            ["ten", "two"],
+        ),
+        (
+            "S value AS num",
+            vec![
+                json!({"id": "ten", "value": "10"}),
+                json!({"id": "two", "value": "2"}),
+            ],
+            ["two", "ten"],
+        ),
+        (
+            "S value AS bool",
+            vec![
+                json!({"id": "true", "value": "TRUE"}),
+                json!({"id": "false", "value": "false"}),
+            ],
+            ["false", "true"],
+        ),
+        (
+            "S value AS datetime",
+            vec![
+                json!({"id": "later", "value": "2025-12-31T23:00:00Z"}),
+                json!({"id": "earlier", "value": "2026-01-01T00:00:00+02:00"}),
+            ],
+            ["earlier", "later"],
+        ),
+        (
+            "S value AS version",
+            vec![
+                json!({"id": "ten", "value": "10.0.0"}),
+                json!({"id": "two", "value": "2.0.0"}),
+            ],
+            ["two", "ten"],
+        ),
+        (
+            "S value AS natural",
+            vec![
+                json!({"id": "ten", "value": "host10"}),
+                json!({"id": "two", "value": "host2"}),
+            ],
+            ["two", "ten"],
+        ),
+    ] {
+        let rows = OutputEnvelope::rows(values, vec!["id".to_string(), "value".to_string()]);
+        let sorted = apply_dsl(rows, source).expect(source);
+        assert_eq!(output_ids(&sorted), expected, "{source}");
+    }
+}
+
+#[test]
+fn sort_cast_errors_identify_key_selector_row_and_value() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"id": "one", "group": "a", "scores": [1, 2]}),
+            json!({"id": "two", "group": "a", "scores": [3, "bad"]}),
+        ],
+        vec!["id".to_string()],
+    );
+
+    let error = apply_dsl(rows, "S group, scores[] AS num USING min")
+        .expect_err("every fanout value must cast");
+    let message = error.to_string();
+    assert!(message.contains("sort key 2"), "{message}");
+    assert!(message.contains("scores[]"), "{message}");
+    assert!(message.contains("row 2"), "{message}");
+    assert!(message.contains("\"bad\""), "{message}");
 }

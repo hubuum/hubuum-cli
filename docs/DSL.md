@@ -203,11 +203,35 @@ object list --class Hosts | S !os_version
 object list --class Hosts | sort os_version desc
 ```
 
+Keys can be comma-separated. They compare lexicographically in declaration
+order, and rows equal on every key retain their original order:
+
+```text
+object list --class Hosts | S state asc, updated_at desc AS datetime, Name AS natural
+```
+
+Each key accepts these modifiers in order:
+
+```text
+selector [asc|desc] [AS cast] [USING first|min|max] [NULLS FIRST|LAST]
+```
+
+The strict casts are `str`, `num`, `bool`, `datetime`, `version`, and `natural`.
+The existing `ip` cast remains available. Invalid strict casts stop the stage
+and identify the key, selector, row, and offending JSON value.
+
+Fanout selectors use the first selected value by default. `USING min` and
+`USING max` cast every selected non-null value before reducing it. A missing
+selector or a selection containing no non-null values supplies a null key.
+Nulls default to last for both ascending and descending sorts; override this
+per key with `NULLS FIRST` or `NULLS LAST`.
+
 Use casts when text ordering is not right:
 
 ```text
 object list --class Hosts | S data.cpu.cores AS num
 object list --class Hosts | S data.network.interfaces[0].ipv4 AS ip
+object list --class Hosts | S data.network.interfaces[].ipv4 AS str USING min, Name AS natural
 object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num
 ```
 

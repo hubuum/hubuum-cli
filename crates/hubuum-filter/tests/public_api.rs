@@ -1,5 +1,6 @@
 use hubuum_filter::{
-    JqLimits, OutputEnvelope, OutputShape, PipeStage, Pipeline, PipelineSettings, ProjectTerm,
+    JqLimits, NullOrder, OutputEnvelope, OutputShape, PipeStage, Pipeline, PipelineSettings,
+    ProjectTerm, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
 use serde_json::json;
 
@@ -84,6 +85,18 @@ fn programmatic_pipeline_construction_validates_public_inputs() {
     ])])
     .expect("valid programmatic pipeline");
     assert_eq!(valid.into_stages().len(), 1);
+
+    assert!(SortSpec::new(Vec::new()).is_err());
+    let sort = SortSpec::new(vec![SortKey::new("scores[]")
+        .expect("valid selector")
+        .with_direction(SortDirection::Descending)
+        .with_cast(SortCast::Number)
+        .with_reduction(SortReduction::Max)
+        .with_null_order(NullOrder::Last)])
+    .expect("validated sort spec");
+    let valid = Pipeline::from_stages(vec![PipeStage::SortColumns(sort)])
+        .expect("valid programmatic sort pipeline");
+    assert_eq!(valid.stages()[0].name(), "S");
 }
 
 #[test]

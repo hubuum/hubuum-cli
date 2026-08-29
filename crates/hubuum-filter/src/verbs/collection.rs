@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 
 use crate::error::PipelineError;
 use crate::model::{
-    validate_group_keys, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputShape,
-    SortCast,
+    validate_group_keys, AggregateFunction, AggregateSpec, GroupKey, NullOrder, OutputEnvelope,
+    OutputShape, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
+use crate::predicate::ValueCast;
 use crate::selector::{scalar_text, select_values, Selector};
+use crate::value_cast::{cast_value, CastValue};
 use crate::verbs::array_values;
 
 pub fn group_summary_rows(value: &Value) -> Vec<Value> {
@@ -62,21 +64,65 @@ pub(crate) fn count_envelope(envelope: OutputEnvelope) -> Result<OutputEnvelope,
     Ok(OutputEnvelope::values(vec![Value::Number(count.into())]))
 }
 
-pub(crate) fn sort_envelope(
+pub(crate) fn sort_whole_envelope(
     envelope: OutputEnvelope,
-    selector: Option<&Selector>,
     descending: bool,
-    cast: SortCast,
+) -> Result<OutputEnvelope, PipelineError> {
+    match envelope.shape {
+        OutputShape::Rows | OutputShape::Values | OutputShape::Groups => {
+            let mut values = array_values(&envelope.value)?;
+            values.sort_by(|left, right| compare_values(left, right, SortCast::Auto));
+            if descending {
+                values.reverse();
+            }
+            Ok(OutputEnvelope {
+                value: Value::Array(values),
+                ..envelope
+            })
+        }
+        OutputShape::Detail | OutputShape::Message | OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("line output is handled before semantic sorting"),
+    }
+}
+
+pub(crate) fn sort_columns_envelope(
+    envelope: OutputEnvelope,
+    spec: &SortSpec,
 ) -> Result<OutputEnvelope, PipelineError> {
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values | OutputShape::Groups => {
             let grouped = envelope.shape == OutputShape::Groups;
-            let mut values = array_values(&envelope.value)?;
-            values.sort_by(|left, right| {
-                compare_selected(left, right, selector, descending, cast, grouped)
+            let values = array_values(&envelope.value)?;
+            let mut prepared = values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    let surface = if grouped {
+                        group_summary_row(&value).unwrap_or(Value::Null)
+                    } else {
+                        value.clone()
+                    };
+                    let keys = spec
+                        .keys()
+                        .iter()
+                        .enumerate()
+                        .map(|(key_index, key)| {
+                            prepare_sort_key(&surface, key, key_index + 1, index + 1)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(PreparedRow { index, value, keys })
+                })
+                .collect::<Result<Vec<_>, PipelineError>>()?;
+            prepared.sort_by(|left, right| {
+                spec.keys()
+                    .iter()
+                    .zip(left.keys.iter().zip(&right.keys))
+                    .map(|(key, (left, right))| compare_prepared(left, right, key))
+                    .find(|ordering| *ordering != Ordering::Equal)
+                    .unwrap_or_else(|| left.index.cmp(&right.index))
             });
             Ok(OutputEnvelope {
-                value: Value::Array(values),
+                value: Value::Array(prepared.into_iter().map(|row| row.value).collect()),
                 ..envelope
             })
         }
@@ -359,70 +405,143 @@ fn unroll_row(row: &Value, selector: &Selector) -> Vec<Value> {
         .collect()
 }
 
-fn compare_selected(
-    left: &Value,
-    right: &Value,
-    selector: Option<&Selector>,
-    descending: bool,
-    cast: SortCast,
-    grouped: bool,
-) -> Ordering {
-    let left = selected_sort_value(left, selector, grouped);
-    let right = selected_sort_value(right, selector, grouped);
-    compare_sort_values(left.as_ref(), right.as_ref(), descending, cast)
+struct PreparedRow {
+    index: usize,
+    value: Value,
+    keys: Vec<PreparedSortValue>,
 }
 
-fn selected_sort_value(value: &Value, selector: Option<&Selector>, grouped: bool) -> Option<Value> {
-    if grouped {
-        let summary = group_summary_row(value)?;
-        return match selector {
-            Some(selector) => select_values(&summary, selector)
-                .first()
-                .map(|value| (*value).clone()),
-            None => Some(summary),
-        };
-    }
+#[derive(Debug, Clone, PartialEq)]
+enum PreparedSortValue {
+    Null,
+    Auto(Value),
+    Cast(CastValue),
+    LegacyIp(Option<Vec<u8>>),
+}
 
-    match selector {
-        Some(selector) => select_values(value, selector)
+fn prepare_sort_key(
+    value: &Value,
+    key: &SortKey,
+    key_number: usize,
+    row: usize,
+) -> Result<PreparedSortValue, PipelineError> {
+    let selected = select_values(value, key.selector());
+    match key.reduction() {
+        SortReduction::First => selected
             .first()
-            .map(|value| (*value).clone()),
-        None => Some(value.clone()),
+            .map_or(Ok(PreparedSortValue::Null), |value| {
+                prepare_sort_value(value, key, key_number, row)
+            }),
+        SortReduction::Min | SortReduction::Max => {
+            let values = selected
+                .into_iter()
+                .map(|value| prepare_sort_value(value, key, key_number, row))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(values
+                .into_iter()
+                .filter(|value| !matches!(value, PreparedSortValue::Null))
+                .reduce(|left, right| {
+                    let ordering = compare_prepared_non_null(&left, &right);
+                    let use_right = match key.reduction() {
+                        SortReduction::Min => ordering == Ordering::Greater,
+                        SortReduction::Max => ordering == Ordering::Less,
+                        SortReduction::First => unreachable!("handled before reduction"),
+                    };
+                    if use_right {
+                        right
+                    } else {
+                        left
+                    }
+                })
+                .unwrap_or(PreparedSortValue::Null))
+        }
     }
 }
 
-fn compare_sort_values(
-    left: Option<&Value>,
-    right: Option<&Value>,
-    descending: bool,
-    cast: SortCast,
+fn prepare_sort_value(
+    value: &Value,
+    key: &SortKey,
+    key_number: usize,
+    row: usize,
+) -> Result<PreparedSortValue, PipelineError> {
+    if value.is_null() {
+        return Ok(PreparedSortValue::Null);
+    }
+    let prepared = match strict_sort_cast(key.cast()) {
+        Some(cast) => cast_value(value, cast)
+            .map_err(|reason| {
+                PipelineError::Pipe(format!(
+                    "Pipe stage 'S' sort key {key_number} selector '{}' could not cast AS {} at row {row}: {reason}; offending value {value}",
+                    key.selector(), key.cast()
+                ))
+            })?
+            .map_or(PreparedSortValue::Null, PreparedSortValue::Cast),
+        None if key.cast() == SortCast::Ip => {
+            PreparedSortValue::LegacyIp(ip_for_sort(value))
+        }
+        None => PreparedSortValue::Auto(value.clone()),
+    };
+    Ok(prepared)
+}
+
+fn strict_sort_cast(cast: SortCast) -> Option<ValueCast> {
+    match cast {
+        SortCast::String => Some(ValueCast::String),
+        SortCast::Number => Some(ValueCast::Number),
+        SortCast::Boolean => Some(ValueCast::Boolean),
+        SortCast::DateTime => Some(ValueCast::DateTime),
+        SortCast::Version => Some(ValueCast::Version),
+        SortCast::Natural => Some(ValueCast::Natural),
+        SortCast::Auto | SortCast::Ip => None,
+    }
+}
+
+fn compare_prepared(
+    left: &PreparedSortValue,
+    right: &PreparedSortValue,
+    key: &SortKey,
 ) -> Ordering {
-    match (is_nullish(left), is_nullish(right)) {
+    match (
+        matches!(left, PreparedSortValue::Null),
+        matches!(right, PreparedSortValue::Null),
+    ) {
         (true, true) => Ordering::Equal,
-        (true, false) => Ordering::Greater,
-        (false, true) => Ordering::Less,
+        (true, false) => match key.null_order() {
+            NullOrder::First => Ordering::Less,
+            NullOrder::Last => Ordering::Greater,
+        },
+        (false, true) => match key.null_order() {
+            NullOrder::First => Ordering::Greater,
+            NullOrder::Last => Ordering::Less,
+        },
         (false, false) => {
-            let ordering =
-                compare_values(left.expect("left value"), right.expect("right value"), cast);
-            if descending {
-                ordering.reverse()
-            } else {
-                ordering
+            let ordering = compare_prepared_non_null(left, right);
+            match key.direction() {
+                SortDirection::Ascending => ordering,
+                SortDirection::Descending => ordering.reverse(),
             }
         }
     }
 }
 
-fn is_nullish(value: Option<&Value>) -> bool {
-    matches!(value, None | Some(Value::Null))
+fn compare_prepared_non_null(left: &PreparedSortValue, right: &PreparedSortValue) -> Ordering {
+    match (left, right) {
+        (PreparedSortValue::Auto(left), PreparedSortValue::Auto(right)) => {
+            compare_values(left, right, SortCast::Auto)
+        }
+        (PreparedSortValue::Cast(left), PreparedSortValue::Cast(right)) => {
+            left.compare(right).unwrap_or(Ordering::Equal)
+        }
+        (PreparedSortValue::LegacyIp(left), PreparedSortValue::LegacyIp(right)) => left.cmp(right),
+        (PreparedSortValue::Null, _) | (_, PreparedSortValue::Null) => {
+            unreachable!("null ordering is handled before value comparison")
+        }
+        _ => unreachable!("one sort key always prepares one value representation"),
+    }
 }
 
 fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
     match cast {
-        SortCast::String => sortable_text(left).cmp(&sortable_text(right)),
-        SortCast::Number => number_for_sort(left)
-            .partial_cmp(&number_for_sort(right))
-            .unwrap_or(Ordering::Equal),
         SortCast::Ip => ip_for_sort(left).cmp(&ip_for_sort(right)),
         SortCast::Auto => match (left, right) {
             (Value::Number(left), Value::Number(right)) => left
@@ -433,17 +552,17 @@ fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
             (Value::Bool(left), Value::Bool(right)) => left.cmp(right),
             _ => sortable_text(left).cmp(&sortable_text(right)),
         },
+        SortCast::String
+        | SortCast::Number
+        | SortCast::Boolean
+        | SortCast::DateTime
+        | SortCast::Version
+        | SortCast::Natural => unreachable!("strict casts are prepared before comparison"),
     }
 }
 
 fn sortable_text(value: &Value) -> String {
     scalar_text(value).unwrap_or_else(|| value.to_string())
-}
-
-fn number_for_sort(value: &Value) -> Option<f64> {
-    value
-        .as_f64()
-        .or_else(|| value.as_str().and_then(|value| value.parse::<f64>().ok()))
 }
 
 fn ip_for_sort(value: &Value) -> Option<Vec<u8>> {

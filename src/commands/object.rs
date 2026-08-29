@@ -498,7 +498,10 @@ mod tests {
     use std::fs::write;
 
     use hubuum_client::ObjectDataPatchOperation;
-    use hubuum_filter::{apply_pipeline, OutputEnvelope, PipeStage, ProjectTerm, SortCast};
+    use hubuum_filter::{
+        apply_pipeline, OutputEnvelope, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
+        SortSpec,
+    };
     use serde_json::{json, Value};
     use serial_test::serial;
     use tempfile::tempdir;
@@ -891,11 +894,13 @@ mod tests {
                     ProjectTerm::keep("S:load").expect("valid selector"),
                     ProjectTerm::keep("P:label").expect("valid selector"),
                 ]),
-                PipeStage::SortColumn {
-                    selector: "S:load".parse().expect("valid selector"),
-                    descending: true,
-                    cast: SortCast::Number,
-                },
+                PipeStage::SortColumns(
+                    SortSpec::new(vec![SortKey::new("S:load")
+                        .expect("valid selector")
+                        .with_direction(SortDirection::Descending)
+                        .with_cast(SortCast::Number)])
+                    .expect("valid sort"),
+                ),
             ],
         )
         .expect("scoped fields should work in semantic pipelines");

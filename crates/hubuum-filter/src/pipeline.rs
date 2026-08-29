@@ -94,7 +94,7 @@ fn validate_stage(stage: &PipeStage) -> Result<(), PipelineError> {
         | PipeStage::Tail(_)
         | PipeStage::Count
         | PipeStage::SortLines { .. }
-        | PipeStage::SortColumn { .. }
+        | PipeStage::SortColumns(_)
         | PipeStage::Aggregate(_)
         | PipeStage::CollapseGroups
         | PipeStage::Unroll(_)

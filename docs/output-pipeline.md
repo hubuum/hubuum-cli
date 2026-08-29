@@ -77,7 +77,8 @@ Pipe stages now run on semantic data when commands use shared formatters:
   boolean composition, null/missing tests, fanout, and explicit casts
 - `V pattern` value-only search and `K pattern` key-only search
 - `P field other.nested[]` projections
-- `S field`, `S !field`, and typed sorting for numbers, strings, and IPs
+- stable comma-separated `S` sort keys with direction, strict casts, fanout
+  reduction, and explicit null placement
 - `VALUE field` for plain value extraction
 - `G field`, `A count`, grouped `C`, `Z`, and `U field` collection stages
 - `JQ` jq-compatible transforms evaluated by the in-process `jaq` interpreter
