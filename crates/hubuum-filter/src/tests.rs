@@ -947,3 +947,71 @@ fn sort_cast_errors_identify_key_selector_row_and_value() {
     assert!(message.contains("row 2"), "{message}");
     assert!(message.contains("\"bad\""), "{message}");
 }
+
+#[test]
+fn strict_ip_sorting_orders_numeric_addresses_and_keeps_families_distinct() {
+    let rows = || {
+        OutputEnvelope::rows(
+            vec![
+                json!({"id": "v6-ten", "address": "2001:db8::10"}),
+                json!({"id": "v4-ten", "address": "10.0.0.10"}),
+                json!({"id": "mapped", "address": "::ffff:192.0.2.1"}),
+                json!({"id": "v6-two", "address": "2001:db8::2"}),
+                json!({"id": "v4-two", "address": "10.0.0.2"}),
+            ],
+            vec!["id".to_string(), "address".to_string()],
+        )
+    };
+
+    let ascending = apply_dsl(rows(), "S address AS ip").expect("ascending IP sort");
+    assert_eq!(
+        output_ids(&ascending),
+        ["v4-two", "v4-ten", "mapped", "v6-two", "v6-ten"]
+    );
+
+    let descending = apply_dsl(rows(), "S address desc AS ip").expect("descending IP sort");
+    assert_eq!(
+        output_ids(&descending),
+        ["v6-ten", "v6-two", "mapped", "v4-ten", "v4-two"]
+    );
+}
+
+#[test]
+fn ip_sorting_composes_with_multi_key_fanout_and_null_placement() {
+    let rows = || {
+        OutputEnvelope::rows(
+            vec![
+                json!({"id": "missing", "rack": "a"}),
+                json!({"id": "edge", "rack": "a", "addresses": ["2001:db8::2", "10.0.0.9"]}),
+                json!({"id": "core", "rack": "a", "addresses": ["10.0.0.10"]}),
+            ],
+            vec!["id".to_string(), "rack".to_string()],
+        )
+    };
+
+    let minimum = apply_dsl(rows(), "S rack, addresses[] AS ip USING min NULLS FIRST")
+        .expect("minimum IP fanout sort");
+    assert_eq!(output_ids(&minimum), ["missing", "edge", "core"]);
+
+    let maximum = apply_dsl(rows(), "S rack, addresses[] AS ip USING max NULLS FIRST")
+        .expect("maximum IP fanout sort");
+    assert_eq!(output_ids(&maximum), ["missing", "core", "edge"]);
+}
+
+#[test]
+fn invalid_ip_sort_values_fail_with_full_context() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"id": "valid", "address": "192.0.2.1"}),
+            json!({"id": "invalid", "address": "192.0.2.999"}),
+        ],
+        vec!["id".to_string(), "address".to_string()],
+    );
+
+    let error = apply_dsl(rows, "S address AS ip").expect_err("invalid IP must fail");
+    let message = error.to_string();
+    assert!(message.contains("sort key 1"), "{message}");
+    assert!(message.contains("address"), "{message}");
+    assert!(message.contains("row 2"), "{message}");
+    assert!(message.contains("192.0.2.999"), "{message}");
+}

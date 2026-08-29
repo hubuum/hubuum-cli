@@ -1347,6 +1347,40 @@ mod tests {
 
     #[test]
     #[serial]
+    fn strict_ip_sort_order_is_preserved_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "ten", "address": "10.0.0.10"}),
+                    json!({"name": "v6", "address": "2001:db8::1"}),
+                    json!({"name": "two", "address": "10.0.0.2"}),
+                ],
+                vec!["name".to_string(), "address".to_string()],
+            ))
+            .expect("semantic output should be set");
+            let pipeline = Pipeline::parse("S address AS ip").expect("IP sort pipeline");
+            set_pipeline(pipeline.into_stages()).expect("pipeline should set");
+
+            let rendered = take_output().expect("snapshot").render();
+            let two = rendered.find("10.0.0.2").expect("numeric first IPv4");
+            let ten = rendered.find("10.0.0.10").expect("numeric second IPv4");
+            let v6 = rendered.find("2001:db8::1").expect("IPv6 row");
+
+            assert!(two < ten && ten < v6, "{format:?}: {rendered}");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn structured_messages_keep_plain_text_presentation() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");

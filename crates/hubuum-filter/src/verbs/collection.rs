@@ -416,7 +416,6 @@ enum PreparedSortValue {
     Null,
     Auto(Value),
     Cast(CastValue),
-    LegacyIp(Option<Vec<u8>>),
 }
 
 fn prepare_sort_key(
@@ -476,9 +475,6 @@ fn prepare_sort_value(
                 ))
             })?
             .map_or(PreparedSortValue::Null, PreparedSortValue::Cast),
-        None if key.cast() == SortCast::Ip => {
-            PreparedSortValue::LegacyIp(ip_for_sort(value))
-        }
         None => PreparedSortValue::Auto(value.clone()),
     };
     Ok(prepared)
@@ -492,7 +488,8 @@ fn strict_sort_cast(cast: SortCast) -> Option<ValueCast> {
         SortCast::DateTime => Some(ValueCast::DateTime),
         SortCast::Version => Some(ValueCast::Version),
         SortCast::Natural => Some(ValueCast::Natural),
-        SortCast::Auto | SortCast::Ip => None,
+        SortCast::Ip => Some(ValueCast::Ip),
+        SortCast::Auto => None,
     }
 }
 
@@ -532,7 +529,6 @@ fn compare_prepared_non_null(left: &PreparedSortValue, right: &PreparedSortValue
         (PreparedSortValue::Cast(left), PreparedSortValue::Cast(right)) => {
             left.compare(right).unwrap_or(Ordering::Equal)
         }
-        (PreparedSortValue::LegacyIp(left), PreparedSortValue::LegacyIp(right)) => left.cmp(right),
         (PreparedSortValue::Null, _) | (_, PreparedSortValue::Null) => {
             unreachable!("null ordering is handled before value comparison")
         }
@@ -542,7 +538,6 @@ fn compare_prepared_non_null(left: &PreparedSortValue, right: &PreparedSortValue
 
 fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
     match cast {
-        SortCast::Ip => ip_for_sort(left).cmp(&ip_for_sort(right)),
         SortCast::Auto => match (left, right) {
             (Value::Number(left), Value::Number(right)) => left
                 .as_f64()
@@ -557,21 +552,13 @@ fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
         | SortCast::Boolean
         | SortCast::DateTime
         | SortCast::Version
-        | SortCast::Natural => unreachable!("strict casts are prepared before comparison"),
+        | SortCast::Natural
+        | SortCast::Ip => unreachable!("strict casts are prepared before comparison"),
     }
 }
 
 fn sortable_text(value: &Value) -> String {
     scalar_text(value).unwrap_or_else(|| value.to_string())
-}
-
-fn ip_for_sort(value: &Value) -> Option<Vec<u8>> {
-    value.as_str().map(|value| {
-        value
-            .split('.')
-            .map(|part| part.parse::<u8>().unwrap_or_default())
-            .collect()
-    })
 }
 
 fn number_value(value: f64) -> Value {
