@@ -135,6 +135,7 @@ as keep terms. A terminal index removes that array element, a terminal slice
 removes the selected range, and a terminal `[]` or `[*]` empties the selected
 array. Missing paths are harmless. Array traversal must be explicit, so use
 `!items[].secret`, not `!items.secret`, to remove a field from every item.
+Repeating the same projected output column is an error.
 
 Shared and personal computed fields use the ordinary top-level selectors
 `S:<key>` and `P:<key>` after they are selected with the repeatable
@@ -201,6 +202,10 @@ Group by one or more fields:
 object list --class Hosts | G os_version AS "OS Version"
 object list --class Hosts | G os_version AS "OS Version" data.cpu.arch AS Architecture
 ```
+
+Group aliases must be unique. Aggregate aliases cannot reuse a group alias or
+an earlier aggregate alias; collisions fail instead of overwriting a visible
+value while leaving duplicate column metadata.
 
 Array selectors fan out group membership:
 

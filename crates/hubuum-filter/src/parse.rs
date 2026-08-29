@@ -1,7 +1,12 @@
+use std::collections::HashSet;
+
 use shlex::split;
 
 use crate::error::PipelineError;
-use crate::model::{AggregateFunction, AggregateSpec, GroupKey, PipeStage, ProjectTerm, SortCast};
+use crate::model::{
+    validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, GroupKey,
+    PipeStage, ProjectTerm, SortCast,
+};
 use crate::selector::Selector;
 use crate::verbs::search::validate_filter_expression;
 
@@ -16,8 +21,60 @@ pub fn split_pipeline(line: &str) -> Result<(String, Vec<PipeStage>), PipelineEr
         .skip(1)
         .map(|stage| parse_stage(stage.trim()))
         .collect::<Result<Vec<_>, _>>()?;
+    validate_pipeline_output_names(&stages)?;
 
     Ok((command.trim().to_string(), stages))
+}
+
+fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(), PipelineError> {
+    let mut grouped_names = None::<HashSet<String>>;
+    for stage in stages {
+        match stage {
+            PipeStage::Group(keys) => {
+                grouped_names = Some(keys.iter().map(|key| key.alias().to_string()).collect());
+            }
+            PipeStage::Aggregate(spec) => {
+                if let Some(names) = &mut grouped_names {
+                    if !names.insert(spec.alias().to_string()) {
+                        return Err(PipelineError::Pipe(format!(
+                            "Pipe stage 'A' output name '{}' conflicts with a group key or earlier aggregate",
+                            spec.alias()
+                        )));
+                    }
+                }
+            }
+            PipeStage::Columns(terms) if grouped_names.is_some() => {
+                let keepers = terms
+                    .iter()
+                    .filter(|term| !term.is_drop())
+                    .map(|term| term.selector().to_string())
+                    .collect::<HashSet<_>>();
+                if !keepers.is_empty() {
+                    grouped_names = Some(keepers);
+                } else if let Some(names) = &mut grouped_names {
+                    for term in terms.iter().filter(|term| term.is_drop()) {
+                        names.remove(term.selector().as_str());
+                    }
+                }
+            }
+            PipeStage::Count
+            | PipeStage::CollapseGroups
+            | PipeStage::Jq(_)
+            | PipeStage::Value(_) => grouped_names = None,
+            PipeStage::Grep(_)
+            | PipeStage::ValueSearch(_)
+            | PipeStage::KeySearch(_)
+            | PipeStage::Truthy(_)
+            | PipeStage::Reject(_)
+            | PipeStage::Head { .. }
+            | PipeStage::Tail(_)
+            | PipeStage::SortLines { .. }
+            | PipeStage::Columns(_)
+            | PipeStage::SortColumn { .. }
+            | PipeStage::Unroll(_) => {}
+        }
+    }
+    Ok(())
 }
 
 fn split_unquoted_pipes(line: &str) -> Vec<String> {
@@ -219,6 +276,8 @@ fn parse_columns_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
         )));
     }
 
+    validate_projection_terms(&columns)?;
+
     Ok(PipeStage::Columns(columns))
 }
 
@@ -314,6 +373,7 @@ fn parse_group_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
         keys.push(GroupKey::new(selector, alias)?);
     }
 
+    validate_group_keys(&keys)?;
     Ok(PipeStage::Group(keys))
 }
 
@@ -339,7 +399,7 @@ fn parse_aggregate_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
         .get(3)
         .cloned()
         .unwrap_or_else(|| default_aggregate_alias(&function));
-    Ok(PipeStage::Aggregate(AggregateSpec { function, alias }))
+    Ok(PipeStage::Aggregate(AggregateSpec::new(function, alias)?))
 }
 
 fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineError> {
@@ -446,9 +506,9 @@ mod tests {
         assert!(matches!(
             &stages[1],
             PipeStage::Aggregate(spec)
-                if spec.alias == "Cores"
-                    && spec.function
-                        == AggregateFunction::Sum(
+                if spec.alias() == "Cores"
+                    && spec.function()
+                        == &AggregateFunction::Sum(
                             "data.cpu.cores".parse().expect("valid selector")
                         )
         ));
@@ -485,6 +545,45 @@ mod tests {
         for selector in ["a[0]", "a[-1]", "a[]", "a[*]", "a[:2]", "a[1:]"] {
             split_pipeline(&format!("object list | VALUE {selector}"))
                 .expect("documented selector should parse");
+        }
+    }
+
+    #[test]
+    fn output_names_must_be_unique_during_parsing() {
+        for (line, stage, name) in [
+            ("object list | P a a", "P", "a"),
+            ("object list | G a AS x b AS x", "G", "x"),
+            ("object list | G a AS x | A count AS x", "A", "x"),
+            ("object list | G a | A count AS n | A count AS n", "A", "n"),
+        ] {
+            let error = split_pipeline(line).expect_err("duplicate output name should fail");
+            let message = error.to_string();
+            assert!(message.contains(&format!("stage '{stage}'")), "{message}");
+            assert!(message.contains(name), "{message}");
+        }
+    }
+
+    #[test]
+    fn quoted_output_aliases_with_spaces_remain_valid() {
+        let (_, stages) =
+            split_pipeline("object list | G os_version AS 'OS Version' | A count AS 'Host Count'")
+                .expect("spaced aliases should parse");
+
+        assert!(matches!(
+            &stages[..],
+            [PipeStage::Group(keys), PipeStage::Aggregate(spec)]
+                if keys[0].alias() == "OS Version" && spec.alias() == "Host Count"
+        ));
+    }
+
+    #[test]
+    fn empty_output_aliases_are_rejected() {
+        for line in [
+            "object list | G name AS ''",
+            "object list | G name | A count AS ''",
+        ] {
+            let error = split_pipeline(line).expect_err("empty alias should fail");
+            assert!(error.to_string().contains("output name cannot be empty"));
         }
     }
 }

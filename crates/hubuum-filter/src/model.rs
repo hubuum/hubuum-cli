@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -67,7 +70,7 @@ impl ProjectTerm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupKey {
     selector: Selector,
-    alias: String,
+    alias: OutputName,
 }
 
 impl GroupKey {
@@ -77,7 +80,7 @@ impl GroupKey {
     ) -> Result<Self, PipelineError> {
         Ok(Self {
             selector: Selector::new(selector)?,
-            alias: alias.into(),
+            alias: OutputName::new(alias)?,
         })
     }
 
@@ -86,14 +89,59 @@ impl GroupKey {
     }
 
     pub fn alias(&self) -> &str {
-        &self.alias
+        self.alias.as_str()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateSpec {
-    pub function: AggregateFunction,
-    pub alias: String,
+    function: AggregateFunction,
+    alias: OutputName,
+}
+
+impl AggregateSpec {
+    pub fn new(
+        function: AggregateFunction,
+        alias: impl Into<String>,
+    ) -> Result<Self, PipelineError> {
+        Ok(Self {
+            function,
+            alias: OutputName::new(alias)?,
+        })
+    }
+
+    pub fn function(&self) -> &AggregateFunction {
+        &self.function
+    }
+
+    pub fn alias(&self) -> &str {
+        self.alias.as_str()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OutputName(String);
+
+impl OutputName {
+    pub fn new(value: impl Into<String>) -> Result<Self, PipelineError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(PipelineError::Pipe(
+                "Pipe output name cannot be empty".to_string(),
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for OutputName {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +151,37 @@ pub enum AggregateFunction {
     Avg(Selector),
     Min(Selector),
     Max(Selector),
+}
+
+pub(crate) fn validate_projection_terms(terms: &[ProjectTerm]) -> Result<(), PipelineError> {
+    ensure_unique_names(
+        "P",
+        "output column",
+        terms
+            .iter()
+            .filter(|term| !term.is_drop())
+            .map(|term| term.selector().as_str()),
+    )
+}
+
+pub(crate) fn validate_group_keys(keys: &[GroupKey]) -> Result<(), PipelineError> {
+    ensure_unique_names("G", "output name", keys.iter().map(GroupKey::alias))
+}
+
+fn ensure_unique_names<'a>(
+    stage: &str,
+    kind: &str,
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<(), PipelineError> {
+    let mut seen = HashSet::new();
+    for name in names {
+        if !seen.insert(name) {
+            return Err(PipelineError::Pipe(format!(
+                "Pipe stage '{stage}' has duplicate {kind} '{name}'"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

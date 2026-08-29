@@ -1,7 +1,7 @@
 use serde_json::{Map, Value};
 
 use crate::error::PipelineError;
-use crate::model::{OutputEnvelope, OutputShape, ProjectTerm};
+use crate::model::{validate_projection_terms, OutputEnvelope, OutputShape, ProjectTerm};
 use crate::selector::{select_values, Selector};
 use crate::verbs::array_values;
 
@@ -9,6 +9,7 @@ pub(crate) fn project_envelope(
     envelope: OutputEnvelope,
     terms: &[ProjectTerm],
 ) -> Result<OutputEnvelope, PipelineError> {
+    validate_projection_terms(terms)?;
     match envelope.shape {
         OutputShape::Rows => {
             let rows = array_values(&envelope.value)?

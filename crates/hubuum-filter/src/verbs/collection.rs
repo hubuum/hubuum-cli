@@ -6,7 +6,8 @@ use serde_json::{to_string, Map, Number, Value};
 
 use crate::error::PipelineError;
 use crate::model::{
-    AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputShape, SortCast,
+    validate_group_keys, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputShape,
+    SortCast,
 };
 use crate::selector::{scalar_text, select_values, Selector};
 use crate::verbs::array_values;
@@ -87,6 +88,7 @@ pub(crate) fn group_envelope(
     envelope: OutputEnvelope,
     keys: &[GroupKey],
 ) -> Result<OutputEnvelope, PipelineError> {
+    validate_group_keys(keys)?;
     let rows = match envelope.shape {
         OutputShape::Rows | OutputShape::Values => array_values(&envelope.value)?,
         OutputShape::Detail | OutputShape::Message => vec![envelope.value],
@@ -131,6 +133,22 @@ pub(crate) fn aggregate_envelope(
         ));
     }
 
+    let alias_exists = envelope.columns.iter().any(|column| column == spec.alias())
+        || array_values(&envelope.value)?.iter().any(|group| {
+            ["groups", "aggregates"].iter().any(|namespace| {
+                group
+                    .get(namespace)
+                    .and_then(Value::as_object)
+                    .is_some_and(|values| values.contains_key(spec.alias()))
+            })
+        });
+    if alias_exists {
+        return Err(PipelineError::Pipe(format!(
+            "Pipe stage 'A' output name '{}' conflicts with a group key or earlier aggregate",
+            spec.alias()
+        )));
+    }
+
     let groups = array_values(&envelope.value)?
         .into_iter()
         .map(|mut group| {
@@ -139,20 +157,18 @@ pub(crate) fn aggregate_envelope(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let value = aggregate_rows(&rows, &spec.function);
+            let value = aggregate_rows(&rows, spec.function());
             group
                 .get_mut("aggregates")
                 .and_then(Value::as_object_mut)
                 .expect("group aggregates should be an object")
-                .insert(spec.alias.clone(), value);
+                .insert(spec.alias().to_string(), value);
             group
         })
         .collect::<Vec<_>>();
 
     let mut columns = envelope.columns;
-    if !columns.iter().any(|column| column == &spec.alias) {
-        columns.push(spec.alias.clone());
-    }
+    columns.push(spec.alias().to_string());
     Ok(OutputEnvelope::groups(groups, columns))
 }
 

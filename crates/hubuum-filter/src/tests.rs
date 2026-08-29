@@ -50,6 +50,10 @@ fn group_key(selector: &str, alias: &str) -> GroupKey {
     GroupKey::new(selector, alias).expect("valid group key")
 }
 
+fn aggregate(function: AggregateFunction, alias: &str) -> AggregateSpec {
+    AggregateSpec::new(function, alias).expect("valid aggregate")
+}
+
 fn keep(selector: &str) -> ProjectTerm {
     ProjectTerm::keep(selector).expect("valid projection selector")
 }
@@ -135,10 +139,7 @@ fn grouping_aggregates_and_count_use_host_examples() {
         host_rows(),
         &[
             PipeStage::Group(vec![group_key("os_version", "OS Version")]),
-            PipeStage::Aggregate(AggregateSpec {
-                function: AggregateFunction::Count,
-                alias: "Hosts".to_string(),
-            }),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "Hosts")),
         ],
     )
     .expect("group aggregate");
@@ -158,10 +159,7 @@ fn grouped_output_sorts_by_aggregate_alias() {
         host_rows(),
         &[
             PipeStage::Group(vec![group_key("os_version", "OS Version")]),
-            PipeStage::Aggregate(AggregateSpec {
-                function: AggregateFunction::Count,
-                alias: "Hosts".to_string(),
-            }),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "Hosts")),
             PipeStage::SortColumn {
                 selector: selector("Hosts"),
                 descending: true,
@@ -184,10 +182,7 @@ fn grouped_projection_uses_summary_columns() {
         host_rows(),
         &[
             PipeStage::Group(vec![group_key("os_version", "OS")]),
-            PipeStage::Aggregate(AggregateSpec {
-                function: AggregateFunction::Count,
-                alias: "Hosts".to_string(),
-            }),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "Hosts")),
             PipeStage::Columns(vec![keep("OS")]),
         ],
     )
@@ -326,6 +321,53 @@ fn missing_projection_exclusions_do_not_change_unrelated_data() {
     .expect("missing exclusion");
 
     assert_eq!(projected.value, json!({"payload": {"name": "visible"}}));
+}
+
+#[test]
+fn programmatic_stages_cannot_create_duplicate_output_names() {
+    let duplicate_projection = apply_pipeline(
+        host_rows(),
+        &[PipeStage::Columns(vec![keep("Name"), keep("Name")])],
+    )
+    .expect_err("duplicate projection should fail");
+    assert!(duplicate_projection
+        .to_string()
+        .contains("stage 'P' has duplicate output column 'Name'"));
+
+    let duplicate_groups = apply_pipeline(
+        host_rows(),
+        &[PipeStage::Group(vec![
+            group_key("Name", "duplicate"),
+            group_key("os_version", "duplicate"),
+        ])],
+    )
+    .expect_err("duplicate group names should fail");
+    assert!(duplicate_groups
+        .to_string()
+        .contains("stage 'G' has duplicate output name 'duplicate'"));
+
+    let group_collision = apply_pipeline(
+        host_rows(),
+        &[
+            PipeStage::Group(vec![group_key("os_version", "name")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "name")),
+        ],
+    )
+    .expect_err("aggregate should not overwrite group name");
+    assert!(group_collision.to_string().contains("output name 'name'"));
+
+    let aggregate_collision = apply_pipeline(
+        host_rows(),
+        &[
+            PipeStage::Group(vec![group_key("os_version", "OS")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "count")),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "count")),
+        ],
+    )
+    .expect_err("aggregate should not overwrite earlier aggregate");
+    assert!(aggregate_collision
+        .to_string()
+        .contains("output name 'count'"));
 }
 
 #[test]

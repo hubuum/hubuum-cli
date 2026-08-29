@@ -1513,10 +1513,9 @@ mod tests {
             PipeStage::Group(vec![
                 GroupKey::new("os_version", "OS Version").expect("valid group key")
             ]),
-            PipeStage::Aggregate(AggregateSpec {
-                function: AggregateFunction::Count,
-                alias: "Hosts".to_string(),
-            }),
+            PipeStage::Aggregate(
+                AggregateSpec::new(AggregateFunction::Count, "Hosts").expect("valid aggregate"),
+            ),
         ])
         .expect("pipeline should set");
         let tokens = CommandTokenizer::new("object list --class Hosts", "list", &[])
