@@ -1,0 +1,156 @@
+// A compact catalog of every portable workflow step and binding form.
+{
+  "$schema": "../../schemas/hubuum-extension.schema.json",
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "recipes",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1.0",
+  "config": {
+    "fallback_class": {
+      "type": "string",
+      "default": "Hosts",
+      "help": "Class used by the configuration binding example"
+    }
+  },
+  "workflows": {
+    "list_one": {
+      "inputs": {
+        "class": { "type": "string", "required": true }
+      },
+      "output": { "shape": "rows", "type": "json" },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "input": "class" },
+            "all": true
+          }
+        }
+      ],
+      "result": ".steps.objects"
+    },
+    "keep_json": {
+      "inputs": {
+        "value": { "type": "json", "required": true }
+      },
+      "output": { "shape": "detail", "type": "json" },
+      "steps": [
+        { "id": "value", "kind": "let", "expr": ".input.value" }
+      ],
+      "result": ".steps.value"
+    },
+    "tour": {
+      "inputs": {
+        "classes": {
+          "type": "string",
+          "repeatable": true,
+          "default": ["Hosts", "Jacks"]
+        },
+        "enabled": { "type": "boolean", "default": true }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["configured", "filtered", "selected", "literal", "each"]
+      },
+      "steps": [
+        // `when` makes execution conditional without hiding it in a script.
+        {
+          "id": "configured",
+          "kind": "run",
+          "run": ["object", "list"],
+          "when": ".input.enabled",
+          "with": {
+            "class": { "config": "fallback_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "filtered",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": "Hosts",
+            "where": ["name", "contains", "server"],
+            "all": true
+          }
+        },
+        {
+          "id": "classes",
+          "kind": "run",
+          "run": ["class", "list"],
+          "with": { "all": true }
+        },
+        {
+          "id": "selected",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            // `select` extracts one binding value from a previous JSON result.
+            "class": { "step": "classes", "select": ".[0].name" },
+            "all": true
+          }
+        },
+        {
+          "id": "literal",
+          "kind": "call",
+          "call": "keep_json",
+          "when": ".input.enabled",
+          "with": {
+            "value": {
+              "literal": {
+                "source": "literal object",
+                "portable": true
+              }
+            }
+          }
+        },
+        {
+          "id": "nonempty",
+          "kind": "assert",
+          "condition": "(.input.classes | length) > 0",
+          "message": "At least one class is required"
+        },
+        {
+          "id": "summary",
+          "kind": "let",
+          "expr": "{ class_count: (.input.classes | length) }"
+        },
+        {
+          "id": "each",
+          "kind": "for_each",
+          // Iteration always has an explicit safety bound.
+          "items": { "input": "classes" },
+          "as": "class",
+          "call": "list_one",
+          "max_items": 10,
+          "when": ".input.enabled"
+        }
+      ],
+      "result": "{ configured: .steps.configured, filtered: .steps.filtered, selected: .steps.selected, literal: .steps.literal, summary: .steps.summary, each: .steps.each }"
+    }
+  },
+  "commands": {
+    "tour": {
+      "path": ["tour"],
+      "workflow": "tour",
+      "about": "Demonstrate every portable step and binding form",
+      "options": {
+        "classes": {
+          "kind": "string",
+          "long": "class",
+          "repeatable": true,
+          "help": "Class to visit; may be repeated"
+        },
+        "enabled": {
+          "kind": "boolean",
+          "long": "enabled",
+          "help": "Run conditional steps"
+        }
+      }
+    }
+  }
+}

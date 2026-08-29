@@ -318,6 +318,7 @@ jq -e '
     .name == "inferred.example.org"
     and .collection == "inventory"
 ' "$TEST_TMP/created.json" >/dev/null
+
 output_text=$(<"$TEST_TMP/output")
 [[ $output_text == *'Inferred collection: inventory'* ]]
 
@@ -357,5 +358,39 @@ jq -e '
     .name == "environment.example.org"
     and .collection == "environment"
 ' "$TEST_TMP/created.json" >/dev/null
+
+printf 'primary.example.org\tJ-1\n' >"$TEST_TMP/edges"
+HUBUUM_EXTENSION_PROTOCOL=hubuum-cli.extension/v1 \
+    "$WRAPPER_DIR/hubuum-extension" host show primary \
+    >"$TEST_TMP/output"
+jq -e '
+    .protocol == "hubuum-cli.extension/v1"
+    and .status == "ok"
+    and .output.shape == "detail"
+    and .output.value.host.name == "primary.example.org"
+' "$TEST_TMP/output" >/dev/null
+
+HUBUUM_EXTENSION_PROTOCOL=hubuum-cli.extension/v1 \
+    "$WRAPPER_DIR/hubuum-extension" host move \
+    primary J-2 --target-type jack --dry-run \
+    >"$TEST_TMP/output"
+jq -e '
+    .status == "ok"
+    and .output.value.operation == "move"
+    and .output.value.status == "completed"
+    and (.output.value.messages | length) > 0
+' "$TEST_TMP/output" >/dev/null
+assert_edges $'primary.example.org\tJ-1'
+
+if HUBUUM_EXTENSION_PROTOCOL=hubuum-cli.extension/v1 \
+    "$WRAPPER_DIR/hubuum-extension" host unknown \
+    >"$TEST_TMP/output"; then
+    printf '%s\n' "expected unknown extension command to fail" >&2
+    exit 1
+fi
+jq -e '
+    .status == "error"
+    and .error.code == "unknown_command"
+' "$TEST_TMP/output" >/dev/null
 
 printf '%s\n' "wrapper tests passed"

@@ -22,6 +22,9 @@ mod event_delivery;
 mod event_sink;
 mod event_subscription;
 mod export;
+mod extension;
+mod extension_authoring;
+mod extension_management;
 mod group;
 mod help;
 mod history;
@@ -43,6 +46,7 @@ pub(crate) mod version;
 pub use builder::build_command_catalog;
 
 use crate::autocomplete::output_formats;
+use crate::catalog::CommandEffects;
 use crate::config::get_config;
 use crate::domain::{IssuedTokenRecord, JsonRecord, TaskRecord};
 use crate::output::RenderFormat;
@@ -64,6 +68,17 @@ use crate::{
 };
 
 pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
+
+fn required_positional<'a>(tokens: &'a CommandTokenizer, label: &str) -> Result<&'a str, AppError> {
+    match tokens.get_positionals() {
+        [value] => Ok(value),
+        [] => Err(AppError::ParseError(format!("missing required {label}"))),
+        values => Err(AppError::ParseError(format!(
+            "expected one {label}, got {}",
+            values.len()
+        ))),
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -101,6 +116,7 @@ pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
 
 pub trait CliCommand: CommandArgs + Send + Sync {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Unsafe;
+    const EFFECTS: CommandEffects = CommandEffects::Mutating;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError>;
 }

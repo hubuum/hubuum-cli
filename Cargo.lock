@@ -940,6 +940,7 @@ dependencies = [
  "config",
  "crossterm",
  "dirs",
+ "hubuum-extension-protocol",
  "hubuum-filter",
  "hubuum-theme",
  "hubuum_client",
@@ -955,6 +956,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rpassword",
+ "semver",
  "serde",
  "serde_json",
  "serial_test",
@@ -966,6 +968,17 @@ dependencies = [
  "tokio",
  "toml",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hubuum-extension-protocol"
+version = "0.1.0"
+dependencies = [
+ "jsonc-parser",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1482,6 +1495,15 @@ checksum = "96b0db21af676c1ce64250b5f40f3ce2cf27e4e47cb91ed91eb6fe9350b430c1"
 dependencies = [
  "pest",
  "pest_derive",
+ "serde",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
+dependencies = [
  "serde",
 ]
 
@@ -2354,6 +2376,10 @@ name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+dependencies = [
+ "serde",
+ "serde_core",
+]
 
 [[package]]
 name = "serde"
@@ -2810,6 +2836,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

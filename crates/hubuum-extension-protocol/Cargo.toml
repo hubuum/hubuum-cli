@@ -1,0 +1,13 @@
+[package]
+name = "hubuum-extension-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Manifest and process protocol types for Hubuum CLI extension packs"
+license = "MIT"
+
+[dependencies]
+jsonc-parser = { version = "0.33.1", features = ["serde"] }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- Added extension packs under `extension <pack>`, with dependency-free portable
+  JSONC/JQ workflow packs as the preferred kind and a versioned argv/JSON
+  protocol for explicitly executable packs. Packs have deterministic system and
+  user discovery, catalog help and static completion, semantic output pipelines,
+  diagnostics, and local user-package lifecycle commands. The Host, Jack, and
+  Room placement example is one portable workflow pack; the Host shell wrappers
+  remain a tested executable pack pilot and retain their standalone entry
+  points.
+  Workflow commands use strict manifest schemas and a catalog contract with
+  stable input IDs, portable types and cardinality, explicit effects, early
+  compatibility checks, and preserved step-output metadata. Manifest commands,
+  options, workflows, and inputs use nested named objects. Workflow steps are
+  tagged objects in ordered arrays, keeping IDs, bindings, conditions, and
+  dependency references together.
+
 ## [0.0.9] - 2026-08-07
 
 - Updated `hubuum_client` to 0.9.0 for Hubuum server v0.0.9. The CLI now

@@ -1,0 +1,231 @@
+// An executable pack for behavior outside the portable workflow language.
+{
+  "$schema": "../../schemas/hubuum-extension.schema.json",
+  "schema_version": 1,
+  "kind": "executable",
+  "name": "host",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1.0",
+  "protocol": "hubuum-cli.extension/v1",
+  "executable": "hubuum-extension",
+  // Only this typed, namespaced configuration reaches the child process.
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts"
+    },
+    "jacks_class": {
+      "type": "string",
+      "default": "Jacks"
+    },
+    "rooms_class": {
+      "type": "string",
+      "default": "Rooms"
+    },
+    "host_collection": {
+      "type": "string",
+      "default": "inventory"
+    },
+    "default_jack": {
+      "type": "string",
+      "default": "J-000"
+    }
+  },
+  // Fixed arguments select a subcommand in the protocol dispatcher.
+  "commands": {
+    "show": {
+      "path": ["show"],
+      "arguments": ["host", "show"],
+      "about": "Show a Host and its physical placement",
+      "long_about": "Resolve a Host by name, ID, hostname, address, MAC address, or serial number, then show related Jacks and Rooms.",
+      "examples": [
+        "server-01",
+        "--verbose 00-11-22-33-44-55"
+      ],
+      "options": {
+        "identifier": {
+          "kind": "string",
+          "position": 1,
+          "help": "Host name, ID, address, MAC address, or serial number"
+        },
+        "id": {
+          "kind": "string",
+          "long": "id",
+          "help": "Host identifier (alternative to the positional argument)"
+        },
+        "verbose": {
+          "kind": "flag",
+          "long": "verbose",
+          "short": "v",
+          "help": "Include every data leaf"
+        }
+      }
+    },
+    "create": {
+      "path": ["create"],
+      "arguments": ["host", "create"],
+      "about": "Create a Host and optionally place it",
+      "interactive": true,
+      "examples": [
+        "--collection inventory server-01.example.org SERIAL123",
+        "--collection inventory --to R-301 --jack J-42 server-01"
+      ],
+      "options": {
+        "hostname": {
+          "kind": "string",
+          "position": 1,
+          "help": "Host name or FQDN"
+        },
+        "serial_argument": {
+          "kind": "string",
+          "position": 2,
+          "help": "Hardware serial number"
+        },
+        "serial": {
+          "kind": "string",
+          "long": "serial",
+          "help": "Hardware serial number"
+        },
+        "name": {
+          "kind": "string",
+          "long": "name",
+          "help": "Hubuum object name"
+        },
+        "fqdn": {
+          "kind": "string",
+          "long": "fqdn",
+          "help": "Canonical FQDN"
+        },
+        "collection": {
+          "kind": "string",
+          "long": "collection",
+          "help": "Target collection"
+        },
+        "description": {
+          "kind": "string",
+          "long": "description",
+          "help": "Object description"
+        },
+        "ipv4": {
+          "kind": "string",
+          "long": "ipv4",
+          "help": "Default IPv4 address"
+        },
+        "ipv6": {
+          "kind": "string",
+          "long": "ipv6",
+          "help": "Default IPv6 address"
+        },
+        "no_dns": {
+          "kind": "flag",
+          "long": "no-dns",
+          "help": "Skip forward DNS lookup"
+        },
+        "to": {
+          "kind": "string",
+          "long": "to",
+          "help": "Placement destination"
+        },
+        "no_place": {
+          "kind": "flag",
+          "long": "no-place",
+          "help": "Leave the Host unplaced"
+        },
+        "target_type": {
+          "kind": "string",
+          "long": "target-type",
+          "help": "Destination type",
+          "values": ["auto", "host", "jack", "room"]
+        },
+        "jack": {
+          "kind": "string",
+          "long": "jack",
+          "help": "Specific Jack when the destination is a Room"
+        },
+        "mode": {
+          "kind": "string",
+          "long": "mode",
+          "help": "Behavior for an occupied Jack",
+          "values": ["add", "switch"]
+        },
+        "swap_with": {
+          "kind": "string",
+          "long": "swap-with",
+          "help": "Host to exchange with in switch mode"
+        },
+        "yes": {
+          "kind": "flag",
+          "long": "yes",
+          "short": "y",
+          "help": "Skip creation and move confirmations"
+        }
+      }
+    },
+    "move": {
+      "path": ["move"],
+      "arguments": ["host", "move"],
+      "about": "Move a Host to a Jack, Room, or another Host's Jack",
+      "interactive": true,
+      "examples": [
+        "server-01 J-42",
+        "--from server-01 --to R-301 --jack J-42",
+        "server-01 J-42 --dry-run"
+      ],
+      "options": {
+        "host": {
+          "kind": "string",
+          "position": 1,
+          "help": "Host to move"
+        },
+        "destination": {
+          "kind": "string",
+          "position": 2,
+          "help": "Jack, Room, Host, or 'none'"
+        },
+        "from": {
+          "kind": "string",
+          "long": "from",
+          "help": "Host to move (alternative to the positional argument)"
+        },
+        "to": {
+          "kind": "string",
+          "long": "to",
+          "help": "Destination (alternative to the positional argument)"
+        },
+        "target_type": {
+          "kind": "string",
+          "long": "target-type",
+          "help": "Destination type",
+          "values": ["auto", "host", "jack", "room"]
+        },
+        "jack": {
+          "kind": "string",
+          "long": "jack",
+          "help": "Specific Jack when the destination is a Room"
+        },
+        "mode": {
+          "kind": "string",
+          "long": "mode",
+          "help": "Behavior for an occupied Jack",
+          "values": ["add", "switch"]
+        },
+        "swap_with": {
+          "kind": "string",
+          "long": "swap-with",
+          "help": "Host to exchange with in switch mode"
+        },
+        "dry_run": {
+          "kind": "flag",
+          "long": "dry-run",
+          "help": "Show the relation plan without applying it"
+        },
+        "yes": {
+          "kind": "flag",
+          "long": "yes",
+          "short": "y",
+          "help": "Apply an unambiguous plan without confirmation"
+        }
+      }
+    }
+  }
+}
