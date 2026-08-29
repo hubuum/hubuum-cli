@@ -68,6 +68,7 @@ The current native stages provide:
 - projection with validated output aliases and selector-based value extraction;
 - stable multi-key sorting with strict scalar, date, version, natural, and
   IPv4/IPv6 casts, fanout reduction, and null order;
+- stable distinct over whole visible JSON values or typed selector tuples;
 - head, tail, and count;
 - grouping, aggregation, collapse, and array unroll; and
 - JQ-compatible transforms through the in-process `jaq` evaluator.

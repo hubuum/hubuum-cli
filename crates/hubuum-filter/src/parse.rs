@@ -4,10 +4,11 @@ use shlex::split;
 
 use crate::error::PipelineError;
 use crate::model::{
-    validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, GroupKey,
-    NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
+    validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, DistinctKey,
+    DistinctSpec, GroupKey, NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
+    SortReduction, SortSpec,
 };
-use crate::predicate::Predicate;
+use crate::predicate::{Predicate, ValueCast};
 use crate::selector::Selector;
 use crate::verbs::search::validate_filter_expression;
 
@@ -102,6 +103,7 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
             | PipeStage::SortLines { .. }
             | PipeStage::Columns(_)
             | PipeStage::SortColumns(_)
+            | PipeStage::Distinct(_)
             | PipeStage::Unroll(_) => {}
         }
     }
@@ -151,6 +153,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     if let Some(sort) = parse_sort_stage_source(stage) {
         return sort;
     }
+    if let Some(distinct) = parse_distinct_stage_source(stage) {
+        return distinct;
+    }
 
     let Some(parts) = split(stage) else {
         return Err(PipelineError::Parse(
@@ -178,6 +183,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             unreachable!("projection stages are parsed from their original source")
         }
         "sort" | "S" => unreachable!("sort stages are parsed from their original source"),
+        "distinct" | "D" => {
+            unreachable!("distinct stages are parsed from their original source")
+        }
         "G" => parse_group_stage(&parts),
         "A" => parse_aggregate_stage(&parts),
         "Z" => {
@@ -349,7 +357,7 @@ fn parse_projection_source(name: &str, source: &str) -> Result<PipeStage, Pipeli
         .skip(1)
         .any(|part| part.eq_ignore_ascii_case("AS"));
     let columns = if has_alias {
-        split_projection_terms(source)?
+        split_comma_separated(source, "Projection terms")?
             .into_iter()
             .enumerate()
             .map(|(index, term)| parse_projection_term(term, index + 1))
@@ -381,8 +389,11 @@ fn parse_projection_source(name: &str, source: &str) -> Result<PipeStage, Pipeli
     Ok(PipeStage::Columns(columns))
 }
 
-fn split_projection_terms(source: &str) -> Result<Vec<&str>, PipelineError> {
-    let mut terms = Vec::new();
+fn split_comma_separated<'a>(
+    source: &'a str,
+    item_description: &str,
+) -> Result<Vec<&'a str>, PipelineError> {
+    let mut items = Vec::new();
     let mut quote = None;
     let mut escaped = false;
     let mut start = 0;
@@ -400,26 +411,26 @@ fn split_projection_terms(source: &str) -> Result<Vec<&str>, PipelineError> {
             Some(_) => {}
             None if matches!(ch, '\'' | '"') => quote = Some(ch),
             None if ch == ',' => {
-                let term = source[start..index].trim();
-                if term.is_empty() {
-                    return Err(PipelineError::Parse(
-                        "Projection terms cannot be empty".to_string(),
-                    ));
+                let item = source[start..index].trim();
+                if item.is_empty() {
+                    return Err(PipelineError::Parse(format!(
+                        "{item_description} cannot be empty"
+                    )));
                 }
-                terms.push(term);
+                items.push(item);
                 start = index + ch.len_utf8();
             }
             None => {}
         }
     }
-    let term = source[start..].trim();
-    if term.is_empty() {
-        return Err(PipelineError::Parse(
-            "Projection terms cannot be empty".to_string(),
-        ));
+    let item = source[start..].trim();
+    if item.is_empty() {
+        return Err(PipelineError::Parse(format!(
+            "{item_description} cannot be empty"
+        )));
     }
-    terms.push(term);
-    Ok(terms)
+    items.push(item);
+    Ok(items)
 }
 
 fn parse_projection_term(source: &str, term_number: usize) -> Result<ProjectTerm, PipelineError> {
@@ -476,7 +487,7 @@ fn parse_sort_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineErro
 }
 
 fn parse_sort_source(source: &str) -> Result<PipeStage, PipelineError> {
-    let segments = split_sort_keys(source)?;
+    let segments = split_comma_separated(source, "Sort keys")?;
     if segments.len() == 1 {
         let parts = split(segments[0])
             .ok_or_else(|| PipelineError::Parse("Parsing quoted sort key failed".to_string()))?;
@@ -495,47 +506,6 @@ fn parse_sort_source(source: &str) -> Result<PipeStage, PipelineError> {
         .map(|(index, segment)| parse_sort_key(segment, index + 1))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(PipeStage::SortColumns(SortSpec::new(keys)?))
-}
-
-fn split_sort_keys(source: &str) -> Result<Vec<&str>, PipelineError> {
-    let mut keys = Vec::new();
-    let mut quote = None;
-    let mut escaped = false;
-    let mut start = 0;
-    for (index, ch) in source.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        match quote {
-            Some(active) if ch == active => quote = None,
-            Some(_) => {}
-            None if matches!(ch, '\'' | '"') => quote = Some(ch),
-            None if ch == ',' => {
-                let key = source[start..index].trim();
-                if key.is_empty() {
-                    return Err(PipelineError::Parse(
-                        "Sort keys cannot be empty".to_string(),
-                    ));
-                }
-                keys.push(key);
-                start = index + ch.len_utf8();
-            }
-            None => {}
-        }
-    }
-    let key = source[start..].trim();
-    if key.is_empty() {
-        return Err(PipelineError::Parse(
-            "Sort keys cannot be empty".to_string(),
-        ));
-    }
-    keys.push(key);
-    Ok(keys)
 }
 
 fn parse_line_sort(parts: &[String]) -> Result<PipeStage, PipelineError> {
@@ -693,6 +663,60 @@ fn parse_sort_cast(value: &str) -> Result<SortCast, PipelineError> {
     }
 }
 
+fn parse_distinct_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
+    let verb_end = stage
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(stage.len());
+    let verb = &stage[..verb_end];
+    if !matches!(verb, "D" | "distinct") {
+        return None;
+    }
+
+    let source = stage[verb_end..].trim();
+    if source.is_empty() {
+        return Some(Ok(PipeStage::Distinct(DistinctSpec::whole_value())));
+    }
+
+    Some(parse_distinct_source(source))
+}
+
+fn parse_distinct_source(source: &str) -> Result<PipeStage, PipelineError> {
+    let keys = split_comma_separated(source, "Distinct keys")?
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| parse_distinct_key(key, index + 1))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(PipeStage::Distinct(DistinctSpec::by_keys(keys)?))
+}
+
+fn parse_distinct_key(source: &str, key_number: usize) -> Result<DistinctKey, PipelineError> {
+    let parts = split(source)
+        .ok_or_else(|| PipelineError::Parse(format!("Parsing distinct key {key_number} failed")))?;
+    let Some(selector) = parts.first() else {
+        return Err(PipelineError::Parse(format!(
+            "Distinct key {key_number} cannot be empty"
+        )));
+    };
+    let mut key = DistinctKey::new(selector)?;
+    if parts.len() == 1 {
+        return Ok(key);
+    }
+    if parts.len() != 3 || !parts[1].eq_ignore_ascii_case("AS") {
+        return Err(PipelineError::Parse(format!(
+            "Distinct key {key_number} must be selector [AS cast]"
+        )));
+    }
+    let cast = parts[2].parse::<ValueCast>().map_err(|_| {
+        PipelineError::Parse(format!(
+            "Distinct key {key_number} has unknown cast '{}'. Use str, num, bool, ip, datetime, version, or natural",
+            parts[2]
+        ))
+    })?;
+    key = key.with_cast(cast);
+    Ok(key)
+}
+
 fn parse_group_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
     if parts.len() < 2 {
         return Err(PipelineError::Pipe(
@@ -813,9 +837,10 @@ fn require_arg_count(name: &str, parts: &[String], expected: usize) -> Result<()
 mod tests {
     use super::split_pipeline;
     use crate::model::{
-        AggregateFunction, NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
-        SortReduction, SortSpec,
+        AggregateFunction, DistinctSpec, NullOrder, PipeStage, ProjectTerm, SortCast,
+        SortDirection, SortKey, SortReduction, SortSpec,
     };
+    use crate::predicate::ValueCast;
 
     #[test]
     fn dsl_shorthand_aliases_parse() {
@@ -943,6 +968,43 @@ mod tests {
             "object list | S state USING middle",
             "object list | S state NULLS SOMEWHERE",
             "object list | S state desc unexpected",
+        ] {
+            assert!(split_pipeline(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn whole_value_and_keyed_distinct_stages_parse() {
+        for source in ["object list | D", "object list | distinct"] {
+            let (_, stages) = split_pipeline(source).expect("whole-value distinct");
+            assert!(matches!(
+                &stages[0],
+                PipeStage::Distinct(spec) if spec == &DistinctSpec::whole_value()
+            ));
+        }
+
+        let (_, stages) = split_pipeline(
+            "object list | D owner, address AS ip, updated_at AS datetime, Name AS natural",
+        )
+        .expect("keyed distinct");
+        let PipeStage::Distinct(spec) = &stages[0] else {
+            panic!("expected distinct stage")
+        };
+        assert_eq!(spec.keys().len(), 4);
+        assert_eq!(spec.keys()[0].selector().as_str(), "owner");
+        assert_eq!(spec.keys()[1].cast(), Some(ValueCast::Ip));
+        assert_eq!(spec.keys()[2].cast(), Some(ValueCast::DateTime));
+        assert_eq!(spec.keys()[3].cast(), Some(ValueCast::Natural));
+    }
+
+    #[test]
+    fn malformed_distinct_keys_fail_during_parsing() {
+        for source in [
+            "object list | D owner,",
+            "object list | D owner,,address",
+            "object list | D owner AS",
+            "object list | D owner AS unknown",
+            "object list | D owner unexpected",
         ] {
             assert!(split_pipeline(source).is_err(), "{source}");
         }

@@ -1,4 +1,5 @@
 pub(crate) mod collection;
+pub(crate) mod distinct;
 pub(crate) mod jq;
 pub(crate) mod project;
 pub(crate) mod search;

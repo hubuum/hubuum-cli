@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::PipelineError;
-use crate::predicate::Predicate;
+use crate::predicate::{Predicate, ValueCast};
 use crate::selector::Selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +23,7 @@ pub enum PipeStage {
     SortLines { descending: bool },
     Columns(Vec<ProjectTerm>),
     SortColumns(SortSpec),
+    Distinct(DistinctSpec),
     Group(Vec<GroupKey>),
     Aggregate(AggregateSpec),
     CollapseGroups,
@@ -106,6 +107,7 @@ impl PipeStage {
             Self::Count => "C",
             Self::SortLines { .. } | Self::SortColumns(_) => "S",
             Self::Columns(_) => "P",
+            Self::Distinct(_) => "D",
             Self::Group(_) => "G",
             Self::Aggregate(_) => "A",
             Self::CollapseGroups => "Z",
@@ -125,6 +127,8 @@ impl PipeStage {
             | Self::Jq(_)
             | Self::Value(_) => STRUCTURED_SHAPES,
             Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => COLLECTION_SHAPES,
+            Self::Distinct(spec) if spec.is_whole_value() => COLLECTION_SHAPES,
+            Self::Distinct(_) => STRUCTURED_COLLECTION_SHAPES,
             Self::Columns(_) => PROJECT_SHAPES,
             Self::SortColumns(_) | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
             Self::Group(_) => GROUP_INPUT_SHAPES,
@@ -167,16 +171,18 @@ impl PipeStage {
                 OutputShape::Groups => GROUPS_ONLY,
                 OutputShape::Lines => unreachable!("validated input shape"),
             },
-            Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => match input {
-                OutputShape::Empty => EMPTY_ONLY,
-                OutputShape::Lines => LINES_ONLY,
-                OutputShape::Rows => ROWS_ONLY,
-                OutputShape::Values => VALUES_ONLY,
-                OutputShape::Groups => GROUPS_ONLY,
-                OutputShape::Detail | OutputShape::Message => {
-                    unreachable!("validated input shape")
+            Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } | Self::Distinct(_) => {
+                match input {
+                    OutputShape::Empty => EMPTY_ONLY,
+                    OutputShape::Lines => LINES_ONLY,
+                    OutputShape::Rows => ROWS_ONLY,
+                    OutputShape::Values => VALUES_ONLY,
+                    OutputShape::Groups => GROUPS_ONLY,
+                    OutputShape::Detail | OutputShape::Message => {
+                        unreachable!("validated input shape")
+                    }
                 }
-            },
+            }
             Self::Count => match input {
                 OutputShape::Groups => ROWS_ONLY,
                 _ => VALUES_ONLY,
@@ -231,6 +237,62 @@ pub struct ProjectTerm {
     selector: Selector,
     alias: Option<OutputName>,
     drop: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctKey {
+    selector: Selector,
+    cast: Option<ValueCast>,
+}
+
+impl DistinctKey {
+    pub fn new(selector: impl Into<String>) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
+            cast: None,
+        })
+    }
+
+    pub fn selector(&self) -> &Selector {
+        &self.selector
+    }
+
+    pub fn cast(&self) -> Option<ValueCast> {
+        self.cast
+    }
+
+    pub fn with_cast(mut self, cast: ValueCast) -> Self {
+        self.cast = Some(cast);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DistinctSpec {
+    keys: Vec<DistinctKey>,
+}
+
+impl DistinctSpec {
+    pub fn whole_value() -> Self {
+        Self::default()
+    }
+
+    pub fn by_keys(keys: Vec<DistinctKey>) -> Result<Self, PipelineError> {
+        if keys.is_empty() {
+            return Err(PipelineError::Pipe(
+                "Keyed distinct requires at least one key".to_string(),
+            ));
+        }
+        Ok(Self { keys })
+    }
+
+    pub fn keys(&self) -> &[DistinctKey] {
+        &self.keys
+    }
+
+    pub fn is_whole_value(&self) -> bool {
+        self.keys.is_empty()
+    }
 }
 
 impl ProjectTerm {

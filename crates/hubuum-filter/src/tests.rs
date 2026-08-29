@@ -1,8 +1,8 @@
 use crate::{
     apply_pipeline, apply_pipeline_with_settings, group_summary_rows, split_pipeline,
-    validate_jq_expression, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope,
-    OutputShape, PipeStage, PipelineSettings, Predicate, ProjectTerm, Selector, SortCast,
-    SortDirection, SortKey, SortSpec,
+    validate_jq_expression, AggregateFunction, AggregateSpec, DistinctKey, DistinctSpec, GroupKey,
+    OutputEnvelope, OutputShape, PipeStage, PipelineSettings, Predicate, ProjectTerm, Selector,
+    SortCast, SortDirection, SortKey, SortSpec,
 };
 use serde_json::json;
 
@@ -116,6 +116,11 @@ fn representative_stages() -> Vec<PipeStage> {
         PipeStage::SortColumns(
             SortSpec::new(vec![SortKey::new("field").expect("valid sort selector")])
                 .expect("valid sort"),
+        ),
+        PipeStage::Distinct(DistinctSpec::whole_value()),
+        PipeStage::Distinct(
+            DistinctSpec::by_keys(vec![DistinctKey::new("field").expect("valid distinct key")])
+                .expect("keyed distinct"),
         ),
         PipeStage::Group(vec![group_key("field", "group")]),
         PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
@@ -231,6 +236,8 @@ fn empty_is_identity_only_for_row_preserving_stages() {
             "S",
             "P",
             "S",
+            "D",
+            "D",
             "U"
         ]
     );
@@ -240,6 +247,179 @@ fn empty_is_identity_only_for_row_preserving_stages() {
             empty
         );
     }
+}
+
+#[test]
+fn whole_value_distinct_is_stable_and_preserves_collection_metadata() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"name": "alpha", "nested": {"a": 1, "b": 2}}),
+            json!({"nested": {"b": 2, "a": 1}, "name": "alpha"}),
+            json!({"name": "beta", "nested": {"a": 1, "b": 2}}),
+        ],
+        vec!["name".to_string(), "nested".to_string()],
+    );
+    let distinct = apply_dsl(rows, "D").expect("whole row distinct");
+    assert_eq!(distinct.shape, OutputShape::Rows);
+    assert_eq!(distinct.columns, ["name", "nested"]);
+    assert_eq!(distinct.value.as_array().expect("rows").len(), 2);
+    assert_eq!(distinct.value[0]["name"], json!("alpha"));
+    assert_eq!(distinct.value[1]["name"], json!("beta"));
+
+    let values = apply_dsl(
+        OutputEnvelope::values(vec![json!(1), json!(1), json!(2), json!(1)]),
+        "distinct",
+    )
+    .expect("whole value distinct");
+    assert_eq!(values.shape, OutputShape::Values);
+    assert_eq!(values.value, json!([1, 2]));
+
+    let lines = apply_dsl(
+        OutputEnvelope::lines(vec![
+            "alpha".to_string(),
+            "alpha".to_string(),
+            "beta".to_string(),
+        ]),
+        "D",
+    )
+    .expect("line distinct");
+    assert_eq!(lines.shape, OutputShape::Lines);
+    assert_eq!(lines.value, json!(["alpha", "beta"]));
+
+    assert_eq!(
+        apply_dsl(OutputEnvelope::empty(), "D").expect("empty distinct"),
+        OutputEnvelope::empty()
+    );
+}
+
+#[test]
+fn keyed_distinct_uses_ordered_tuples_complete_fanout_and_missing_sentinel() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"id": "first", "state": "up", "tags": [1, 2], "owner": "ops"}),
+            json!({"id": "duplicate", "state": "up", "tags": [1, 2], "owner": "ops"}),
+            json!({"id": "reordered", "state": "up", "tags": [2, 1], "owner": "ops"}),
+            json!({"id": "missing", "state": "up"}),
+            json!({"id": "missing-again", "state": "up"}),
+            json!({"id": "null", "state": "up", "owner": null}),
+        ],
+        vec!["id".to_string(), "state".to_string(), "tags".to_string()],
+    );
+
+    let distinct = apply_dsl(rows, "D state, tags[], owner").expect("keyed distinct");
+    assert_eq!(
+        output_ids(&distinct),
+        ["first", "reordered", "missing", "null"]
+    );
+    assert_eq!(distinct.columns, ["id", "state", "tags"]);
+}
+
+#[test]
+fn distinct_reuses_every_strict_cast_and_reports_context() {
+    let cases = [
+        ("value AS str", json!(1), json!("1")),
+        ("value AS num", json!(1), json!("1")),
+        ("value AS bool", json!(true), json!("TRUE")),
+        (
+            "value AS ip",
+            json!("2001:0db8:0000:0000:0000:0000:0000:0001"),
+            json!("2001:db8::1"),
+        ),
+        (
+            "value AS datetime",
+            json!("2026-01-01T00:00:00Z"),
+            json!("2026-01-01T01:00:00+01:00"),
+        ),
+        ("value AS version", json!("1.2.3"), json!("1.2.3")),
+        ("value AS natural", json!("host-2"), json!("host-2")),
+    ];
+    for (key, first, duplicate) in cases {
+        let rows = OutputEnvelope::rows(
+            vec![
+                json!({"id": "first", "value": first}),
+                json!({"id": "duplicate", "value": duplicate}),
+            ],
+            vec!["id".to_string(), "value".to_string()],
+        );
+        let distinct = apply_dsl(rows, &format!("D {key}")).expect("cast distinct");
+        assert_eq!(output_ids(&distinct), ["first"], "{key}");
+    }
+
+    let error = apply_dsl(
+        OutputEnvelope::rows(
+            vec![
+                json!({"address": "192.0.2.1"}),
+                json!({"address": "192.0.2.999"}),
+            ],
+            vec!["address".to_string()],
+        ),
+        "D address AS ip",
+    )
+    .expect_err("invalid cast must fail");
+    let message = error.to_string();
+    assert!(message.contains("distinct key 1"), "{message}");
+    assert!(message.contains("selector 'address'"), "{message}");
+    assert!(message.contains("row 2"), "{message}");
+    assert!(message.contains("192.0.2.999"), "{message}");
+}
+
+#[test]
+fn grouped_distinct_sees_summaries_and_never_merges_members() {
+    let groups = OutputEnvelope::groups(
+        vec![
+            json!({
+                "groups": {"rack": "a"},
+                "aggregates": {"count": 1},
+                "rows": [{"id": "first"}]
+            }),
+            json!({
+                "groups": {"rack": "a"},
+                "aggregates": {"count": 1},
+                "rows": [{"id": "hidden-duplicate"}, {"id": "not-merged"}]
+            }),
+            json!({
+                "groups": {"rack": "b"},
+                "aggregates": {"count": 1},
+                "rows": [{"id": "second"}]
+            }),
+        ],
+        vec!["rack".to_string(), "count".to_string()],
+    );
+
+    for source in ["D", "D rack, count AS num"] {
+        let distinct = apply_dsl(groups.clone(), source).expect("group distinct");
+        assert_eq!(distinct.shape, OutputShape::Groups);
+        assert_eq!(distinct.columns, ["rack", "count"]);
+        assert_eq!(
+            group_summary_rows(&distinct.value),
+            [
+                json!({"rack": "a", "count": 1}),
+                json!({"rack": "b", "count": 1}),
+            ]
+        );
+        let retained = distinct.value.as_array().expect("groups");
+        assert_eq!(retained[0]["rows"], json!([{"id": "first"}]));
+        assert_eq!(retained[1]["rows"], json!([{"id": "second"}]));
+    }
+}
+
+#[test]
+fn distinct_rejects_singleton_shapes_and_keyed_lines_explicitly() {
+    for envelope in [
+        OutputEnvelope::detail(json!({"id": 1}), vec!["id".to_string()]),
+        OutputEnvelope::message(json!({"id": 1})),
+    ] {
+        let shape = envelope.shape;
+        let error = apply_dsl(envelope, "D").expect_err("singleton distinct must fail");
+        let message = error.to_string();
+        assert!(message.contains("stage 'D'"), "{message}");
+        assert!(message.contains(&shape.to_string()), "{message}");
+    }
+
+    let error = apply_dsl(OutputEnvelope::lines(vec!["a".to_string()]), "D line")
+        .expect_err("keyed line distinct must fail");
+    assert!(error.to_string().contains("stage 'D'"));
+    assert!(error.to_string().contains("Lines"));
 }
 
 #[test]

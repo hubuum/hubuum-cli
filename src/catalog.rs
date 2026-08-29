@@ -1624,10 +1624,14 @@ mod tests {
         let project = catalog
             .render_pipe_topic_help(Some("project"))
             .expect("pipe project should render");
+        let distinct = catalog
+            .render_pipe_topic_help(Some("distinct"))
+            .expect("pipe distinct should render");
         let help = strip_ansi(&help);
         let search = strip_ansi(&search);
         let group = strip_ansi(&group);
         let project = strip_ansi(&project);
+        let distinct = strip_ansi(&distinct);
 
         assert!(help.contains("help pipe search"));
         assert!(help.contains("help pipe group"));
@@ -1639,6 +1643,9 @@ mod tests {
         assert!(project.contains("P <field> AS <name>"));
         assert!(project.contains("commas are required"));
         assert!(project.contains("no match becomes null"));
+        assert!(distinct.contains("D <selector>, <selector>"));
+        assert!(distinct.contains("missing differs from JSON null"));
+        assert!(distinct.contains("never merges members"));
     }
 
     #[test]

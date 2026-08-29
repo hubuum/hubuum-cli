@@ -1411,6 +1411,38 @@ mod tests {
 
     #[test]
     #[serial]
+    fn stable_distinct_is_preserved_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "state": "up"}),
+                    json!({"name": "discarded", "state": "up"}),
+                    json!({"name": "beta", "state": "down"}),
+                ],
+                vec!["name".to_string(), "state".to_string()],
+            ))
+            .expect("semantic output should be set");
+            let pipeline = Pipeline::parse("D state").expect("distinct pipeline");
+            set_pipeline(pipeline.into_stages()).expect("pipeline should set");
+
+            let rendered = take_output().expect("snapshot").render();
+            assert!(rendered.contains("alpha"), "{format:?}: {rendered}");
+            assert!(rendered.contains("beta"), "{format:?}: {rendered}");
+            assert!(!rendered.contains("discarded"), "{format:?}: {rendered}");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn structured_messages_keep_plain_text_presentation() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");
