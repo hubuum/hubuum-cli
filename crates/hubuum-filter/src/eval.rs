@@ -101,7 +101,7 @@ fn apply_semantic_stage(
         PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false),
         PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern),
         PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern),
-        PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_deref()),
+        PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_ref()),
         PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true),
         PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
         PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
@@ -111,10 +111,10 @@ fn apply_semantic_stage(
         }
         PipeStage::Columns(columns) => project_envelope(envelope, columns),
         PipeStage::SortColumn {
-            column,
+            selector,
             descending,
             cast,
-        } => sort_envelope(envelope, Some(column), *descending, *cast),
+        } => sort_envelope(envelope, Some(selector), *descending, *cast),
         PipeStage::Group(keys) => group_envelope(envelope, keys),
         PipeStage::Aggregate(spec) => aggregate_envelope(envelope, spec),
         PipeStage::CollapseGroups => collapse_groups(envelope),

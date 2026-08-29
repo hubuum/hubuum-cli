@@ -11,7 +11,7 @@ use smooth_json::Flattener;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json, to_string_pretty, to_value, Map, Value};
 
-use hubuum_filter::{scalar_text, select_values, OutputEnvelope};
+use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -887,12 +887,12 @@ mod tests {
             &[
                 PipeStage::Grep("S:load>=2".to_string()),
                 PipeStage::Columns(vec![
-                    ProjectTerm::keep("Name"),
-                    ProjectTerm::keep("S:load"),
-                    ProjectTerm::keep("P:label"),
+                    ProjectTerm::keep("Name").expect("valid selector"),
+                    ProjectTerm::keep("S:load").expect("valid selector"),
+                    ProjectTerm::keep("P:label").expect("valid selector"),
                 ]),
                 PipeStage::SortColumn {
-                    column: "S:load".to_string(),
+                    selector: "S:load".parse().expect("valid selector"),
                     descending: true,
                     cast: SortCast::Number,
                 },
@@ -2363,8 +2363,17 @@ fn display_alias_value(data: &Map<String, Value>, selectors: &[String]) -> Optio
 
 fn data_column_values(data: &Map<String, Value>, key: &str) -> Vec<Value> {
     let key = key.strip_prefix("data.").unwrap_or(key);
+    if let Some(value) = data.get(key) {
+        return vec![value.clone()];
+    }
+    let Ok(selector) = Selector::new(key) else {
+        return Vec::new();
+    };
     let root = Value::Object(data.clone());
-    select_values(&root, key).into_iter().cloned().collect()
+    select_values(&root, &selector)
+        .into_iter()
+        .cloned()
+        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]

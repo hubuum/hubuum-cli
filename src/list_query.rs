@@ -1338,8 +1338,10 @@ mod tests {
         });
         reset_output().expect("output should reset");
         set_render_format(RenderFormat::Json).expect("render format should set");
-        set_pipeline(vec![PipeStage::Columns(vec![ProjectTerm::keep("id")])])
-            .expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Columns(vec![
+            ProjectTerm::keep("id").expect("valid selector")
+        ])])
+        .expect("pipeline should set");
         let tokens = CommandTokenizer::new("class list --json", "list", &[])
             .expect("tokenization should succeed");
         let paged = PagedResult {
@@ -1508,10 +1510,9 @@ mod tests {
         });
         reset_output().expect("output should reset");
         set_pipeline(vec![
-            PipeStage::Group(vec![GroupKey {
-                selector: "os_version".to_string(),
-                alias: "OS Version".to_string(),
-            }]),
+            PipeStage::Group(vec![
+                GroupKey::new("os_version", "OS Version").expect("valid group key")
+            ]),
             PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),

@@ -269,7 +269,15 @@ data.network.interfaces[:2]       slice
 ```
 
 Dotted and indexed selectors are strict path lookups. Bare quick search remains
-permissive and can match keys or values.
+permissive and can match keys or values. Malformed selectors fail while the
+pipeline is parsed, before any stage changes the data. This includes empty path
+components, unmatched brackets, invalid indexes or slice bounds, and characters
+after a closing bracket.
+
+Dots and square brackets are selector syntax. Field names containing those
+characters cannot currently be addressed because the DSL does not define an
+escape syntax for selector metacharacters. Colons remain ordinary field-name
+characters, including in computed-field selectors such as `S:average_load`.
 
 ## Redirects
 

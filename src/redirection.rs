@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anstream::{AutoStream, ColorChoice};
 use dirs::home_dir;
-use hubuum_filter::{group_summary_rows, scalar_text, select_values, OutputShape};
+use hubuum_filter::{group_summary_rows, scalar_text, select_values, OutputShape, Selector};
 use serde_json::Value;
 use shlex::split;
 
@@ -28,6 +28,7 @@ pub enum RedirectTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EachTemplate {
     template: String,
+    selectors: Vec<Option<Selector>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,12 +229,29 @@ impl EachTemplate {
             ));
         }
 
-        Ok(Self { template })
+        let selectors = placeholders
+            .iter()
+            .map(|placeholder| {
+                if *placeholder == "n" {
+                    Ok(None)
+                } else {
+                    Selector::new(*placeholder)
+                        .map(Some)
+                        .map_err(AppError::from)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            template,
+            selectors,
+        })
     }
 
     fn path_for(&self, value: &Value, number: usize) -> Result<PathBuf, AppError> {
         let mut path = String::new();
         let mut rest = self.template.as_str();
+        let mut selectors = self.selectors.iter();
         while let Some(start) = rest.find('{') {
             path.push_str(&rest[..start]);
             let after_start = &rest[start + 1..];
@@ -242,11 +260,12 @@ impl EachTemplate {
                     "each: redirect template has an unclosed placeholder".to_string(),
                 ));
             };
-            let placeholder = &after_start[..end];
-            let replacement = if placeholder == "n" {
-                number.to_string()
-            } else {
-                field_placeholder(value, placeholder)?
+            let selector = selectors
+                .next()
+                .expect("validated template has one selector entry per placeholder");
+            let replacement = match selector {
+                None => number.to_string(),
+                Some(selector) => field_placeholder(value, selector)?,
             };
             path.push_str(&sanitize_path_value(&replacement));
             rest = &after_start[end + 1..];
@@ -285,7 +304,7 @@ fn placeholders(template: &str) -> Result<Vec<&str>, AppError> {
     Ok(placeholders)
 }
 
-fn field_placeholder(value: &Value, selector: &str) -> Result<String, AppError> {
+fn field_placeholder(value: &Value, selector: &Selector) -> Result<String, AppError> {
     let selected = select_placeholder_values(value, selector);
     match selected.as_slice() {
         [value] => scalar_text(value).ok_or_else(|| {
@@ -302,13 +321,13 @@ fn field_placeholder(value: &Value, selector: &str) -> Result<String, AppError> 
     }
 }
 
-fn select_placeholder_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
-    if selector == "value" && !value.is_object() {
+fn select_placeholder_values<'a>(value: &'a Value, selector: &Selector) -> Vec<&'a Value> {
+    if selector.as_str() == "value" && !value.is_object() {
         return vec![value];
     }
 
     if let Value::Object(object) = value {
-        if let Some(value) = object.get(selector) {
+        if let Some(value) = object.get(selector.as_str()) {
             return vec![value];
         }
     }
@@ -457,6 +476,14 @@ mod tests {
         assert!(err
             .to_string()
             .contains("requires at least one placeholder"));
+    }
+
+    #[test]
+    fn rejects_malformed_each_placeholder_selectors_during_parsing() {
+        let err = split_redirect_candidate("object list > each:hosts/{a[bogus]}.json")
+            .expect_err("malformed placeholder selector should fail");
+
+        assert!(err.to_string().contains("Invalid selector 'a[bogus]'"));
     }
 
     #[test]

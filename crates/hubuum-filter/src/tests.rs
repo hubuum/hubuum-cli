@@ -1,6 +1,7 @@
 use crate::{
     apply_pipeline, group_summary_rows, split_pipeline, validate_jq_expression, AggregateFunction,
-    AggregateSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage, ProjectTerm, SortCast,
+    AggregateSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage, ProjectTerm, Selector,
+    SortCast,
 };
 use serde_json::json;
 
@@ -39,6 +40,22 @@ fn host_rows() -> OutputEnvelope {
         ],
         vec!["Name".to_string(), "os_version".to_string()],
     )
+}
+
+fn selector(value: &str) -> Selector {
+    Selector::new(value).expect("valid selector")
+}
+
+fn group_key(selector: &str, alias: &str) -> GroupKey {
+    GroupKey::new(selector, alias).expect("valid group key")
+}
+
+fn keep(selector: &str) -> ProjectTerm {
+    ProjectTerm::keep(selector).expect("valid projection selector")
+}
+
+fn drop(selector: &str) -> ProjectTerm {
+    ProjectTerm::drop(selector).expect("valid projection selector")
 }
 
 #[test]
@@ -117,10 +134,7 @@ fn grouping_aggregates_and_count_use_host_examples() {
     let grouped = apply_pipeline(
         host_rows(),
         &[
-            PipeStage::Group(vec![GroupKey {
-                selector: "os_version".to_string(),
-                alias: "OS Version".to_string(),
-            }]),
+            PipeStage::Group(vec![group_key("os_version", "OS Version")]),
             PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
@@ -143,16 +157,13 @@ fn grouped_output_sorts_by_aggregate_alias() {
     let sorted = apply_pipeline(
         host_rows(),
         &[
-            PipeStage::Group(vec![GroupKey {
-                selector: "os_version".to_string(),
-                alias: "OS Version".to_string(),
-            }]),
+            PipeStage::Group(vec![group_key("os_version", "OS Version")]),
             PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
             }),
             PipeStage::SortColumn {
-                column: "Hosts".to_string(),
+                selector: selector("Hosts"),
                 descending: true,
                 cast: SortCast::Number,
             },
@@ -172,15 +183,12 @@ fn grouped_projection_uses_summary_columns() {
     let projected = apply_pipeline(
         host_rows(),
         &[
-            PipeStage::Group(vec![GroupKey {
-                selector: "os_version".to_string(),
-                alias: "OS".to_string(),
-            }]),
+            PipeStage::Group(vec![group_key("os_version", "OS")]),
             PipeStage::Aggregate(AggregateSpec {
                 function: AggregateFunction::Count,
                 alias: "Hosts".to_string(),
             }),
-            PipeStage::Columns(vec![ProjectTerm::keep("OS")]),
+            PipeStage::Columns(vec![keep("OS")]),
         ],
     )
     .expect("group summary projection");
@@ -196,10 +204,10 @@ fn grouped_projection_uses_summary_columns() {
 fn grouping_fans_out_array_selectors() {
     let grouped = apply_pipeline(
         host_rows(),
-        &[PipeStage::Group(vec![GroupKey {
-            selector: "data.network.interfaces[].ipv4".to_string(),
-            alias: "IPv4".to_string(),
-        }])],
+        &[PipeStage::Group(vec![group_key(
+            "data.network.interfaces[].ipv4",
+            "IPv4",
+        )])],
     )
     .expect("fanout group");
 
@@ -212,9 +220,9 @@ fn projection_droppers_and_value_extraction_still_work() {
     let projected = apply_pipeline(
         host_rows(),
         &[PipeStage::Columns(vec![
-            ProjectTerm::keep("Name"),
-            ProjectTerm::keep("data"),
-            ProjectTerm::drop("data.cpu"),
+            keep("Name"),
+            keep("data"),
+            drop("data.cpu"),
         ])],
     )
     .expect("project");
@@ -223,9 +231,9 @@ fn projection_droppers_and_value_extraction_still_work() {
 
     let values = apply_pipeline(
         host_rows(),
-        &[PipeStage::Value(
-            "data.network.interfaces[-1].ipv4".to_string(),
-        )],
+        &[PipeStage::Value(selector(
+            "data.network.interfaces[-1].ipv4",
+        ))],
     )
     .expect("value");
     assert_eq!(values.value, json!(["10.0.0.10", "129.240.1.11"]));
