@@ -652,6 +652,46 @@ mod tests {
     }
 
     #[test]
+    fn redirects_preserve_strict_ip_sort_order() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("addresses.json");
+        let command = format!("object list | S address AS ip > {}", path.display());
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) = hubuum_filter::split_pipeline(&candidate.line).expect("IP sort pipeline");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "ten", "address": "10.0.0.10"}),
+                    json!({"name": "v6", "address": "2001:db8::1"}),
+                    json!({"name": "two", "address": "10.0.0.2"}),
+                ],
+                vec!["name".to_string(), "address".to_string()],
+            ))
+            .expect("IP sort should apply");
+        let lines = serde_json::to_string_pretty(output.value())
+            .expect("sorted JSON should render")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let snapshot = OutputSnapshot {
+            lines,
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("redirect should write");
+
+        let rendered = read_to_string(path).expect("redirect output");
+        let two = rendered.find("10.0.0.2").expect("numeric first IPv4");
+        let ten = rendered.find("10.0.0.10").expect("numeric second IPv4");
+        let v6 = rendered.find("2001:db8::1").expect("IPv6 row");
+        assert!(two < ten && ten < v6, "{rendered}");
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

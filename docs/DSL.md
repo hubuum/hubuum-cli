@@ -216,9 +216,14 @@ Each key accepts these modifiers in order:
 selector [asc|desc] [AS cast] [USING first|min|max] [NULLS FIRST|LAST]
 ```
 
-The strict casts are `str`, `num`, `bool`, `datetime`, `version`, and `natural`.
-The existing `ip` cast remains available. Invalid strict casts stop the stage
-and identify the key, selector, row, and offending JSON value.
+The strict casts are `str`, `num`, `bool`, `ip`, `datetime`, `version`, and
+`natural`. Invalid strict casts stop the stage and identify the key, selector,
+row, and offending JSON value.
+
+`AS ip` accepts only values parsed by `std::net::IpAddr`. IPv4 compares by its
+numeric 32-bit value and IPv6 by its numeric 128-bit value. IPv4 precedes IPv6
+ascending, and descending reverses that valid order. IPv4-mapped IPv6 remains
+in the IPv6 family; invalid addresses never become zero or null.
 
 Fanout selectors use the first selected value by default. `USING min` and
 `USING max` cast every selected non-null value before reducing it. A missing

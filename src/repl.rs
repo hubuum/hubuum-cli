@@ -2115,6 +2115,7 @@ mod tests {
         for line in [
             "object list --class Hosts | S state asc,da",
             "object list --class Hosts | S state asc, da",
+            "object list --class Hosts | S address AS ip, da",
         ] {
             let context = pipe_completion_context(line, line.len()).expect("sort context");
             assert_eq!(context.kind, PipeCompletionKind::Field);

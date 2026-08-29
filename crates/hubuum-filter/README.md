@@ -66,7 +66,8 @@ The current native stages provide:
 - typed boolean predicates with explicit casts, null/missing tests, fanout,
   quoted JSON literals, and `NOT`/`AND`/`OR` composition;
 - projection and selector-based value extraction;
-- stable multi-key sorting with strict casts, fanout reduction, and null order;
+- stable multi-key sorting with strict scalar, date, version, natural, and
+  IPv4/IPv6 casts, fanout reduction, and null order;
 - head, tail, and count;
 - grouping, aggregation, collapse, and array unroll; and
 - JQ-compatible transforms through the in-process `jaq` evaluator.
