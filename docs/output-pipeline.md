@@ -73,6 +73,11 @@ Pipe stages now run on semantic data when commands use shared formatters:
 - `G field`, `A count`, grouped `C`, `Z`, and `U field` collection stages
 - `JQ` jq-compatible transforms evaluated by the in-process `jaq` interpreter
 
+`G` is a semantic boundary: later search, truthiness, projection, unroll, and
+sort stages operate on visible group summaries and retain or transform whole
+groups. Only `A` and grouped `C` read the attached member rows, and neither
+mutates them.
+
 This also gives table rendering more control: projection changes visible
 columns before rendering, sorting works on values rather than glyphs, and JSON
 output can show the transformed payload without re-parsing terminal text.

@@ -42,6 +42,17 @@ fn host_rows() -> OutputEnvelope {
     )
 }
 
+fn grouped_value_rows() -> OutputEnvelope {
+    OutputEnvelope::rows(
+        vec![
+            json!({"g": "x", "v": 1}),
+            json!({"g": "x", "v": 2}),
+            json!({"g": "y", "v": 3}),
+        ],
+        vec!["g".to_string(), "v".to_string()],
+    )
+}
+
 fn selector(value: &str) -> Selector {
     Selector::new(value).expect("valid selector")
 }
@@ -193,6 +204,133 @@ fn grouped_projection_uses_summary_columns() {
     let rows = group_summary_rows(&projected.value);
     assert!(rows.iter().all(|row| row.get("OS").is_some()));
     assert!(rows.iter().all(|row| row.get("Hosts").is_none()));
+}
+
+#[test]
+fn grouped_filters_use_visible_summaries_without_mutating_members() {
+    let grouped = apply_pipeline(
+        grouped_value_rows(),
+        &[
+            PipeStage::Group(vec![group_key("g", "g")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+        ],
+    )
+    .expect("group values");
+
+    let member_filter = apply_pipeline(grouped.clone(), &[PipeStage::Grep("v=1".to_string())])
+        .expect("member fields are not visible after grouping");
+    assert!(member_filter.is_empty());
+
+    let summary_filter = apply_pipeline(grouped, &[PipeStage::Grep("n>=2".to_string())])
+        .expect("aggregate aliases are visible after grouping");
+    let groups = summary_filter.value.as_array().expect("groups");
+    assert_eq!(groups.len(), 1);
+    assert_eq!(
+        group_summary_rows(&summary_filter.value),
+        vec![json!({"g": "x", "n": 2})]
+    );
+    assert_eq!(groups[0]["rows"].as_array().expect("member rows").len(), 2);
+}
+
+#[test]
+fn grouped_filters_compose_with_repeated_aggregates_count_and_collapse() {
+    let filtered = apply_pipeline(
+        grouped_value_rows(),
+        &[
+            PipeStage::Group(vec![group_key("g", "g")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+            PipeStage::Grep("n>=2".to_string()),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Sum(selector("v")), "total")),
+        ],
+    )
+    .expect("filter and aggregate groups");
+    assert_eq!(
+        group_summary_rows(&filtered.value),
+        vec![json!({"g": "x", "n": 2, "total": 3.0})]
+    );
+
+    let counted = apply_pipeline(filtered.clone(), &[PipeStage::Count]).expect("group count");
+    assert_eq!(counted.shape, OutputShape::Rows);
+    assert_eq!(
+        counted.value,
+        json!([{"g": "x", "n": 2, "total": 3.0, "count": 2}])
+    );
+
+    let collapsed = apply_pipeline(filtered, &[PipeStage::CollapseGroups]).expect("collapse");
+    assert_eq!(collapsed.shape, OutputShape::Rows);
+    assert_eq!(collapsed.value, json!([{"g": "x", "n": 2, "total": 3.0}]));
+}
+
+#[test]
+fn grouped_search_scopes_and_truthiness_use_visible_summaries() {
+    let grouped = apply_pipeline(
+        grouped_value_rows(),
+        &[
+            PipeStage::Group(vec![group_key("g", "g")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+        ],
+    )
+    .expect("group values");
+
+    let values = apply_pipeline(grouped.clone(), &[PipeStage::ValueSearch("2".to_string())])
+        .expect("search visible values");
+    assert_eq!(
+        group_summary_rows(&values.value),
+        vec![json!({"g": "x", "n": 2})]
+    );
+
+    let keys = apply_pipeline(grouped.clone(), &[PipeStage::KeySearch("^n$".to_string())])
+        .expect("project visible keys");
+    assert_eq!(
+        group_summary_rows(&keys.value),
+        vec![json!({"n": 2}), json!({"n": 1})]
+    );
+
+    let rejected = apply_pipeline(grouped.clone(), &[PipeStage::Reject("n=1".to_string())])
+        .expect("reject visible summaries");
+    assert_eq!(
+        group_summary_rows(&rejected.value),
+        vec![json!({"g": "x", "n": 2})]
+    );
+
+    let truthy = apply_pipeline(grouped, &[PipeStage::Truthy(Some(selector("missing")))])
+        .expect("truthiness filters groups");
+    assert!(truthy.is_empty());
+}
+
+#[test]
+fn grouped_unroll_transforms_summaries_and_preserves_members() {
+    let grouped = OutputEnvelope::groups(
+        vec![json!({
+            "groups": {"g": "x", "tags": ["a", "b"]},
+            "aggregates": {"n": 2},
+            "rows": [{"v": 1}, {"v": 2}]
+        })],
+        vec!["g".to_string(), "tags".to_string(), "n".to_string()],
+    );
+
+    let unrolled = apply_pipeline(
+        grouped,
+        &[
+            PipeStage::Unroll(selector("tags")),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Sum(selector("v")), "total")),
+        ],
+    )
+    .expect("unroll grouped summaries");
+
+    assert_eq!(
+        group_summary_rows(&unrolled.value),
+        vec![
+            json!({"g": "x", "tags": "a", "n": 2, "total": 3.0}),
+            json!({"g": "x", "tags": "b", "n": 2, "total": 3.0})
+        ]
+    );
+    assert!(unrolled
+        .value
+        .as_array()
+        .expect("groups")
+        .iter()
+        .all(|group| group["rows"].as_array().expect("member rows").len() == 2));
 }
 
 #[test]

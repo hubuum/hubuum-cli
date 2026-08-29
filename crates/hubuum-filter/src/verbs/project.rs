@@ -4,6 +4,7 @@ use crate::error::PipelineError;
 use crate::model::{validate_projection_terms, OutputEnvelope, OutputShape, ProjectTerm};
 use crate::selector::{select_values, Selector};
 use crate::verbs::array_values;
+use crate::verbs::collection::{group_summary_row, replace_group_summary};
 
 pub(crate) fn project_envelope(
     envelope: OutputEnvelope,
@@ -42,7 +43,7 @@ pub(crate) fn value_envelope(
             .into_iter()
             .cloned()
             .collect(),
-        OutputShape::Groups => group_rows(&envelope)?
+        OutputShape::Groups => group_summary_rows(&envelope)?
             .iter()
             .flat_map(|row| select_values(row, selector))
             .cloned()
@@ -89,38 +90,18 @@ fn project_group_rows(
 ) -> Result<OutputEnvelope, PipelineError> {
     let groups = array_values(&envelope.value)?
         .into_iter()
-        .map(|mut group| {
-            let mut summary = Map::new();
-            if let Some(values) = group.get("groups").and_then(Value::as_object) {
-                summary.extend(values.clone());
-            }
-            if let Some(values) = group.get("aggregates").and_then(Value::as_object) {
-                summary.extend(values.clone());
-            }
-
-            if let Some(group) = group.as_object_mut() {
-                group.insert(
-                    "groups".to_string(),
-                    project_value(&Value::Object(summary), terms),
-                );
-                group.insert("aggregates".to_string(), Value::Object(Map::new()));
-            }
-            group
+        .filter_map(|group| {
+            let summary = group_summary_row(&group)?;
+            replace_group_summary(group, project_value(&summary, terms))
         })
         .collect::<Vec<_>>();
     Ok(OutputEnvelope::groups(groups, output_columns(terms)))
 }
 
-fn group_rows(envelope: &OutputEnvelope) -> Result<Vec<Value>, PipelineError> {
+fn group_summary_rows(envelope: &OutputEnvelope) -> Result<Vec<Value>, PipelineError> {
     Ok(array_values(&envelope.value)?
         .into_iter()
-        .flat_map(|group| {
-            group
-                .get("rows")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        })
+        .filter_map(|group| group_summary_row(&group))
         .collect())
 }
 
