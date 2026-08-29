@@ -1,13 +1,32 @@
 # Hubuum CLI wrappers
 
 These example programs provide convenient Host inventory and placement
-workflows without becoming part of the standard `hubuum-cli` distribution.
-They are Bash wrappers and invoke `hubuum-cli` for every server operation; they
-do not use a Hubuum API client library.
+workflows without becoming built-in Hubuum commands. They are both standalone
+Bash wrappers and the `host` pilot for the
+[executable extension protocol](../../docs/extensions.md#executable-packs). Every server
+operation invokes `hubuum-cli`; the wrappers do not use a Hubuum API client
+library.
 
-Keep the four files in this directory together and put the directory on `PATH`
-if desired. The wrappers support the Bash 3.2 shipped by older macOS releases
-and require `jq`, `mktemp`, and a working `hubuum-cli` configuration.
+For the dependency-free Host, Jack, and Room implementation,
+see [`examples/hubuum-placement`](../hubuum-placement/README.md). That portable
+workflow pack runs built-in commands in-process and uses reusable typed JSONC/JQ
+workflows. These shell-backed wrappers are intentionally an executable pack and
+standalone-program comparison, including their richer DNS discovery, prompting,
+and rollback behavior.
+
+Keep the manifest, protocol dispatcher, wrappers, and common file in this
+directory together. Put the directory on `PATH` for standalone use, or install
+the directory as a local executable pack:
+
+```sh
+hubuum-cli extension install examples/hubuum-wrappers
+hubuum-cli extension host show server-01
+hubuum-cli extension host move server-01 J-42
+```
+
+Unlike portable workflow packs, these wrappers have runtime dependencies. They
+support the Bash 3.2 shipped by older macOS releases and require `jq`, `mktemp`,
+and a working `hubuum-cli` configuration.
 `hubuum-host-new` also uses the common `host` DNS utility unless `--no-dns` is
 selected.
 
@@ -21,6 +40,18 @@ Hosts <-> Jacks <-> Rooms
 
 The class names can be changed with `HUBUUM_HOSTS_CLASS`,
 `HUBUUM_JACKS_CLASS`, and `HUBUUM_ROOMS_CLASS`.
+
+When installed as a pack, the same values can be declared without exposing the
+complete CLI configuration:
+
+```toml
+[extensions.config.host]
+hosts_class = "Hosts"
+jacks_class = "Jacks"
+rooms_class = "Rooms"
+host_collection = "inventory"
+default_jack = "J-000"
+```
 
 Host lookup accepts an exact object name or ID, plus these exact values under
 `data.facts`:
@@ -85,6 +116,7 @@ hubuum-host server-01.example.org
 hubuum-host --id 00-11-22-33-44-55
 hubuum-host --verbose server-01
 hubuum-host --json server-01
+hubuum-cli extension host show server-01
 ```
 
 The normal display selects useful fields from the facts structure and nests
@@ -103,6 +135,7 @@ hubuum-move --from server-01 --to R-301 --jack J-42
 hubuum-move server-01 server-02 --target-type host --mode switch
 hubuum-move server-01 none
 hubuum-move server-01 J-42 --dry-run
+hubuum-cli extension host move server-01 J-42 --dry-run
 ```
 
 Moving removes the source Host's other Jack relations. When a target Jack is
@@ -126,6 +159,7 @@ hubuum-host-new server-01.example.org SERIAL123  # Infer a unique collection
 hubuum-host-new --collection inventory server-01.example.org SERIAL123
 hubuum-host-new --collection inventory --to R-301 --jack J-42 server-01
 hubuum-host-new --collection inventory --no-dns --ipv4 192.0.2.10 server-01
+hubuum-cli extension host create --collection inventory --no-dns server-01
 ```
 
 The object name defaults to the canonical FQDN and can be overridden with

@@ -1,18 +1,20 @@
 use std::any::TypeId;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use hubuum_filter::{help_topics, topic_help, verb_summaries, PipeStage};
 
-use crate::app::AppRuntime;
 use crate::commands::{AutoCompleter, CliOption};
+use crate::config::AppConfig;
 use crate::errors::{AppError, ReauthenticationRetry};
+use crate::extensions::ExtensionRegistry;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
 use crate::redirection::OutputRedirect;
 use crate::services::filter_specs_for_command_path;
+use crate::services::AppServices;
 use crate::suggestions::did_you_mean_message;
 use crate::terminal::terminal_width;
 use crate::theme::{paint, paint_command, ThemeRole};
@@ -34,10 +36,206 @@ pub struct OptionSpec {
     pub completion: CompletionSpec,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandEffects {
+    ReadOnly,
+    Mutating,
+}
+
+impl CommandEffects {
+    pub fn may_mutate(self) -> bool {
+        self == Self::Mutating
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::Mutating => "mutating",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowValueType {
+    Text,
+    Integer,
+    Number,
+    Boolean,
+    Json,
+}
+
+impl WorkflowValueType {
+    fn from_option(option: &OptionSpec) -> Self {
+        if option.flag {
+            return Self::Boolean;
+        }
+        let field_type = option.field_type_help.to_ascii_lowercase().replace(' ', "");
+        let scalar_type = field_type
+            .strip_prefix("option<")
+            .and_then(|value| value.strip_suffix('>'))
+            .or_else(|| {
+                field_type
+                    .strip_prefix("vec<")
+                    .and_then(|value| value.strip_suffix('>'))
+            })
+            .unwrap_or(&field_type);
+        match scalar_type {
+            "bool" | "boolean" | "flag" => Self::Boolean,
+            "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64"
+            | "u128" | "usize" | "integer" => Self::Integer,
+            "f32" | "f64" | "number" => Self::Number,
+            "serde_json::value::value" | "serde_json::value" | "value" | "json" => Self::Json,
+            _ => Self::Text,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "string",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Json => "json",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowCardinality {
+    One,
+    Repeated,
+    Fixed(usize),
+    RepeatedFixed(usize),
+}
+
+impl WorkflowCardinality {
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::One => "one",
+            Self::Repeated => "repeated",
+            Self::Fixed(_) => "fixed",
+            Self::RepeatedFixed(_) => "repeated_fixed",
+        }
+    }
+
+    pub fn group_size(self) -> Option<usize> {
+        match self {
+            Self::Fixed(count) | Self::RepeatedFixed(count) => Some(count),
+            Self::One | Self::Repeated => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInputContract {
+    id: String,
+    option_index: usize,
+    value_type: WorkflowValueType,
+    cardinality: WorkflowCardinality,
+    required: bool,
+    flag: bool,
+}
+
+impl WorkflowInputContract {
+    fn new(option_index: usize, option: &OptionSpec) -> Self {
+        let id = option
+            .long
+            .as_deref()
+            .map(|long| long.trim_start_matches('-').to_string())
+            .unwrap_or_else(|| option.name.clone());
+        let cardinality = match (option.repeatable, option.nargs) {
+            (true, Some(count)) => WorkflowCardinality::RepeatedFixed(count),
+            (false, Some(count)) => WorkflowCardinality::Fixed(count),
+            (true, None) => WorkflowCardinality::Repeated,
+            (false, None) => WorkflowCardinality::One,
+        };
+        Self {
+            id,
+            option_index,
+            value_type: WorkflowValueType::from_option(option),
+            cardinality,
+            required: option.required,
+            flag: option.flag,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn value_type(&self) -> WorkflowValueType {
+        self.value_type
+    }
+
+    pub fn cardinality(&self) -> WorkflowCardinality {
+        self.cardinality
+    }
+
+    pub fn required(&self) -> bool {
+        self.required
+    }
+
+    pub fn flag(&self) -> bool {
+        self.flag
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowCommandContract {
+    command_id: String,
+    inputs: Vec<WorkflowInputContract>,
+    input_indices: BTreeMap<String, usize>,
+    effects: CommandEffects,
+}
+
+impl WorkflowCommandContract {
+    fn new(command_id: String, options: &[OptionSpec], effects: CommandEffects) -> Self {
+        let mut inputs = Vec::with_capacity(options.len());
+        let mut input_indices = BTreeMap::new();
+        for (index, option) in options.iter().enumerate() {
+            let input = WorkflowInputContract::new(index, option);
+            if ["help", "json", "output", "table-headers"].contains(&input.id.as_str()) {
+                continue;
+            }
+            let id = input.id.clone();
+            assert!(
+                input_indices.insert(id.clone(), inputs.len()).is_none(),
+                "command '{command_id}' exposes duplicate workflow input id '{id}'"
+            );
+            inputs.push(input);
+        }
+        Self {
+            command_id,
+            inputs,
+            input_indices,
+            effects,
+        }
+    }
+
+    pub fn command_id(&self) -> &str {
+        &self.command_id
+    }
+
+    pub fn input(&self, id: &str) -> Option<&WorkflowInputContract> {
+        self.input_indices
+            .get(id)
+            .and_then(|index| self.inputs.get(*index))
+    }
+
+    pub fn inputs(&self) -> impl Iterator<Item = &WorkflowInputContract> {
+        self.inputs.iter()
+    }
+
+    pub fn effects(&self) -> CommandEffects {
+        self.effects
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CompletionSpec {
     None,
     Dynamic(AutoCompleter),
+    Static(Vec<String>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -56,6 +254,42 @@ pub struct CommandSpec {
     pub options: Vec<OptionSpec>,
     pub reauthentication_retry: ReauthenticationRetry,
     pub handler: Arc<dyn AsyncCommandHandler>,
+    workflow_contract: WorkflowCommandContract,
+}
+
+impl CommandSpec {
+    pub fn new(
+        name: impl Into<String>,
+        options: Vec<OptionSpec>,
+        reauthentication_retry: ReauthenticationRetry,
+        effects: CommandEffects,
+        handler: Arc<dyn AsyncCommandHandler>,
+    ) -> Self {
+        let name = name.into();
+        Self {
+            workflow_contract: WorkflowCommandContract::new(name.clone(), &options, effects),
+            name,
+            about: None,
+            long_about: None,
+            examples: None,
+            options,
+            reauthentication_retry,
+            handler,
+        }
+    }
+
+    pub fn workflow_contract(&self) -> &WorkflowCommandContract {
+        &self.workflow_contract
+    }
+
+    pub fn workflow_input_option(&self, input: &WorkflowInputContract) -> &OptionSpec {
+        &self.options[input.option_index]
+    }
+
+    fn refresh_workflow_contract(&mut self, command_id: String) {
+        self.workflow_contract =
+            WorkflowCommandContract::new(command_id, &self.options, self.workflow_contract.effects);
+    }
 }
 
 impl Debug for CommandSpec {
@@ -67,6 +301,7 @@ impl Debug for CommandSpec {
             .field("examples", &self.examples)
             .field("options", &self.options)
             .field("reauthentication_retry", &self.reauthentication_retry)
+            .field("workflow_contract", &self.workflow_contract)
             .finish()
     }
 }
@@ -78,21 +313,29 @@ pub trait AsyncCommandHandler: Send + Sync {
         ctx: CommandContext,
         invocation: CommandInvocation,
     ) -> Result<CommandOutcome, AppError>;
+
+    fn requires_authentication(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone)]
 pub struct CommandCatalog {
     root: ScopeSpec,
+    extensions: Arc<ExtensionRegistry>,
 }
 
 #[derive(Clone)]
 pub struct CommandContext {
-    pub app: Arc<AppRuntime>,
+    pub config: Arc<AppConfig>,
+    pub services: Option<Arc<AppServices>>,
+    pub catalog: Arc<CatalogStore>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CommandInvocation {
     pub raw_line: String,
+    pub command_index: usize,
     pub command_path: Vec<String>,
     pub pipeline: Vec<PipeStage>,
     pub pipeline_suffix: Option<String>,
@@ -117,6 +360,33 @@ pub enum ScopeAction {
 #[derive(Default)]
 pub struct CommandCatalogBuilder {
     root: ScopeSpec,
+    extensions: Arc<ExtensionRegistry>,
+}
+
+pub struct CatalogStore {
+    current: RwLock<Arc<CommandCatalog>>,
+}
+
+impl CatalogStore {
+    pub fn new(catalog: CommandCatalog) -> Self {
+        Self {
+            current: RwLock::new(Arc::new(catalog)),
+        }
+    }
+
+    pub fn snapshot(&self) -> Arc<CommandCatalog> {
+        self.current
+            .read()
+            .expect("catalog lock should not be poisoned")
+            .clone()
+    }
+
+    pub fn replace(&self, catalog: CommandCatalog) {
+        *self
+            .current
+            .write()
+            .expect("catalog lock should not be poisoned") = Arc::new(catalog);
+    }
 }
 
 impl ScopeSpec {
@@ -133,10 +403,27 @@ impl CommandCatalogBuilder {
     pub fn new() -> Self {
         Self {
             root: ScopeSpec::new("root"),
+            extensions: Arc::new(ExtensionRegistry::default()),
         }
     }
 
-    pub fn add_command(&mut self, path: &[&str], command: CommandSpec) -> &mut Self {
+    pub fn set_extensions(&mut self, extensions: Arc<ExtensionRegistry>) -> &mut Self {
+        self.extensions = extensions;
+        self
+    }
+
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        self.extensions.as_ref()
+    }
+
+    pub fn add_command(&mut self, path: &[&str], mut command: CommandSpec) -> &mut Self {
+        let command_id = path
+            .iter()
+            .copied()
+            .chain(std::iter::once(command.name.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        command.refresh_workflow_contract(command_id);
         let mut current = &mut self.root;
         for segment in path {
             current = current
@@ -148,18 +435,38 @@ impl CommandCatalogBuilder {
         self
     }
 
+    pub fn command(&self, path: &[String]) -> Option<&CommandSpec> {
+        let (name, scope) = path.split_last()?;
+        let mut current = &self.root;
+        for segment in scope {
+            current = current.scopes.get(segment)?;
+        }
+        current.commands.get(name)
+    }
+
     pub fn build(self) -> CommandCatalog {
-        CommandCatalog { root: self.root }
+        CommandCatalog {
+            root: self.root,
+            extensions: self.extensions,
+        }
     }
 }
 
 impl CommandCatalog {
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        self.extensions.as_ref()
+    }
     pub fn scope(&self, path: &[String]) -> Option<&ScopeSpec> {
         let mut current = &self.root;
         for segment in path {
             current = current.scopes.get(segment)?;
         }
         Some(current)
+    }
+
+    pub fn command(&self, path: &[String]) -> Option<&CommandSpec> {
+        let (name, scope) = path.split_last()?;
+        self.scope(scope)?.commands.get(name)
     }
 
     pub fn resolve_command<'a>(
@@ -178,7 +485,7 @@ impl CommandCatalog {
         let mut effective_scope = scope.to_vec();
         let mut traversed = current_scope;
 
-        for part in parts {
+        for (command_index, part) in parts.iter().enumerate() {
             if let Some(next_scope) = traversed.scopes.get(part) {
                 effective_scope.push(part.clone());
                 traversed = next_scope;
@@ -191,6 +498,7 @@ impl CommandCatalog {
                 return Ok(ResolvedCommand {
                     scope_path: effective_scope,
                     command_path,
+                    command_index,
                     command,
                 });
             }
@@ -388,11 +696,13 @@ impl CommandCatalog {
             help.push_str(&paint(ThemeRole::Heading, "Examples:"));
             help.push('\n');
             for line in examples.lines() {
-                help.push_str(&paint_command(format!(
-                    "  {} {}",
-                    command_path.join(" "),
-                    line
-                )));
+                let command = command_path.join(" ");
+                let example = if line.is_empty() {
+                    format!("  {command}")
+                } else {
+                    format!("  {command} {line}")
+                };
+                help.push_str(&paint_command(example));
                 help.push('\n');
             }
         }
@@ -860,6 +1170,7 @@ impl OptionSpec {
             autocomplete: match self.completion {
                 CompletionSpec::None => None,
                 CompletionSpec::Dynamic(function) => Some(function),
+                CompletionSpec::Static(_) => None,
             },
         }
     }
@@ -879,6 +1190,7 @@ fn render_tree_scope(scope: &ScopeSpec, prefix: String, lines: &mut Vec<String>)
 pub struct ResolvedCommand<'a> {
     pub scope_path: Vec<String>,
     pub command_path: Vec<String>,
+    pub command_index: usize,
     pub command: &'a CommandSpec,
 }
 
@@ -886,8 +1198,9 @@ pub struct ResolvedCommand<'a> {
 mod tests {
     use super::{
         command_help_fragment, render_scope_summary_at_width, scope_command_summary,
-        AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandInvocation,
-        CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction, ScopeSpec,
+        AsyncCommandHandler, CommandCatalogBuilder, CommandContext, CommandEffects,
+        CommandInvocation, CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
+        ScopeSpec, WorkflowCardinality, WorkflowValueType,
     };
     use async_trait::async_trait;
     use regex::Regex;
@@ -919,15 +1232,15 @@ mod tests {
     }
 
     fn command(name: &str) -> CommandSpec {
-        CommandSpec {
-            name: name.to_string(),
-            about: Some("about".to_string()),
-            long_about: None,
-            examples: None,
-            options: Vec::new(),
-            reauthentication_retry: ReauthenticationRetry::Unsafe,
-            handler: Arc::new(NoopHandler),
-        }
+        let mut command = CommandSpec::new(
+            name,
+            Vec::new(),
+            ReauthenticationRetry::Unsafe,
+            CommandEffects::Mutating,
+            Arc::new(NoopHandler),
+        );
+        command.about = Some("about".to_string());
+        command
     }
 
     fn strip_ansi(text: &str) -> String {
@@ -950,7 +1263,88 @@ mod tests {
             resolved.command_path,
             vec!["class".to_string(), "list".to_string()]
         );
+        assert_eq!(resolved.command_index, 1);
+
+        let scoped = catalog
+            .resolve_command(&["class".to_string()], &["list".to_string()])
+            .expect("scoped command should resolve");
+        assert_eq!(scoped.command_path, resolved.command_path);
+        assert_eq!(scoped.command_index, 0);
         assert!(catalog.resolve_scope(&[], &["class".to_string()]).is_some());
+    }
+
+    #[test]
+    fn workflow_effects_are_independent_from_reauthentication_retry() {
+        let retryable_mutation = CommandSpec::new(
+            "mutate",
+            Vec::new(),
+            ReauthenticationRetry::Safe,
+            CommandEffects::Mutating,
+            Arc::new(NoopHandler),
+        );
+        let conservative_read = CommandSpec::new(
+            "read",
+            Vec::new(),
+            ReauthenticationRetry::Unsafe,
+            CommandEffects::ReadOnly,
+            Arc::new(NoopHandler),
+        );
+
+        assert!(retryable_mutation
+            .workflow_contract()
+            .effects()
+            .may_mutate());
+        assert!(!conservative_read.workflow_contract().effects().may_mutate());
+
+        let catalog = build_command_catalog();
+        let backup_download = catalog
+            .resolve_command(&[], &["backup".to_string(), "download".to_string()])
+            .expect("backup download command");
+        assert_eq!(
+            backup_download.command.reauthentication_retry,
+            ReauthenticationRetry::Safe
+        );
+        assert!(backup_download
+            .command
+            .workflow_contract()
+            .effects()
+            .may_mutate());
+
+        let alias_list = catalog
+            .resolve_command(&[], &["alias".to_string(), "list".to_string()])
+            .expect("alias list command");
+        assert_eq!(
+            alias_list.command.reauthentication_retry,
+            ReauthenticationRetry::Unsafe
+        );
+        assert!(!alias_list
+            .command
+            .workflow_contract()
+            .effects()
+            .may_mutate());
+    }
+
+    #[test]
+    fn workflow_contract_exposes_stable_command_and_input_ids() {
+        let catalog = build_command_catalog();
+        let resolved = catalog
+            .resolve_command(&[], &["object".to_string(), "list".to_string()])
+            .expect("object list command");
+        let contract = resolved.command.workflow_contract();
+
+        assert_eq!(contract.command_id(), "object list");
+        assert_eq!(
+            contract.input("class").map(|input| input.value_type()),
+            Some(WorkflowValueType::Text)
+        );
+        assert_eq!(
+            contract.input("where").map(|input| input.cardinality()),
+            Some(WorkflowCardinality::RepeatedFixed(3))
+        );
+        assert_eq!(
+            contract.input("all").map(|input| input.value_type()),
+            Some(WorkflowValueType::Boolean)
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@ use super::{
     render_task_record, CliCommand, PageSelection,
 };
 use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
@@ -83,6 +83,7 @@ pub struct TaskShow {
 
 impl CliCommand for TaskShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -128,6 +129,7 @@ pub struct TaskEvents {
 
 impl CliCommand for TaskEvents {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -158,6 +160,7 @@ pub struct TaskQueue {}
 
 impl CliCommand for TaskQueue {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let state = services.gateway().task_queue_state()?;
@@ -205,6 +208,7 @@ pub struct TaskList {
 
 impl CliCommand for TaskList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -228,6 +232,7 @@ pub struct TaskOutputCmd {
 
 impl CliCommand for TaskOutputCmd {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;

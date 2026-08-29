@@ -33,25 +33,56 @@ struct OptionParseSpec {
 }
 
 impl CommandTokenizer {
+    #[cfg(test)]
     pub fn new(input: &str, cmd_name: &str, option_defs: &[CliOption]) -> Result<Self, AppError> {
-        Self::new_with_value_source_resolution(input, cmd_name, option_defs, true)
+        let tokens = split(input).ok_or(AppError::InvalidInput)?;
+        let command_index = tokens
+            .iter()
+            .position(|token| token == cmd_name)
+            .ok_or(AppError::InvalidInput)?;
+        Self::new_at(input, command_index, option_defs)
     }
 
+    pub(crate) fn new_at(
+        input: &str,
+        command_index: usize,
+        option_defs: &[CliOption],
+    ) -> Result<Self, AppError> {
+        Self::new_with_value_source_resolution_at(input, command_index, option_defs, true)
+    }
+
+    #[cfg(test)]
     pub(crate) fn new_without_value_source_resolution(
         input: &str,
         cmd_name: &str,
         option_defs: &[CliOption],
     ) -> Result<Self, AppError> {
-        Self::new_with_value_source_resolution(input, cmd_name, option_defs, false)
+        let tokens = split(input).ok_or(AppError::InvalidInput)?;
+        let command_index = tokens
+            .iter()
+            .position(|token| token == cmd_name)
+            .ok_or(AppError::InvalidInput)?;
+        Self::new_without_value_source_resolution_at(input, command_index, option_defs)
     }
 
-    fn new_with_value_source_resolution(
+    pub(crate) fn new_without_value_source_resolution_at(
         input: &str,
-        cmd_name: &str,
+        command_index: usize,
+        option_defs: &[CliOption],
+    ) -> Result<Self, AppError> {
+        Self::new_with_value_source_resolution_at(input, command_index, option_defs, false)
+    }
+
+    fn new_with_value_source_resolution_at(
+        input: &str,
+        command_index: usize,
         option_defs: &[CliOption],
         resolve_value_sources: bool,
     ) -> Result<Self, AppError> {
         let tokens = split(input).ok_or(AppError::InvalidInput)?;
+        if command_index >= tokens.len() {
+            return Err(AppError::InvalidInput);
+        }
         let option_lookup = Self::build_option_lookup(option_defs);
         let mut tokenizer = CommandTokenizer {
             raw_tokens: tokens.clone(),
@@ -65,16 +96,29 @@ impl CommandTokenizer {
         trace!("Tokenizer generated: {tokens:?}");
 
         let mut idx = 0;
+        let mut options_ended = false;
         while idx < tokens.len() {
             let token = &tokens[idx];
 
-            if tokenizer.command.is_empty() && token == cmd_name {
+            if idx == command_index {
+                if token.starts_with('-') {
+                    return Err(AppError::InvalidInput);
+                }
                 tokenizer.command.clone_from(token);
                 idx += 1;
                 continue;
             }
 
-            if token.starts_with('-') {
+            if token == "--" && !options_ended {
+                if tokenizer.command.is_empty() {
+                    return Err(AppError::InvalidInput);
+                }
+                options_ended = true;
+                idx += 1;
+                continue;
+            }
+
+            if !options_ended && token.starts_with('-') {
                 if tokenizer.command.is_empty() {
                     return Err(AppError::InvalidInput);
                 }
@@ -616,6 +660,37 @@ mod tests {
             Some(&"Device".to_string())
         );
         assert_eq!(tokens.get_positionals(), &["router-1".to_string()]);
+    }
+
+    #[test]
+    fn double_dash_preserves_option_like_positionals() {
+        let options = vec![opt("class", Some("-c"), Some("--class"), false)];
+
+        let tokens = CommandTokenizer::new(
+            "object show --class=Device -- --output -temporary",
+            "show",
+            &options,
+        )
+        .expect("the option terminator should preserve positional values");
+
+        assert_eq!(
+            tokens.get_options().get("class"),
+            Some(&"Device".to_string())
+        );
+        assert_eq!(
+            tokens.get_positionals(),
+            &["--output".to_string(), "-temporary".to_string()]
+        );
+    }
+
+    #[test]
+    fn explicit_command_index_selects_a_repeated_command_name() {
+        let tokens = CommandTokenizer::new_at("extension demo demo target", 2, &[])
+            .expect("the resolved command occurrence should tokenize");
+
+        assert_eq!(tokens.get_scopes(), &["extension", "demo"]);
+        assert_eq!(tokens.get_command().expect("command"), "demo");
+        assert_eq!(tokens.get_positionals(), &["target"]);
     }
 
     #[test]

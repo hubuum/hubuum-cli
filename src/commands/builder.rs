@@ -8,12 +8,17 @@ use crate::catalog::{
     CommandOutcome, CommandSpec, CompletionSpec, OptionSpec, ScopeAction,
 };
 use crate::commands::{self, command_options, render_format, table_headers, CliCommand};
+use crate::config::get_config;
 use crate::errors::AppError;
+use crate::extensions::{ExtensionRegistry, WorkflowProgram};
 use crate::output::{
     reset_output, set_pipeline, set_pipeline_suffix, set_render_format, set_table_headers,
     take_output,
 };
 use crate::tokenizer::CommandTokenizer;
+
+use super::extension::register_extension_commands;
+use super::extension_management::register_commands as register_extension_management_commands;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct CommandDocs {
@@ -24,6 +29,7 @@ pub(crate) struct CommandDocs {
 
 pub fn build_command_catalog() -> CommandCatalog {
     let mut builder = CommandCatalogBuilder::new();
+    let mut extensions = ExtensionRegistry::discover(&get_config());
 
     commands::admin::register_commands(&mut builder);
     commands::alias::register_commands(&mut builder);
@@ -54,6 +60,13 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);
+    extensions.compile_workflows(|manifest, config| {
+        WorkflowProgram::compile(manifest, config, |path| builder.command(path))
+    });
+    let extensions = Arc::new(extensions);
+    builder.set_extensions(extensions.clone());
+    register_extension_management_commands(&mut builder);
+    register_extension_commands(&mut builder, &extensions);
 
     builder.build()
 }
@@ -84,17 +97,19 @@ where
         })
         .collect();
 
-    CommandSpec {
-        name: name.to_string(),
-        about: docs.about.map(str::to_string),
-        long_about: docs.long_about.map(str::to_string),
-        examples: docs.examples.map(str::to_string),
+    let mut spec = CommandSpec::new(
+        name,
         options,
-        reauthentication_retry: C::REAUTHENTICATION_RETRY,
-        handler: Arc::new(CommandHandler {
+        C::REAUTHENTICATION_RETRY,
+        C::EFFECTS,
+        Arc::new(CommandHandler {
             command: Arc::new(command),
         }) as Arc<dyn AsyncCommandHandler>,
-    }
+    );
+    spec.about = docs.about.map(str::to_string);
+    spec.long_about = docs.long_about.map(str::to_string);
+    spec.examples = docs.examples.map(str::to_string);
+    spec
 }
 
 struct CommandHandler<C>
@@ -115,7 +130,11 @@ where
         invocation: CommandInvocation,
     ) -> Result<CommandOutcome, AppError> {
         let command = self.command.clone();
-        let services = ctx.app.services.clone();
+        let services = ctx.services.clone().ok_or_else(|| {
+            AppError::CommandExecutionError(
+                "This command requires an authenticated Hubuum session".to_string(),
+            )
+        })?;
         let raw_line = invocation.raw_line.clone();
         let pipeline = invocation.pipeline.clone();
 
@@ -123,11 +142,11 @@ where
             reset_output()?;
             set_pipeline(pipeline)?;
             set_pipeline_suffix(invocation.pipeline_suffix.clone())?;
-            let cmd_name = invocation.command_path.last().cloned().ok_or_else(|| {
-                AppError::CommandExecutionError("Missing command name".to_string())
-            })?;
-
-            let tokens = CommandTokenizer::new(&raw_line, &cmd_name, &command_options::<C>())?;
+            let tokens = CommandTokenizer::new_at(
+                &raw_line,
+                invocation.command_index,
+                &command_options::<C>(),
+            )?;
             set_render_format(render_format(&tokens)?)?;
             set_table_headers(table_headers(&tokens)?)?;
 

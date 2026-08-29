@@ -6,7 +6,7 @@ use serde_json::{json, to_string_pretty};
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_command_catalog, desired_format, CliCommand};
 use crate::autocomplete::{command_aliases, file_paths};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
     get_config, is_user_preference_key, persist_command_alias, reload_runtime_config,
     unset_persisted_value,
@@ -81,6 +81,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct AliasList {}
 
 impl CliCommand for AliasList {
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
         let aliases = get_config();
@@ -114,6 +116,8 @@ pub struct AliasShow {
 }
 
 impl CliCommand for AliasShow {
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let name = CommandAliasName::new(query.name)?;

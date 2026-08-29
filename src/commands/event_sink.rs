@@ -9,7 +9,7 @@ use super::{
     CliCommand, PageSelection,
 };
 use crate::autocomplete::{event_sink_kinds, event_sinks};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json_message;
 use crate::services::AppServices;
@@ -88,6 +88,7 @@ pub struct EventSinkList {
 
 impl CliCommand for EventSinkList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -112,6 +113,7 @@ pub struct EventSinkShow {
 
 impl CliCommand for EventSinkShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;

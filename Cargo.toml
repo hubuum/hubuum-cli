@@ -4,14 +4,21 @@ version = "0.0.9"
 edition = "2021"
 
 [workspace]
-members = ["cli_command_derive", "crates/hubuum-filter", "crates/hubuum-theme"]
+members = [
+    "cli_command_derive",
+    "crates/hubuum-extension-protocol",
+    "crates/hubuum-filter",
+    "crates/hubuum-theme",
+]
 resolver = "2"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 cli_command_derive = { path = "./cli_command_derive" }
 hubuum-filter = { path = "./crates/hubuum-filter" }
+hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
 thiserror = "2"
 tracing-subscriber = { version = "0", features = ["fmt", "env-filter"] }
@@ -40,6 +47,7 @@ reedline = "0.49"
 tokio = { version = "1", features = [
     "fs",
     "macros",
+    "process",
     "rt-multi-thread",
     "sync",
 ] }

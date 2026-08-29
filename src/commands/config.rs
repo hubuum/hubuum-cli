@@ -7,7 +7,7 @@ use hubuum_filter::OutputEnvelope;
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
 use crate::autocomplete::{config_keys, config_values};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
     config_key_names, get_config, get_config_state, is_user_preference_key,
     persist_user_preferences, reload_runtime_config, set_persisted_value, unset_persisted_value,
@@ -154,6 +154,9 @@ pub struct ConfigShow {
 }
 
 impl CliCommand for ConfigShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_show(tokens)
     }
@@ -185,6 +188,9 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
 pub struct ConfigPaths {}
 
 impl CliCommand for ConfigPaths {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_paths(tokens)
     }
@@ -295,6 +301,7 @@ pub struct ConfigRemote {}
 
 impl CliCommand for ConfigRemote {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
@@ -320,6 +327,7 @@ pub struct ConfigImport {}
 
 impl CliCommand for ConfigImport {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::Mutating;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;

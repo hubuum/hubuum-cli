@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
 use crate::output::set_semantic_output;
@@ -34,6 +34,7 @@ pub struct AdminConfig {}
 
 impl CliCommand for AdminConfig {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;

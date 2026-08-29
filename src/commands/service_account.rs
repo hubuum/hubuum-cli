@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
 use crate::autocomplete::{groups, service_account_token_ids, service_accounts};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
@@ -227,6 +227,7 @@ pub struct ServiceAccountList {
 
 impl CliCommand for ServiceAccountList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -265,6 +266,7 @@ pub struct ServiceAccountShow {
 
 impl CliCommand for ServiceAccountShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -357,6 +359,7 @@ pub struct ServiceAccountTokenList {
 
 impl CliCommand for ServiceAccountTokenList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -399,6 +402,7 @@ pub struct ServiceAccountTokenShow {
 
 impl CliCommand for ServiceAccountTokenShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

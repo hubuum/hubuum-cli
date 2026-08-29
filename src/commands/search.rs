@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
 use crate::autocomplete::search_kinds;
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::command_line::rebuild_with_replaced_options;
 use crate::config::get_config;
 use crate::domain::{
@@ -99,6 +99,7 @@ pub struct SearchCommand {
 
 impl CliCommand for SearchCommand {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;

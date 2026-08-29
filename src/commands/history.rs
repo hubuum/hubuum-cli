@@ -8,7 +8,7 @@ use super::{
     PageSelection,
 };
 use crate::autocomplete::{classes, objects_from_class};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::services::{AppServices, HistoryInput, HistoryScope};
 use crate::tokenizer::CommandTokenizer;
@@ -78,6 +78,7 @@ enum HistorySelector {
 
 impl CliCommand for HistoryShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -146,6 +147,7 @@ pub struct ClassHistory {
 
 impl CliCommand for ClassHistory {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -205,6 +207,7 @@ pub struct ObjectHistory {
 
 impl CliCommand for ObjectHistory {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;

@@ -19,7 +19,10 @@ use crate::domain::{
     CommandAliasDescription, CommandAliasName, CommandAliasTarget, CommandAliases, ComputedFieldSet,
 };
 use crate::errors::AppError;
-use crate::files::{get_system_config_path, get_user_config_path};
+use crate::files::{
+    get_system_config_path, get_system_extension_root, get_user_config_path,
+    get_user_extension_root,
+};
 use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
     TableHeaders, TableStyle, TableWidth, TableWrap,
@@ -143,6 +146,39 @@ pub struct AppConfig {
     pub repl: ReplConfig,
     pub relations: RelationsConfig,
     pub output: OutputConfig,
+    #[serde(default)]
+    pub extensions: ExtensionsConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExtensionsConfig {
+    #[serde(default = "default_system_extension_roots")]
+    pub system_roots: Vec<PathBuf>,
+    #[serde(default = "default_user_extension_roots")]
+    pub user_roots: Vec<PathBuf>,
+    #[serde(default)]
+    pub disabled: Vec<String>,
+    #[serde(default)]
+    pub config: BTreeMap<String, TomlValue>,
+}
+
+impl Default for ExtensionsConfig {
+    fn default() -> Self {
+        Self {
+            system_roots: default_system_extension_roots(),
+            user_roots: default_user_extension_roots(),
+            disabled: Vec::new(),
+            config: BTreeMap::new(),
+        }
+    }
+}
+
+fn default_system_extension_roots() -> Vec<PathBuf> {
+    vec![get_system_extension_root()]
+}
+
+fn default_user_extension_roots() -> Vec<PathBuf> {
+    vec![get_user_extension_root()]
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -304,6 +340,9 @@ enum ConfigValueKind {
     StringMap,
     StringNestedListMap,
     ComputedFieldSetMap,
+    PathList,
+    StringList,
+    TomlTable,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -321,6 +360,34 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: None,
         env_var: "HUBUUM_CLI__ALIASES",
         value_kind: ConfigValueKind::StringMap,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "extensions.system_roots",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__EXTENSIONS__SYSTEM_ROOTS",
+        value_kind: ConfigValueKind::PathList,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "extensions.user_roots",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__EXTENSIONS__USER_ROOTS",
+        value_kind: ConfigValueKind::PathList,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "extensions.disabled",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__EXTENSIONS__DISABLED",
+        value_kind: ConfigValueKind::StringList,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "extensions.config",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__EXTENSIONS__CONFIG",
+        value_kind: ConfigValueKind::TomlTable,
         sensitive: false,
     },
     ConfigKeyDescriptor {
@@ -616,6 +683,7 @@ impl Default for AppConfig {
                 object_class_computed_fields: HashMap::new(),
                 legacy_object_list_class_meta: HashMap::new(),
             },
+            extensions: ExtensionsConfig::default(),
         }
     }
 }
@@ -667,7 +735,10 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         ConfigValueKind::StringMap
         | ConfigValueKind::StringListMap
         | ConfigValueKind::StringNestedListMap
-        | ConfigValueKind::ComputedFieldSetMap => Vec::new(),
+        | ConfigValueKind::ComputedFieldSetMap
+        | ConfigValueKind::PathList
+        | ConfigValueKind::StringList
+        | ConfigValueKind::TomlTable => Vec::new(),
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
@@ -996,6 +1067,21 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
     let mut builder = Config::builder()
         // Start with default values
         .set_default("aliases", HashMap::<String, String>::new())?
+        .set_default(
+            "extensions.system_roots",
+            default_system_extension_roots()
+                .into_iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+        )?
+        .set_default(
+            "extensions.user_roots",
+            default_user_extension_roots()
+                .into_iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+        )?
+        .set_default("extensions.disabled", Vec::<String>::new())?
         .set_default("output.format", Defaults::OUTPUT_FORMAT.to_string())?
         .set_default("output.color", Defaults::OUTPUT_COLOR.to_string())?
         .set_default("output.theme", Defaults::OUTPUT_THEME)?
@@ -1239,6 +1325,10 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
 fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
     match key {
         "aliases" => ConfigValueRef::CommandAliases(&config.aliases),
+        "extensions.system_roots" => ConfigValueRef::PathList(&config.extensions.system_roots),
+        "extensions.user_roots" => ConfigValueRef::PathList(&config.extensions.user_roots),
+        "extensions.disabled" => ConfigValueRef::StringList(&config.extensions.disabled),
+        "extensions.config" => ConfigValueRef::TomlTable(&config.extensions.config),
         "server.hostname" => ConfigValueRef::String(&config.server.hostname),
         "server.port" => ConfigValueRef::U16(config.server.port),
         "server.ssl_validation" => ConfigValueRef::Bool(config.server.ssl_validation),
@@ -1313,6 +1403,9 @@ enum ConfigValueRef<'a> {
     StringListMap(&'a HashMap<String, Vec<String>>),
     StringNestedListMap(&'a HashMap<String, HashMap<String, Vec<String>>>),
     ComputedFieldSetMap(&'a HashMap<String, ComputedFieldSet>),
+    PathList(&'a [PathBuf]),
+    StringList(&'a [String]),
+    TomlTable(&'a BTreeMap<String, TomlValue>),
 }
 
 fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
@@ -1351,6 +1444,15 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::StringListMap(value) => format_string_list_map(value),
         ConfigValueRef::StringNestedListMap(value) => format_string_nested_list_map(value),
         ConfigValueRef::ComputedFieldSetMap(value) => format_computed_field_set_map(value),
+        ConfigValueRef::PathList(value) => value
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ConfigValueRef::StringList(value) => value.join("\n"),
+        ConfigValueRef::TomlTable(value) => {
+            toml::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string())
+        }
     }
 }
 
@@ -1364,6 +1466,9 @@ fn serialize_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String 
         ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::ComputedFieldSetMap(value) => to_json_string(value).unwrap_or_default(),
+        ConfigValueRef::PathList(value) => to_json_string(value).unwrap_or_default(),
+        ConfigValueRef::StringList(value) => to_json_string(value).unwrap_or_default(),
+        ConfigValueRef::TomlTable(value) => to_json_string(value).unwrap_or_default(),
         value => display_config_value(value, sensitive),
     }
 }
@@ -1584,6 +1689,17 @@ fn parse_config_value(
             parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
         }
         ConfigValueKind::ComputedFieldSetMap => {
+            parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
+        }
+        ConfigValueKind::PathList | ConfigValueKind::StringList => TomlValue::Array(
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| TomlValue::String(item.to_string()))
+                .collect(),
+        ),
+        ConfigValueKind::TomlTable => {
             parse_toml(value).map_err(|err| AppError::ConfigError(err.to_string()))?
         }
     };

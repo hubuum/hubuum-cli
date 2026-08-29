@@ -89,6 +89,20 @@ pub fn get_user_config_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("config.toml"))
 }
 
+pub fn get_system_extension_root() -> PathBuf {
+    get_system_config_path()
+        .parent()
+        .map(|parent| parent.join("extensions.d"))
+        .unwrap_or_else(|| PathBuf::from("extensions.d"))
+}
+
+pub fn get_user_extension_root() -> PathBuf {
+    get_user_config_path()
+        .parent()
+        .map(|parent| parent.join("extensions.d"))
+        .unwrap_or_else(|| PathBuf::from("extensions.d"))
+}
+
 fn ensure_file_exists(file: DataFile) -> Result<PathBuf, AppError> {
     let root_dir = data_root_dir()?;
     ensure_file_exists_at(&root_dir, file)

@@ -1,0 +1,1101 @@
+// A complete Host, Jack, and Room inventory with an explainable move plan.
+{
+  "$schema": "../../schemas/hubuum-extension.schema.json",
+  "schema_version": 1,
+  "kind": "portable",
+  "name": "placement",
+  "version": "0.1.0",
+  "requires_cli": ">=0.0.9,<0.1.0",
+  // Typed site configuration is resolved before the WorkflowPlan is compiled.
+  "config": {
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts",
+      "help": "Class containing Host objects"
+    },
+    "jacks_class": {
+      "type": "string",
+      "default": "Jacks",
+      "help": "Class containing Jack objects"
+    },
+    "rooms_class": {
+      "type": "string",
+      "default": "Rooms",
+      "help": "Class containing Room objects"
+    },
+    "inventory_collection": {
+      "type": "string",
+      "default": "inventory",
+      "help": "Collection used when creating placement objects"
+    },
+    "relation_depth": {
+      "type": "integer",
+      "default": 1,
+      "help": "Traversal depth used for direct placement lookups"
+    }
+  },
+  "workflows": {
+    // Private primitives are reusable only inside this pack.
+    "list_objects": {
+      "result": "if (.steps.objects | type) == \"array\" then .steps.objects else .steps.objects.items end",
+      "inputs": {
+        "class": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "run",
+          "run": ["object", "list"],
+          "with": {
+            "class": { "input": "class" },
+            "all": true
+          }
+        }
+      ]
+    },
+    "show_object": {
+      "result": ".steps.object",
+      "inputs": {
+        "class": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "run",
+          "run": ["object", "show"],
+          "with": {
+            "class": { "input": "class" },
+            "name": { "input": "name" },
+            "max-depth": { "config": "relation_depth" }
+          }
+        }
+      ]
+    },
+    "create_object": {
+      "capabilities": ["mutate"],
+      "result": ".steps.object",
+      "inputs": {
+        "class": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": true
+        },
+        "data": {
+          "type": "json",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "run",
+          "run": ["object", "create"],
+          "with": {
+            "class": { "input": "class" },
+            "name": { "input": "name" },
+            "collection": { "config": "inventory_collection" },
+            "description": { "input": "description" },
+            "data": { "input": "data" }
+          }
+        }
+      ]
+    },
+    "related_objects": {
+      "result": "if (.steps.related | type) == \"array\" then .steps.related else .steps.related.items end",
+      "inputs": {
+        "root_class": {
+          "type": "string",
+          "required": true
+        },
+        "root_object": {
+          "type": "string",
+          "required": true
+        },
+        "ignore_a": {
+          "type": "string"
+        },
+        "ignore_b": {
+          "type": "string"
+        }
+      },
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "ignored_classes",
+          "kind": "let",
+          "expr": "[.input.ignore_a, .input.ignore_b] | map(select(. != null))"
+        },
+        {
+          "id": "related",
+          "kind": "run",
+          "run": ["relation", "object", "list"],
+          "with": {
+            "root-class": { "input": "root_class" },
+            "root-object": { "input": "root_object" },
+            "max-depth": { "config": "relation_depth" },
+            "ignore-class": { "step": "ignored_classes" },
+            "all": true
+          }
+        }
+      ]
+    },
+    "link_objects": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation",
+      "inputs": {
+        "class_a": {
+          "type": "string",
+          "required": true
+        },
+        "object_a": {
+          "type": "string",
+          "required": true
+        },
+        "class_b": {
+          "type": "string",
+          "required": true
+        },
+        "object_b": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "run",
+          "run": ["relation", "object", "create"],
+          "with": {
+            "class-a": { "input": "class_a" },
+            "object-a": { "input": "object_a" },
+            "class-b": { "input": "class_b" },
+            "object-b": { "input": "object_b" }
+          }
+        }
+      ]
+    },
+    "unlink_objects": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation.message",
+      "inputs": {
+        "class_a": {
+          "type": "string",
+          "required": true
+        },
+        "object_a": {
+          "type": "string",
+          "required": true
+        },
+        "class_b": {
+          "type": "string",
+          "required": true
+        },
+        "object_b": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "message",
+        "type": "string"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "run",
+          "run": ["relation", "object", "delete"],
+          "with": {
+            "class-a": { "input": "class_a" },
+            "object-a": { "input": "object_a" },
+            "class-b": { "input": "class_b" },
+            "object-b": { "input": "object_b" }
+          }
+        }
+      ]
+    },
+    // Public Host workflows compose the private primitives above.
+    "host_list": {
+      "result": ".steps.objects",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "list_objects",
+          "with": {
+            "class": { "config": "hosts_class" }
+          }
+        }
+      ]
+    },
+    "host_show": {
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "show_object",
+          "with": {
+            "class": { "config": "hosts_class" },
+            "name": { "input": "name" }
+          }
+        }
+      ]
+    },
+    "host_create": {
+      "capabilities": ["mutate"],
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "default": "Created by the placement extension"
+        },
+        "data": {
+          "type": "json",
+          "default": {
+            "facts": {
+              "schema_version": 1,
+              "source": "hubuum-cli-extension"
+            }
+          }
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "create_object",
+          "with": {
+            "class": { "config": "hosts_class" },
+            "name": { "input": "name" },
+            "description": { "input": "description" },
+            "data": { "input": "data" }
+          }
+        }
+      ]
+    },
+    "host_placement": {
+      "result": "{ host: .input.host, jacks: .steps.jacks, rooms_by_jack: ([.steps.jack_names, .steps.rooms] | transpose | map({jack: .[0], rooms: .[1]})) }",
+      "inputs": {
+        "host": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["host", "jacks", "rooms_by_jack"]
+      },
+      "steps": [
+        {
+          "id": "jacks",
+          "kind": "call",
+          "call": "related_objects",
+          "with": {
+            "root_class": { "config": "hosts_class" },
+            "root_object": { "input": "host" },
+            "ignore_a": { "config": "rooms_class" }
+          }
+        },
+        {
+          "id": "jack_names",
+          "kind": "let",
+          "expr": "[.steps.jacks[].name]"
+        },
+        {
+          "id": "rooms",
+          "kind": "for_each",
+          "items": { "step": "jack_names" },
+          "as": "root_object",
+          "call": "related_objects",
+          "max_items": 100,
+          "with": {
+            "root_class": { "config": "jacks_class" },
+            "ignore_a": { "config": "hosts_class" }
+          }
+        }
+      ]
+    },
+    "host_connect_jack": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation",
+      "inputs": {
+        "host": {
+          "type": "string",
+          "required": true
+        },
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "call",
+          "call": "link_objects",
+          "with": {
+            "class_a": { "config": "hosts_class" },
+            "object_a": { "input": "host" },
+            "class_b": { "config": "jacks_class" },
+            "object_b": { "input": "jack" }
+          }
+        }
+      ]
+    },
+    "host_disconnect_jack": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation",
+      "inputs": {
+        "host": {
+          "type": "string",
+          "required": true
+        },
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "message",
+        "type": "string"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "call",
+          "call": "unlink_objects",
+          "with": {
+            "class_a": { "config": "hosts_class" },
+            "object_a": { "input": "host" },
+            "class_b": { "config": "jacks_class" },
+            "object_b": { "input": "jack" }
+          }
+        }
+      ]
+    },
+    // The move plan reads top-to-bottom; step bindings point back to producers.
+    "host_move": {
+      "capabilities": ["mutate"],
+      "result": "{ host: .input.host, target_jack: .input.jack, previous_jacks: .steps.current_jacks, applied: .input.apply, removals: .steps.removed, addition: .steps.added }",
+      "inputs": {
+        "host": {
+          "type": "string",
+          "required": true
+        },
+        "jack": {
+          "type": "string",
+          "required": true
+        },
+        // Preview moves by default; mutating steps require apply=true.
+        "apply": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json",
+        "columns": ["host", "target_jack", "previous_jacks", "applied"]
+      },
+      "steps": [
+        {
+          "id": "current_jacks",
+          "kind": "call",
+          "call": "related_objects",
+          "with": {
+            "root_class": { "config": "hosts_class" },
+            "root_object": { "input": "host" },
+            "ignore_a": { "config": "rooms_class" }
+          }
+        },
+        {
+          "id": "valid_names",
+          "kind": "assert",
+          "condition": "((.input.host | length) > 0) and ((.input.jack | length) > 0)",
+          "message": "Host and Jack names must not be empty"
+        },
+        {
+          "id": "jack_names",
+          "kind": "let",
+          "expr": "[.steps.current_jacks[].name]"
+        },
+        {
+          "id": "removed",
+          "kind": "for_each",
+          "items": { "step": "jack_names" },
+          "as": "jack",
+          "call": "host_disconnect_jack",
+          "max_items": 100,
+          "when": ".input.apply",
+          "with": {
+            "host": { "input": "host" }
+          }
+        },
+        {
+          "id": "added",
+          "kind": "call",
+          "call": "host_connect_jack",
+          "when": ".input.apply",
+          "with": {
+            "host": { "input": "host" },
+            "jack": { "input": "jack" }
+          }
+        }
+      ]
+    },
+    // Public Jack workflows.
+    "jack_list": {
+      "result": ".steps.objects",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "list_objects",
+          "with": {
+            "class": { "config": "jacks_class" }
+          }
+        }
+      ]
+    },
+    "jack_show": {
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "show_object",
+          "with": {
+            "class": { "config": "jacks_class" },
+            "name": { "input": "name" }
+          }
+        }
+      ]
+    },
+    "jack_create": {
+      "capabilities": ["mutate"],
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "default": "Created by the placement extension"
+        },
+        "data": {
+          "type": "json",
+          "default": {}
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "create_object",
+          "with": {
+            "class": { "config": "jacks_class" },
+            "name": { "input": "name" },
+            "description": { "input": "description" },
+            "data": { "input": "data" }
+          }
+        }
+      ]
+    },
+    "jack_hosts": {
+      "result": ".steps.objects",
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "related_objects",
+          "with": {
+            "root_class": { "config": "jacks_class" },
+            "root_object": { "input": "jack" },
+            "ignore_a": { "config": "rooms_class" }
+          }
+        }
+      ]
+    },
+    "jack_rooms": {
+      "result": ".steps.objects",
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "related_objects",
+          "with": {
+            "root_class": { "config": "jacks_class" },
+            "root_object": { "input": "jack" },
+            "ignore_a": { "config": "hosts_class" }
+          }
+        }
+      ]
+    },
+    "jack_connect_room": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation",
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        },
+        "room": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "call",
+          "call": "link_objects",
+          "with": {
+            "class_a": { "config": "jacks_class" },
+            "object_a": { "input": "jack" },
+            "class_b": { "config": "rooms_class" },
+            "object_b": { "input": "room" }
+          }
+        }
+      ]
+    },
+    "jack_disconnect_room": {
+      "capabilities": ["mutate"],
+      "result": ".steps.relation",
+      "inputs": {
+        "jack": {
+          "type": "string",
+          "required": true
+        },
+        "room": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "message",
+        "type": "string"
+      },
+      "steps": [
+        {
+          "id": "relation",
+          "kind": "call",
+          "call": "unlink_objects",
+          "with": {
+            "class_a": { "config": "jacks_class" },
+            "object_a": { "input": "jack" },
+            "class_b": { "config": "rooms_class" },
+            "object_b": { "input": "room" }
+          }
+        }
+      ]
+    },
+    // Public Room workflows.
+    "room_list": {
+      "result": ".steps.objects",
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "list_objects",
+          "with": {
+            "class": { "config": "rooms_class" }
+          }
+        }
+      ]
+    },
+    "room_show": {
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "show_object",
+          "with": {
+            "class": { "config": "rooms_class" },
+            "name": { "input": "name" }
+          }
+        }
+      ]
+    },
+    "room_create": {
+      "capabilities": ["mutate"],
+      "result": ".steps.object",
+      "inputs": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "default": "Created by the placement extension"
+        },
+        "data": {
+          "type": "json",
+          "default": {}
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "object",
+          "kind": "call",
+          "call": "create_object",
+          "with": {
+            "class": { "config": "rooms_class" },
+            "name": { "input": "name" },
+            "description": { "input": "description" },
+            "data": { "input": "data" }
+          }
+        }
+      ]
+    },
+    "room_jacks": {
+      "result": ".steps.objects",
+      "inputs": {
+        "room": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "rows",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "objects",
+          "kind": "call",
+          "call": "related_objects",
+          "with": {
+            "root_class": { "config": "rooms_class" },
+            "root_object": { "input": "room" },
+            "ignore_a": { "config": "hosts_class" }
+          }
+        }
+      ]
+    }
+  },
+  // Commands are the public CLI surface; private workflows remain unexposed.
+  "commands": {
+    "host_list": {
+      "path": ["host", "list"],
+      "workflow": "host_list",
+      "about": "List Hosts",
+      "examples": [""]
+    },
+    "host_show": {
+      "path": ["host", "show"],
+      "workflow": "host_show",
+      "about": "Show a Host and its related placement objects",
+      "examples": ["server-01"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Host name"
+        }
+      }
+    },
+    "host_create": {
+      "path": ["host", "create"],
+      "workflow": "host_create",
+      "about": "Create a Host in the configured inventory collection",
+      "examples": ["server-01 --data '{\"facts\":{}}'"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Host name"
+        },
+        "description": {
+          "kind": "string",
+          "long": "description",
+          "help": "Host description"
+        },
+        "data": {
+          "kind": "json",
+          "long": "data",
+          "help": "Host data as JSON"
+        }
+      }
+    },
+    "host_placement": {
+      "path": ["host", "placement"],
+      "workflow": "host_placement",
+      "about": "Show the Jacks and Rooms containing a Host",
+      "examples": ["server-01"],
+      "options": {
+        "host": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Host name"
+        }
+      }
+    },
+    "host_connect_jack": {
+      "path": ["host", "connect-jack"],
+      "workflow": "host_connect_jack",
+      "about": "Relate a Host to a Jack",
+      "examples": ["server-01 J-42"],
+      "options": {
+        "host": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Host name"
+        },
+        "jack": {
+          "kind": "string",
+          "position": 2,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "host_disconnect_jack": {
+      "path": ["host", "disconnect-jack"],
+      "workflow": "host_disconnect_jack",
+      "about": "Remove a Host-to-Jack relation",
+      "examples": ["server-01 J-42"],
+      "options": {
+        "host": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Host name"
+        },
+        "jack": {
+          "kind": "string",
+          "position": 2,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "host_move": {
+      "path": ["host", "move"],
+      "workflow": "host_move",
+      "about": "Preview or apply moving a Host to one Jack",
+      "long_about": "List the Host's current Jacks, remove those relations, and add the requested Jack relation. The default is a read-only preview; pass --apply to mutate.",
+      "examples": [
+        "server-01 J-42",
+        "server-01 J-42 --apply"
+      ],
+      "options": {
+        "host": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Host name"
+        },
+        "jack": {
+          "kind": "string",
+          "position": 2,
+          "required": true,
+          "help": "Exact target Jack name"
+        },
+        "apply": {
+          "kind": "flag",
+          "long": "apply",
+          "help": "Apply the relation changes; otherwise return only the plan"
+        }
+      }
+    },
+    "jack_list": {
+      "path": ["jack", "list"],
+      "workflow": "jack_list",
+      "about": "List Jacks",
+      "examples": [""]
+    },
+    "jack_show": {
+      "path": ["jack", "show"],
+      "workflow": "jack_show",
+      "about": "Show a Jack and its related placement objects",
+      "examples": ["J-42"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "jack_create": {
+      "path": ["jack", "create"],
+      "workflow": "jack_create",
+      "about": "Create a Jack in the configured inventory collection",
+      "examples": ["J-42"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Jack name"
+        },
+        "description": {
+          "kind": "string",
+          "long": "description",
+          "help": "Jack description"
+        },
+        "data": {
+          "kind": "json",
+          "long": "data",
+          "help": "Jack data as JSON"
+        }
+      }
+    },
+    "jack_hosts": {
+      "path": ["jack", "hosts"],
+      "workflow": "jack_hosts",
+      "about": "List Hosts related to a Jack",
+      "examples": ["J-42"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "jack_rooms": {
+      "path": ["jack", "rooms"],
+      "workflow": "jack_rooms",
+      "about": "List Rooms related to a Jack",
+      "examples": ["J-42"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        }
+      }
+    },
+    "jack_connect_room": {
+      "path": ["jack", "connect-room"],
+      "workflow": "jack_connect_room",
+      "about": "Relate a Jack to a Room",
+      "examples": ["J-42 R-301"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        },
+        "room": {
+          "kind": "string",
+          "position": 2,
+          "required": true,
+          "help": "Exact Room name"
+        }
+      }
+    },
+    "jack_disconnect_room": {
+      "path": ["jack", "disconnect-room"],
+      "workflow": "jack_disconnect_room",
+      "about": "Remove a Jack-to-Room relation",
+      "examples": ["J-42 R-301"],
+      "options": {
+        "jack": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Jack name"
+        },
+        "room": {
+          "kind": "string",
+          "position": 2,
+          "required": true,
+          "help": "Exact Room name"
+        }
+      }
+    },
+    "room_list": {
+      "path": ["room", "list"],
+      "workflow": "room_list",
+      "about": "List Rooms",
+      "examples": [""]
+    },
+    "room_show": {
+      "path": ["room", "show"],
+      "workflow": "room_show",
+      "about": "Show a Room and its related placement objects",
+      "examples": ["R-301"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Room name"
+        }
+      }
+    },
+    "room_create": {
+      "path": ["room", "create"],
+      "workflow": "room_create",
+      "about": "Create a Room in the configured inventory collection",
+      "examples": ["R-301"],
+      "options": {
+        "name": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Room name"
+        },
+        "description": {
+          "kind": "string",
+          "long": "description",
+          "help": "Room description"
+        },
+        "data": {
+          "kind": "json",
+          "long": "data",
+          "help": "Room data as JSON"
+        }
+      }
+    },
+    "room_jacks": {
+      "path": ["room", "jacks"],
+      "workflow": "room_jacks",
+      "about": "List Jacks related to a Room",
+      "examples": ["R-301"],
+      "options": {
+        "room": {
+          "kind": "string",
+          "position": 1,
+          "required": true,
+          "help": "Exact Room name"
+        }
+      }
+    }
+  }
+}

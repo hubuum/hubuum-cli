@@ -16,7 +16,7 @@ use tokio::task::spawn_blocking;
 use tracing_subscriber::fmt as tracing_fmt;
 use tracing_subscriber::EnvFilter;
 
-use crate::catalog::CommandCatalog;
+use crate::catalog::CatalogStore;
 use crate::cli::{get_cli_config_path, update_config_from_cli};
 use crate::config::{
     get_config, get_config_state, init_config, init_config_state, inspect_config_state,
@@ -35,7 +35,7 @@ const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct AppRuntime {
     pub config: Arc<AppConfig>,
     pub services: Arc<AppServices>,
-    pub catalog: Arc<CommandCatalog>,
+    pub catalog: Arc<CatalogStore>,
 }
 
 #[derive(Debug, Default)]
@@ -406,7 +406,7 @@ impl AppRuntime {
     pub fn new(
         config: Arc<AppConfig>,
         services: Arc<AppServices>,
-        catalog: Arc<CommandCatalog>,
+        catalog: Arc<CatalogStore>,
     ) -> Self {
         Self {
             config,

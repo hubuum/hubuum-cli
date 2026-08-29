@@ -15,7 +15,7 @@ use crate::autocomplete::{
     remote_auth_types, remote_http_methods, remote_subject_kinds, remote_subject_types,
     remote_targets,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -232,6 +232,7 @@ pub struct RemoteTargetList {
 
 impl CliCommand for RemoteTargetList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -262,6 +263,7 @@ pub struct RemoteTargetShow {
 
 impl CliCommand for RemoteTargetShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;

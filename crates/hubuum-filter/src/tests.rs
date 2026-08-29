@@ -1,6 +1,6 @@
 use crate::{
-    apply_pipeline, group_summary_rows, split_pipeline, AggregateFunction, AggregateSpec, GroupKey,
-    OutputEnvelope, OutputShape, PipeStage, ProjectTerm, SortCast,
+    apply_pipeline, group_summary_rows, split_pipeline, validate_jq_expression, AggregateFunction,
+    AggregateSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage, ProjectTerm, SortCast,
 };
 use serde_json::json;
 
@@ -104,6 +104,12 @@ fn jq_reports_invalid_expressions() {
         .expect_err("invalid jq should fail");
 
     assert!(error.to_string().contains("JQ error"));
+}
+
+#[test]
+fn jq_expressions_can_be_validated_without_runtime_input() {
+    validate_jq_expression("map(.id)").expect("valid expression");
+    assert!(validate_jq_expression("map(").is_err());
 }
 
 #[test]

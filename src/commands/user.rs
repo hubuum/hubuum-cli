@@ -12,7 +12,7 @@ use rand::{rng, RngExt};
 use rpassword::prompt_password;
 
 use crate::autocomplete::{file_paths, user_sort, user_token_ids, user_where, users};
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::CreatedUser;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -271,6 +271,7 @@ pub struct UserInfo {
 
 impl CliCommand for UserInfo {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
@@ -341,6 +342,7 @@ pub struct UserList {
 
 impl CliCommand for UserList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -520,6 +522,7 @@ pub struct UserTokenList {
 
 impl CliCommand for UserTokenList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -560,6 +563,7 @@ pub struct UserTokenShow {
 
 impl CliCommand for UserTokenShow {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

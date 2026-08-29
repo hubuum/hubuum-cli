@@ -9,7 +9,7 @@ use crate::autocomplete::{
     bool, classes, computed_field_paths, computed_operations, computed_result_types,
     objects_from_class,
 };
-use crate::catalog::CommandCatalogBuilder;
+use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::{
     ClassComputationStateRecord, ComputedFieldMutationRecord, ComputedFieldPreviewRecord,
     ComputedFieldRecord, SharedComputedFieldListRecord,
@@ -177,6 +177,7 @@ pub struct SharedComputedList {
 
 impl CliCommand for SharedComputedList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -552,6 +553,7 @@ preview_args!(PersonalComputedPreview);
 
 impl CliCommand for SharedComputedPreview {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -567,6 +569,7 @@ impl CliCommand for SharedComputedPreview {
 
 impl CliCommand for PersonalComputedPreview {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
@@ -634,6 +637,7 @@ pub struct PersonalComputedList {
 
 impl CliCommand for PersonalComputedList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;

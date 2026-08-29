@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+PROTOCOL=hubuum-cli.extension/v1
+
+emit_error() {
+    local code=$1
+    local message=$2
+    jq -cn \
+        --arg protocol "$PROTOCOL" \
+        --arg code "$code" \
+        --arg message "$message" \
+        '{protocol: $protocol, status: "error", error: {
+            code: $code, message: $message, details: {}
+        }}'
+}
+
+apply_pack_config() {
+    local config=${HUBUUM_EXTENSION_CONFIG_JSON:-{}}
+    local value
+    if ! jq -e 'type == "object"' <<<"$config" >/dev/null 2>&1; then
+        emit_error invalid_config "host extension configuration must be a JSON object"
+        return 1
+    fi
+    for mapping in \
+        hosts_class:HUBUUM_HOSTS_CLASS \
+        jacks_class:HUBUUM_JACKS_CLASS \
+        rooms_class:HUBUUM_ROOMS_CLASS \
+        host_collection:HUBUUM_HOST_COLLECTION \
+        default_jack:HUBUUM_DEFAULT_JACK; do
+        key=${mapping%%:*}
+        variable=${mapping#*:}
+        value=$(jq -r --arg key "$key" '.[$key] // empty' <<<"$config")
+        if [[ -n $value ]]; then
+            printf -v "$variable" '%s' "$value"
+            export "$variable"
+        fi
+    done
+}
+
+emit_detail() {
+    local value=$1
+    jq -cn \
+        --arg protocol "$PROTOCOL" \
+        --argjson value "$value" \
+        '{protocol: $protocol, status: "ok", output: {
+            shape: "detail", value: $value, columns: []
+        }, warnings: []}'
+}
+
+run_show() {
+    local result
+    if ! result=$("$SCRIPT_DIR/hubuum-host" --json "$@"); then
+        emit_error host_show_failed "Host lookup failed; see stderr for details"
+        return 1
+    fi
+    if ! jq -e 'type == "object"' <<<"$result" >/dev/null 2>&1; then
+        emit_error invalid_wrapper_output "hubuum-host returned invalid JSON"
+        return 1
+    fi
+    emit_detail "$result"
+}
+
+run_workflow() {
+    local operation=$1
+    local executable=$2
+    shift 2
+    local result
+    local status
+    if result=$("$executable" "$@"); then
+        status=completed
+    else
+        emit_error "host_${operation}_failed" \
+            "Host $operation failed; see stderr for details"
+        return 1
+    fi
+    result=$(jq -Rn \
+        --arg operation "$operation" \
+        --arg status "$status" \
+        '{operation: $operation, status: $status, messages: [inputs]}' \
+        <<<"$result")
+    emit_detail "$result"
+}
+
+if [[ ${HUBUUM_EXTENSION_PROTOCOL:-} != "$PROTOCOL" ]]; then
+    emit_error unsupported_protocol "expected HUBUUM_EXTENSION_PROTOCOL=$PROTOCOL"
+    exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "host extension requires jq" >&2
+    exit 1
+fi
+if ! apply_pack_config; then
+    exit 1
+fi
+
+case ${1:-}:${2:-} in
+    host:show)
+        shift 2
+        run_show "$@"
+        ;;
+    host:create)
+        shift 2
+        run_workflow create "$SCRIPT_DIR/hubuum-host-new" "$@"
+        ;;
+    host:move)
+        shift 2
+        run_workflow move "$SCRIPT_DIR/hubuum-move" "$@"
+        ;;
+    *)
+        emit_error unknown_command "unknown Host extension command"
+        exit 1
+        ;;
+esac

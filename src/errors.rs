@@ -131,9 +131,62 @@ pub enum AppError {
 
     #[error("Configuration error: {0}")]
     GeneralConfigError(String),
+
+    #[error("Extension protocol error for {pack} ({command}): {message}")]
+    ExtensionProtocol {
+        pack: String,
+        command: String,
+        message: String,
+    },
+
+    #[error("Extension {pack} command {command} failed [{code}]: {message}{details}")]
+    ExtensionCommand {
+        pack: String,
+        command: String,
+        code: String,
+        message: String,
+        details: String,
+    },
+
+    #[error("Extension workflow error for {pack} ({command}): {message}")]
+    ExtensionWorkflow {
+        pack: String,
+        command: String,
+        message: String,
+    },
+
+    #[error(
+        "Extension workflow {pack} ({workflow}) step {step} invoking {command} failed: {source}"
+    )]
+    ExtensionWorkflowStep {
+        pack: String,
+        workflow: String,
+        step: String,
+        command: String,
+        #[source]
+        source: Box<AppError>,
+    },
+
+    #[error("{source}")]
+    WithWarnings {
+        warnings: Vec<String>,
+        #[source]
+        source: Box<AppError>,
+    },
 }
 
 impl AppError {
+    pub fn with_warnings(self, warnings: Vec<String>) -> Self {
+        if warnings.is_empty() {
+            self
+        } else {
+            Self::WithWarnings {
+                warnings,
+                source: Box::new(self),
+            }
+        }
+    }
+
     pub fn for_command(self, retry: ReauthenticationRetry) -> Self {
         if self.is_unauthorized() {
             Self::UnauthorizedCommand {
@@ -176,7 +229,9 @@ impl AppError {
     pub fn api_error(&self) -> Option<&ApiError> {
         match self {
             Self::ApiError(error) => Some(error),
-            Self::UnauthorizedCommand { source, .. } => source.api_error(),
+            Self::UnauthorizedCommand { source, .. }
+            | Self::WithWarnings { source, .. }
+            | Self::ExtensionWorkflowStep { source, .. } => source.api_error(),
             _ => None,
         }
     }
