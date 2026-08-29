@@ -1,7 +1,7 @@
 use hubuum_filter::{
-    DistinctKey, DistinctSpec, JqLimits, NullOrder, OutputEnvelope, OutputShape, PipeStage,
-    Pipeline, PipelineSettings, ProjectTerm, SortCast, SortDirection, SortKey, SortReduction,
-    SortSpec, ValueCast,
+    AggregateFunction, AggregateRequest, AggregateSpec, DistinctKey, DistinctSpec, JqLimits,
+    NullOrder, OutputEnvelope, OutputShape, PipeStage, Pipeline, PipelineSettings, ProjectTerm,
+    SortCast, SortDirection, SortKey, SortReduction, SortSpec, ValueCast,
 };
 use serde_json::json;
 
@@ -116,6 +116,46 @@ fn programmatic_pipeline_construction_validates_public_inputs() {
     let valid = Pipeline::from_stages(vec![PipeStage::Distinct(distinct)])
         .expect("valid programmatic distinct pipeline");
     assert_eq!(valid.stages()[0].name(), "D");
+}
+
+#[test]
+fn global_aggregate_requests_are_validated_and_reusable_without_cli_types() {
+    assert!(AggregateRequest::global(Vec::new()).is_err());
+    assert!(AggregateRequest::global(vec![
+        AggregateSpec::new(AggregateFunction::Count, "n").expect("valid aggregate"),
+        AggregateSpec::new(
+            AggregateFunction::CountSelected("owner".parse().expect("valid selector")),
+            "n",
+        )
+        .expect("valid aggregate"),
+    ])
+    .is_err());
+
+    let request = AggregateRequest::global(vec![
+        AggregateSpec::new(AggregateFunction::Count, "Hosts").expect("valid aggregate"),
+        AggregateSpec::new(
+            AggregateFunction::CountDistinct("os_version".parse().expect("valid selector")),
+            "Versions",
+        )
+        .expect("valid aggregate"),
+    ])
+    .expect("valid global request");
+    let pipeline = Pipeline::from_stages(vec![PipeStage::Aggregate(request)])
+        .expect("valid aggregate pipeline");
+    let output = pipeline
+        .apply(OutputEnvelope::rows(
+            vec![
+                json!({"os_version": "26.1"}),
+                json!({"os_version": "26.1"}),
+                json!({"os_version": "27"}),
+            ],
+            vec!["os_version".to_string()],
+        ))
+        .expect("global aggregate output");
+
+    assert_eq!(output.shape(), OutputShape::Rows);
+    assert_eq!(output.columns(), ["Hosts", "Versions"]);
+    assert_eq!(output.value(), &json!([{"Hosts": 3, "Versions": 2}]));
 }
 
 #[test]

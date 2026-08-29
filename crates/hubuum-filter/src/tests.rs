@@ -1,8 +1,8 @@
 use crate::{
     apply_pipeline, apply_pipeline_with_settings, group_summary_rows, split_pipeline,
-    validate_jq_expression, AggregateFunction, AggregateSpec, DistinctKey, DistinctSpec, GroupKey,
-    OutputEnvelope, OutputShape, PipeStage, PipelineSettings, Predicate, ProjectTerm, Selector,
-    SortCast, SortDirection, SortKey, SortSpec,
+    validate_jq_expression, AggregateFunction, AggregateRequest, AggregateSpec, DistinctKey,
+    DistinctSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage, PipelineSettings, Predicate,
+    ProjectTerm, Selector, SortCast, SortDirection, SortKey, SortSpec,
 };
 use serde_json::json;
 
@@ -62,8 +62,8 @@ fn group_key(selector: &str, alias: &str) -> GroupKey {
     GroupKey::new(selector, alias).expect("valid group key")
 }
 
-fn aggregate(function: AggregateFunction, alias: &str) -> AggregateSpec {
-    AggregateSpec::new(function, alias).expect("valid aggregate")
+fn aggregate(function: AggregateFunction, alias: &str) -> AggregateRequest {
+    AggregateRequest::grouped(AggregateSpec::new(function, alias).expect("valid aggregate"))
 }
 
 fn keep(selector: &str) -> ProjectTerm {
@@ -124,6 +124,12 @@ fn representative_stages() -> Vec<PipeStage> {
         ),
         PipeStage::Group(vec![group_key("field", "group")]),
         PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+        PipeStage::Aggregate(
+            AggregateRequest::global(vec![
+                AggregateSpec::new(AggregateFunction::Count, "n").expect("valid aggregate")
+            ])
+            .expect("valid global aggregate"),
+        ),
         PipeStage::CollapseGroups,
         PipeStage::Unroll(selector("items")),
         PipeStage::Jq(".".to_string()),
@@ -643,6 +649,127 @@ fn grouping_aggregates_and_count_use_host_examples() {
     let counted = apply_pipeline(grouped, &[PipeStage::Count]).expect("group count");
     assert_eq!(counted.shape, OutputShape::Rows);
     assert!(counted.value.to_string().contains("\"count\":2"));
+}
+
+#[test]
+fn global_aggregation_counts_inventory_cardinality_and_fanout_occurrences() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({
+                "Name": "host-a",
+                "owner": "ops",
+                "os": {"major": 26, "minor": 1},
+                "interfaces": [{"address": "192.0.2.1"}, {"address": "192.0.2.2"}]
+            }),
+            json!({
+                "Name": "host-b",
+                "owner": null,
+                "os": {"minor": 1, "major": 26},
+                "interfaces": [{"address": "192.0.2.1"}, {"address": null}]
+            }),
+            json!({
+                "Name": "host-c",
+                "os": {"major": 27},
+                "interfaces": []
+            }),
+        ],
+        vec!["Name".to_string(), "owner".to_string(), "os".to_string()],
+    );
+
+    let output = apply_dsl(
+        rows,
+        "A GLOBAL count AS Hosts, count(owner) AS Owned, count(interfaces[].address) AS Addresses, count_distinct(os) AS Versions, count_distinct(interfaces[].address) AS UniqueAddresses",
+    )
+    .expect("global inventory aggregates");
+
+    assert_eq!(output.shape, OutputShape::Rows);
+    assert_eq!(
+        output.columns,
+        ["Hosts", "Owned", "Addresses", "Versions", "UniqueAddresses"]
+    );
+    assert_eq!(
+        output.value,
+        json!([{
+            "Hosts": 3,
+            "Owned": 1,
+            "Addresses": 3,
+            "Versions": 2,
+            "UniqueAddresses": 2
+        }])
+    );
+}
+
+#[test]
+fn global_aggregation_returns_one_row_for_empty_and_values_inputs() {
+    let empty = apply_dsl(
+        OutputEnvelope::empty(),
+        "A GLOBAL count AS Rows, count(owner) AS Owners, count_distinct(owner) AS UniqueOwners, sum(cost) AS Cost",
+    )
+    .expect("empty global aggregate");
+    assert_eq!(empty.shape, OutputShape::Rows);
+    assert_eq!(empty.columns, ["Rows", "Owners", "UniqueOwners", "Cost"]);
+    assert_eq!(
+        empty.value,
+        json!([{"Rows": 0, "Owners": 0, "UniqueOwners": 0, "Cost": null}])
+    );
+
+    let values = apply_dsl(
+        OutputEnvelope::values(vec![json!({"owner": "ops"}), json!({"owner": null})]),
+        "A GLOBAL count AS Values, count(owner) AS Owners",
+    )
+    .expect("value global aggregate");
+    assert_eq!(values.shape, OutputShape::Rows);
+    assert_eq!(values.value, json!([{"Values": 2, "Owners": 1}]));
+}
+
+#[test]
+fn selector_counts_share_grouped_and_global_reducers() {
+    let rows = OutputEnvelope::rows(
+        vec![
+            json!({"rack": "a", "addresses": ["192.0.2.1", "192.0.2.2"]}),
+            json!({"rack": "a", "addresses": ["192.0.2.1", null]}),
+            json!({"rack": "b"}),
+        ],
+        vec!["rack".to_string(), "addresses".to_string()],
+    );
+
+    let grouped = apply_dsl(
+        rows.clone(),
+        "G rack | A count(addresses[]) AS Addresses | A count_distinct(addresses[]) AS Unique | Z",
+    )
+    .expect("grouped selector counts");
+    assert_eq!(
+        grouped.value,
+        json!([
+            {"rack": "a", "Addresses": 3, "Unique": 2},
+            {"rack": "b", "Addresses": 0, "Unique": 0}
+        ])
+    );
+
+    let global = apply_dsl(
+        rows,
+        "A GLOBAL count(addresses[]) AS Addresses, count_distinct(addresses[]) AS Unique",
+    )
+    .expect("global selector counts");
+    assert_eq!(global.value, json!([{"Addresses": 3, "Unique": 2}]));
+}
+
+#[test]
+fn global_aggregation_rejects_non_collection_shapes_explicitly() {
+    for envelope in [
+        OutputEnvelope::lines(vec!["line".to_string()]),
+        OutputEnvelope::detail(json!({"owner": "ops"}), vec!["owner".to_string()]),
+        OutputEnvelope::message(json!({"owner": "ops"})),
+        OutputEnvelope::groups(Vec::new(), Vec::new()),
+    ] {
+        let shape = envelope.shape;
+        let error = apply_dsl(envelope, "A GLOBAL count AS n")
+            .expect_err("unsupported global aggregation shape");
+        let message = error.to_string();
+        assert!(message.contains("stage 'A GLOBAL'"), "{message}");
+        assert!(message.contains(&shape.to_string()), "{message}");
+        assert!(message.contains("Empty, Rows, Values"), "{message}");
+    }
 }
 
 #[test]

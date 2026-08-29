@@ -18,9 +18,9 @@ mod tests;
 pub use error::PipelineError;
 pub use eval::{apply_pipeline, apply_pipeline_with_settings};
 pub use model::{
-    AggregateFunction, AggregateSpec, DistinctKey, DistinctSpec, GroupKey, NullOrder,
-    OutputEnvelope, OutputName, OutputShape, PipeStage, ProjectTerm, SortCast, SortDirection,
-    SortKey, SortReduction, SortSpec,
+    AggregateFunction, AggregateRequest, AggregateSpec, DistinctKey, DistinctSpec, GroupKey,
+    NullOrder, OutputEnvelope, OutputName, OutputShape, PipeStage, ProjectTerm, SortCast,
+    SortDirection, SortKey, SortReduction, SortSpec,
 };
 pub use parse::split_pipeline;
 pub use pipeline::Pipeline;

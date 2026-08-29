@@ -4,9 +4,9 @@ use shlex::split;
 
 use crate::error::PipelineError;
 use crate::model::{
-    validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, DistinctKey,
-    DistinctSpec, GroupKey, NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
-    SortReduction, SortSpec,
+    validate_group_keys, validate_projection_terms, AggregateFunction, AggregateRequest,
+    AggregateSpec, DistinctKey, DistinctSpec, GroupKey, NullOrder, PipeStage, ProjectTerm,
+    SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
 use crate::predicate::{Predicate, ValueCast};
 use crate::selector::Selector;
@@ -55,13 +55,17 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
             PipeStage::Group(keys) => {
                 grouped_names = Some(keys.iter().map(|key| key.alias().to_string()).collect());
             }
-            PipeStage::Aggregate(spec) => {
-                if let Some(names) = &mut grouped_names {
-                    if !names.insert(spec.alias().to_string()) {
-                        return Err(PipelineError::Pipe(format!(
-                            "Pipe stage 'A' output name '{}' conflicts with a group key or earlier aggregate",
-                            spec.alias()
-                        )));
+            PipeStage::Aggregate(request) => {
+                if request.is_global() {
+                    grouped_names = None;
+                } else if let Some(names) = &mut grouped_names {
+                    for spec in request.specs() {
+                        if !names.insert(spec.alias().to_string()) {
+                            return Err(PipelineError::Pipe(format!(
+                                "Pipe stage 'A' output name '{}' conflicts with a group key or earlier aggregate",
+                                spec.alias()
+                            )));
+                        }
                     }
                 }
             }
@@ -156,6 +160,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     if let Some(distinct) = parse_distinct_stage_source(stage) {
         return distinct;
     }
+    if let Some(aggregate) = parse_aggregate_stage_source(stage) {
+        return aggregate;
+    }
 
     let Some(parts) = split(stage) else {
         return Err(PipelineError::Parse(
@@ -187,7 +194,7 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             unreachable!("distinct stages are parsed from their original source")
         }
         "G" => parse_group_stage(&parts),
-        "A" => parse_aggregate_stage(&parts),
+        "A" => unreachable!("aggregate stages are parsed from their original source"),
         "Z" => {
             require_arg_count("Z", &parts, 1)?;
             Ok(PipeStage::CollapseGroups)
@@ -747,29 +754,79 @@ fn parse_group_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
     Ok(PipeStage::Group(keys))
 }
 
-fn parse_aggregate_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
-    if parts.len() < 2 {
-        return Err(PipelineError::Pipe(
+fn parse_aggregate_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
+    let verb_end = stage
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(stage.len());
+    if &stage[..verb_end] != "A" {
+        return None;
+    }
+
+    let source = stage[verb_end..].trim();
+    if source.is_empty() {
+        return Some(Err(PipelineError::Pipe(
             "Pipe stage 'A' requires an aggregate expression".to_string(),
-        ));
+        )));
     }
-    if parts.len() != 2 && parts.len() != 4 {
+
+    let Some(global_source) = source.strip_prefix("GLOBAL") else {
+        return Some(
+            parse_aggregate_term(source)
+                .map(|spec| PipeStage::Aggregate(AggregateRequest::grouped(spec))),
+        );
+    };
+    if !global_source.is_empty()
+        && !global_source
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace)
+    {
+        return Some(
+            parse_aggregate_term(source)
+                .map(|spec| PipeStage::Aggregate(AggregateRequest::grouped(spec))),
+        );
+    }
+
+    let global_source = global_source.trim();
+    if global_source.is_empty() {
+        return Some(Err(PipelineError::Pipe(
+            "Pipe stage 'A GLOBAL' requires at least one aggregate".to_string(),
+        )));
+    }
+    Some(
+        split_comma_separated(global_source, "Global aggregate terms")
+            .and_then(|terms| {
+                terms
+                    .into_iter()
+                    .map(parse_aggregate_term)
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .and_then(AggregateRequest::global)
+            .map(PipeStage::Aggregate),
+    )
+}
+
+fn parse_aggregate_term(source: &str) -> Result<AggregateSpec, PipelineError> {
+    let parts = split(source)
+        .ok_or_else(|| PipelineError::Parse("Parsing aggregate term failed".to_string()))?;
+    if parts.len() != 1 && parts.len() != 3 {
         return Err(PipelineError::Pipe(
-            "Pipe stage 'A' accepts: A <aggregate> [AS alias]".to_string(),
+            "Pipe stage 'A' accepts aggregate terms as <aggregate> [AS alias]".to_string(),
         ));
     }
-    if parts.len() == 4 && parts[2] != "AS" {
+    if parts.len() == 3 && !parts[1].eq_ignore_ascii_case("AS") {
         return Err(PipelineError::Pipe(
             "Aggregate alias requires AS <name>".to_string(),
         ));
     }
 
-    let function = parse_aggregate_function(&parts[1])?;
+    let function = parse_aggregate_function(&parts[0])?;
     let alias = parts
-        .get(3)
+        .get(2)
         .cloned()
         .unwrap_or_else(|| default_aggregate_alias(&function));
-    Ok(PipeStage::Aggregate(AggregateSpec::new(function, alias)?))
+    AggregateSpec::new(function, alias)
 }
 
 fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineError> {
@@ -779,7 +836,7 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
 
     let Some((name, rest)) = value.split_once('(') else {
         return Err(PipelineError::Pipe(format!(
-            "Unknown aggregate '{value}'. Use count, sum(field), avg(field), min(field), or max(field)"
+            "Unknown aggregate '{value}'. Use count, count(field), count_distinct(field), sum(field), avg(field), min(field), or max(field)"
         )));
     };
     let Some(field) = rest.strip_suffix(')') else {
@@ -794,6 +851,8 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
     }
 
     match name {
+        "count" => Ok(AggregateFunction::CountSelected(field.parse()?)),
+        "count_distinct" => Ok(AggregateFunction::CountDistinct(field.parse()?)),
         "sum" => Ok(AggregateFunction::Sum(field.parse()?)),
         "avg" => Ok(AggregateFunction::Avg(field.parse()?)),
         "min" => Ok(AggregateFunction::Min(field.parse()?)),
@@ -807,6 +866,8 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
 fn default_aggregate_alias(function: &AggregateFunction) -> String {
     match function {
         AggregateFunction::Count => "count".to_string(),
+        AggregateFunction::CountSelected(field) => format!("count({field})"),
+        AggregateFunction::CountDistinct(field) => format!("count_distinct({field})"),
         AggregateFunction::Sum(field) => format!("sum({field})"),
         AggregateFunction::Avg(field) => format!("avg({field})"),
         AggregateFunction::Min(field) => format!("min({field})"),
@@ -1033,13 +1094,52 @@ mod tests {
         assert!(matches!(stages[0], PipeStage::Group(_)));
         assert!(matches!(
             &stages[1],
-            PipeStage::Aggregate(spec)
-                if spec.alias() == "Cores"
-                    && spec.function()
+            PipeStage::Aggregate(request)
+                if request.specs()[0].alias() == "Cores"
+                    && request.specs()[0].function()
                         == &AggregateFunction::Sum(
                             "data.cpu.cores".parse().expect("valid selector")
                         )
         ));
+    }
+
+    #[test]
+    fn global_aggregate_lists_parse_selector_counts_and_quoted_aliases() {
+        let (_, stages) = split_pipeline(
+            "object list | A GLOBAL count AS Hosts, count(data.owner) AS Owned, count_distinct(os_version) AS 'OS, Versions'",
+        )
+        .expect("global aggregate list");
+        let PipeStage::Aggregate(request) = &stages[0] else {
+            panic!("expected aggregate request")
+        };
+
+        assert!(request.is_global());
+        assert_eq!(request.specs().len(), 3);
+        assert_eq!(request.specs()[0].function(), &AggregateFunction::Count);
+        assert_eq!(request.specs()[0].alias(), "Hosts");
+        assert_eq!(
+            request.specs()[1].function(),
+            &AggregateFunction::CountSelected("data.owner".parse().expect("valid selector"))
+        );
+        assert_eq!(
+            request.specs()[2].function(),
+            &AggregateFunction::CountDistinct("os_version".parse().expect("valid selector"))
+        );
+        assert_eq!(request.specs()[2].alias(), "OS, Versions");
+    }
+
+    #[test]
+    fn malformed_global_aggregate_lists_fail_during_parsing() {
+        for source in [
+            "object list | A GLOBAL",
+            "object list | A GLOBAL count,",
+            "object list | A GLOBAL count,,count(owner)",
+            "object list | A GLOBAL count()",
+            "object list | A GLOBAL count(owner) AS",
+            "object list | A GLOBAL count AS n, count(owner) AS n",
+        ] {
+            assert!(split_pipeline(source).is_err(), "{source}");
+        }
     }
 
     #[test]
@@ -1105,8 +1205,9 @@ mod tests {
         ));
         assert!(matches!(
             &stages[1..],
-            [PipeStage::Group(keys), PipeStage::Aggregate(spec)]
-                if keys[0].alias() == "OS Version" && spec.alias() == "Host Count"
+            [PipeStage::Group(keys), PipeStage::Aggregate(request)]
+                if keys[0].alias() == "OS Version"
+                    && request.specs()[0].alias() == "Host Count"
         ));
     }
 

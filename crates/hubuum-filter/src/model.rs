@@ -25,7 +25,7 @@ pub enum PipeStage {
     SortColumns(SortSpec),
     Distinct(DistinctSpec),
     Group(Vec<GroupKey>),
-    Aggregate(AggregateSpec),
+    Aggregate(AggregateRequest),
     CollapseGroups,
     Unroll(Selector),
     Jq(String),
@@ -76,6 +76,8 @@ const GROUP_INPUT_SHAPES: &[OutputShape] = &[
     OutputShape::Message,
     OutputShape::Values,
 ];
+const GLOBAL_AGGREGATE_INPUT_SHAPES: &[OutputShape] =
+    &[OutputShape::Empty, OutputShape::Rows, OutputShape::Values];
 const GROUPS_ONLY: &[OutputShape] = &[OutputShape::Groups];
 const EMPTY_ONLY: &[OutputShape] = &[OutputShape::Empty];
 const LINES_ONLY: &[OutputShape] = &[OutputShape::Lines];
@@ -109,6 +111,7 @@ impl PipeStage {
             Self::Columns(_) => "P",
             Self::Distinct(_) => "D",
             Self::Group(_) => "G",
+            Self::Aggregate(request) if request.is_global() => "A GLOBAL",
             Self::Aggregate(_) => "A",
             Self::CollapseGroups => "Z",
             Self::Unroll(_) => "U",
@@ -132,6 +135,7 @@ impl PipeStage {
             Self::Columns(_) => PROJECT_SHAPES,
             Self::SortColumns(_) | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
             Self::Group(_) => GROUP_INPUT_SHAPES,
+            Self::Aggregate(request) if request.is_global() => GLOBAL_AGGREGATE_INPUT_SHAPES,
             Self::Aggregate(_) | Self::CollapseGroups => GROUPS_ONLY,
         }
     }
@@ -206,6 +210,7 @@ impl PipeStage {
                 }
             },
             Self::Group(_) => GROUPS_ONLY,
+            Self::Aggregate(request) if request.is_global() => ROWS_ONLY,
             Self::Aggregate(_) => GROUPS_ONLY,
             Self::CollapseGroups => ROWS_ONLY,
             Self::Jq(_) => JQ_OUTPUT_SHAPES,
@@ -367,6 +372,52 @@ impl GroupKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AggregateRequest {
+    scope: AggregateScope,
+    specs: Vec<AggregateSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AggregateScope {
+    Grouped,
+    Global,
+}
+
+impl AggregateRequest {
+    pub fn grouped(spec: AggregateSpec) -> Self {
+        Self {
+            scope: AggregateScope::Grouped,
+            specs: vec![spec],
+        }
+    }
+
+    pub fn global(specs: Vec<AggregateSpec>) -> Result<Self, PipelineError> {
+        if specs.is_empty() {
+            return Err(PipelineError::Pipe(
+                "Pipe stage 'A GLOBAL' requires at least one aggregate".to_string(),
+            ));
+        }
+        ensure_unique_names(
+            "A GLOBAL",
+            "output name",
+            specs.iter().map(AggregateSpec::alias),
+        )?;
+        Ok(Self {
+            scope: AggregateScope::Global,
+            specs,
+        })
+    }
+
+    pub fn specs(&self) -> &[AggregateSpec] {
+        &self.specs
+    }
+
+    pub fn is_global(&self) -> bool {
+        self.scope == AggregateScope::Global
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateSpec {
     function: AggregateFunction,
     alias: OutputName,
@@ -420,6 +471,8 @@ impl Display for OutputName {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AggregateFunction {
     Count,
+    CountSelected(Selector),
+    CountDistinct(Selector),
     Sum(Selector),
     Avg(Selector),
     Min(Selector),

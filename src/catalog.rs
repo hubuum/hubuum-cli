@@ -1640,6 +1640,8 @@ mod tests {
         assert!(search.contains("K ipv4"));
         assert!(group.contains("G os_version AS"));
         assert!(group.contains("A count AS Hosts"));
+        assert!(group.contains("A GLOBAL"));
+        assert!(group.contains("count_distinct(os_version)"));
         assert!(project.contains("P <field> AS <name>"));
         assert!(project.contains("commas are required"));
         assert!(project.contains("no match becomes null"));
