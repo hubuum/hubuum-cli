@@ -5,7 +5,7 @@ use shlex::split;
 use crate::error::PipelineError;
 use crate::model::{
     validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, GroupKey,
-    PipeStage, ProjectTerm, SortCast,
+    NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
 use crate::predicate::Predicate;
 use crate::selector::Selector;
@@ -93,7 +93,7 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
             | PipeStage::Tail(_)
             | PipeStage::SortLines { .. }
             | PipeStage::Columns(_)
-            | PipeStage::SortColumn { .. }
+            | PipeStage::SortColumns(_)
             | PipeStage::Unroll(_) => {}
         }
     }
@@ -137,6 +137,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     if let Some(typed) = parse_typed_predicate_stage(stage) {
         return typed;
     }
+    if let Some(sort) = parse_sort_stage_source(stage) {
+        return sort;
+    }
 
     let Some(parts) = split(stage) else {
         return Err(PipelineError::Parse(
@@ -161,7 +164,7 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             Ok(PipeStage::Count)
         }
         "columns" | "P" => parse_columns_stage(&parts),
-        "sort" | "S" => parse_sort_stage(&parts),
+        "sort" | "S" => unreachable!("sort stages are parsed from their original source"),
         "G" => parse_group_stage(&parts),
         "A" => parse_aggregate_stage(&parts),
         "Z" => {
@@ -337,68 +340,238 @@ fn parse_columns_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
     Ok(PipeStage::Columns(columns))
 }
 
-fn parse_sort_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
-    let mut position = 1;
-    let target = parts.get(position).map(String::as_str).unwrap_or("line");
-    if parts.get(position).is_some() {
-        position += 1;
+fn parse_sort_stage_source(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
+    let verb_end = stage
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(stage.len());
+    let verb = &stage[..verb_end];
+    if !matches!(verb, "S" | "sort") {
+        return None;
     }
-    let (target, descending_prefix) = target
-        .strip_prefix('!')
-        .map(|target| (target, true))
-        .unwrap_or((target, false));
 
-    let mut descending = descending_prefix;
-    if let Some(direction) = parts.get(position).map(String::as_str) {
-        match direction {
-            "asc" => {
-                descending = descending_prefix;
-                position += 1;
-            }
-            "desc" => {
-                descending = true;
-                position += 1;
-            }
-            _ => {}
+    let source = stage[verb_end..].trim();
+    if source.is_empty() {
+        return Some(Ok(PipeStage::SortLines { descending: false }));
+    }
+
+    Some(parse_sort_source(source))
+}
+
+fn parse_sort_source(source: &str) -> Result<PipeStage, PipelineError> {
+    let segments = split_sort_keys(source)?;
+    if segments.len() == 1 {
+        let parts = split(segments[0])
+            .ok_or_else(|| PipelineError::Parse("Parsing quoted sort key failed".to_string()))?;
+        if parts
+            .first()
+            .map(|target| target.strip_prefix('!').unwrap_or(target))
+            .is_some_and(|target| target == "line")
+        {
+            return parse_line_sort(&parts);
         }
     }
 
-    let cast = if parts.get(position).map(String::as_str) == Some("AS") {
-        let Some(cast) = parts.get(position + 1) else {
-            return Err(PipelineError::Pipe(
-                "Sort cast requires AS num, AS str, or AS ip".to_string(),
-            ));
-        };
-        position += 2;
-        parse_sort_cast(cast)?
-    } else {
-        SortCast::Auto
-    };
+    let keys = segments
+        .into_iter()
+        .enumerate()
+        .map(|(index, segment)| parse_sort_key(segment, index + 1))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(PipeStage::SortColumns(SortSpec::new(keys)?))
+}
 
-    if position < parts.len() {
-        return Err(PipelineError::Pipe(
-            "Pipe stage 'sort' accepts: sort [line|field] [asc|desc] [AS num|str|ip]".to_string(),
+fn split_sort_keys(source: &str) -> Result<Vec<&str>, PipelineError> {
+    let mut keys = Vec::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut start = 0;
+    for (index, ch) in source.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => {}
+            None if matches!(ch, '\'' | '"') => quote = Some(ch),
+            None if ch == ',' => {
+                let key = source[start..index].trim();
+                if key.is_empty() {
+                    return Err(PipelineError::Parse(
+                        "Sort keys cannot be empty".to_string(),
+                    ));
+                }
+                keys.push(key);
+                start = index + ch.len_utf8();
+            }
+            None => {}
+        }
+    }
+    let key = source[start..].trim();
+    if key.is_empty() {
+        return Err(PipelineError::Parse(
+            "Sort keys cannot be empty".to_string(),
         ));
     }
+    keys.push(key);
+    Ok(keys)
+}
 
-    if target == "line" {
-        Ok(PipeStage::SortLines { descending })
-    } else {
-        Ok(PipeStage::SortColumn {
-            selector: target.parse()?,
-            descending,
-            cast,
-        })
+fn parse_line_sort(parts: &[String]) -> Result<PipeStage, PipelineError> {
+    let (target, prefixed_descending) = parts[0]
+        .strip_prefix('!')
+        .map_or((parts[0].as_str(), false), |target| (target, true));
+    debug_assert_eq!(target, "line");
+    let mut position = 1;
+    let mut descending = prefixed_descending;
+    if let Some(direction) = parts.get(position) {
+        if direction.eq_ignore_ascii_case("asc") {
+            position += 1;
+        } else if direction.eq_ignore_ascii_case("desc") {
+            descending = true;
+            position += 1;
+        }
     }
+    if parts
+        .get(position)
+        .is_some_and(|part| part.eq_ignore_ascii_case("AS"))
+    {
+        let Some(cast) = parts.get(position + 1) else {
+            return Err(PipelineError::Parse(
+                "Line sort cast requires a cast name after AS".to_string(),
+            ));
+        };
+        parse_sort_cast(cast)?;
+        position += 2;
+    }
+    if position != parts.len() {
+        return Err(PipelineError::Parse(
+            "Line sort accepts only line [asc|desc] [AS cast]".to_string(),
+        ));
+    }
+    Ok(PipeStage::SortLines { descending })
+}
+
+fn parse_sort_key(source: &str, key_number: usize) -> Result<SortKey, PipelineError> {
+    let parts = split(source)
+        .ok_or_else(|| PipelineError::Parse(format!("Parsing sort key {key_number} failed")))?;
+    let Some(target) = parts.first() else {
+        return Err(PipelineError::Parse(format!(
+            "Sort key {key_number} cannot be empty"
+        )));
+    };
+    let (target, prefixed_descending) = target
+        .strip_prefix('!')
+        .map_or((target.as_str(), false), |target| (target, true));
+    if target.is_empty() {
+        return Err(PipelineError::Parse(format!(
+            "Sort key {key_number} requires a selector after !"
+        )));
+    }
+
+    let mut position = 1;
+    let mut direction = if prefixed_descending {
+        SortDirection::Descending
+    } else {
+        SortDirection::Ascending
+    };
+    if let Some(value) = parts.get(position) {
+        if value.eq_ignore_ascii_case("asc") {
+            position += 1;
+        } else if value.eq_ignore_ascii_case("desc") {
+            direction = SortDirection::Descending;
+            position += 1;
+        }
+    }
+
+    let mut cast = SortCast::Auto;
+    if parts
+        .get(position)
+        .is_some_and(|part| part.eq_ignore_ascii_case("AS"))
+    {
+        let Some(value) = parts.get(position + 1) else {
+            return Err(PipelineError::Parse(format!(
+                "Sort key {key_number} requires a cast name after AS"
+            )));
+        };
+        cast = parse_sort_cast(value)?;
+        position += 2;
+    }
+
+    let mut reduction = SortReduction::First;
+    if parts
+        .get(position)
+        .is_some_and(|part| part.eq_ignore_ascii_case("USING"))
+    {
+        let Some(value) = parts.get(position + 1) else {
+            return Err(PipelineError::Parse(format!(
+                "Sort key {key_number} requires first, min, or max after USING"
+            )));
+        };
+        reduction = match value.to_ascii_lowercase().as_str() {
+            "first" => SortReduction::First,
+            "min" => SortReduction::Min,
+            "max" => SortReduction::Max,
+            _ => {
+                return Err(PipelineError::Parse(format!(
+                    "Sort key {key_number} has unknown fanout reduction '{value}'"
+                )));
+            }
+        };
+        position += 2;
+    }
+
+    let mut null_order = NullOrder::Last;
+    if parts
+        .get(position)
+        .is_some_and(|part| part.eq_ignore_ascii_case("NULLS"))
+    {
+        let Some(value) = parts.get(position + 1) else {
+            return Err(PipelineError::Parse(format!(
+                "Sort key {key_number} requires FIRST or LAST after NULLS"
+            )));
+        };
+        null_order = match value.to_ascii_lowercase().as_str() {
+            "first" => NullOrder::First,
+            "last" => NullOrder::Last,
+            _ => {
+                return Err(PipelineError::Parse(format!(
+                    "Sort key {key_number} has unknown null order '{value}'"
+                )));
+            }
+        };
+        position += 2;
+    }
+
+    if position != parts.len() {
+        return Err(PipelineError::Parse(format!(
+            "Unexpected token '{}' in sort key {key_number}; expected selector [asc|desc] [AS cast] [USING first|min|max] [NULLS FIRST|LAST]",
+            parts[position]
+        )));
+    }
+
+    Ok(SortKey::new(target)?
+        .with_direction(direction)
+        .with_cast(cast)
+        .with_reduction(reduction)
+        .with_null_order(null_order))
 }
 
 fn parse_sort_cast(value: &str) -> Result<SortCast, PipelineError> {
-    match value {
+    match value.to_ascii_lowercase().as_str() {
         "num" | "number" => Ok(SortCast::Number),
         "str" | "string" => Ok(SortCast::String),
+        "bool" | "boolean" => Ok(SortCast::Boolean),
         "ip" => Ok(SortCast::Ip),
+        "datetime" => Ok(SortCast::DateTime),
+        "version" => Ok(SortCast::Version),
+        "natural" => Ok(SortCast::Natural),
         other => Err(PipelineError::Pipe(format!(
-            "Unknown sort cast '{other}'. Use num, str, or ip"
+            "Unknown sort cast '{other}'. Use str, num, bool, ip, datetime, version, or natural"
         ))),
     }
 }
@@ -522,7 +695,10 @@ fn require_arg_count(name: &str, parts: &[String], expected: usize) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::split_pipeline;
-    use crate::model::{AggregateFunction, PipeStage, ProjectTerm, SortCast};
+    use crate::model::{
+        AggregateFunction, NullOrder, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
+        SortReduction, SortSpec,
+    };
 
     #[test]
     fn dsl_shorthand_aliases_parse() {
@@ -537,11 +713,12 @@ mod tests {
                     ProjectTerm::keep("name").expect("valid selector"),
                     ProjectTerm::keep("id").expect("valid selector"),
                 ]),
-                PipeStage::SortColumn {
-                    selector: "name".parse().expect("valid selector"),
-                    descending: true,
-                    cast: SortCast::Auto,
-                },
+                PipeStage::SortColumns(
+                    SortSpec::new(vec![SortKey::new("name")
+                        .expect("valid selector")
+                        .with_direction(SortDirection::Descending)])
+                    .expect("valid sort"),
+                ),
                 PipeStage::Head {
                     count: 5,
                     offset: 0
@@ -564,6 +741,58 @@ mod tests {
             split_pipeline("object list | F age=3 | reject retired").expect("legacy filters");
         assert_eq!(stages[0], PipeStage::Grep("age=3".to_string()));
         assert_eq!(stages[1], PipeStage::Reject("retired".to_string()));
+    }
+
+    #[test]
+    fn multi_key_sorts_parse_every_modifier_in_order() {
+        let (_command, stages) = split_pipeline(
+            "object list | S state asc, updated_at desc AS datetime NULLS FIRST, data.scores[] AS num USING max NULLS LAST, Name AS natural",
+        )
+        .expect("multi-key sort");
+        let PipeStage::SortColumns(spec) = &stages[0] else {
+            panic!("expected structured sort")
+        };
+        assert_eq!(spec.keys().len(), 4);
+        assert_eq!(spec.keys()[0].selector().as_str(), "state");
+        assert_eq!(spec.keys()[0].direction(), SortDirection::Ascending);
+        assert_eq!(spec.keys()[1].direction(), SortDirection::Descending);
+        assert_eq!(spec.keys()[1].cast(), SortCast::DateTime);
+        assert_eq!(spec.keys()[1].null_order(), NullOrder::First);
+        assert_eq!(spec.keys()[2].reduction(), SortReduction::Max);
+        assert_eq!(spec.keys()[3].cast(), SortCast::Natural);
+    }
+
+    #[test]
+    fn quoted_sort_selectors_and_line_compatibility_parse() {
+        let (_, stages) = split_pipeline("object list | S \"OS Version\" desc AS version")
+            .expect("quoted selector");
+        let PipeStage::SortColumns(spec) = &stages[0] else {
+            panic!("expected structured sort")
+        };
+        assert_eq!(spec.keys()[0].selector().as_str(), "OS Version");
+
+        for source in [
+            "object list | S",
+            "object list | S line",
+            "object list | S !line",
+        ] {
+            let (_, stages) = split_pipeline(source).expect("line sort compatibility");
+            assert!(matches!(stages[0], PipeStage::SortLines { .. }));
+        }
+    }
+
+    #[test]
+    fn malformed_sort_keys_are_rejected_during_parsing() {
+        for source in [
+            "object list | S state,",
+            "object list | S state,,Name",
+            "object list | S state AS",
+            "object list | S state USING middle",
+            "object list | S state NULLS SOMEWHERE",
+            "object list | S state desc unexpected",
+        ] {
+            assert!(split_pipeline(source).is_err(), "{source}");
+        }
     }
 
     #[test]

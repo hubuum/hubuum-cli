@@ -598,6 +598,60 @@ mod tests {
     }
 
     #[test]
+    fn redirects_preserve_multi_key_semantic_sort_order() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("sorted.json");
+        let command = format!(
+            "object list | S state asc, rank desc AS num > {}",
+            path.display()
+        );
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) = hubuum_filter::split_pipeline(&candidate.line).expect("sort pipeline");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "state": "b", "rank": 1}),
+                    json!({"name": "beta", "state": "a", "rank": 1}),
+                    json!({"name": "gamma", "state": "a", "rank": 2}),
+                ],
+                vec!["name".to_string(), "state".to_string(), "rank".to_string()],
+            ))
+            .expect("sort should apply");
+        let lines = serde_json::to_string_pretty(output.value())
+            .expect("sorted JSON should render")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let snapshot = OutputSnapshot {
+            lines,
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("redirect should write");
+
+        let rendered = read_to_string(path).expect("redirect output");
+        let gamma = rendered.find("gamma").expect("gamma row");
+        let beta = rendered.find("beta").expect("beta row");
+        let alpha = rendered.find("alpha").expect("alpha row");
+        assert!(gamma < beta && beta < alpha, "{rendered}");
+
+        let template = dir.path().join("{n}-{name}.json");
+        let each = split_redirect_candidate(&format!("object list > each:{}", template.display()))
+            .expect("each redirect should parse")
+            .expect("each redirect should exist")
+            .redirect;
+        write_output(&snapshot, &each).expect("each redirect should write");
+        assert!(dir.path().join("1-gamma.json").exists());
+        assert!(dir.path().join("2-beta.json").exists());
+        assert!(dir.path().join("3-alpha.json").exists());
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

@@ -1,11 +1,11 @@
 use regex::Regex;
 
 use crate::error::PipelineError;
-use crate::model::{OutputEnvelope, OutputShape, PipeStage, SortCast};
+use crate::model::{OutputEnvelope, OutputShape, PipeStage};
 use crate::settings::PipelineSettings;
 use crate::verbs::collection::{
     aggregate_envelope, collapse_groups, count_envelope, group_envelope, limit_envelope,
-    sort_envelope, unroll_envelope,
+    sort_columns_envelope, sort_whole_envelope, unroll_envelope,
 };
 use crate::verbs::jq::jq_envelope;
 use crate::verbs::project::{project_envelope, value_envelope};
@@ -53,7 +53,7 @@ impl PipeStage {
             | Self::TypedReject(_)
             | Self::Truthy(_)
             | Self::Columns(_)
-            | Self::SortColumn { .. }
+            | Self::SortColumns(_)
             | Self::Group(_)
             | Self::Aggregate(_)
             | Self::CollapseGroups
@@ -116,15 +116,9 @@ fn apply_semantic_stage(
         PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
         PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
         PipeStage::Count => count_envelope(envelope),
-        PipeStage::SortLines { descending } => {
-            sort_envelope(envelope, None, *descending, SortCast::Auto)
-        }
+        PipeStage::SortLines { descending } => sort_whole_envelope(envelope, *descending),
         PipeStage::Columns(columns) => project_envelope(envelope, columns),
-        PipeStage::SortColumn {
-            selector,
-            descending,
-            cast,
-        } => sort_envelope(envelope, Some(selector), *descending, *cast),
+        PipeStage::SortColumns(spec) => sort_columns_envelope(envelope, spec),
         PipeStage::Group(keys) => group_envelope(envelope, keys),
         PipeStage::Aggregate(spec) => aggregate_envelope(envelope, spec),
         PipeStage::CollapseGroups => collapse_groups(envelope),

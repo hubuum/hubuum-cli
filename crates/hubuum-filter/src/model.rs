@@ -17,21 +17,12 @@ pub enum PipeStage {
     Truthy(Option<Selector>),
     Reject(String),
     TypedReject(Predicate),
-    Head {
-        count: usize,
-        offset: usize,
-    },
+    Head { count: usize, offset: usize },
     Tail(usize),
     Count,
-    SortLines {
-        descending: bool,
-    },
+    SortLines { descending: bool },
     Columns(Vec<ProjectTerm>),
-    SortColumn {
-        selector: Selector,
-        descending: bool,
-        cast: SortCast,
-    },
+    SortColumns(SortSpec),
     Group(Vec<GroupKey>),
     Aggregate(AggregateSpec),
     CollapseGroups,
@@ -113,7 +104,7 @@ impl PipeStage {
             Self::Head { .. } => "L",
             Self::Tail(_) => "tail",
             Self::Count => "C",
-            Self::SortLines { .. } | Self::SortColumn { .. } => "S",
+            Self::SortLines { .. } | Self::SortColumns(_) => "S",
             Self::Columns(_) => "P",
             Self::Group(_) => "G",
             Self::Aggregate(_) => "A",
@@ -135,7 +126,7 @@ impl PipeStage {
             | Self::Value(_) => STRUCTURED_SHAPES,
             Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => COLLECTION_SHAPES,
             Self::Columns(_) => PROJECT_SHAPES,
-            Self::SortColumn { .. } | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
+            Self::SortColumns(_) | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
             Self::Group(_) => GROUP_INPUT_SHAPES,
             Self::Aggregate(_) | Self::CollapseGroups => GROUPS_ONLY,
         }
@@ -199,7 +190,7 @@ impl PipeStage {
                     unreachable!("validated input shape")
                 }
             },
-            Self::SortColumn { .. } | Self::Unroll(_) => match input {
+            Self::SortColumns(_) | Self::Unroll(_) => match input {
                 OutputShape::Empty => EMPTY_ONLY,
                 OutputShape::Rows => ROWS_ONLY,
                 OutputShape::Values => VALUES_ONLY,
@@ -389,6 +380,128 @@ pub enum SortCast {
     String,
     Number,
     Ip,
+    Boolean,
+    DateTime,
+    Version,
+    Natural,
+}
+
+impl Display for SortCast {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Auto => "auto",
+            Self::String => "str",
+            Self::Number => "num",
+            Self::Ip => "ip",
+            Self::Boolean => "bool",
+            Self::DateTime => "datetime",
+            Self::Version => "version",
+            Self::Natural => "natural",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortDirection {
+    #[default]
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortReduction {
+    #[default]
+    First,
+    Min,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NullOrder {
+    First,
+    #[default]
+    Last,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortKey {
+    selector: Selector,
+    direction: SortDirection,
+    cast: SortCast,
+    reduction: SortReduction,
+    null_order: NullOrder,
+}
+
+impl SortKey {
+    pub fn new(selector: impl Into<String>) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
+            direction: SortDirection::Ascending,
+            cast: SortCast::Auto,
+            reduction: SortReduction::First,
+            null_order: NullOrder::Last,
+        })
+    }
+
+    pub fn selector(&self) -> &Selector {
+        &self.selector
+    }
+
+    pub fn direction(&self) -> SortDirection {
+        self.direction
+    }
+
+    pub fn cast(&self) -> SortCast {
+        self.cast
+    }
+
+    pub fn reduction(&self) -> SortReduction {
+        self.reduction
+    }
+
+    pub fn null_order(&self) -> NullOrder {
+        self.null_order
+    }
+
+    pub fn with_direction(mut self, direction: SortDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    pub fn with_cast(mut self, cast: SortCast) -> Self {
+        self.cast = cast;
+        self
+    }
+
+    pub fn with_reduction(mut self, reduction: SortReduction) -> Self {
+        self.reduction = reduction;
+        self
+    }
+
+    pub fn with_null_order(mut self, null_order: NullOrder) -> Self {
+        self.null_order = null_order;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortSpec {
+    keys: Vec<SortKey>,
+}
+
+impl SortSpec {
+    pub fn new(keys: Vec<SortKey>) -> Result<Self, PipelineError> {
+        if keys.is_empty() {
+            return Err(PipelineError::Pipe(
+                "Pipe stage 'S' requires at least one sort key".to_string(),
+            ));
+        }
+        Ok(Self { keys })
+    }
+
+    pub fn keys(&self) -> &[SortKey] {
+        &self.keys
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
