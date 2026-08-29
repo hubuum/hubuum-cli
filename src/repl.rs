@@ -1331,7 +1331,7 @@ fn aggregate_selector_start(word: &str) -> Option<usize> {
     }
     matches!(
         &segment[..open],
-        "count" | "count_distinct" | "sum" | "avg" | "min" | "max"
+        "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "first" | "last"
     )
     .then_some(segment_start + open + 1)
 }
@@ -2256,6 +2256,8 @@ mod tests {
                 "object list --class Hosts | A GLOBAL count_distinct(os",
                 "os",
             ),
+            ("task events 1 | A first(cre", "cre"),
+            ("audit list | A GLOBAL last(occ", "occ"),
         ] {
             let context = pipe_completion_context(line, line.len()).expect("aggregate context");
             assert_eq!(context.kind, PipeCompletionKind::Field);

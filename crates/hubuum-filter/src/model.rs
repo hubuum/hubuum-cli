@@ -477,6 +477,8 @@ pub enum AggregateFunction {
     Avg(Selector),
     Min(Selector),
     Max(Selector),
+    First(Selector),
+    Last(Selector),
 }
 
 pub(crate) fn validate_projection_terms(terms: &[ProjectTerm]) -> Result<(), PipelineError> {

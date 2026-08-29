@@ -1642,6 +1642,8 @@ mod tests {
         assert!(group.contains("A count AS Hosts"));
         assert!(group.contains("A GLOBAL"));
         assert!(group.contains("count_distinct(os_version)"));
+        assert!(group.contains("first(created_at)"));
+        assert!(group.contains("last(occurred_at)"));
         assert!(project.contains("P <field> AS <name>"));
         assert!(project.contains("commas are required"));
         assert!(project.contains("no match becomes null"));

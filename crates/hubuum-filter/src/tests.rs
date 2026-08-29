@@ -755,6 +755,93 @@ fn selector_counts_share_grouped_and_global_reducers() {
 }
 
 #[test]
+fn ordered_aggregates_follow_sorted_row_and_selector_order_for_task_and_audit_events() {
+    let events = OutputEnvelope::rows(
+        vec![
+            json!({"kind": "task", "event": "task-finished", "at": 3, "markers": ["finish-a", null, "finish-b"]}),
+            json!({"kind": "audit", "event": "audit-updated", "at": 2}),
+            json!({"kind": "task", "event": "task-started", "at": 0, "markers": [null, "start-a", "start-b"]}),
+            json!({"kind": "audit", "event": "audit-created", "at": 1}),
+            json!({"kind": "audit", "event": "audit-deleted", "at": 4}),
+        ],
+        vec![
+            "kind".to_string(),
+            "event".to_string(),
+            "at".to_string(),
+            "markers".to_string(),
+        ],
+    );
+
+    let grouped = apply_dsl(
+        events.clone(),
+        "S at asc AS num | G kind | A first(event) AS First | A last(event) AS Last | A first(markers[]) AS FirstMarker | A last(markers[]) AS LastMarker | Z",
+    )
+    .expect("ordered grouped event boundaries");
+    assert_eq!(
+        grouped.value,
+        json!([
+            {
+                "kind": "audit",
+                "First": "audit-created",
+                "Last": "audit-deleted",
+                "FirstMarker": null,
+                "LastMarker": null
+            },
+            {
+                "kind": "task",
+                "First": "task-started",
+                "Last": "task-finished",
+                "FirstMarker": "start-a",
+                "LastMarker": "finish-b"
+            }
+        ])
+    );
+
+    let global = apply_dsl(
+        events,
+        "S at desc AS num | A GLOBAL first(event) AS Latest, last(event) AS Earliest",
+    )
+    .expect("ordered global event boundaries");
+    assert_eq!(
+        global.value,
+        json!([{"Latest": "audit-deleted", "Earliest": "task-started"}])
+    );
+}
+
+#[test]
+fn ordered_aggregates_skip_missing_and_null_and_return_null_without_contributors() {
+    let output = apply_dsl(
+        OutputEnvelope::rows(
+            vec![
+                json!({"values": [null, "first", "middle"]}),
+                json!({}),
+                json!({"values": ["last", null], "empty": null}),
+            ],
+            vec!["values".to_string(), "empty".to_string()],
+        ),
+        "A GLOBAL first(values[]) AS First, last(values[]) AS Last, first(empty) AS EmptyFirst, last(missing) AS MissingLast",
+    )
+    .expect("null-safe ordered aggregates");
+
+    assert_eq!(
+        output.value,
+        json!([{
+            "First": "first",
+            "Last": "last",
+            "EmptyFirst": null,
+            "MissingLast": null
+        }])
+    );
+
+    let empty = apply_dsl(
+        OutputEnvelope::empty(),
+        "A GLOBAL first(value) AS First, last(value) AS Last",
+    )
+    .expect("empty ordered aggregate");
+    assert_eq!(empty.value, json!([{"First": null, "Last": null}]));
+}
+
+#[test]
 fn global_aggregation_rejects_non_collection_shapes_explicitly() {
     for envelope in [
         OutputEnvelope::lines(vec!["line".to_string()]),

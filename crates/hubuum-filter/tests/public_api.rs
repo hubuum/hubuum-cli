@@ -138,6 +138,16 @@ fn global_aggregate_requests_are_validated_and_reusable_without_cli_types() {
             "Versions",
         )
         .expect("valid aggregate"),
+        AggregateSpec::new(
+            AggregateFunction::First("os_version".parse().expect("valid selector")),
+            "FirstVersion",
+        )
+        .expect("valid aggregate"),
+        AggregateSpec::new(
+            AggregateFunction::Last("os_version".parse().expect("valid selector")),
+            "LastVersion",
+        )
+        .expect("valid aggregate"),
     ])
     .expect("valid global request");
     let pipeline = Pipeline::from_stages(vec![PipeStage::Aggregate(request)])
@@ -154,8 +164,19 @@ fn global_aggregate_requests_are_validated_and_reusable_without_cli_types() {
         .expect("global aggregate output");
 
     assert_eq!(output.shape(), OutputShape::Rows);
-    assert_eq!(output.columns(), ["Hosts", "Versions"]);
-    assert_eq!(output.value(), &json!([{"Hosts": 3, "Versions": 2}]));
+    assert_eq!(
+        output.columns(),
+        ["Hosts", "Versions", "FirstVersion", "LastVersion"]
+    );
+    assert_eq!(
+        output.value(),
+        &json!([{
+            "Hosts": 3,
+            "Versions": 2,
+            "FirstVersion": "26.1",
+            "LastVersion": "27"
+        }])
+    );
 }
 
 #[test]

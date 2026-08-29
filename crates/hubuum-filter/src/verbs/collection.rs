@@ -369,6 +369,15 @@ fn aggregate_rows(rows: &[Value], function: &AggregateFunction) -> Value {
         }
         AggregateFunction::Min(selector) => selected_min_max(rows, selector, false),
         AggregateFunction::Max(selector) => selected_min_max(rows, selector, true),
+        AggregateFunction::First(selector) => selected_values(rows, selector)
+            .find(|value| !value.is_null())
+            .cloned()
+            .unwrap_or(Value::Null),
+        AggregateFunction::Last(selector) => selected_values(rows, selector)
+            .filter(|value| !value.is_null())
+            .last()
+            .cloned()
+            .unwrap_or(Value::Null),
     }
 }
 

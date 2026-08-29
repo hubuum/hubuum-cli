@@ -832,6 +832,56 @@ mod tests {
     }
 
     #[test]
+    fn file_and_each_redirects_use_ordered_aggregate_boundaries() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("boundaries.json");
+        let command = format!(
+            "task events 1 | S created_at asc AS datetime | A GLOBAL first(event) AS First, last(event) AS Last > {}",
+            path.display()
+        );
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) = hubuum_filter::split_pipeline(&candidate.line)
+            .expect("ordered aggregate pipeline should parse");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"event": "finished", "created_at": "2026-08-30T12:00:00Z"}),
+                    json!({"event": "started", "created_at": "2026-08-30T10:00:00Z"}),
+                ],
+                vec!["event".to_string(), "created_at".to_string()],
+            ))
+            .expect("ordered aggregate should apply");
+        let lines = serde_json::to_string_pretty(output.value())
+            .expect("aggregate JSON should render")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let snapshot = OutputSnapshot {
+            lines,
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("file redirect should write");
+        let rendered = read_to_string(path).expect("redirect output");
+        assert!(rendered.contains("\"First\": \"started\""), "{rendered}");
+        assert!(rendered.contains("\"Last\": \"finished\""), "{rendered}");
+
+        let template = dir.path().join("{First}-{Last}.json");
+        let each =
+            split_redirect_candidate(&format!("task events 1 > each:{}", template.display()))
+                .expect("each redirect should parse")
+                .expect("each redirect should exist")
+                .redirect;
+        write_output(&snapshot, &each).expect("each redirect should write");
+        assert!(dir.path().join("started-finished.json").exists());
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

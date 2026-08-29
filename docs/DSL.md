@@ -16,9 +16,9 @@ want a smaller local view without adding another API flag.
 The native-language increments are specified in
 [RFC 0001](rfcs/0001-native-pipeline-dsl.md) and land in independently
 reviewable slices. Typed boolean predicates, multi-key sorting, strict IP
-sorting, projection aliases, stable distinct, and global aggregation with
-selector counts are implemented; later RFC sections remain proposals until
-their linked delivery issues land.
+sorting, projection aliases, stable distinct, global aggregation with selector
+counts, and ordered first/last aggregates are implemented; later RFC sections
+remain proposals until their linked delivery issues land.
 
 Grouping with `G` and aggregation with `A` are local pipe operations over the
 values returned by the preceding command. `A GLOBAL` aggregates the complete
@@ -366,12 +366,30 @@ object list --class Hosts --all | A GLOBAL count AS Hosts, count(data.owner) AS 
 ```
 
 Global aggregation consumes its input and always returns exactly one `Rows`
-record. Counts are zero on empty input; numeric aggregates without contributing
-values return null. `Lines`, `Detail`, `Message`, and `Groups` are rejected. Use
-`Z` first when the intended input is the visible summaries of existing groups.
+record. Counts are zero on empty input; numeric and ordered aggregates without
+contributing values return null. `Lines`, `Detail`, `Message`, and `Groups` are
+rejected. Use `Z` first when the intended input is the visible summaries of
+existing groups.
 On paginated commands, use `--all` for cardinality across every matching result;
 otherwise the standard partial-pipeline warning applies and only the current
 page is aggregated.
+
+`first(selector)` and `last(selector)` return the first or last non-null match
+in current row and selector order. Missing and null matches are skipped; no
+contributing value produces JSON null. Sort before `G` or `A GLOBAL` to make
+event boundaries explicit and reproducible.
+
+Find the complete time range for one task's events:
+
+```text
+task events <task-id> --all | S created_at asc AS datetime | A GLOBAL first(created_at) AS First, last(created_at) AS Last
+```
+
+Find the first and last visible audit event for each action:
+
+```text
+audit list --all | S occurred_at asc AS datetime | G action | A first(occurred_at) AS First | A last(occurred_at) AS Last | Z
+```
 
 Aggregates are ordinary visible output columns, so later stages can filter,
 sort, project, or redirect them:
