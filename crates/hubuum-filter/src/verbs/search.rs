@@ -202,9 +202,20 @@ pub(crate) fn truthy_envelope(
                 Ok(OutputEnvelope::empty())
             }
         }
-        (OutputShape::Detail | OutputShape::Message, None) => Ok(compact_empty(envelope.value)
-            .map(|value| OutputEnvelope::detail(value, envelope.columns))
-            .unwrap_or_else(OutputEnvelope::empty)),
+        (OutputShape::Detail | OutputShape::Message, None) => {
+            let OutputEnvelope {
+                shape,
+                value,
+                columns,
+            } = envelope;
+            Ok(compact_empty(value)
+                .map(|value| OutputEnvelope {
+                    shape,
+                    value,
+                    columns,
+                })
+                .unwrap_or_else(OutputEnvelope::empty))
+        }
         (OutputShape::Groups, Some(selector)) => {
             let groups = array_values(&envelope.value)?
                 .into_iter()

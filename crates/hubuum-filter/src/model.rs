@@ -37,6 +37,192 @@ pub enum PipeStage {
     Value(Selector),
 }
 
+const ALL_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Lines,
+    OutputShape::Rows,
+    OutputShape::Detail,
+    OutputShape::Message,
+    OutputShape::Values,
+    OutputShape::Groups,
+];
+const STRUCTURED_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Rows,
+    OutputShape::Detail,
+    OutputShape::Message,
+    OutputShape::Values,
+    OutputShape::Groups,
+];
+const COLLECTION_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Lines,
+    OutputShape::Rows,
+    OutputShape::Values,
+    OutputShape::Groups,
+];
+const STRUCTURED_COLLECTION_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Rows,
+    OutputShape::Values,
+    OutputShape::Groups,
+];
+const PROJECT_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Rows,
+    OutputShape::Detail,
+    OutputShape::Message,
+    OutputShape::Groups,
+];
+const GROUP_INPUT_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Rows,
+    OutputShape::Detail,
+    OutputShape::Message,
+    OutputShape::Values,
+];
+const GROUPS_ONLY: &[OutputShape] = &[OutputShape::Groups];
+const EMPTY_ONLY: &[OutputShape] = &[OutputShape::Empty];
+const LINES_ONLY: &[OutputShape] = &[OutputShape::Lines];
+const ROWS_ONLY: &[OutputShape] = &[OutputShape::Rows];
+const DETAIL_ONLY: &[OutputShape] = &[OutputShape::Detail];
+const VALUES_ONLY: &[OutputShape] = &[OutputShape::Values];
+const DETAIL_OR_EMPTY: &[OutputShape] = &[OutputShape::Detail, OutputShape::Empty];
+const MESSAGE_OR_EMPTY: &[OutputShape] = &[OutputShape::Message, OutputShape::Empty];
+const JQ_OUTPUT_SHAPES: &[OutputShape] = &[
+    OutputShape::Empty,
+    OutputShape::Rows,
+    OutputShape::Detail,
+    OutputShape::Message,
+    OutputShape::Values,
+];
+
+impl PipeStage {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Grep(_) => "F",
+            Self::ValueSearch(_) => "V",
+            Self::KeySearch(_) => "K",
+            Self::Truthy(_) => "?",
+            Self::Reject(_) => "reject",
+            Self::Head { .. } => "L",
+            Self::Tail(_) => "tail",
+            Self::Count => "C",
+            Self::SortLines { .. } | Self::SortColumn { .. } => "S",
+            Self::Columns(_) => "P",
+            Self::Group(_) => "G",
+            Self::Aggregate(_) => "A",
+            Self::CollapseGroups => "Z",
+            Self::Unroll(_) => "U",
+            Self::Jq(_) => "JQ",
+            Self::Value(_) => "VALUE",
+        }
+    }
+
+    pub fn accepted_input_shapes(&self) -> &'static [OutputShape] {
+        match self {
+            Self::Grep(_) | Self::ValueSearch(_) | Self::Reject(_) | Self::Count => ALL_SHAPES,
+            Self::KeySearch(_) | Self::Truthy(_) | Self::Jq(_) | Self::Value(_) => {
+                STRUCTURED_SHAPES
+            }
+            Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => COLLECTION_SHAPES,
+            Self::Columns(_) => PROJECT_SHAPES,
+            Self::SortColumn { .. } | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
+            Self::Group(_) => GROUP_INPUT_SHAPES,
+            Self::Aggregate(_) | Self::CollapseGroups => GROUPS_ONLY,
+        }
+    }
+
+    pub fn resulting_shapes(
+        &self,
+        input: OutputShape,
+    ) -> Result<&'static [OutputShape], PipelineError> {
+        self.validate_input_shape(input)?;
+        let shapes = match self {
+            Self::Grep(_) | Self::ValueSearch(_) | Self::Reject(_) => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Lines => LINES_ONLY,
+                OutputShape::Rows => ROWS_ONLY,
+                OutputShape::Detail => DETAIL_OR_EMPTY,
+                OutputShape::Message => MESSAGE_OR_EMPTY,
+                OutputShape::Values => VALUES_ONLY,
+                OutputShape::Groups => GROUPS_ONLY,
+            },
+            Self::KeySearch(_) => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Rows | OutputShape::Values => ROWS_ONLY,
+                OutputShape::Detail | OutputShape::Message => DETAIL_OR_EMPTY,
+                OutputShape::Groups => GROUPS_ONLY,
+                OutputShape::Lines => unreachable!("validated input shape"),
+            },
+            Self::Truthy(_) => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Rows => ROWS_ONLY,
+                OutputShape::Detail => DETAIL_OR_EMPTY,
+                OutputShape::Message => MESSAGE_OR_EMPTY,
+                OutputShape::Values => VALUES_ONLY,
+                OutputShape::Groups => GROUPS_ONLY,
+                OutputShape::Lines => unreachable!("validated input shape"),
+            },
+            Self::Head { .. } | Self::Tail(_) | Self::SortLines { .. } => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Lines => LINES_ONLY,
+                OutputShape::Rows => ROWS_ONLY,
+                OutputShape::Values => VALUES_ONLY,
+                OutputShape::Groups => GROUPS_ONLY,
+                OutputShape::Detail | OutputShape::Message => {
+                    unreachable!("validated input shape")
+                }
+            },
+            Self::Count => match input {
+                OutputShape::Groups => ROWS_ONLY,
+                _ => VALUES_ONLY,
+            },
+            Self::Columns(_) => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Rows => ROWS_ONLY,
+                OutputShape::Detail | OutputShape::Message => DETAIL_ONLY,
+                OutputShape::Groups => GROUPS_ONLY,
+                OutputShape::Lines | OutputShape::Values => {
+                    unreachable!("validated input shape")
+                }
+            },
+            Self::SortColumn { .. } | Self::Unroll(_) => match input {
+                OutputShape::Empty => EMPTY_ONLY,
+                OutputShape::Rows => ROWS_ONLY,
+                OutputShape::Values => VALUES_ONLY,
+                OutputShape::Groups => GROUPS_ONLY,
+                OutputShape::Lines | OutputShape::Detail | OutputShape::Message => {
+                    unreachable!("validated input shape")
+                }
+            },
+            Self::Group(_) => GROUPS_ONLY,
+            Self::Aggregate(_) => GROUPS_ONLY,
+            Self::CollapseGroups => ROWS_ONLY,
+            Self::Jq(_) => JQ_OUTPUT_SHAPES,
+            Self::Value(_) => VALUES_ONLY,
+        };
+        Ok(shapes)
+    }
+
+    pub(crate) fn validate_input_shape(&self, input: OutputShape) -> Result<(), PipelineError> {
+        let accepted = self.accepted_input_shapes();
+        if accepted.contains(&input) {
+            return Ok(());
+        }
+
+        let expected = accepted
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(PipelineError::Pipe(format!(
+            "Pipe stage '{}' does not accept {input} output; expected one of: {expected}",
+            self.name()
+        )))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTerm {
     selector: Selector,
@@ -202,6 +388,20 @@ pub enum OutputShape {
     Message,
     Values,
     Groups,
+}
+
+impl Display for OutputShape {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Empty => "Empty",
+            Self::Lines => "Lines",
+            Self::Rows => "Rows",
+            Self::Detail => "Detail",
+            Self::Message => "Message",
+            Self::Values => "Values",
+            Self::Groups => "Groups",
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
