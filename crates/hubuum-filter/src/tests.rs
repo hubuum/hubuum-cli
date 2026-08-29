@@ -1,7 +1,7 @@
 use crate::{
     apply_pipeline, apply_pipeline_with_settings, group_summary_rows, split_pipeline,
     validate_jq_expression, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope,
-    OutputShape, PipeStage, PipelineSettings, ProjectTerm, Selector, SortCast,
+    OutputShape, PipeStage, PipelineSettings, Predicate, ProjectTerm, Selector, SortCast,
 };
 use serde_json::json;
 
@@ -76,10 +76,12 @@ fn drop(selector: &str) -> ProjectTerm {
 fn representative_stages() -> Vec<PipeStage> {
     vec![
         PipeStage::Grep(".*".to_string()),
+        PipeStage::TypedFilter(Predicate::parse("field == 1").expect("valid predicate")),
         PipeStage::ValueSearch(".*".to_string()),
         PipeStage::KeySearch("field".to_string()),
         PipeStage::Truthy(None),
         PipeStage::Reject("does-not-match".to_string()),
+        PipeStage::TypedReject(Predicate::parse("field == 0").expect("valid predicate")),
         PipeStage::Head {
             count: 1,
             offset: 0,
@@ -150,10 +152,11 @@ fn every_stage_enforces_and_fulfils_its_shape_contract() {
 
             match contract {
                 Ok(resulting_shapes) => {
-                    let output = apply_pipeline(envelope_for_shape(shape), &[stage.clone()])
-                        .unwrap_or_else(|error| {
-                            panic!("{} should accept {shape}: {error}", stage.name())
-                        });
+                    let output =
+                        apply_pipeline(envelope_for_shape(shape), std::slice::from_ref(&stage))
+                            .unwrap_or_else(|error| {
+                                panic!("{} should accept {shape}: {error}", stage.name())
+                            });
                     assert!(
                         resulting_shapes.contains(&output.shape),
                         "{} on {shape} produced undocumented {}",
@@ -163,7 +166,7 @@ fn every_stage_enforces_and_fulfils_its_shape_contract() {
                 }
                 Err(contract_error) => {
                     let evaluation_error =
-                        apply_pipeline(envelope_for_shape(shape), &[stage.clone()])
+                        apply_pipeline(envelope_for_shape(shape), std::slice::from_ref(&stage))
                             .expect_err("unsupported shape should fail");
                     let message = evaluation_error.to_string();
                     assert_eq!(message, contract_error.to_string());
@@ -193,7 +196,21 @@ fn empty_is_identity_only_for_row_preserving_stages() {
             .iter()
             .map(PipeStage::name)
             .collect::<Vec<_>>(),
-        vec!["F", "V", "K", "?", "reject", "L", "tail", "S", "P", "S", "U"]
+        vec![
+            "F",
+            "F WHERE",
+            "V",
+            "K",
+            "?",
+            "reject",
+            "reject WHERE",
+            "L",
+            "tail",
+            "S",
+            "P",
+            "S",
+            "U"
+        ]
     );
     for stage in identity_stages {
         assert_eq!(
@@ -201,6 +218,79 @@ fn empty_is_identity_only_for_row_preserving_stages() {
             empty
         );
     }
+}
+
+#[test]
+fn typed_predicates_filter_rows_values_details_messages_and_groups() {
+    let predicate = Predicate::parse(
+        "data.cpu.cores AS num >= 4 AND (os_version == \"26.1\" OR Name == \"host-c\")",
+    )
+    .expect("valid predicate");
+    let rows = apply_pipeline(host_rows(), &[PipeStage::TypedFilter(predicate)])
+        .expect("typed row filter");
+    assert_eq!(
+        rows.value
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| row["Name"].as_str().expect("name"))
+            .collect::<Vec<_>>(),
+        vec!["host-a", "host-b"]
+    );
+
+    let values = apply_pipeline(
+        OutputEnvelope::values(vec![json!({"n": 1}), json!({"n": 2})]),
+        &[PipeStage::TypedFilter(
+            Predicate::parse("n IN [2, 3]").expect("valid predicate"),
+        )],
+    )
+    .expect("typed values filter");
+    assert_eq!(values.value, json!([{"n": 2}]));
+
+    for envelope in [
+        OutputEnvelope::detail(json!({"state": "active"}), vec!["state".to_string()]),
+        OutputEnvelope::message(json!({"state": "active"})),
+    ] {
+        let output = apply_pipeline(
+            envelope,
+            &[PipeStage::TypedFilter(
+                Predicate::parse("state == \"active\"").expect("valid predicate"),
+            )],
+        )
+        .expect("typed singleton filter");
+        assert!(!output.is_empty());
+    }
+
+    let grouped = apply_pipeline(
+        grouped_value_rows(),
+        &[
+            PipeStage::Group(vec![group_key("g", "g")]),
+            PipeStage::Aggregate(aggregate(AggregateFunction::Count, "n")),
+            PipeStage::TypedFilter(Predicate::parse("n >= 2").expect("valid predicate")),
+        ],
+    )
+    .expect("typed group filter");
+    assert_eq!(
+        group_summary_rows(&grouped.value),
+        vec![json!({"g": "x", "n": 2})]
+    );
+    assert_eq!(
+        grouped.value[0]["rows"].as_array().expect("members").len(),
+        2
+    );
+}
+
+#[test]
+fn typed_reject_negates_the_complete_predicate() {
+    let output = apply_pipeline(
+        host_rows(),
+        &[PipeStage::TypedReject(
+            Predicate::parse("os_version == \"26.1\" OR data.cpu.cores AS num < 3")
+                .expect("valid predicate"),
+        )],
+    )
+    .expect("typed reject");
+    assert!(output.is_empty());
 }
 
 #[test]
@@ -263,7 +353,7 @@ fn ignored_search_keys_are_explicit_and_generic_defaults_search_every_key() {
     let stage = PipeStage::Grep("2026".to_string());
 
     assert_eq!(
-        apply_pipeline(rows.clone(), &[stage.clone()])
+        apply_pipeline(rows.clone(), std::slice::from_ref(&stage))
             .expect("generic search")
             .value
             .as_array()

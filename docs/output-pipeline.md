@@ -73,6 +73,8 @@ Pipe stages now run on semantic data when commands use shared formatters:
 
 - `F pattern`, `F field regex`, and compact equality/comparison filters such as
   `F field=value` or `F field>=8`
+- `F WHERE predicate` and `reject WHERE predicate` with typed literals,
+  boolean composition, null/missing tests, fanout, and explicit casts
 - `V pattern` value-only search and `K pattern` key-only search
 - `P field other.nested[]` projections
 - `S field`, `S !field`, and typed sorting for numbers, strings, and IPs
@@ -99,11 +101,12 @@ color choice as terminal output: `auto` and `never` strip ANSI from files,
 while `always` retains it.
 
 Redirect operators are standalone, whitespace-delimited tokens. Compact DSL
-comparisons such as `F age>3` are not redirect candidates. Redirect parsing is
-also validated against the preceding command, so command filters such as
-`--where age > 3` remain part of the command when truncating at `>` would make
-the command invalid. POSIX one-shot invocations must escape or quote `|`, `>`,
-and `>>` so the shell passes them to the CLI.
+comparisons such as `F age>3` are not redirect candidates. Spaced comparisons
+such as `F WHERE age > 3` remain predicates because redirect parsing requires
+the preceding pipeline to be complete; a later standalone operator can then
+redirect the result. The same validation keeps command filters such as
+`--where age > 3` intact. POSIX one-shot invocations must escape or quote `|`,
+`>`, and `>>` so the shell passes them to the CLI.
 
 ## Remaining Boundaries
 

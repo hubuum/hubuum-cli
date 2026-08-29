@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
+use crate::predicate::Predicate;
 use crate::selector::{compact_empty, key_paths, scalar_text, select_values, truthy, Selector};
 use crate::settings::PipelineSettings;
 use crate::verbs::array_values;
@@ -89,6 +90,62 @@ pub(crate) fn filter_envelope(
         OutputShape::Groups => filter_group_summaries(envelope, &filter, invert, settings),
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
+    }
+}
+
+pub(crate) fn predicate_envelope(
+    envelope: OutputEnvelope,
+    predicate: &Predicate,
+    invert: bool,
+) -> Result<OutputEnvelope, PipelineError> {
+    let stage = if invert { "reject WHERE" } else { "F WHERE" };
+    match envelope.shape {
+        OutputShape::Rows | OutputShape::Values => {
+            let rows = array_values(&envelope.value)?
+                .into_iter()
+                .enumerate()
+                .filter_map(
+                    |(index, value)| match predicate.matches(&value, index + 1, stage) {
+                        Ok(matched) if matched != invert => Some(Ok(value)),
+                        Ok(_) => None,
+                        Err(error) => Some(Err(error)),
+                    },
+                )
+                .collect::<Result<Vec<_>, PipelineError>>()?;
+            Ok(OutputEnvelope {
+                value: Value::Array(rows),
+                ..envelope
+            })
+        }
+        OutputShape::Detail | OutputShape::Message => {
+            if predicate.matches(&envelope.value, 1, stage)? != invert {
+                Ok(envelope)
+            } else {
+                Ok(OutputEnvelope::empty())
+            }
+        }
+        OutputShape::Groups => {
+            let groups = array_values(&envelope.value)?
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, group)| {
+                    let summary = group_summary_row(&group)?;
+                    Some(
+                        predicate
+                            .matches(&summary, index + 1, stage)
+                            .map(|matched| (group, matched)),
+                    )
+                })
+                .filter_map(|result| match result {
+                    Ok((group, matched)) if matched != invert => Some(Ok(group)),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                })
+                .collect::<Result<Vec<_>, PipelineError>>()?;
+            Ok(OutputEnvelope::groups(groups, envelope.columns))
+        }
+        OutputShape::Empty => Ok(envelope),
+        OutputShape::Lines => unreachable!("typed predicates reject line input by shape contract"),
     }
 }
 

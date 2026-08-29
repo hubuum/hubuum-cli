@@ -985,8 +985,10 @@ dependencies = [
 name = "hubuum-filter"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "jaq-all",
  "regex",
+ "semver",
  "serde",
  "serde_json",
  "shlex",

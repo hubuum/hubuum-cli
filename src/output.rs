@@ -1150,7 +1150,7 @@ mod tests {
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap};
     use comfy_table::Table;
-    use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, ProjectTerm};
+    use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, Pipeline, ProjectTerm};
     use hubuum_theme::resolve_theme;
 
     #[test]
@@ -1277,6 +1277,37 @@ mod tests {
 
             assert_eq!(snapshot.semantic[0].shape(), OutputShape::Lines);
             assert!(snapshot.render().contains(expected), "{format:?}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn typed_predicate_results_render_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "age": 2}),
+                    json!({"name": "beta", "age": 4}),
+                ],
+                vec!["name".to_string(), "age".to_string()],
+            ))
+            .expect("semantic output should be set");
+            let pipeline = Pipeline::parse("F WHERE age AS num >= 3").expect("typed pipeline");
+            set_pipeline(pipeline.into_stages()).expect("pipeline should set");
+
+            let rendered = take_output().expect("snapshot").render();
+
+            assert!(rendered.contains("beta"), "{format:?}: {rendered}");
+            assert!(!rendered.contains("alpha"), "{format:?}: {rendered}");
         }
     }
 

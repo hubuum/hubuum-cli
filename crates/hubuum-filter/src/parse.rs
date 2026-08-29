@@ -7,6 +7,7 @@ use crate::model::{
     validate_group_keys, validate_projection_terms, AggregateFunction, AggregateSpec, GroupKey,
     PipeStage, ProjectTerm, SortCast,
 };
+use crate::predicate::Predicate;
 use crate::selector::Selector;
 use crate::verbs::search::validate_filter_expression;
 
@@ -82,10 +83,12 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
             | PipeStage::Jq(_)
             | PipeStage::Value(_) => grouped_names = None,
             PipeStage::Grep(_)
+            | PipeStage::TypedFilter(_)
             | PipeStage::ValueSearch(_)
             | PipeStage::KeySearch(_)
             | PipeStage::Truthy(_)
             | PipeStage::Reject(_)
+            | PipeStage::TypedReject(_)
             | PipeStage::Head { .. }
             | PipeStage::Tail(_)
             | PipeStage::SortLines { .. }
@@ -131,6 +134,10 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
         return Err(PipelineError::Pipe("Empty pipe stage".to_string()));
     }
 
+    if let Some(typed) = parse_typed_predicate_stage(stage) {
+        return typed;
+    }
+
     let Some(parts) = split(stage) else {
         return Err(PipelineError::Parse(
             "Parsing pipe stage failed".to_string(),
@@ -166,6 +173,35 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
         "VALUE" | "VAL" => selector_stage(parts[0].as_str(), &parts, PipeStage::Value),
         _ => parse_legacy_stage(stage, &parts),
     }
+}
+
+fn parse_typed_predicate_stage(stage: &str) -> Option<Result<PipeStage, PipelineError>> {
+    let verb_end = stage
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))?;
+    let verb = &stage[..verb_end];
+    if !matches!(verb, "F" | "grep" | "reject") {
+        return None;
+    }
+
+    let rest = stage[verb_end..].trim_start();
+    let where_end = rest
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(rest.len());
+    if !rest[..where_end].eq_ignore_ascii_case("WHERE") {
+        return None;
+    }
+
+    let source = rest[where_end..].trim_start();
+    let parsed = Predicate::parse(source).map(|predicate| {
+        if verb == "reject" {
+            PipeStage::TypedReject(predicate)
+        } else {
+            PipeStage::TypedFilter(predicate)
+        }
+    });
+    Some(parsed)
 }
 
 fn parse_filter_stage(
@@ -513,6 +549,34 @@ mod tests {
                 PipeStage::Count,
             ]
         );
+    }
+
+    #[test]
+    fn typed_predicates_preserve_quotes_and_legacy_filters() {
+        let (_command, stages) = split_pipeline(
+            "object list | F WHERE age AS num >= 3 AND (state == \"active\" OR owner IS NULL) | reject WHERE disabled == true",
+        )
+        .expect("typed predicates");
+        assert!(matches!(stages[0], PipeStage::TypedFilter(_)));
+        assert!(matches!(stages[1], PipeStage::TypedReject(_)));
+
+        let (_command, stages) =
+            split_pipeline("object list | F age=3 | reject retired").expect("legacy filters");
+        assert_eq!(stages[0], PipeStage::Grep("age=3".to_string()));
+        assert_eq!(stages[1], PipeStage::Reject("retired".to_string()));
+    }
+
+    #[test]
+    fn malformed_typed_predicates_fail_during_pipeline_parsing() {
+        for line in [
+            "object list | F WHERE",
+            "object list | F WHERE age >",
+            "object list | F WHERE age IN [1,]",
+            "object list | reject WHERE (state == \"active\"",
+        ] {
+            let error = split_pipeline(line).expect_err("typed predicate should fail");
+            assert!(error.to_string().contains("byte"), "{line}: {error}");
+        }
     }
 
     #[test]
