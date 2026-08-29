@@ -43,7 +43,7 @@ smooth-json = "0"
 serial_test = "4.0"
 strum = { version = "0.28", features = ["derive", "strum_macros"] }
 async-trait = "0.1"
-reedline = "0.49"
+reedline = "0.51"
 tokio = { version = "1", features = [
     "fs",
     "macros",
@@ -69,3 +69,5 @@ panic = "abort"
 strip = "symbols"
 
 [patch.crates-io]
+# jqesque 0.0.3 passes jsonptr values into json-patch 4.2, so Cargo.lock keeps
+# both crates on jsonptr 0.7.1 until their upstream constraints converge.
