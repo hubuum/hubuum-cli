@@ -326,6 +326,39 @@ fn offline_config_show_supports_semantic_pipeline_projection() {
 }
 
 #[test]
+fn duplicate_pipeline_output_names_fail_for_every_renderer_and_each_redirect() {
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --output {format} | P key key"),
+            ])
+            .assert()
+            .failure()
+            .stdout(contains("stage 'P' has duplicate output column 'key'"));
+    }
+
+    let directory = tempdir().expect("temporary directory");
+    let target = directory.path().join("{key}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            &format!("config show | P key key > each:{}", target.display()),
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("stage 'P' has duplicate output column 'key'"));
+    assert_eq!(
+        directory
+            .path()
+            .read_dir()
+            .expect("temporary directory")
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn offline_config_show_supports_documented_jq_transforms() {
     cargo_bin_cmd!("hubuum-cli")
         .args(["--command", "config show | JQ 'map({key, value})' | L 1"])

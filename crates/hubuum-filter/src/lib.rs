@@ -12,7 +12,7 @@ mod tests;
 pub use error::PipelineError;
 pub use eval::apply_pipeline;
 pub use model::{
-    AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage,
+    AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputName, OutputShape, PipeStage,
     ProjectTerm, SortCast,
 };
 pub use parse::split_pipeline;
