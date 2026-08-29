@@ -404,11 +404,11 @@ impl Display for OutputShape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutputEnvelope {
-    pub shape: OutputShape,
-    pub value: Value,
-    pub columns: Vec<String>,
+    pub(crate) shape: OutputShape,
+    pub(crate) value: Value,
+    pub(crate) columns: Vec<String>,
 }
 
 impl OutputEnvelope {
@@ -474,5 +474,25 @@ impl OutputEnvelope {
             Value::Null => true,
             _ => false,
         }
+    }
+
+    pub fn shape(&self) -> OutputShape {
+        self.shape
+    }
+
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+
+    pub fn columns(&self) -> &[String] {
+        &self.columns
+    }
+
+    pub fn into_value(self) -> Value {
+        self.value
+    }
+
+    pub fn into_parts(self) -> (OutputShape, Value, Vec<String>) {
+        (self.shape, self.value, self.columns)
     }
 }

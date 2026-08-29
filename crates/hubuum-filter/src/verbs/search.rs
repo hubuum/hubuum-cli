@@ -5,9 +5,8 @@ use std::cmp::Ordering;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
-use crate::selector::{
-    compact_empty, is_bookkeeping_key, key_paths, scalar_text, select_values, truthy, Selector,
-};
+use crate::selector::{compact_empty, key_paths, scalar_text, select_values, truthy, Selector};
+use crate::settings::PipelineSettings;
 use crate::verbs::array_values;
 use crate::verbs::collection::{group_summary_row, replace_group_summary};
 
@@ -40,6 +39,7 @@ pub(crate) fn filter_envelope(
     envelope: OutputEnvelope,
     expression: &str,
     invert: bool,
+    settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
     let filter = SemanticFilter::parse(expression)?;
 
@@ -50,14 +50,16 @@ pub(crate) fn filter_envelope(
             let match_column = add_match_column.then(|| match_column_name(&columns));
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter_map(|value| match filter.match_result(&value, &columns) {
-                    Ok(result) if result.matched != invert => Some(Ok(match &match_column {
-                        Some(column) => with_match_column(value, column, &result.hits),
-                        None => value,
-                    })),
-                    Ok(_) => None,
-                    Err(err) => Some(Err(err)),
-                })
+                .filter_map(
+                    |value| match filter.match_result(&value, &columns, settings) {
+                        Ok(result) if result.matched != invert => Some(Ok(match &match_column {
+                            Some(column) => with_match_column(value, column, &result.hits),
+                            None => value,
+                        })),
+                        Ok(_) => None,
+                        Err(err) => Some(Err(err)),
+                    },
+                )
                 .collect::<Result<Vec<_>, _>>()?;
             let output_columns = match match_column {
                 Some(column) => {
@@ -75,7 +77,7 @@ pub(crate) fn filter_envelope(
         }
         OutputShape::Detail | OutputShape::Message => {
             if filter
-                .match_result(&envelope.value, &envelope.columns)?
+                .match_result(&envelope.value, &envelope.columns, settings)?
                 .matched
                 != invert
             {
@@ -84,7 +86,7 @@ pub(crate) fn filter_envelope(
                 Ok(OutputEnvelope::empty())
             }
         }
-        OutputShape::Groups => filter_group_summaries(envelope, &filter, invert),
+        OutputShape::Groups => filter_group_summaries(envelope, &filter, invert, settings),
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
     }
@@ -93,13 +95,14 @@ pub(crate) fn filter_envelope(
 pub(crate) fn value_search_envelope(
     envelope: OutputEnvelope,
     pattern: &str,
+    settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
     let regex = Regex::new(pattern)?;
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter(|value| value_search_match(value, &regex))
+                .filter(|value| value_search_match(value, &regex, settings))
                 .collect::<Vec<_>>();
             Ok(OutputEnvelope {
                 value: Value::Array(rows),
@@ -107,7 +110,7 @@ pub(crate) fn value_search_envelope(
             })
         }
         OutputShape::Detail | OutputShape::Message => {
-            if value_search_match(&envelope.value, &regex) {
+            if value_search_match(&envelope.value, &regex, settings) {
                 Ok(envelope)
             } else {
                 Ok(OutputEnvelope::empty())
@@ -118,7 +121,7 @@ pub(crate) fn value_search_envelope(
                 .into_iter()
                 .filter(|group| {
                     group_summary_row(group)
-                        .is_some_and(|summary| value_search_match(&summary, &regex))
+                        .is_some_and(|summary| value_search_match(&summary, &regex, settings))
                 })
                 .collect();
             Ok(OutputEnvelope::groups(groups, envelope.columns))
@@ -131,25 +134,28 @@ pub(crate) fn value_search_envelope(
 pub(crate) fn key_search_envelope(
     envelope: OutputEnvelope,
     pattern: &str,
+    settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
     let regex = Regex::new(pattern)?;
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter_map(|value| key_projection(&value, &regex))
+                .filter_map(|value| key_projection(&value, &regex, settings))
                 .collect::<Vec<_>>();
             Ok(OutputEnvelope::rows(rows, Vec::new()))
         }
-        OutputShape::Detail | OutputShape::Message => Ok(key_projection(&envelope.value, &regex)
-            .map(|value| OutputEnvelope::detail(value, Vec::new()))
-            .unwrap_or_else(OutputEnvelope::empty)),
+        OutputShape::Detail | OutputShape::Message => {
+            Ok(key_projection(&envelope.value, &regex, settings)
+                .map(|value| OutputEnvelope::detail(value, Vec::new()))
+                .unwrap_or_else(OutputEnvelope::empty))
+        }
         OutputShape::Groups => {
             let mut columns = Vec::new();
             let groups = array_values(&envelope.value)?
                 .into_iter()
                 .filter_map(|group| {
-                    let projection = key_projection(&group_summary_row(&group)?, &regex)?;
+                    let projection = key_projection(&group_summary_row(&group)?, &regex, settings)?;
                     if let Some(object) = projection.as_object() {
                         for key in object.keys() {
                             if !columns.contains(key) {
@@ -312,9 +318,10 @@ impl SemanticFilter {
         &self,
         value: &Value,
         columns: &[String],
+        settings: &PipelineSettings,
     ) -> Result<FilterMatch, PipelineError> {
         match self {
-            Self::Quick(regex) => quick_filter_match(value, columns, regex),
+            Self::Quick(regex) => quick_filter_match(value, columns, regex, settings),
             Self::PathExists(path) => Ok(FilterMatch {
                 matched: !select_values(value, path).is_empty(),
                 hits: Vec::new(),
@@ -369,6 +376,7 @@ fn filter_group_summaries(
     envelope: OutputEnvelope,
     filter: &SemanticFilter,
     invert: bool,
+    settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
     let groups = array_values(&envelope.value)?
         .into_iter()
@@ -376,7 +384,7 @@ fn filter_group_summaries(
             let summary = group_summary_row(&group)?;
             Some(
                 filter
-                    .match_result(&summary, &envelope.columns)
+                    .match_result(&summary, &envelope.columns, settings)
                     .map(|result| (group, result)),
             )
         })
@@ -459,11 +467,12 @@ fn quick_filter_match(
     value: &Value,
     columns: &[String],
     regex: &Regex,
+    settings: &PipelineSettings,
 ) -> Result<FilterMatch, PipelineError> {
     if columns.is_empty() {
         let mut text = String::new();
-        collect_key_text(value, &mut text);
-        collect_value_text(value, &mut text);
+        collect_key_text(value, &mut text, settings);
+        collect_value_text(value, &mut text, settings);
         return Ok(FilterMatch {
             matched: regex.is_match(&text),
             hits: Vec::new(),
@@ -475,34 +484,34 @@ fn quick_filter_match(
         let mut text = String::new();
         let selector = Selector::new(column)?;
         for value in select_values(value, &selector) {
-            collect_value_text(value, &mut text);
+            collect_value_text(value, &mut text, settings);
         }
         if regex.is_match(&text) {
             hits.push(column.clone());
         }
     }
 
-    for (path, _value) in key_paths(value) {
+    for (path, _value) in key_paths(value, settings) {
         if regex.is_match(&path) {
             hits.push(format!("key:{path}"));
         }
     }
 
     Ok(FilterMatch {
-        matched: !hits.is_empty() || value_search_match(value, regex),
+        matched: !hits.is_empty() || value_search_match(value, regex, settings),
         hits,
     })
 }
 
-fn value_search_match(value: &Value, regex: &Regex) -> bool {
+fn value_search_match(value: &Value, regex: &Regex, settings: &PipelineSettings) -> bool {
     let mut text = String::new();
-    collect_value_text(value, &mut text);
+    collect_value_text(value, &mut text, settings);
     regex.is_match(&text)
 }
 
-fn key_projection(value: &Value, regex: &Regex) -> Option<Value> {
+fn key_projection(value: &Value, regex: &Regex, settings: &PipelineSettings) -> Option<Value> {
     let mut object = Map::new();
-    for (path, value) in key_paths(value) {
+    for (path, value) in key_paths(value, settings) {
         let Some(last) = path.rsplit('.').next() else {
             continue;
         };
@@ -513,40 +522,40 @@ fn key_projection(value: &Value, regex: &Regex) -> Option<Value> {
     (!object.is_empty()).then_some(Value::Object(object))
 }
 
-fn collect_key_text(value: &Value, text: &mut String) {
+fn collect_key_text(value: &Value, text: &mut String, settings: &PipelineSettings) {
     match value {
         Value::Object(object) => {
             for (key, value) in object {
-                if is_bookkeeping_key(key) {
+                if settings.ignores_search_key(key) {
                     continue;
                 }
                 text.push(' ');
                 text.push_str(key);
-                collect_key_text(value, text);
+                collect_key_text(value, text, settings);
             }
         }
         Value::Array(items) => {
             for value in items {
-                collect_key_text(value, text);
+                collect_key_text(value, text, settings);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
 }
 
-fn collect_value_text(value: &Value, text: &mut String) {
+fn collect_value_text(value: &Value, text: &mut String, settings: &PipelineSettings) {
     match value {
         Value::Object(object) => {
             for (key, value) in object {
-                if is_bookkeeping_key(key) {
+                if settings.ignores_search_key(key) {
                     continue;
                 }
-                collect_value_text(value, text);
+                collect_value_text(value, text, settings);
             }
         }
         Value::Array(items) => {
             for value in items {
-                collect_value_text(value, text);
+                collect_value_text(value, text, settings);
             }
         }
         Value::Null => text.push_str(" null"),

@@ -8,7 +8,10 @@ use comfy_table::{
     presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
     ColumnConstraint, ContentArrangement, Table, Width,
 };
-use hubuum_filter::{apply_pipeline, group_summary_rows, OutputEnvelope, OutputShape, PipeStage};
+use hubuum_filter::{
+    apply_pipeline_with_settings, group_summary_rows, OutputEnvelope, OutputShape, PipeStage,
+    PipelineSettings,
+};
 use hubuum_theme::{paint as paint_theme, Theme as HubuumTheme};
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -187,6 +190,7 @@ impl OutputBuffer {
 
     fn snapshot(&self) -> Result<OutputSnapshot, AppError> {
         let mut semantic = Vec::new();
+        let pipeline_settings = hubuum_pipeline_settings();
         let has_semantic = self
             .events
             .iter()
@@ -197,7 +201,11 @@ impl OutputBuffer {
                 match event {
                     OutputEvent::Line(line) => rendered.push(line.clone()),
                     OutputEvent::Semantic(envelope) => {
-                        let envelope = apply_pipeline(envelope.clone(), &self.pipeline)?;
+                        let envelope = apply_pipeline_with_settings(
+                            envelope.clone(),
+                            &self.pipeline,
+                            &pipeline_settings,
+                        )?;
                         rendered.extend(render_semantic_with_table_headers(
                             &envelope,
                             self.render_format,
@@ -225,7 +233,11 @@ impl OutputBuffer {
                     OutputEvent::Semantic(_) => None,
                 })
                 .collect();
-            let envelope = apply_pipeline(OutputEnvelope::lines(lines), &self.pipeline)?;
+            let envelope = apply_pipeline_with_settings(
+                OutputEnvelope::lines(lines),
+                &self.pipeline,
+                &pipeline_settings,
+            )?;
             let rendered = render_semantic_with_table_headers(
                 &envelope,
                 self.render_format,
@@ -250,6 +262,12 @@ impl OutputBuffer {
         self.reset();
         snapshot
     }
+}
+
+fn hubuum_pipeline_settings() -> PipelineSettings {
+    PipelineSettings::new()
+        .with_ignored_search_keys(["created_at", "updated_at", "Created", "Updated"])
+        .expect("Hubuum search exclusions are non-empty keys")
 }
 
 pub fn add_warning<T: Display>(message: T) -> Result<(), AppError> {
@@ -404,11 +422,11 @@ fn render_semantic_with_table_headers(
 ) -> Result<Vec<String>, AppError> {
     match format {
         RenderFormat::Text => render_semantic_text(envelope, table_headers),
-        RenderFormat::Json => Ok(to_string_pretty(&envelope.value)?
+        RenderFormat::Json => Ok(to_string_pretty(envelope.value())?
             .lines()
             .map(str::to_string)
             .collect()),
-        RenderFormat::Jsonl => Ok(render_jsonl(&envelope.value)?),
+        RenderFormat::Jsonl => Ok(render_jsonl(envelope.value())?),
         RenderFormat::Csv => render_delimited(envelope, ','),
         RenderFormat::Tsv => render_delimited(envelope, '\t'),
     }
@@ -459,23 +477,23 @@ fn render_semantic_text(
     envelope: &OutputEnvelope,
     table_headers: TableHeaders,
 ) -> Result<Vec<String>, AppError> {
-    match envelope.shape {
+    match envelope.shape() {
         OutputShape::Empty => Ok(Vec::new()),
-        OutputShape::Lines => Ok(value_array(&envelope.value)
+        OutputShape::Lines => Ok(value_array(envelope.value())
             .iter()
             .filter_map(|value| value.as_str().map(str::to_string))
             .collect()),
         OutputShape::Rows => render_rows_text(envelope, table_headers),
         OutputShape::Detail => render_detail_text(envelope),
-        OutputShape::Message => Ok(vec![message_text(&envelope.value)]),
-        OutputShape::Values => Ok(value_array(&envelope.value)
+        OutputShape::Message => Ok(vec![message_text(envelope.value())]),
+        OutputShape::Values => Ok(value_array(envelope.value())
             .iter()
             .map(semantic_scalar)
             .collect()),
         OutputShape::Groups => render_rows_text(
             &OutputEnvelope::rows(
-                group_summary_rows(&envelope.value),
-                envelope.columns.clone(),
+                group_summary_rows(envelope.value()),
+                envelope.columns().to_vec(),
             ),
             table_headers,
         ),
@@ -494,7 +512,7 @@ fn render_rows_text(
     envelope: &OutputEnvelope,
     table_headers: TableHeaders,
 ) -> Result<Vec<String>, AppError> {
-    let rows = value_array(&envelope.value);
+    let rows = value_array(envelope.value());
     if rows.is_empty() {
         return if get_config().output.empty_result == EmptyResult::Message {
             Ok(vec!["No results.".to_string()])
@@ -534,14 +552,14 @@ fn render_rows_text(
 }
 
 fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> {
-    let columns = if envelope.columns.is_empty() {
+    let columns = if envelope.columns().is_empty() {
         envelope
-            .value
+            .value()
             .as_object()
             .map(|object| object.keys().cloned().collect())
             .unwrap_or_default()
     } else {
-        envelope.columns.clone()
+        envelope.columns().to_vec()
     };
     let configured_padding = usize::try_from(get_config().output.padding).unwrap_or_default();
     let padding = columns
@@ -552,7 +570,9 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
         .max(configured_padding);
     Ok(columns
         .iter()
-        .map(|column| render_detail_field(column, &cell_text(envelope.value.get(column)), padding))
+        .map(|column| {
+            render_detail_field(column, &cell_text(envelope.value().get(column)), padding)
+        })
         .collect())
 }
 
@@ -581,17 +601,17 @@ fn render_jsonl(value: &Value) -> Result<Vec<String>, AppError> {
 }
 
 fn render_delimited(envelope: &OutputEnvelope, delimiter: char) -> Result<Vec<String>, AppError> {
-    let rows = match envelope.shape {
-        OutputShape::Rows => value_array(&envelope.value),
-        OutputShape::Detail | OutputShape::Message => match &envelope.value {
-            Value::Object(_) => vec![envelope.value.clone()],
+    let rows = match envelope.shape() {
+        OutputShape::Rows => value_array(envelope.value()),
+        OutputShape::Detail | OutputShape::Message => match envelope.value() {
+            Value::Object(_) => vec![envelope.value().clone()],
             value => vec![json!({ "value": value })],
         },
-        OutputShape::Values | OutputShape::Lines => value_array(&envelope.value)
+        OutputShape::Values | OutputShape::Lines => value_array(envelope.value())
             .into_iter()
             .map(|value| json!({ "value": value }))
             .collect(),
-        OutputShape::Groups => group_summary_rows(&envelope.value),
+        OutputShape::Groups => group_summary_rows(envelope.value()),
         OutputShape::Empty => Vec::new(),
     };
 
@@ -658,8 +678,8 @@ fn escape_delimited(value: &str, delimiter: char) -> String {
 }
 
 fn display_columns(envelope: &OutputEnvelope, rows: &[Value]) -> Vec<String> {
-    if !envelope.columns.is_empty() {
-        return envelope.columns.clone();
+    if !envelope.columns().is_empty() {
+        return envelope.columns().to_vec();
     }
     rows.iter()
         .find_map(Value::as_object)
@@ -1213,11 +1233,27 @@ mod tests {
         let snapshot = take_output().expect("snapshot should be available");
         assert_eq!(snapshot.lines, vec!["beta".to_string()]);
         assert_eq!(snapshot.semantic.len(), 1);
-        assert_eq!(snapshot.semantic[0].shape, OutputShape::Lines);
-        assert_eq!(snapshot.semantic[0].value, json!(["beta"]));
+        assert_eq!(snapshot.semantic[0].shape(), OutputShape::Lines);
+        assert_eq!(snapshot.semantic[0].value(), &json!(["beta"]));
 
         let empty = take_output().expect("buffer should be empty after take");
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn hubuum_search_policy_still_excludes_hidden_bookkeeping_fields() {
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::rows(
+            vec![json!({"Name": "alpha", "created_at": "2026-08-29"})],
+            vec!["Name".to_string()],
+        ))
+        .expect("semantic output should be set");
+        set_pipeline(vec![PipeStage::Grep("2026".to_string())]).expect("pipeline should set");
+
+        let snapshot = take_output().expect("snapshot should be available");
+
+        assert!(snapshot.semantic[0].is_empty());
     }
 
     #[test]
@@ -1239,7 +1275,7 @@ mod tests {
 
             let snapshot = take_output().expect("snapshot");
 
-            assert_eq!(snapshot.semantic[0].shape, OutputShape::Lines);
+            assert_eq!(snapshot.semantic[0].shape(), OutputShape::Lines);
             assert!(snapshot.render().contains(expected), "{format:?}");
         }
     }
@@ -1258,8 +1294,8 @@ mod tests {
         let snapshot = take_output().expect("snapshot");
 
         assert_eq!(snapshot.render(), "Saved and reloaded.\n");
-        assert_eq!(snapshot.semantic[0].shape, OutputShape::Message);
-        assert_eq!(snapshot.semantic[0].value["key"], "output.padding");
+        assert_eq!(snapshot.semantic[0].shape(), OutputShape::Message);
+        assert_eq!(snapshot.semantic[0].value()["key"], "output.padding");
     }
 
     #[test]

@@ -39,6 +39,7 @@ mod json_schema;
 mod list_query;
 mod models;
 mod output;
+mod pipe_help;
 mod redirection;
 mod repl;
 mod services;

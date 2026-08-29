@@ -2,6 +2,7 @@ use regex::Regex;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape, PipeStage, SortCast};
+use crate::settings::PipelineSettings;
 use crate::verbs::collection::{
     aggregate_envelope, collapse_groups, count_envelope, group_envelope, limit_envelope,
     sort_envelope, unroll_envelope,
@@ -64,9 +65,17 @@ pub fn apply_pipeline(
     envelope: OutputEnvelope,
     stages: &[PipeStage],
 ) -> Result<OutputEnvelope, PipelineError> {
+    apply_pipeline_with_settings(envelope, stages, &PipelineSettings::default())
+}
+
+pub fn apply_pipeline_with_settings(
+    envelope: OutputEnvelope,
+    stages: &[PipeStage],
+    settings: &PipelineSettings,
+) -> Result<OutputEnvelope, PipelineError> {
     let mut envelope = envelope;
     for stage in stages {
-        envelope = apply_semantic_stage(envelope, stage)?;
+        envelope = apply_semantic_stage(envelope, stage, settings)?;
     }
     Ok(envelope)
 }
@@ -74,6 +83,7 @@ pub fn apply_pipeline(
 fn apply_semantic_stage(
     envelope: OutputEnvelope,
     stage: &PipeStage,
+    settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
     stage.validate_input_shape(envelope.shape)?;
     if envelope.shape == OutputShape::Lines {
@@ -93,11 +103,11 @@ fn apply_semantic_stage(
     }
 
     match stage {
-        PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false),
-        PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern),
-        PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern),
+        PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false, settings),
+        PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern, settings),
+        PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern, settings),
         PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_ref()),
-        PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true),
+        PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true, settings),
         PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
         PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
         PipeStage::Count => count_envelope(envelope),

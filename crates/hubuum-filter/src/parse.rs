@@ -26,7 +26,27 @@ pub fn split_pipeline(line: &str) -> Result<(String, Vec<PipeStage>), PipelineEr
     Ok((command.trim().to_string(), stages))
 }
 
-fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(), PipelineError> {
+pub(crate) fn parse_stage_list(source: &str) -> Result<Vec<PipeStage>, PipelineError> {
+    if source.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parts = split_unquoted_pipes(source);
+    let start = usize::from(parts.first().is_some_and(|part| part.trim().is_empty()));
+    let stages = parts
+        .iter()
+        .skip(start)
+        .map(|stage| parse_stage(stage.trim()))
+        .collect::<Result<Vec<_>, _>>()?;
+    if stages.is_empty() {
+        return Err(PipelineError::Pipe(
+            "Pipeline requires at least one stage after '|'".to_string(),
+        ));
+    }
+    Ok(stages)
+}
+
+pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(), PipelineError> {
     let mut grouped_names = None::<HashSet<String>>;
     for stage in stages {
         match stage {

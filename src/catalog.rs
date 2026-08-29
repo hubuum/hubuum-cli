@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use hubuum_filter::{help_topics, topic_help, verb_summaries, PipeStage};
+use hubuum_filter::PipeStage;
 
 use crate::commands::{AutoCompleter, CliOption};
 use crate::config::AppConfig;
@@ -12,6 +12,7 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::extensions::ExtensionRegistry;
 use crate::list_query::{completion_operators, FilterOperatorProfile};
 use crate::output::OutputSnapshot;
+use crate::pipe_help::{help_topics, topic_help, verb_summaries};
 use crate::redirection::OutputRedirect;
 use crate::services::filter_specs_for_command_path;
 use crate::services::AppServices;

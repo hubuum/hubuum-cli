@@ -1,7 +1,7 @@
 use crate::{
-    apply_pipeline, group_summary_rows, split_pipeline, validate_jq_expression, AggregateFunction,
-    AggregateSpec, GroupKey, OutputEnvelope, OutputShape, PipeStage, ProjectTerm, Selector,
-    SortCast,
+    apply_pipeline, apply_pipeline_with_settings, group_summary_rows, split_pipeline,
+    validate_jq_expression, AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope,
+    OutputShape, PipeStage, PipelineSettings, ProjectTerm, Selector, SortCast,
 };
 use serde_json::json;
 
@@ -252,6 +252,42 @@ fn quick_search_includes_hidden_semantic_values() {
     assert!(rows
         .iter()
         .all(|row| row.get("Match") == Some(&json!("value"))));
+}
+
+#[test]
+fn ignored_search_keys_are_explicit_and_generic_defaults_search_every_key() {
+    let rows = OutputEnvelope::rows(
+        vec![json!({"name": "alpha", "created_at": "2026-08-29"})],
+        Vec::new(),
+    );
+    let stage = PipeStage::Grep("2026".to_string());
+
+    assert_eq!(
+        apply_pipeline(rows.clone(), &[stage.clone()])
+            .expect("generic search")
+            .value
+            .as_array()
+            .expect("rows")
+            .len(),
+        1
+    );
+
+    let settings = PipelineSettings::new()
+        .with_ignored_search_keys(["created_at"])
+        .expect("valid ignored key");
+    assert!(apply_pipeline_with_settings(rows, &[stage], &settings)
+        .expect("configured search")
+        .is_empty());
+    assert_eq!(
+        settings.ignored_search_keys().collect::<Vec<_>>(),
+        vec!["created_at"]
+    );
+    assert!(PipelineSettings::new()
+        .with_ignored_search_keys([""])
+        .is_err());
+    assert!(PipelineSettings::new()
+        .with_ignored_search_keys(["   "])
+        .is_err());
 }
 
 #[test]

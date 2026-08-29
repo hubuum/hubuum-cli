@@ -1,9 +1,15 @@
 [package]
 name = "hubuum-filter"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
-description = "Pipeline parsing and filtering primitives for Hubuum CLI output"
+description = "Reusable semantic JSON pipeline parser and evaluator"
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/hubuum/hubuum-cli"
+homepage = "https://github.com/hubuum/hubuum-cli"
+documentation = "https://docs.rs/hubuum-filter"
+keywords = ["json", "pipeline", "filter", "cli", "jq"]
+categories = ["command-line-interface", "parser-implementations"]
 
 [dependencies]
 regex = "1"
