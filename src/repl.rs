@@ -1236,6 +1236,17 @@ fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompleti
         return None;
     }
 
+    if stage == "A" {
+        let selector_start = aggregate_selector_start(word)?;
+        return Some(PipeCompletionContext {
+            command_prefix,
+            kind: PipeCompletionKind::Field,
+            prefix: &word[selector_start..],
+            replacement_start: word_start + selector_start,
+            needs_leading_space: false,
+        });
+    }
+
     let prefix = if field_uses_comma_segments(stage) {
         let comma_offset = word.rfind(',').map(|index| index + 1).unwrap_or(0);
         return Some(PipeCompletionContext {
@@ -1285,6 +1296,7 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
         "P" | "columns" => projection_expects_field(pipe_parts, ends_with_space),
         "S" | "sort" => sort_expects_field(pipe_parts, ends_with_space),
         "D" | "distinct" => distinct_expects_field(pipe_parts, ends_with_space),
+        "A" => aggregate_expects_field(pipe_parts, ends_with_space),
         "grep" | "F" | "reject"
             if pipe_parts
                 .get(1)
@@ -1292,12 +1304,36 @@ fn should_complete_stage_field(stage: &str, pipe_parts: &[String], ends_with_spa
         {
             typed_predicate_expects_field(pipe_parts, ends_with_space)
         }
-        "VAL" | "VALUE" | "grep" | "F" | "V" | "K" | "?" | "reject" | "G" | "U" | "A" => {
+        "VAL" | "VALUE" | "grep" | "F" | "V" | "K" | "?" | "reject" | "G" | "U" => {
             (pipe_parts.len() == 1 && ends_with_space)
                 || (pipe_parts.len() == 2 && !ends_with_space)
         }
         _ => false,
     }
+}
+
+fn aggregate_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
+    if ends_with_space {
+        return false;
+    }
+    pipe_parts
+        .last()
+        .and_then(|word| aggregate_selector_start(word))
+        .is_some()
+}
+
+fn aggregate_selector_start(word: &str) -> Option<usize> {
+    let segment_start = word.rfind(',').map_or(0, |index| index + 1);
+    let segment = &word[segment_start..];
+    let open = segment.find('(')?;
+    if segment[open + 1..].contains(')') {
+        return None;
+    }
+    matches!(
+        &segment[..open],
+        "count" | "count_distinct" | "sum" | "avg" | "min" | "max"
+    )
+    .then_some(segment_start + open + 1)
 }
 
 fn distinct_expects_field(pipe_parts: &[String], ends_with_space: bool) -> bool {
@@ -2202,6 +2238,38 @@ mod tests {
 
         let complete = "object list --class Hosts | D state AS str ";
         assert!(pipe_completion_context(complete, complete.len()).is_none());
+    }
+
+    #[test]
+    fn pipe_completion_context_completes_grouped_and_global_aggregate_selectors() {
+        for (line, prefix) in [
+            ("object list --class Hosts | A sum(da", "da"),
+            (
+                "object list --class Hosts | A GLOBAL count AS Hosts, count(ow",
+                "ow",
+            ),
+            (
+                "object list --class Hosts | A GLOBAL count AS Hosts,count(ow",
+                "ow",
+            ),
+            (
+                "object list --class Hosts | A GLOBAL count_distinct(os",
+                "os",
+            ),
+        ] {
+            let context = pipe_completion_context(line, line.len()).expect("aggregate context");
+            assert_eq!(context.kind, PipeCompletionKind::Field);
+            assert_eq!(context.prefix, prefix);
+            assert_eq!(context.replacement_start, line.len() - prefix.len());
+            assert!(!context.needs_leading_space);
+        }
+
+        for complete in [
+            "object list --class Hosts | A GLOBAL ",
+            "object list --class Hosts | A count(owner) AS Owned ",
+        ] {
+            assert!(pipe_completion_context(complete, complete.len()).is_none());
+        }
     }
 
     #[test]

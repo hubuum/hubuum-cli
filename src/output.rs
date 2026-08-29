@@ -1443,6 +1443,47 @@ mod tests {
 
     #[test]
     #[serial]
+    fn global_aggregates_are_preserved_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "owner": "ops", "version": "26"}),
+                    json!({"name": "beta", "owner": null, "version": "26"}),
+                    json!({"name": "gamma", "version": "27"}),
+                ],
+                vec![
+                    "name".to_string(),
+                    "owner".to_string(),
+                    "version".to_string(),
+                ],
+            ))
+            .expect("semantic output should be set");
+            let pipeline = Pipeline::parse(
+                "A GLOBAL count AS Hosts, count(owner) AS Owned, count_distinct(version) AS Versions",
+            )
+            .expect("global aggregate pipeline");
+            set_pipeline(pipeline.into_stages()).expect("pipeline should set");
+
+            let rendered = take_output().expect("snapshot").render();
+            assert!(rendered.contains("Hosts"), "{format:?}: {rendered}");
+            assert!(rendered.contains("Owned"), "{format:?}: {rendered}");
+            assert!(rendered.contains("Versions"), "{format:?}: {rendered}");
+            assert!(rendered.contains('3'), "{format:?}: {rendered}");
+            assert!(rendered.contains('2'), "{format:?}: {rendered}");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn structured_messages_keep_plain_text_presentation() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");

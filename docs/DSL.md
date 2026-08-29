@@ -16,13 +16,15 @@ want a smaller local view without adding another API flag.
 The native-language increments are specified in
 [RFC 0001](rfcs/0001-native-pipeline-dsl.md) and land in independently
 reviewable slices. Typed boolean predicates, multi-key sorting, strict IP
-sorting, projection aliases, and stable distinct are implemented; later RFC
-sections remain proposals until their linked delivery issues land.
+sorting, projection aliases, stable distinct, and global aggregation with
+selector counts are implemented; later RFC sections remain proposals until
+their linked delivery issues land.
 
 Grouping with `G` and aggregation with `A` are local pipe operations over the
-rows returned by the preceding command. For permission-scoped aggregation over
-the complete matching object set before pagination, use `object aggregate`; see
-the main README for command examples.
+values returned by the preceding command. `A GLOBAL` aggregates the complete
+current local collection. For permission-scoped aggregation over the complete
+matching object set before pagination, use `object aggregate`; see the main
+README for command examples.
 
 Examples below use REPL/script syntax. In a POSIX shell, escape or quote `|`,
 `>`, and `>>` so those standalone operator arguments reach Hubuum CLI, for
@@ -345,6 +347,32 @@ object list --class Hosts | G os_version AS "OS Version" | A min(Name) AS First
 object list --class Hosts | G os_version AS "OS Version" | A max(Name) AS Last
 ```
 
+`count(selector)` counts every non-null selector match, including every fanout
+occurrence. `count_distinct(selector)` excludes missing and null values and uses
+the same canonical JSON equality as `D`, including object-field-order
+independence. Both work in grouped and global aggregation:
+
+```text
+object list --class Hosts | G rack | A count(data.network.interfaces[].ipv4) AS Addresses
+object list --class Hosts | G rack | A count_distinct(data.owner) AS Owners
+```
+
+Use `A GLOBAL` for one aggregate row over the current `Empty`, `Rows`, or
+`Values` collection. Commas separate aggregate terms, and all final output names
+must be unique:
+
+```text
+object list --class Hosts --all | A GLOBAL count AS Hosts, count(data.owner) AS Owned, count_distinct(os_version) AS Versions
+```
+
+Global aggregation consumes its input and always returns exactly one `Rows`
+record. Counts are zero on empty input; numeric aggregates without contributing
+values return null. `Lines`, `Detail`, `Message`, and `Groups` are rejected. Use
+`Z` first when the intended input is the visible summaries of existing groups.
+On paginated commands, use `--all` for cardinality across every matching result;
+otherwise the standard partial-pipeline warning applies and only the current
+page is aggregated.
+
 Aggregates are ordinary visible output columns, so later stages can filter,
 sort, project, or redirect them:
 
@@ -397,9 +425,12 @@ derives `Empty`, `Rows`, `Detail`, `Message`, or `Values` from its JSON result.
 | `C`, `count` | Values | Values | Values | Values | Values | Values | Rows |
 | whole-line `S`, `sort` | same | same | same | error | error | same | same |
 | field `S`, `sort` | same | error | same | error | error | same | same |
+| whole-value `D`, `distinct` | same | same | same | error | error | same | same |
+| keyed `D`, `distinct` | same | error | same | error | error | same | same |
 | `P`, `columns` | same | error | Rows | Detail | Detail | error | Groups |
 | `G` | Groups | error | Groups | Groups | Groups | Groups | error |
-| `A` | error | error | error | error | error | error | Groups |
+| grouped `A` | error | error | error | error | error | error | Groups |
+| `A GLOBAL` | Rows | error | Rows | error | error | Rows | error |
 | `Z` | error | error | error | error | error | error | Rows |
 | `U` | same | error | same | error | error | same | same |
 | `JQ` | dynamic | error | dynamic | dynamic | dynamic | dynamic | dynamic |
@@ -407,7 +438,8 @@ derives `Empty`, `Rows`, `Detail`, `Message`, or `Values` from its JSON result.
 
 `Empty` is an intentional identity only for stages that retain, order, limit,
 project, or unroll an existing collection. `C`, `G`, `JQ`, and `VALUE` make an
-explicit shape transition from `Empty`; `A` and `Z` still require `Groups`.
+explicit shape transition from `Empty`; `A GLOBAL` also returns one aggregate
+row from `Empty`, while grouped `A` and `Z` require `Groups`.
 `P` and `K` turn a structured `Message` into `Detail` because projection removes
 message presentation semantics. Grouped `C` is the special summary-row result
 described above.

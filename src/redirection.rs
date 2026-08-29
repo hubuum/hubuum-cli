@@ -782,6 +782,56 @@ mod tests {
     }
 
     #[test]
+    fn file_and_each_redirects_use_global_aggregate_rows() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("inventory.json");
+        let command = format!(
+            "object list | A GLOBAL count AS Hosts, count_distinct(version) AS Versions > {}",
+            path.display()
+        );
+        let candidate = split_redirect_candidate(&command)
+            .expect("redirect should parse")
+            .expect("redirect should exist");
+        let (_, stages) = hubuum_filter::split_pipeline(&candidate.line)
+            .expect("global aggregate pipeline should parse");
+        let output = Pipeline::from_stages(stages)
+            .expect("pipeline should validate")
+            .apply(OutputEnvelope::rows(
+                vec![
+                    json!({"name": "alpha", "version": "26"}),
+                    json!({"name": "beta", "version": "26"}),
+                    json!({"name": "gamma", "version": "27"}),
+                ],
+                vec!["name".to_string(), "version".to_string()],
+            ))
+            .expect("global aggregate should apply");
+        let lines = serde_json::to_string_pretty(output.value())
+            .expect("aggregate JSON should render")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let snapshot = OutputSnapshot {
+            lines,
+            semantic: vec![output],
+            render_format: RenderFormat::Json,
+            ..Default::default()
+        };
+
+        write_output(&snapshot, &candidate.redirect).expect("file redirect should write");
+        let rendered = read_to_string(path).expect("redirect output");
+        assert!(rendered.contains("\"Hosts\": 3"), "{rendered}");
+        assert!(rendered.contains("\"Versions\": 2"), "{rendered}");
+
+        let template = dir.path().join("{Hosts}-{Versions}.json");
+        let each = split_redirect_candidate(&format!("object list > each:{}", template.display()))
+            .expect("each redirect should parse")
+            .expect("each redirect should exist")
+            .redirect;
+        write_output(&snapshot, &each).expect("each redirect should write");
+        assert!(dir.path().join("3-2.json").exists());
+    }
+
+    #[test]
     fn file_redirects_apply_color_choice() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("output.txt");

@@ -399,6 +399,45 @@ fn stable_distinct_works_across_renderers_and_each_redirects() {
 }
 
 #[test]
+fn global_aggregation_works_across_renderers_and_each_redirects() {
+    let rows = r#"[{"name":"alpha","owner":"ops","version":"26"},{"name":"beta","owner":null,"version":"26"},{"name":"gamma","version":"27"}]"#;
+    let stage =
+        "A GLOBAL count AS Hosts, count(owner) AS Owned, count_distinct(version) AS Versions";
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --output {format} | JQ '{rows}' | {stage}"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("Hosts"))
+            .stdout(contains("Owned"))
+            .stdout(contains("Versions"))
+            .stdout(contains("3"))
+            .stdout(contains("2"));
+    }
+
+    let directory = tempdir().expect("temporary directory");
+    let target = directory.path().join("{Hosts}-{Versions}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            &format!(
+                "config show --output json | JQ '{rows}' | {stage} > each:{}",
+                target.display()
+            ),
+        ])
+        .assert()
+        .success();
+
+    let redirected = directory.path().join("3-2.json");
+    let contents = std::fs::read_to_string(redirected).expect("global aggregate each output");
+    assert!(contents.contains("\"Hosts\""), "{contents}");
+    assert!(contents.contains("\"Versions\""), "{contents}");
+}
+
+#[test]
 fn structured_pipeline_semantics_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")
@@ -440,6 +479,16 @@ fn unsupported_shape_transitions_report_stage_current_and_expected_shapes() {
         ("config show --key output.format | D", "D", "Detail"),
         ("config show --key output.format | L 1", "L", "Detail"),
         ("config show | G source | G source", "G", "Groups"),
+        (
+            "config show --key output.format | A GLOBAL count AS n",
+            "A GLOBAL",
+            "Detail",
+        ),
+        (
+            "config show | G source | A GLOBAL count AS n",
+            "A GLOBAL",
+            "Groups",
+        ),
         ("config show --key output.format | U value", "U", "Detail"),
     ] {
         cargo_bin_cmd!("hubuum-cli")

@@ -1,10 +1,11 @@
 use serde_json::{to_string, Map, Number, Value};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
+use crate::equality::json_equality_key;
 use crate::error::PipelineError;
 use crate::model::{
-    validate_group_keys, AggregateFunction, AggregateSpec, GroupKey, NullOrder, OutputEnvelope,
+    validate_group_keys, AggregateFunction, AggregateRequest, GroupKey, NullOrder, OutputEnvelope,
     OutputShape, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
 use crate::predicate::ValueCast;
@@ -172,13 +173,21 @@ pub(crate) fn group_envelope(
 
 pub(crate) fn aggregate_envelope(
     envelope: OutputEnvelope,
-    spec: &AggregateSpec,
+    request: &AggregateRequest,
 ) -> Result<OutputEnvelope, PipelineError> {
+    if request.is_global() {
+        return global_aggregate_envelope(envelope, request);
+    }
+
     if envelope.shape != OutputShape::Groups {
         return Err(PipelineError::Pipe(
             "Pipe stage 'A' requires grouped output from G".to_string(),
         ));
     }
+    let spec = request
+        .specs()
+        .first()
+        .expect("grouped aggregate requests contain one spec");
 
     let alias_exists = envelope.columns.iter().any(|column| column == spec.alias())
         || array_values(&envelope.value)?.iter().any(|group| {
@@ -217,6 +226,32 @@ pub(crate) fn aggregate_envelope(
     let mut columns = envelope.columns;
     columns.push(spec.alias().to_string());
     Ok(OutputEnvelope::groups(groups, columns))
+}
+
+fn global_aggregate_envelope(
+    envelope: OutputEnvelope,
+    request: &AggregateRequest,
+) -> Result<OutputEnvelope, PipelineError> {
+    let rows = match envelope.shape {
+        OutputShape::Empty => Vec::new(),
+        OutputShape::Rows | OutputShape::Values => array_values(&envelope.value)?,
+        OutputShape::Lines | OutputShape::Detail | OutputShape::Message | OutputShape::Groups => {
+            unreachable!("global aggregate input shape was validated")
+        }
+    };
+    let mut record = Map::new();
+    for spec in request.specs() {
+        record.insert(
+            spec.alias().to_string(),
+            aggregate_rows(&rows, spec.function()),
+        );
+    }
+    let columns = request
+        .specs()
+        .iter()
+        .map(|spec| spec.alias().to_string())
+        .collect();
+    Ok(OutputEnvelope::rows(vec![Value::Object(record)], columns))
 }
 
 pub(crate) fn collapse_groups(envelope: OutputEnvelope) -> Result<OutputEnvelope, PipelineError> {
@@ -302,7 +337,28 @@ fn group_value_combinations(
 fn aggregate_rows(rows: &[Value], function: &AggregateFunction) -> Value {
     match function {
         AggregateFunction::Count => Value::Number(rows.len().into()),
-        AggregateFunction::Sum(selector) => number_value(numeric_values(rows, selector).sum()),
+        AggregateFunction::CountSelected(selector) => Value::Number(
+            selected_values(rows, selector)
+                .filter(|value| !value.is_null())
+                .count()
+                .into(),
+        ),
+        AggregateFunction::CountDistinct(selector) => {
+            let count = selected_values(rows, selector)
+                .filter(|value| !value.is_null())
+                .map(json_equality_key)
+                .collect::<HashSet<_>>()
+                .len();
+            Value::Number(count.into())
+        }
+        AggregateFunction::Sum(selector) => {
+            let values = numeric_values(rows, selector).collect::<Vec<_>>();
+            if values.is_empty() {
+                Value::Null
+            } else {
+                number_value(values.into_iter().sum())
+            }
+        }
         AggregateFunction::Avg(selector) => {
             let values = numeric_values(rows, selector).collect::<Vec<_>>();
             if values.is_empty() {
@@ -316,10 +372,16 @@ fn aggregate_rows(rows: &[Value], function: &AggregateFunction) -> Value {
     }
 }
 
-fn numeric_values<'a>(rows: &'a [Value], selector: &'a Selector) -> impl Iterator<Item = f64> + 'a {
+fn selected_values<'a>(
+    rows: &'a [Value],
+    selector: &'a Selector,
+) -> impl Iterator<Item = &'a Value> + 'a {
     rows.iter()
         .flat_map(move |row| select_values(row, selector))
-        .filter_map(Value::as_f64)
+}
+
+fn numeric_values<'a>(rows: &'a [Value], selector: &'a Selector) -> impl Iterator<Item = f64> + 'a {
+    selected_values(rows, selector).filter_map(Value::as_f64)
 }
 
 fn selected_min_max(rows: &[Value], selector: &Selector, max: bool) -> Value {

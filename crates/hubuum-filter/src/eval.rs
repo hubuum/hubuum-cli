@@ -123,7 +123,7 @@ fn apply_semantic_stage(
         PipeStage::SortColumns(spec) => sort_columns_envelope(envelope, spec),
         PipeStage::Distinct(spec) => distinct_envelope(envelope, spec),
         PipeStage::Group(keys) => group_envelope(envelope, keys),
-        PipeStage::Aggregate(spec) => aggregate_envelope(envelope, spec),
+        PipeStage::Aggregate(request) => aggregate_envelope(envelope, request),
         PipeStage::CollapseGroups => collapse_groups(envelope),
         PipeStage::Unroll(selector) => unroll_envelope(envelope, selector),
         PipeStage::Jq(expression) => jq_envelope(envelope, expression),
