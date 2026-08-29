@@ -171,7 +171,7 @@ impl CliCommand for ExportShow {
         let name = required_option_or_pos(query.name, tokens, 0, "name")?;
         let export = services.gateway().export_template(&name)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
@@ -229,7 +229,7 @@ impl CliCommand for ExportCreate {
                 template,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
@@ -288,7 +288,7 @@ impl CliCommand for ExportModify {
                 template,
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
@@ -315,7 +315,7 @@ impl CliCommand for ExportDelete {
         services.gateway().delete_export_template(&name)?;
 
         let message = format!("Export template '{name}' deleted");
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }

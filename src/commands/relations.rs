@@ -286,7 +286,7 @@ impl CliCommand for ClassRelationShow {
             required_option(query.class_b, "class-b")?.as_str(),
         )?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => relation.format_json_noreturn()?,
             OutputFormat::Text => relation.format_noreturn()?,
         }
@@ -355,7 +355,7 @@ impl CliCommand for ClassRelationCreate {
         let input = Self::parse_tokens(tokens)?.into_relation_input()?;
         let relation = services.gateway().create_class_relation_v2(input)?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => relation.format_json_noreturn()?,
             OutputFormat::Text => relation.format_noreturn()?,
         }
@@ -390,7 +390,7 @@ impl CliCommand for ClassRelationDelete {
             .delete_class_relation_by_pair(&class_a, &class_b)?;
         let message = format!("Deleted class relation between '{class_a}' and '{class_b}'");
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -549,7 +549,7 @@ impl CliCommand for ObjectRelationShowV2 {
                 })?,
         )?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => relation.format_json_noreturn()?,
             OutputFormat::Text => relation.format_noreturn()?,
         }
@@ -598,7 +598,7 @@ impl CliCommand for ObjectRelationCreateV2 {
                 object_b: Some(query.object_b),
             })?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => relation.format_json_noreturn()?,
             OutputFormat::Text => relation.format_noreturn()?,
         }
@@ -657,7 +657,7 @@ impl CliCommand for ObjectRelationDeleteV2 {
             target.object_b.clone().unwrap_or_default()
         );
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => append_line(message)?,
         }
@@ -917,7 +917,7 @@ fn render_related_object_graph(
     tokens: &CommandTokenizer,
     graph: &ResolvedRelatedObjectGraph,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(graph)?,
         OutputFormat::Text => {
             append_line("Objects")?;
@@ -934,7 +934,7 @@ fn render_related_class_graph(
     tokens: &CommandTokenizer,
     graph: &ResolvedRelatedClassGraph,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(graph)?,
         OutputFormat::Text => {
             append_line("Classes")?;

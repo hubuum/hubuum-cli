@@ -97,7 +97,7 @@ pub(crate) fn render_theme_list(tokens: &CommandTokenizer) -> Result<(), AppErro
             })
         })
         .collect::<Vec<_>>();
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json | OutputFormat::Text => {
             set_semantic_output(OutputEnvelope::rows(
                 rows,
@@ -249,7 +249,7 @@ impl CliCommand for ThemeUse {
         services.invalidate_completion();
         services.sync_user_preferences_if_enabled()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(&to_string_pretty(&json!({
                 "theme": name,
                 "path": path,

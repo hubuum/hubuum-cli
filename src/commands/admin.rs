@@ -39,7 +39,7 @@ impl CliCommand for AdminConfig {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let _query = Self::parse_tokens(tokens)?;
         let config = services.gateway().server_config()?;
-        render_server_config(config, desired_format(tokens))
+        render_server_config(config, desired_format(tokens)?)
     }
 }
 

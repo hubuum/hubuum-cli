@@ -84,7 +84,7 @@ impl CliCommand for MeShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let me = services.gateway().me()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&me)?)?,
             OutputFormat::Text => me.format_noreturn()?,
         }
@@ -103,7 +103,7 @@ impl CliCommand for MeGroups {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let groups = services.gateway().me_groups()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&groups)?)?,
             OutputFormat::Text => groups.format_noreturn()?,
         }
@@ -122,7 +122,7 @@ impl CliCommand for MeTokens {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let token_list = services.gateway().me_tokens()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&token_list)?)?,
             OutputFormat::Text => token_list.format_noreturn()?,
         }
@@ -141,7 +141,7 @@ impl CliCommand for MePermissions {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let permissions = services.gateway().me_permissions()?;
 
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&permissions)?)?,
             OutputFormat::Text => permissions.format_noreturn()?,
         }

@@ -208,6 +208,14 @@ impl OutputBuffer {
                 }
             }
             rendered
+        } else if self.pipeline.is_empty() {
+            self.events
+                .iter()
+                .filter_map(|event| match event {
+                    OutputEvent::Line(line) => Some(line.clone()),
+                    OutputEvent::Semantic(_) => None,
+                })
+                .collect()
         } else {
             let lines = self
                 .events
@@ -217,7 +225,14 @@ impl OutputBuffer {
                     OutputEvent::Semantic(_) => None,
                 })
                 .collect();
-            PipeStage::apply_all(&self.pipeline, lines)?
+            let envelope = apply_pipeline(OutputEnvelope::lines(lines), &self.pipeline)?;
+            let rendered = render_semantic_with_table_headers(
+                &envelope,
+                self.render_format,
+                self.table_headers,
+            )?;
+            semantic.push(envelope);
+            rendered
         };
 
         Ok(OutputSnapshot {
@@ -452,7 +467,7 @@ fn render_semantic_text(
             .collect()),
         OutputShape::Rows => render_rows_text(envelope, table_headers),
         OutputShape::Detail => render_detail_text(envelope),
-        OutputShape::Message => Ok(vec![semantic_scalar(&envelope.value)]),
+        OutputShape::Message => Ok(vec![message_text(&envelope.value)]),
         OutputShape::Values => Ok(value_array(&envelope.value)
             .iter()
             .map(semantic_scalar)
@@ -465,6 +480,14 @@ fn render_semantic_text(
             table_headers,
         ),
     }
+}
+
+fn message_text(value: &Value) -> String {
+    value
+        .as_object()
+        .and_then(|object| object.get("message"))
+        .map(semantic_scalar)
+        .unwrap_or_else(|| semantic_scalar(value))
 }
 
 fn render_rows_text(
@@ -560,13 +583,16 @@ fn render_jsonl(value: &Value) -> Result<Vec<String>, AppError> {
 fn render_delimited(envelope: &OutputEnvelope, delimiter: char) -> Result<Vec<String>, AppError> {
     let rows = match envelope.shape {
         OutputShape::Rows => value_array(&envelope.value),
-        OutputShape::Detail | OutputShape::Message => vec![envelope.value.clone()],
-        OutputShape::Values => value_array(&envelope.value)
+        OutputShape::Detail | OutputShape::Message => match &envelope.value {
+            Value::Object(_) => vec![envelope.value.clone()],
+            value => vec![json!({ "value": value })],
+        },
+        OutputShape::Values | OutputShape::Lines => value_array(&envelope.value)
             .into_iter()
             .map(|value| json!({ "value": value }))
             .collect(),
         OutputShape::Groups => group_summary_rows(&envelope.value),
-        OutputShape::Empty | OutputShape::Lines => Vec::new(),
+        OutputShape::Empty => Vec::new(),
     };
 
     if rows.is_empty() {
@@ -1104,7 +1130,7 @@ mod tests {
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap};
     use comfy_table::Table;
-    use hubuum_filter::{OutputEnvelope, PipeStage, ProjectTerm};
+    use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, ProjectTerm};
     use hubuum_theme::resolve_theme;
 
     #[test]
@@ -1186,9 +1212,54 @@ mod tests {
 
         let snapshot = take_output().expect("snapshot should be available");
         assert_eq!(snapshot.lines, vec!["beta".to_string()]);
+        assert_eq!(snapshot.semantic.len(), 1);
+        assert_eq!(snapshot.semantic[0].shape, OutputShape::Lines);
+        assert_eq!(snapshot.semantic[0].value, json!(["beta"]));
 
         let empty = take_output().expect("buffer should be empty after take");
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn line_pipeline_results_render_explicitly_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for (format, expected) in [
+            (RenderFormat::Text, "beta"),
+            (RenderFormat::Json, "\"beta\""),
+            (RenderFormat::Jsonl, "\"beta\""),
+            (RenderFormat::Csv, "value\nbeta"),
+            (RenderFormat::Tsv, "value\nbeta"),
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            append_line("alpha").expect("line should append");
+            append_line("beta").expect("line should append");
+            set_pipeline(vec![PipeStage::Grep("^b".to_string())]).expect("pipeline should set");
+
+            let snapshot = take_output().expect("snapshot");
+
+            assert_eq!(snapshot.semantic[0].shape, OutputShape::Lines);
+            assert!(snapshot.render().contains(expected), "{format:?}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn structured_messages_keep_plain_text_presentation() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        reset_output().expect("buffer should reset");
+        set_semantic_output(OutputEnvelope::message(json!({
+            "message": "Saved and reloaded.",
+            "key": "output.padding"
+        })))
+        .expect("message should be set");
+
+        let snapshot = take_output().expect("snapshot");
+
+        assert_eq!(snapshot.render(), "Saved and reloaded.\n");
+        assert_eq!(snapshot.semantic[0].shape, OutputShape::Message);
+        assert_eq!(snapshot.semantic[0].value["key"], "output.padding");
     }
 
     #[test]

@@ -427,7 +427,7 @@ impl CliCommand for SharedComputedDelete {
             &query.key,
             query.revision,
         )?;
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
             OutputFormat::Text => {
                 append_line(format!("Deleted shared computed field '{}'.", query.key))?;
@@ -446,7 +446,7 @@ impl CliCommand for PersonalComputedDelete {
             &query.key,
             query.revision,
         )?;
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
             OutputFormat::Text => append_line(format!(
                 "Deleted personal computed field '{}' from class '{}'.",
@@ -600,7 +600,7 @@ impl CliCommand for SharedComputedRebuild {
         let state = services
             .gateway()
             .rebuild_shared_computed_fields(&query.class)?;
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_json(&state)?,
             OutputFormat::Text => render_state(&state)?,
         }
@@ -735,7 +735,7 @@ fn render_shared_list(
     tokens: &CommandTokenizer,
     fields: &SharedComputedFieldListRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(fields)?,
         OutputFormat::Text => {
             fields.definitions.format_noreturn()?;
@@ -749,7 +749,7 @@ fn render_mutation(
     tokens: &CommandTokenizer,
     mutation: &ComputedFieldMutationRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(mutation)?,
         OutputFormat::Text => {
             mutation.definition.format_noreturn()?;
@@ -763,7 +763,7 @@ fn render_definition(
     tokens: &CommandTokenizer,
     definition: &ComputedFieldRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(definition)?,
         OutputFormat::Text => definition.format_noreturn()?,
     }
@@ -774,7 +774,7 @@ fn render_preview(
     tokens: &CommandTokenizer,
     preview: &ComputedFieldPreviewRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_json(preview)?,
         OutputFormat::Text => {
             append_key_value("Value", preview.value.to_string(), 10)?;

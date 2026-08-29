@@ -126,7 +126,7 @@ impl CliCommand for AliasShow {
             AppError::EntityNotFound(format!("command alias '{}'", name.as_str()))
         })?;
         let description = config.aliases.description(name.as_str());
-        match desired_format(tokens) {
+        match desired_format(tokens)? {
             OutputFormat::Json => append_line(to_string_pretty(&json!({
                 "name": name.as_str(),
                 "description": description,
@@ -249,7 +249,7 @@ fn render_persisted_alias(
     description: Option<&str>,
     path: &str,
 ) -> Result<(), AppError> {
-    match desired_format(tokens) {
+    match desired_format(tokens)? {
         OutputFormat::Json => append_line(to_string_pretty(&json!({
             "action": action.to_lowercase(),
             "name": name,
