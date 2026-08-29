@@ -125,8 +125,16 @@ object list --class Hosts | ? data.network.interfaces[]
 object list --class Hosts | P Name os_version
 object list --class Hosts | P Name,data.cpu.cores
 object list --class Hosts | P Name data !data.secrets
+object list --class Hosts | P data.network.interfaces !data.network.interfaces[].mac
 object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
 ```
+
+Prefix a selector with `!` to remove its matches from the projected value. Drop
+terms use the same dotted fields, indexes, negative indexes, fanout, and slices
+as keep terms. A terminal index removes that array element, a terminal slice
+removes the selected range, and a terminal `[]` or `[*]` empties the selected
+array. Missing paths are harmless. Array traversal must be explicit, so use
+`!items[].secret`, not `!items.secret`, to remove a field from every item.
 
 Shared and personal computed fields use the ordinary top-level selectors
 `S:<key>` and `P:<key>` after they are selected with the repeatable

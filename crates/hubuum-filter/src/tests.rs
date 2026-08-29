@@ -240,6 +240,95 @@ fn projection_droppers_and_value_extraction_still_work() {
 }
 
 #[test]
+fn projection_exclusions_share_array_selector_semantics() {
+    let input = OutputEnvelope::rows(
+        vec![json!({
+            "a": [
+                {"name": "first", "secret": 1},
+                {"name": "second", "secret": 2},
+                {"name": "third", "secret": 3}
+            ]
+        })],
+        vec!["a".to_string()],
+    );
+
+    for exclusion in ["a[].secret", "a[*].secret"] {
+        let projected = apply_pipeline(
+            input.clone(),
+            &[PipeStage::Columns(vec![keep("a"), drop(exclusion)])],
+        )
+        .expect("fanout exclusion");
+        assert_eq!(
+            projected.value,
+            json!([{"a": [{"name": "first"}, {"name": "second"}, {"name": "third"}]}])
+        );
+    }
+
+    let indexed = apply_pipeline(
+        input.clone(),
+        &[PipeStage::Columns(vec![keep("a"), drop("a[-1].secret")])],
+    )
+    .expect("negative index exclusion");
+    assert_eq!(indexed.value[0]["a"][0]["secret"], json!(1));
+    assert!(indexed.value[0]["a"][2].get("secret").is_none());
+
+    let sliced = apply_pipeline(
+        input,
+        &[PipeStage::Columns(vec![keep("a"), drop("a[:2].secret")])],
+    )
+    .expect("slice exclusion");
+    assert!(sliced.value[0]["a"][0].get("secret").is_none());
+    assert!(sliced.value[0]["a"][1].get("secret").is_none());
+    assert_eq!(sliced.value[0]["a"][2]["secret"], json!(3));
+}
+
+#[test]
+fn projection_exclusions_work_on_detail_and_group_summaries() {
+    let terms = vec![keep("payload"), drop("payload[].secret")];
+    let detail = apply_pipeline(
+        OutputEnvelope::detail(
+            json!({"payload": [{"name": "visible", "secret": true}]}),
+            vec!["payload".to_string()],
+        ),
+        &[PipeStage::Columns(terms.clone())],
+    )
+    .expect("detail projection");
+    assert_eq!(detail.value, json!({"payload": [{"name": "visible"}]}));
+
+    let groups = OutputEnvelope::groups(
+        vec![json!({
+            "groups": {"group": "one"},
+            "aggregates": {"payload": [{"name": "visible", "secret": true}]},
+            "rows": []
+        })],
+        vec!["group".to_string(), "payload".to_string()],
+    );
+    let projected =
+        apply_pipeline(groups, &[PipeStage::Columns(terms)]).expect("group summary projection");
+    assert_eq!(
+        group_summary_rows(&projected.value),
+        vec![json!({"payload": [{"name": "visible"}]})]
+    );
+}
+
+#[test]
+fn missing_projection_exclusions_do_not_change_unrelated_data() {
+    let projected = apply_pipeline(
+        OutputEnvelope::detail(
+            json!({"payload": {"name": "visible"}}),
+            vec!["payload".to_string()],
+        ),
+        &[PipeStage::Columns(vec![
+            keep("payload"),
+            drop("payload.missing.secret"),
+        ])],
+    )
+    .expect("missing exclusion");
+
+    assert_eq!(projected.value, json!({"payload": {"name": "visible"}}));
+}
+
+#[test]
 fn parsing_rejects_unknown_single_letter_stages() {
     assert!(split_pipeline("object list --class Hosts | X foo").is_err());
     assert!(split_pipeline("object list --class Hosts | owner").is_ok());
