@@ -2,6 +2,8 @@ use shlex::split;
 
 use crate::error::PipelineError;
 use crate::model::{AggregateFunction, AggregateSpec, GroupKey, PipeStage, ProjectTerm, SortCast};
+use crate::selector::Selector;
+use crate::verbs::search::validate_filter_expression;
 
 pub fn split_pipeline(line: &str) -> Result<(String, Vec<PipeStage>), PipelineError> {
     let parts = split_unquoted_pipes(line);
@@ -82,9 +84,9 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             require_arg_count("Z", &parts, 1)?;
             Ok(PipeStage::CollapseGroups)
         }
-        "U" => pattern_stage("U", &parts, PipeStage::Unroll),
+        "U" => selector_stage("U", &parts, PipeStage::Unroll),
         "JQ" => parse_jq_stage(&parts),
-        "VALUE" | "VAL" => pattern_stage(parts[0].as_str(), &parts, PipeStage::Value),
+        "VALUE" | "VAL" => selector_stage(parts[0].as_str(), &parts, PipeStage::Value),
         _ => parse_legacy_stage(stage, &parts),
     }
 }
@@ -100,15 +102,13 @@ fn parse_filter_stage(
         )));
     }
 
-    if parts.len() == 2 {
-        return Ok(build(parts[1].clone()));
-    }
-
-    Ok(build(format!(
-        "{} contains {}",
-        parts[1],
-        parts[2..].join(" ")
-    )))
+    let expression = if parts.len() == 2 {
+        parts[1].clone()
+    } else {
+        format!("{} contains {}", parts[1], parts[2..].join(" "))
+    };
+    validate_filter_expression(&expression)?;
+    Ok(build(expression))
 }
 
 fn parse_truthy_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
@@ -117,7 +117,9 @@ fn parse_truthy_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
             "Pipe stage '?' accepts at most one selector".to_string(),
         ));
     }
-    Ok(PipeStage::Truthy(parts.get(1).cloned()))
+    Ok(PipeStage::Truthy(
+        parts.get(1).map(|selector| selector.parse()).transpose()?,
+    ))
 }
 
 fn parse_legacy_stage(stage: &str, parts: &[String]) -> Result<PipeStage, PipelineError> {
@@ -141,13 +143,13 @@ fn parse_legacy_stage(stage: &str, parts: &[String]) -> Result<PipeStage, Pipeli
     }
 }
 
-fn pattern_stage(
+fn selector_stage(
     name: &str,
     parts: &[String],
-    build: fn(String) -> PipeStage,
+    build: fn(Selector) -> PipeStage,
 ) -> Result<PipeStage, PipelineError> {
     require_arg_count(name, parts, 2)?;
-    Ok(build(parts[1].clone()))
+    Ok(build(parts[1].parse()?))
 }
 
 fn count_stage(
@@ -208,7 +210,7 @@ fn parse_columns_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
                 .map(ProjectTerm::drop)
                 .unwrap_or_else(|| ProjectTerm::keep(column))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
 
     if columns.is_empty() {
         return Err(PipelineError::Pipe(format!(
@@ -268,7 +270,7 @@ fn parse_sort_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
         Ok(PipeStage::SortLines { descending })
     } else {
         Ok(PipeStage::SortColumn {
-            column: target.to_string(),
+            selector: target.parse()?,
             descending,
             cast,
         })
@@ -309,7 +311,7 @@ fn parse_group_stage(parts: &[String]) -> Result<PipeStage, PipelineError> {
         } else {
             selector.clone()
         };
-        keys.push(GroupKey { selector, alias });
+        keys.push(GroupKey::new(selector, alias)?);
     }
 
     Ok(PipeStage::Group(keys))
@@ -362,10 +364,10 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
     }
 
     match name {
-        "sum" => Ok(AggregateFunction::Sum(field.to_string())),
-        "avg" => Ok(AggregateFunction::Avg(field.to_string())),
-        "min" => Ok(AggregateFunction::Min(field.to_string())),
-        "max" => Ok(AggregateFunction::Max(field.to_string())),
+        "sum" => Ok(AggregateFunction::Sum(field.parse()?)),
+        "avg" => Ok(AggregateFunction::Avg(field.parse()?)),
+        "min" => Ok(AggregateFunction::Min(field.parse()?)),
+        "max" => Ok(AggregateFunction::Max(field.parse()?)),
         other => Err(PipelineError::Pipe(format!(
             "Unknown aggregate function '{other}'"
         ))),
@@ -415,9 +417,12 @@ mod tests {
             stages,
             vec![
                 PipeStage::Grep("active".to_string()),
-                PipeStage::Columns(vec![ProjectTerm::keep("name"), ProjectTerm::keep("id")]),
+                PipeStage::Columns(vec![
+                    ProjectTerm::keep("name").expect("valid selector"),
+                    ProjectTerm::keep("id").expect("valid selector"),
+                ]),
                 PipeStage::SortColumn {
-                    column: "name".to_string(),
+                    selector: "name".parse().expect("valid selector"),
                     descending: true,
                     cast: SortCast::Auto,
                 },
@@ -442,7 +447,10 @@ mod tests {
             &stages[1],
             PipeStage::Aggregate(spec)
                 if spec.alias == "Cores"
-                    && spec.function == AggregateFunction::Sum("data.cpu.cores".to_string())
+                    && spec.function
+                        == AggregateFunction::Sum(
+                            "data.cpu.cores".parse().expect("valid selector")
+                        )
         ));
     }
 
@@ -450,5 +458,33 @@ mod tests {
     fn unknown_single_letter_stages_fail() {
         assert!(split_pipeline("object list | X thing").is_err());
         assert!(split_pipeline("object list | unknown thing").is_ok());
+    }
+
+    #[test]
+    fn selector_stages_reject_malformed_selectors_during_parsing() {
+        for line in [
+            "object list | ? a[bogus]",
+            "object list | P a[bogus]",
+            "object list | S a[:bogus]",
+            "object list | G a[",
+            "object list | A sum(a[0]tail)",
+            "object list | U a..b",
+            "object list | VALUE a]",
+            "object list | F a[bogus]=1",
+        ] {
+            let error = split_pipeline(line).expect_err("selector should fail at parse time");
+            assert!(
+                error.to_string().contains("Invalid selector"),
+                "{line}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn selector_stages_accept_all_documented_array_forms() {
+        for selector in ["a[0]", "a[-1]", "a[]", "a[*]", "a[:2]", "a[1:]"] {
+            split_pipeline(&format!("object list | VALUE {selector}"))
+                .expect("documented selector should parse");
+        }
     }
 }

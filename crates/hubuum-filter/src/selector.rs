@@ -1,4 +1,9 @@
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+
 use serde_json::{Map, Value};
+
+use crate::error::PipelineError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SelectorToken {
@@ -8,13 +13,55 @@ pub(crate) enum SelectorToken {
     Slice(Option<isize>, Option<isize>),
 }
 
-pub fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selector {
+    source: String,
+    tokens: Vec<SelectorToken>,
+}
+
+impl Selector {
+    pub fn new(source: impl Into<String>) -> Result<Self, PipelineError> {
+        let source = source.into();
+        let tokens = parse_selector_tokens(&source)?;
+        Ok(Self { source, tokens })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.source
+    }
+
+    pub(crate) fn tokens(&self) -> &[SelectorToken] {
+        &self.tokens
+    }
+}
+
+impl Display for Selector {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.source)
+    }
+}
+
+impl FromStr for Selector {
+    type Err = PipelineError;
+
+    fn from_str(source: &str) -> Result<Self, Self::Err> {
+        Self::new(source)
+    }
+}
+
+impl AsRef<str> for Selector {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+pub fn select_values<'a>(value: &'a Value, selector: &Selector) -> Vec<&'a Value> {
     let mut current = vec![value];
-    for token in selector_tokens(selector) {
+    for token in selector.tokens() {
         let mut next = Vec::new();
         for value in current {
             match token {
-                SelectorToken::Field(ref field) => {
+                SelectorToken::Field(field) => {
                     if let Value::Object(object) = value {
                         if let Some(value) = object.get(field) {
                             next.push(value);
@@ -23,7 +70,7 @@ pub fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
                 }
                 SelectorToken::Index(index) => {
                     if let Value::Array(array) = value {
-                        if let Some(index) = resolve_index(array.len(), index) {
+                        if let Some(index) = resolve_index(array.len(), *index) {
                             if let Some(value) = array.get(index) {
                                 next.push(value);
                             }
@@ -37,7 +84,7 @@ pub fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
                 }
                 SelectorToken::Slice(start, end) => {
                     if let Value::Array(array) = value {
-                        let (start, end) = resolve_slice(array.len(), start, end);
+                        let (start, end) = resolve_slice(array.len(), *start, *end);
                         next.extend(&array[start..end]);
                     }
                 }
@@ -51,41 +98,131 @@ pub fn select_values<'a>(value: &'a Value, selector: &str) -> Vec<&'a Value> {
     current
 }
 
-pub(crate) fn selector_tokens(selector: &str) -> Vec<SelectorToken> {
+fn parse_selector_tokens(selector: &str) -> Result<Vec<SelectorToken>, PipelineError> {
+    if selector.is_empty() {
+        return Err(invalid_selector(selector, "selector cannot be empty"));
+    }
+
     let mut tokens = Vec::new();
-    for part in selector.split('.') {
-        if part.is_empty() {
-            continue;
-        }
+    let mut position = 0;
 
-        let mut rest = part;
-        if let Some(bracket) = rest.find('[') {
-            let field = &rest[..bracket];
-            if !field.is_empty() {
-                tokens.push(SelectorToken::Field(field.to_string()));
-            }
-            rest = &rest[bracket..];
-        } else {
-            tokens.push(SelectorToken::Field(rest.to_string()));
-            continue;
+    while position < selector.len() {
+        let component_start = position;
+        if position > 0 && selector[position..].starts_with('[') {
+            return Err(invalid_selector(
+                selector,
+                &format!("empty path component at byte {position}"),
+            ));
         }
-
-        while let Some(inner) = rest.strip_prefix('[') {
-            let Some(end) = inner.find(']') else {
+        while position < selector.len() {
+            let ch = selector[position..]
+                .chars()
+                .next()
+                .expect("position is inside selector");
+            if matches!(ch, '.' | '[' | ']') {
                 break;
-            };
-            let index = &inner[..end];
-            if index.is_empty() || index == "*" {
-                tokens.push(SelectorToken::All);
-            } else if let Some((start, end)) = index.split_once(':') {
-                tokens.push(SelectorToken::Slice(parse_bound(start), parse_bound(end)));
-            } else if let Ok(index) = index.parse::<isize>() {
-                tokens.push(SelectorToken::Index(index));
             }
-            rest = &inner[end + 1..];
+            position += ch.len_utf8();
+        }
+
+        if position > component_start {
+            tokens.push(SelectorToken::Field(
+                selector[component_start..position].to_string(),
+            ));
+        }
+
+        let mut bracket_count = 0;
+        while selector[position..].starts_with('[') {
+            bracket_count += 1;
+            let bracket_start = position;
+            position += 1;
+            let Some(relative_end) = selector[position..].find(']') else {
+                return Err(invalid_selector(
+                    selector,
+                    &format!("unmatched '[' at byte {bracket_start}"),
+                ));
+            };
+            let bracket_end = position + relative_end;
+            let contents = &selector[position..bracket_end];
+            tokens.push(parse_bracket(selector, contents, bracket_start)?);
+            position = bracket_end + 1;
+        }
+
+        if position == component_start && bracket_count == 0 {
+            let component = selector[position..]
+                .chars()
+                .next()
+                .expect("position is inside selector");
+            let detail = if component == '.' {
+                format!("empty path component at byte {position}")
+            } else {
+                format!("unexpected '{component}' at byte {position}")
+            };
+            return Err(invalid_selector(selector, &detail));
+        }
+
+        if position == selector.len() {
+            break;
+        }
+        if !selector[position..].starts_with('.') {
+            return Err(invalid_selector(
+                selector,
+                &format!("unexpected trailing characters after bracket at byte {position}"),
+            ));
+        }
+
+        position += 1;
+        if position == selector.len() || selector[position..].starts_with('.') {
+            return Err(invalid_selector(
+                selector,
+                &format!("empty path component at byte {position}"),
+            ));
         }
     }
-    tokens
+
+    Ok(tokens)
+}
+
+fn parse_bracket(
+    selector: &str,
+    contents: &str,
+    position: usize,
+) -> Result<SelectorToken, PipelineError> {
+    if contents.is_empty() || contents == "*" {
+        return Ok(SelectorToken::All);
+    }
+
+    if contents.contains(':') {
+        if contents.matches(':').count() != 1 {
+            return Err(invalid_selector(
+                selector,
+                &format!("slice at byte {position} must contain exactly one ':'"),
+            ));
+        }
+        let (start, end) = contents
+            .split_once(':')
+            .expect("slice delimiter was checked");
+        return Ok(SelectorToken::Slice(
+            parse_bound(selector, start, position)?,
+            parse_bound(selector, end, position)?,
+        ));
+    }
+
+    contents
+        .parse::<isize>()
+        .map(SelectorToken::Index)
+        .map_err(|_| {
+            invalid_selector(
+                selector,
+                &format!(
+                    "bracket component '[{contents}]' at byte {position} must be an integer, '*', empty, or a slice"
+                ),
+            )
+        })
+}
+
+fn invalid_selector(selector: &str, detail: &str) -> PipelineError {
+    PipelineError::Pipe(format!("Invalid selector '{selector}': {detail}"))
 }
 
 pub fn scalar_text(value: &Value) -> Option<String> {
@@ -168,11 +305,20 @@ pub(crate) fn is_bookkeeping_key(key: &str) -> bool {
     matches!(key, "created_at" | "updated_at" | "Created" | "Updated")
 }
 
-fn parse_bound(value: &str) -> Option<isize> {
+fn parse_bound(
+    selector: &str,
+    value: &str,
+    position: usize,
+) -> Result<Option<isize>, PipelineError> {
     if value.is_empty() {
-        None
+        Ok(None)
     } else {
-        value.parse::<isize>().ok()
+        value.parse::<isize>().map(Some).map_err(|_| {
+            invalid_selector(
+                selector,
+                &format!("slice bound '{value}' at byte {position} must be an integer"),
+            )
+        })
     }
 }
 
@@ -210,8 +356,12 @@ fn resolve_slice_bound(len: usize, index: isize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::select_values;
+    use super::{select_values, Selector};
     use serde_json::json;
+
+    fn selector(value: &str) -> Selector {
+        Selector::new(value).expect("valid selector")
+    }
 
     #[test]
     fn selectors_support_array_forms() {
@@ -219,21 +369,21 @@ mod tests {
             json!({"data": {"interfaces": [{"ipv4": "one"}, {"ipv4": "two"}, {"ipv4": "three"}]}});
 
         assert_eq!(
-            select_values(&value, "data.interfaces[].ipv4")
+            select_values(&value, &selector("data.interfaces[].ipv4"))
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>(),
             vec![json!("one"), json!("two"), json!("three")]
         );
         assert_eq!(
-            select_values(&value, "data.interfaces[-1].ipv4")
+            select_values(&value, &selector("data.interfaces[-1].ipv4"))
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>(),
             vec![json!("three")]
         );
         assert_eq!(
-            select_values(&value, "data.interfaces[:2].ipv4")
+            select_values(&value, &selector("data.interfaces[:2].ipv4"))
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>(),
@@ -246,18 +396,53 @@ mod tests {
         let value = json!({"S:load": 1.5, "P:label": "mine"});
 
         assert_eq!(
-            select_values(&value, "S:load")
+            select_values(&value, &selector("S:load"))
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>(),
             vec![json!(1.5)]
         );
         assert_eq!(
-            select_values(&value, "P:label")
+            select_values(&value, &selector("P:label"))
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>(),
             vec![json!("mine")]
+        );
+    }
+
+    #[test]
+    fn selectors_reject_malformed_components() {
+        for invalid in [
+            "",
+            ".a",
+            "a.",
+            "a..b",
+            "a.[0]",
+            "a[",
+            "a]",
+            "a[bogus]",
+            "a[:bogus]",
+            "a[bogus:]",
+            "a[1:2:3]",
+            "a[0]tail",
+        ] {
+            let error = Selector::new(invalid).expect_err("selector should be rejected");
+            assert!(error.to_string().contains(invalid));
+        }
+    }
+
+    #[test]
+    fn root_and_chained_array_selectors_are_valid() {
+        let value = json!([[{"name": "first"}], [{"name": "second"}]]);
+        let selector = selector("[][0].name");
+
+        assert_eq!(
+            select_values(&value, &selector)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![json!("first"), json!("second")]
         );
     }
 }

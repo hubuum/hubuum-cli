@@ -8,7 +8,7 @@ use crate::error::PipelineError;
 use crate::model::{
     AggregateFunction, AggregateSpec, GroupKey, OutputEnvelope, OutputShape, SortCast,
 };
-use crate::selector::{scalar_text, select_values};
+use crate::selector::{scalar_text, select_values, Selector};
 use crate::verbs::array_values;
 
 pub fn group_summary_rows(value: &Value) -> Vec<Value> {
@@ -65,7 +65,7 @@ pub(crate) fn count_envelope(envelope: OutputEnvelope) -> Result<OutputEnvelope,
 
 pub(crate) fn sort_envelope(
     envelope: OutputEnvelope,
-    selector: Option<&str>,
+    selector: Option<&Selector>,
     descending: bool,
     cast: SortCast,
 ) -> Result<OutputEnvelope, PipelineError> {
@@ -114,7 +114,7 @@ pub(crate) fn group_envelope(
         }
     }
 
-    let columns = keys.iter().map(|key| key.alias.clone()).collect();
+    let columns = keys.iter().map(|key| key.alias().to_string()).collect();
     Ok(OutputEnvelope::groups(
         groups.into_values().collect(),
         columns,
@@ -170,7 +170,7 @@ pub(crate) fn collapse_groups(envelope: OutputEnvelope) -> Result<OutputEnvelope
 
 pub(crate) fn unroll_envelope(
     envelope: OutputEnvelope,
-    selector: &str,
+    selector: &Selector,
 ) -> Result<OutputEnvelope, PipelineError> {
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
@@ -209,7 +209,7 @@ fn group_value_combinations(
 ) -> Result<Vec<Map<String, Value>>, PipelineError> {
     let mut combinations = vec![Map::new()];
     for key in keys {
-        let mut selected = select_values(row, &key.selector)
+        let mut selected = select_values(row, key.selector())
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
@@ -221,7 +221,7 @@ fn group_value_combinations(
             if matches!(value, Value::Array(_) | Value::Object(_)) {
                 return Err(PipelineError::Pipe(format!(
                     "Group selector '{}' resolved to a non-scalar value; use [] or [*] to fan out arrays",
-                    key.selector
+                    key.selector()
                 )));
             }
         }
@@ -230,7 +230,7 @@ fn group_value_combinations(
         for combination in &combinations {
             for value in &selected {
                 let mut combination = combination.clone();
-                combination.insert(key.alias.clone(), value.clone());
+                combination.insert(key.alias().to_string(), value.clone());
                 next.push(combination);
             }
         }
@@ -256,13 +256,13 @@ fn aggregate_rows(rows: &[Value], function: &AggregateFunction) -> Value {
     }
 }
 
-fn numeric_values<'a>(rows: &'a [Value], selector: &'a str) -> impl Iterator<Item = f64> + 'a {
+fn numeric_values<'a>(rows: &'a [Value], selector: &'a Selector) -> impl Iterator<Item = f64> + 'a {
     rows.iter()
         .flat_map(move |row| select_values(row, selector))
         .filter_map(Value::as_f64)
 }
 
-fn selected_min_max(rows: &[Value], selector: &str, max: bool) -> Value {
+fn selected_min_max(rows: &[Value], selector: &Selector, max: bool) -> Value {
     let mut values = rows
         .iter()
         .flat_map(|row| select_values(row, selector))
@@ -305,7 +305,7 @@ fn group_count_rows(value: &Value) -> Vec<Value> {
         .collect()
 }
 
-fn unroll_row(row: &Value, selector: &str) -> Vec<Value> {
+fn unroll_row(row: &Value, selector: &Selector) -> Vec<Value> {
     let selected = select_values(row, selector);
     let items = selected
         .into_iter()
@@ -340,7 +340,7 @@ fn unroll_row(row: &Value, selector: &str) -> Vec<Value> {
 fn compare_selected(
     left: &Value,
     right: &Value,
-    selector: Option<&str>,
+    selector: Option<&Selector>,
     descending: bool,
     cast: SortCast,
 ) -> Ordering {
@@ -349,7 +349,7 @@ fn compare_selected(
     compare_sort_values(left.as_ref(), right.as_ref(), descending, cast)
 }
 
-fn selected_sort_value(value: &Value, selector: Option<&str>) -> Option<Value> {
+fn selected_sort_value(value: &Value, selector: Option<&Selector>) -> Option<Value> {
     match selector {
         Some(selector) => select_values(value, selector)
             .first()

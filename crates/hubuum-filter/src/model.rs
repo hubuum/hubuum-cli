@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::PipelineError;
+use crate::selector::Selector;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeStage {
     Grep(String),
     ValueSearch(String),
     KeySearch(String),
-    Truthy(Option<String>),
+    Truthy(Option<Selector>),
     Reject(String),
     Head {
         count: usize,
@@ -19,44 +22,72 @@ pub enum PipeStage {
     },
     Columns(Vec<ProjectTerm>),
     SortColumn {
-        column: String,
+        selector: Selector,
         descending: bool,
         cast: SortCast,
     },
     Group(Vec<GroupKey>),
     Aggregate(AggregateSpec),
     CollapseGroups,
-    Unroll(String),
+    Unroll(Selector),
     Jq(String),
-    Value(String),
+    Value(Selector),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectTerm {
-    pub selector: String,
-    pub drop: bool,
+    selector: Selector,
+    drop: bool,
 }
 
 impl ProjectTerm {
-    pub fn keep(selector: impl Into<String>) -> Self {
-        Self {
-            selector: selector.into(),
+    pub fn keep(selector: impl Into<String>) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
             drop: false,
-        }
+        })
     }
 
-    pub fn drop(selector: impl Into<String>) -> Self {
-        Self {
-            selector: selector.into(),
+    pub fn drop(selector: impl Into<String>) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
             drop: true,
-        }
+        })
+    }
+
+    pub fn selector(&self) -> &Selector {
+        &self.selector
+    }
+
+    pub fn is_drop(&self) -> bool {
+        self.drop
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupKey {
-    pub selector: String,
-    pub alias: String,
+    selector: Selector,
+    alias: String,
+}
+
+impl GroupKey {
+    pub fn new(
+        selector: impl Into<String>,
+        alias: impl Into<String>,
+    ) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
+            alias: alias.into(),
+        })
+    }
+
+    pub fn selector(&self) -> &Selector {
+        &self.selector
+    }
+
+    pub fn alias(&self) -> &str {
+        &self.alias
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,10 +99,10 @@ pub struct AggregateSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AggregateFunction {
     Count,
-    Sum(String),
-    Avg(String),
-    Min(String),
-    Max(String),
+    Sum(Selector),
+    Avg(Selector),
+    Min(Selector),
+    Max(Selector),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

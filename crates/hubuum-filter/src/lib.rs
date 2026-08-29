@@ -16,7 +16,7 @@ pub use model::{
     ProjectTerm, SortCast,
 };
 pub use parse::split_pipeline;
-pub use selector::{scalar_text, select_values};
+pub use selector::{scalar_text, select_values, Selector};
 pub use verb_info::{help_topics, topic_help, verb_summaries, HelpTopic, VerbSummary};
 pub use verbs::collection::group_summary_rows;
 

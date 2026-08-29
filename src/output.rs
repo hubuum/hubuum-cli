@@ -1262,8 +1262,10 @@ mod tests {
             vec!["Name".to_string(), "hidden".to_string()],
         ))
         .expect("semantic output should be set");
-        set_pipeline(vec![PipeStage::Columns(vec![ProjectTerm::keep("Name")])])
-            .expect("pipeline should set");
+        set_pipeline(vec![PipeStage::Columns(vec![
+            ProjectTerm::keep("Name").expect("valid selector")
+        ])])
+        .expect("pipeline should set");
 
         let rendered = take_output().expect("snapshot").render();
 
@@ -1300,8 +1302,8 @@ mod tests {
         reset_output().expect("buffer should reset");
         set_render_format(RenderFormat::Json).expect("render format should set");
         set_pipeline(vec![PipeStage::Columns(vec![
-            ProjectTerm::keep("Name"),
-            ProjectTerm::keep("data.network.interfaces[*].ipv4"),
+            ProjectTerm::keep("Name").expect("valid selector"),
+            ProjectTerm::keep("data.network.interfaces[*].ipv4").expect("valid selector"),
         ])])
         .expect("pipeline should set");
         set_semantic_output(OutputEnvelope::rows(

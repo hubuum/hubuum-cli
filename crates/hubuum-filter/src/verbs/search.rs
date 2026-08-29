@@ -7,19 +7,19 @@ use std::mem::take;
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
 use crate::selector::{
-    compact_empty, is_bookkeeping_key, key_paths, scalar_text, select_values, truthy,
+    compact_empty, is_bookkeeping_key, key_paths, scalar_text, select_values, truthy, Selector,
 };
 use crate::verbs::array_values;
 
 #[derive(Debug)]
 enum SemanticFilter {
     Quick(Regex),
-    PathExists(String),
-    PathEquals(String, String),
-    PathContains(String, Regex),
-    PathCompare(String, CompareOp, String),
-    PathNotEquals(String, String),
-    PathNotContains(String, Regex),
+    PathExists(Selector),
+    PathEquals(Selector, String),
+    PathContains(Selector, Regex),
+    PathCompare(Selector, CompareOp, String),
+    PathNotEquals(Selector, String),
+    PathNotContains(Selector, Regex),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -143,7 +143,7 @@ pub(crate) fn key_search_envelope(
 
 pub(crate) fn truthy_envelope(
     envelope: OutputEnvelope,
-    selector: Option<&str>,
+    selector: Option<&Selector>,
 ) -> Result<OutputEnvelope, PipelineError> {
     match (envelope.shape, selector) {
         (OutputShape::Rows | OutputShape::Values, Some(selector)) => {
@@ -201,17 +201,17 @@ impl SemanticFilter {
         }
 
         if parts.len() >= 2 && parts[1] == "exists" {
-            return Ok(Self::PathExists(parts[0].clone()));
+            return Ok(Self::PathExists(parts[0].parse()?));
         }
         if parts.len() >= 3 && matches!(parts[1].as_str(), "equals" | "=" | "==") {
-            return Ok(Self::PathEquals(parts[0].clone(), parts[2..].join(" ")));
+            return Ok(Self::PathEquals(parts[0].parse()?, parts[2..].join(" ")));
         }
         if parts.len() >= 3 && matches!(parts[1].as_str(), "!=" | "<>") {
-            return Ok(Self::PathNotEquals(parts[0].clone(), parts[2..].join(" ")));
+            return Ok(Self::PathNotEquals(parts[0].parse()?, parts[2..].join(" ")));
         }
         if parts.len() >= 3 && matches!(parts[1].as_str(), ">" | ">=" | "<" | "<=") {
             return Ok(Self::PathCompare(
-                parts[0].clone(),
+                parts[0].parse()?,
                 parse_compare_op(&parts[1])?,
                 parts[2..].join(" "),
             ));
@@ -220,17 +220,17 @@ impl SemanticFilter {
             && parts[1] == "not"
             && matches!(parts[2].as_str(), "equals" | "=" | "==")
         {
-            return Ok(Self::PathNotEquals(parts[0].clone(), parts[3..].join(" ")));
+            return Ok(Self::PathNotEquals(parts[0].parse()?, parts[3..].join(" ")));
         }
         if parts.len() >= 3 && matches!(parts[1].as_str(), "contains" | "~" | "matches" | "match") {
             return Ok(Self::PathContains(
-                parts[0].clone(),
+                parts[0].parse()?,
                 Regex::new(&parts[2..].join(" "))?,
             ));
         }
         if parts.len() >= 3 && matches!(parts[1].as_str(), "!~") {
             return Ok(Self::PathNotContains(
-                parts[0].clone(),
+                parts[0].parse()?,
                 Regex::new(&parts[2..].join(" "))?,
             ));
         }
@@ -239,7 +239,7 @@ impl SemanticFilter {
             && matches!(parts[2].as_str(), "contains" | "~" | "matches" | "match")
         {
             return Ok(Self::PathNotContains(
-                parts[0].clone(),
+                parts[0].parse()?,
                 Regex::new(&parts[3..].join(" "))?,
             ));
         }
@@ -257,7 +257,7 @@ impl SemanticFilter {
         columns: &[String],
     ) -> Result<FilterMatch, PipelineError> {
         match self {
-            Self::Quick(regex) => Ok(quick_filter_match(value, columns, regex)),
+            Self::Quick(regex) => quick_filter_match(value, columns, regex),
             Self::PathExists(path) => Ok(FilterMatch {
                 matched: !select_values(value, path).is_empty(),
                 hits: Vec::new(),
@@ -304,6 +304,10 @@ impl SemanticFilter {
     }
 }
 
+pub(crate) fn validate_filter_expression(expression: &str) -> Result<(), PipelineError> {
+    SemanticFilter::parse(expression).map(|_| ())
+}
+
 fn filter_group_rows(
     envelope: OutputEnvelope,
     expression: &str,
@@ -342,19 +346,19 @@ fn parse_comparison(
 ) -> Result<SemanticFilter, PipelineError> {
     match op {
         "=" | "==" => Ok(SemanticFilter::PathEquals(
-            field.to_string(),
+            field.parse()?,
             expected.to_string(),
         )),
         "!=" => Ok(SemanticFilter::PathNotEquals(
-            field.to_string(),
+            field.parse()?,
             expected.to_string(),
         )),
         "~" => Ok(SemanticFilter::PathContains(
-            field.to_string(),
+            field.parse()?,
             Regex::new(expected)?,
         )),
         ">" | ">=" | "<" | "<=" => Ok(SemanticFilter::PathCompare(
-            field.to_string(),
+            field.parse()?,
             parse_compare_op(op)?,
             expected.to_string(),
         )),
@@ -390,21 +394,26 @@ fn compare_expected(value: &Value, op: CompareOp, expected: &str) -> bool {
     }
 }
 
-fn quick_filter_match(value: &Value, columns: &[String], regex: &Regex) -> FilterMatch {
+fn quick_filter_match(
+    value: &Value,
+    columns: &[String],
+    regex: &Regex,
+) -> Result<FilterMatch, PipelineError> {
     if columns.is_empty() {
         let mut text = String::new();
         collect_key_text(value, &mut text);
         collect_value_text(value, &mut text);
-        return FilterMatch {
+        return Ok(FilterMatch {
             matched: regex.is_match(&text),
             hits: Vec::new(),
-        };
+        });
     }
 
     let mut hits = Vec::new();
     for column in columns {
         let mut text = String::new();
-        for value in select_values(value, column) {
+        let selector = Selector::new(column)?;
+        for value in select_values(value, &selector) {
             collect_value_text(value, &mut text);
         }
         if regex.is_match(&text) {
@@ -418,10 +427,10 @@ fn quick_filter_match(value: &Value, columns: &[String], regex: &Regex) -> Filte
         }
     }
 
-    FilterMatch {
+    Ok(FilterMatch {
         matched: !hits.is_empty() || value_search_match(value, regex),
         hits,
-    }
+    })
 }
 
 fn value_search_match(value: &Value, regex: &Regex) -> bool {

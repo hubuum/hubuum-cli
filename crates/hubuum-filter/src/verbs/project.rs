@@ -2,7 +2,7 @@ use serde_json::{Map, Value};
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape, ProjectTerm};
-use crate::selector::select_values;
+use crate::selector::{select_values, Selector};
 use crate::verbs::array_values;
 
 pub(crate) fn project_envelope(
@@ -29,7 +29,7 @@ pub(crate) fn project_envelope(
 
 pub(crate) fn value_envelope(
     envelope: OutputEnvelope,
-    selector: &str,
+    selector: &Selector,
 ) -> Result<OutputEnvelope, PipelineError> {
     let values = match envelope.shape {
         OutputShape::Rows | OutputShape::Values => array_values(&envelope.value)?
@@ -55,25 +55,28 @@ pub(crate) fn value_envelope(
 }
 
 pub(crate) fn project_value(value: &Value, terms: &[ProjectTerm]) -> Value {
-    let keepers = terms.iter().filter(|term| !term.drop).collect::<Vec<_>>();
+    let keepers = terms
+        .iter()
+        .filter(|term| !term.is_drop())
+        .collect::<Vec<_>>();
     let mut projected = if keepers.is_empty() {
         value.clone()
     } else {
         let mut object = Map::new();
         for term in keepers {
-            let selected = select_values(value, &term.selector);
+            let selected = select_values(value, term.selector());
             let value = match selected.as_slice() {
                 [] => Value::Null,
                 [single] => (*single).clone(),
                 many => Value::Array(many.iter().map(|value| (*value).clone()).collect()),
             };
-            object.insert(term.selector.clone(), value);
+            object.insert(term.selector().to_string(), value);
         }
         Value::Object(object)
     };
 
-    for term in terms.iter().filter(|term| term.drop) {
-        drop_path(&mut projected, &term.selector);
+    for term in terms.iter().filter(|term| term.is_drop()) {
+        drop_path(&mut projected, term.selector().as_str());
     }
 
     projected
@@ -123,8 +126,8 @@ fn group_rows(envelope: &OutputEnvelope) -> Result<Vec<Value>, PipelineError> {
 fn output_columns(terms: &[ProjectTerm]) -> Vec<String> {
     terms
         .iter()
-        .filter(|term| !term.drop)
-        .map(|term| term.selector.clone())
+        .filter(|term| !term.is_drop())
+        .map(|term| term.selector().to_string())
         .collect()
 }
 
