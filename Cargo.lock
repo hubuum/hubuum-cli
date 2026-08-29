@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "hubuum-filter"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "jaq-all",
  "regex",

@@ -169,34 +169,34 @@ struct SemanticItem<'a> {
 fn semantic_items(snapshot: &OutputSnapshot) -> Result<Vec<SemanticItem<'_>>, AppError> {
     let mut items = Vec::new();
     for envelope in &snapshot.semantic {
-        match envelope.shape {
+        match envelope.shape() {
             OutputShape::Rows | OutputShape::Values | OutputShape::Lines => {
-                let values = envelope.value.as_array().ok_or_else(|| {
+                let values = envelope.value().as_array().ok_or_else(|| {
                     AppError::ParseError("each: semantic output is not an array".to_string())
                 })?;
                 items.extend(values.iter().map(|value| SemanticItem {
                     value: value.clone(),
-                    source_shape: envelope.shape,
-                    columns: &envelope.columns,
+                    source_shape: envelope.shape(),
+                    columns: envelope.columns(),
                 }));
             }
             OutputShape::Detail | OutputShape::Message => {
                 items.push(SemanticItem {
-                    value: envelope.value.clone(),
-                    source_shape: envelope.shape,
-                    columns: &envelope.columns,
+                    value: envelope.value().clone(),
+                    source_shape: envelope.shape(),
+                    columns: envelope.columns(),
                 });
             }
             OutputShape::Groups => {
                 // Store grouped summaries for per-item redirects so templates can use
                 // group and aggregate field names without exposing member rows.
                 items.extend(
-                    group_summary_rows(&envelope.value)
+                    group_summary_rows(envelope.value())
                         .into_iter()
                         .map(|value| SemanticItem {
                             value,
                             source_shape: OutputShape::Rows,
-                            columns: &envelope.columns,
+                            columns: envelope.columns(),
                         }),
                 );
             }

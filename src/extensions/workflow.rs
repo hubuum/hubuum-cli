@@ -47,7 +47,8 @@ impl Default for WorkflowLimits {
                 MAX_JQ_INPUT_BYTES,
                 MAX_JQ_OUTPUTS,
                 MAX_JQ_OUTPUT_BYTES,
-            ),
+            )
+            .expect("workflow JQ limits are positive"),
         }
     }
 }

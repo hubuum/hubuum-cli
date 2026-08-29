@@ -4,6 +4,7 @@ use std::str::FromStr;
 use serde_json::{Map, Value};
 
 use crate::error::PipelineError;
+use crate::settings::PipelineSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SelectorToken {
@@ -331,17 +332,25 @@ pub(crate) fn compact_empty(value: Value) -> Option<Value> {
     }
 }
 
-pub(crate) fn key_paths(value: &Value) -> Vec<(String, &Value)> {
+pub(crate) fn key_paths<'a>(
+    value: &'a Value,
+    settings: &PipelineSettings,
+) -> Vec<(String, &'a Value)> {
     let mut paths = Vec::new();
-    collect_key_paths(value, "", &mut paths);
+    collect_key_paths(value, "", settings, &mut paths);
     paths
 }
 
-fn collect_key_paths<'a>(value: &'a Value, prefix: &str, paths: &mut Vec<(String, &'a Value)>) {
+fn collect_key_paths<'a>(
+    value: &'a Value,
+    prefix: &str,
+    settings: &PipelineSettings,
+    paths: &mut Vec<(String, &'a Value)>,
+) {
     match value {
         Value::Object(object) => {
             for (key, value) in object {
-                if is_bookkeeping_key(key) {
+                if settings.ignores_search_key(key) {
                     continue;
                 }
                 let path = if prefix.is_empty() {
@@ -350,20 +359,16 @@ fn collect_key_paths<'a>(value: &'a Value, prefix: &str, paths: &mut Vec<(String
                     format!("{prefix}.{key}")
                 };
                 paths.push((path.clone(), value));
-                collect_key_paths(value, &path, paths);
+                collect_key_paths(value, &path, settings, paths);
             }
         }
         Value::Array(values) => {
             for value in values {
-                collect_key_paths(value, prefix, paths);
+                collect_key_paths(value, prefix, settings, paths);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
-}
-
-pub(crate) fn is_bookkeeping_key(key: &str) -> bool {
-    matches!(key, "created_at" | "updated_at" | "Created" | "Updated")
 }
 
 fn parse_bound(

@@ -901,8 +901,8 @@ mod tests {
         .expect("scoped fields should work in semantic pipelines");
 
         assert_eq!(
-            output.value,
-            json!([{
+            output.value(),
+            &json!([{
                 "Name": "host-2",
                 "S:load": 3.0,
                 "P:label": "two"

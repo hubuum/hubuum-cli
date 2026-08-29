@@ -1136,9 +1136,9 @@ fn workflow_output_capture(semantic: Vec<OutputEnvelope>, lines: Vec<String>) ->
                 .iter()
                 .map(|envelope| {
                     serde_json::json!({
-                        "shape": workflow_output_shape_name(envelope.shape),
-                        "value": envelope.value,
-                        "columns": envelope.columns,
+                        "shape": workflow_output_shape_name(envelope.shape()),
+                        "value": envelope.value(),
+                        "columns": envelope.columns(),
                     })
                 })
                 .collect(),
@@ -1159,17 +1159,15 @@ fn workflow_output_capture(semantic: Vec<OutputEnvelope>, lines: Vec<String>) ->
                 })
             }
         }
-        1 => {
-            semantic
-                .into_iter()
-                .next()
-                .expect("one semantic value was checked")
-                .value
-        }
+        1 => semantic
+            .into_iter()
+            .next()
+            .expect("one semantic value was checked")
+            .into_value(),
         _ => Value::Array(
             semantic
                 .into_iter()
-                .map(|envelope| envelope.value)
+                .map(OutputEnvelope::into_value)
                 .collect(),
         ),
     };
@@ -1998,8 +1996,8 @@ mod tests {
 
         assert_eq!(outcome.scope_action, ScopeAction::None);
         assert_eq!(
-            outcome.output.semantic[0].value,
-            json!({
+            outcome.output.semantic[0].value(),
+            &json!({
                 "requested": 7,
                 "items": [{"id": 1}],
                 "selected": "object echo --output json --id=1",

@@ -212,7 +212,7 @@ mod bounded_tests {
     use crate::JqLimits;
 
     fn limits() -> JqLimits {
-        JqLimits::new(128, 128, 4, 128)
+        JqLimits::new(128, 128, 4, 128).expect("positive test limits")
     }
 
     #[test]
