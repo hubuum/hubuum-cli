@@ -9,7 +9,8 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.9 | 0.9.0 | 0.0.9 | Current published target |
+| 0.0.10 | 0.9.1 | 0.0.9 | Current published target |
+| 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
 | 0.0.8 | 0.8.0 | 0.0.8 | Previous declared target |
 | 0.0.5 | 0.7.2 | 0.0.5 | Previous declared target |
 | 0.0.4 | 0.7.1 | 0.0.4 | Previous declared target |
@@ -17,8 +18,11 @@ that every CLI command is available against other server versions.
 | 0.0.2 | 0.5.1 | 0.0.2 | Previous declared target |
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
-The v0.0.9 target is tested by `hubuum_client` against the immutable Hubuum
-server v0.0.9 image
+The v0.0.10 target is tested by `hubuum_client` v0.9.1 against the immutable
+Hubuum server v0.0.9 image
+`ghcr.io/hubuum/hubuum-server@sha256:1f12baf882b6d3df5b4b2dbdf26aad0793274e57f86a2c186b8e1e68632db5db`.
+The v0.0.9 target is tested by `hubuum_client` v0.9.0 against the same immutable
+Hubuum server v0.0.9 image
 `ghcr.io/hubuum/hubuum-server@sha256:1f12baf882b6d3df5b4b2dbdf26aad0793274e57f86a2c186b8e1e68632db5db`.
 The v0.0.8 target is tested by `hubuum_client` against the immutable
 Hubuum server v0.0.8 image
