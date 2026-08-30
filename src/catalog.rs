@@ -1349,6 +1349,46 @@ mod tests {
     }
 
     #[test]
+    fn class_fields_is_canonical_and_object_fields_remains_compatible() {
+        let catalog = build_command_catalog();
+        let class_fields = catalog
+            .resolve_command(&[], &["class".to_string(), "fields".to_string()])
+            .expect("class fields command");
+        let object_fields = catalog
+            .resolve_command(&[], &["object".to_string(), "fields".to_string()])
+            .expect("object fields compatibility command");
+
+        assert_eq!(
+            class_fields.command.workflow_contract().command_id(),
+            "class fields"
+        );
+        assert!(class_fields
+            .command
+            .workflow_contract()
+            .input("name")
+            .is_some());
+        assert_eq!(
+            object_fields.command.workflow_contract().command_id(),
+            "object fields"
+        );
+        assert!(object_fields
+            .command
+            .workflow_contract()
+            .input("class")
+            .is_some());
+        assert!(object_fields
+            .command
+            .about
+            .as_deref()
+            .is_some_and(|about| about.ends_with("(deprecated)")));
+        assert!(object_fields
+            .command
+            .long_about
+            .as_deref()
+            .is_some_and(|about| about.contains("use 'class fields' instead")));
+    }
+
+    #[test]
     fn render_command_help_includes_option_metadata() {
         let mut builder = CommandCatalogBuilder::new();
         let mut spec = command("list");
@@ -1472,9 +1512,13 @@ mod tests {
             .expect("collection scope");
 
         assert!(plain.contains("class"));
-        assert!(plain.contains("create, delete, list, modify, show"));
         assert!(plain.contains("object"));
-        assert!(plain.contains("create, delete, list, modify, show"));
+        assert_eq!(
+            plain
+                .matches("create, delete, fields, list, modify, show")
+                .count(),
+            2
+        );
         assert!(plain.contains("event"));
         assert!(plain.contains("delivery, sink, subscription"));
         assert!(!plain.contains("event-subscription"));

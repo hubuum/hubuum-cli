@@ -236,10 +236,19 @@ hubuum-cli object list --class Hosts --computed all --output json
 
 In the REPL, data-field completion merges the selected class's JSON Schema with
 a sample of up to 100 objects, using the same depth-six traversal as
-`object fields`. This supplies escaped JSON Pointers for computed `--path`
+`class fields`. This supplies escaped JSON Pointers for computed `--path`
 options and dotted paths for aggregate dimensions, measures, and filters.
 Inspected fields are cached for `cache.time` seconds (one hour by default) and
 the cache can be bypassed with `cache.disable`.
+
+`class fields --name <class>` is also the field inventory for downstream
+selectors. Alongside sampled `data.*` paths, it lists enabled shared and
+personal computed fields as `S:<key>` and `P:<key>`. The `Source` column
+distinguishes the three kinds; counts, types, and examples are observed from the
+same object sample, so a computed definition with no sampled value still
+appears with an empty observation. The former `object fields --class <class>`
+spelling remains available as a deprecated compatibility alias and prints an
+exact replacement command when invoked.
 
 Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 `--computed S:<key>` and `--computed P:<key>` options to select individual
