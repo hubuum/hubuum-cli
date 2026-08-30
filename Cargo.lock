@@ -1007,9 +1007,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e243918ed26d89b398cb310c0faac0a1a6d07b298a1946b6f3c1458e367f6fbd"
+checksum = "064a6af4b718ede869515e30cc85ab75430c166a89bdb7604d8d703a1d93f544"
 dependencies = [
  "chrono",
  "fastrand",
@@ -1023,6 +1023,7 @@ dependencies = [
  "serde_path_to_error",
  "serde_urlencoded",
  "strum",
+ "tempfile",
  "thiserror 2.0.20",
  "url",
 ]

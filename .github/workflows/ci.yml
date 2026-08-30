@@ -42,7 +42,7 @@ jobs:
         run: npx --yes ajv-cli@5.0.0 compile --spec=draft2020 -s schemas/hubuum-extension.schema.json
 
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24
+        uses: DavidAnson/markdownlint-cli2-action@28a7e8bdb81fd8ad675883de92c758ab78e0ce10 # v24
         with:
           config: ".markdownlint.json"
           globs: "**/*.md"
@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Cache cargo and target directories
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1
@@ -256,7 +256,7 @@ jobs:
 
       - name: Cache cargo and target directories
         if: matrix.platform.kind == 'native'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           shared-key: ${{ matrix.platform.target }}-stable-release
 
@@ -443,7 +443,7 @@ jobs:
           fi
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        uses: softprops/action-gh-release@5113cdc90fd4d541c801c55356214017bf5ae34b # v3
         with:
           tag_name: ${{ github.ref == 'refs/heads/main' && 'main-latest' || github.ref_name }}
           name: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref_name }}
