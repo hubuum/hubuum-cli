@@ -73,7 +73,7 @@ object modify --class SmokeHost smoke-1 --description "Smoke object updated" --d
 object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"RHEL","rhel_subscription":"active"}}]'
 object data patch --class SmokeHost --name smoke-1 --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]'
 object data patch --class SmokeHost --name smoke-created --patch '[{"op":"add","path":"/facts","value":{"distribution":"Fedora"}}]' --create --description "Created by CLI smoke test"
-object fields --class SmokeHost
+class fields --name SmokeHost
 ```
 
 Run server-side object aggregates, including grouping, global numeric measures,
@@ -95,6 +95,7 @@ computed shared preview --class SmokeHost --key owner_copy --label "Owner copy" 
 computed shared rebuild --class SmokeHost
 computed personal create --class SmokeHost --key owner_personal --label "Personal owner" --operation first_non_null --path /owner --result-type string
 computed personal list --class SmokeHost
+class fields --name SmokeHost
 object aggregate --class SmokeHost --group-by S:owner_copy --where S:owner_copy equals platform --output json
 object show --class SmokeHost smoke-1 --computed S:owner_copy
 object list --class SmokeHost --computed all --output json
@@ -160,6 +161,11 @@ Expected results:
   explicit `--computed` values replace them and `--computed none` suppresses them.
 - Computed list text uses `S:<key>` and `P:<key>` columns rather than a single
   truncated computed-data preview.
+- `class fields` includes enabled `S:<key>` and `P:<key>` selectors after the
+  sampled `data.*` paths, identifies their source, and reports values observed
+  in the same sample. `object fields --class SmokeHost` produces the same
+  inventory as a compatibility alias and warns to use the exact replacement
+  `class fields --name SmokeHost` command.
 - `S:<key>` and `P:<key>` sorts order the full matching set before `--limit`;
   combining either with `--cursor` returns an actionable error.
 - Display aliases use the first selector that exists and can be selected like

@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- Added canonical `class fields --name <class>` field discovery, with
+  `object fields --class <class>` retained as a deprecated compatibility alias
+  that prints an exact replacement command. Existing invocations continue to
+  work; users should migrate to `class fields --name <class>`. Reusable command
+  deprecation metadata now annotates help and rewrites renamed options in
+  warnings. The inventory includes enabled shared and personal computed
+  selectors alongside sampled `data.*` paths, identifies each field's source,
+  and summarizes computed values observed in the same object sample. This is a
+  breaking output-shape change: the inventory gains a `Source` column and
+  computed-selector rows. Structured consumers that assumed an exact column set
+  or data-only rows must accept the new column and rows.
 - Added extension packs under `extension <pack>`, with dependency-free portable
   JSONC/JQ workflow packs as the preferred kind and a versioned argv/JSON
   protocol for explicitly executable packs. Packs have deterministic system and

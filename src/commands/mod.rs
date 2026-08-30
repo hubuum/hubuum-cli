@@ -15,6 +15,7 @@ pub(crate) mod auth;
 mod backup;
 mod builder;
 mod class;
+mod class_fields;
 mod collection;
 mod computed;
 pub(crate) mod config;

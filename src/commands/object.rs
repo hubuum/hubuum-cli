@@ -9,14 +9,14 @@ use jsonpath_rust::JsonPath;
 use smooth_json::Flattener;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, json, to_string_pretty, to_value, Map, Value};
+use serde_json::{from_str, to_string_pretty, to_value, Map, Value};
 
 use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, normalize_server_page_size,
-    option_or_pos, want_json, CliCommand, PageSelection,
+    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, want_json,
+    CliCommand, PageSelection,
 };
 use crate::autocomplete::{
     bool, classes, collections, computed_fields, object_aggregate_dimensions,
@@ -26,9 +26,8 @@ use crate::autocomplete::{
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
 use crate::domain::{
-    visit_observed_data_fields, ComputedFieldSelector, ComputedFieldSet, ObjectAggregateRecord,
-    ObjectShowRecord, ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH,
-    DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
+    ComputedFieldSelector, ComputedFieldSet, ObjectAggregateRecord, ObjectShowRecord,
+    ResolvedObjectRecord,
 };
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{
@@ -122,20 +121,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                         r#"--class Hosts --where json_data.facts.operating_system.major_version lt 8
 --class Hosts --where data.environment equals production --include-where-results false"#,
                     ),
-                },
-            ),
-        )
-        .add_command(
-            &["object"],
-            catalog_command(
-                "fields",
-                ObjectFields::default(),
-                CommandDocs {
-                    about: Some("Inspect observed object data fields"),
-                    long_about: Some(
-                        "Sample objects in a class and list observed data paths, value types, counts, and examples. This is useful for classes without schemas.",
-                    ),
-                    examples: Some("--class Hosts --limit 100"),
                 },
             ),
         )
@@ -509,10 +494,10 @@ mod tests {
     use super::{
         all_computed_value_columns, bounded_auto_data_columns, data_column_display_value,
         data_column_value, display_json_value, explicit_data_columns, extend_unique_data_keys,
-        first_seen_data_keys, object_data_column_label, object_field_summaries, object_list_row,
+        first_seen_data_keys, object_data_column_label, object_list_row,
         object_show_pipeline_value, parse_object_data_patch, where_result_data_keys,
         ComputedFieldSelection, ComputedValueColumn, ComputedValueScope, ObjectAggregate,
-        ObjectInfo, ObjectList, ObjectListColumns, DEFAULT_OBJECT_FIELD_DEPTH,
+        ObjectInfo, ObjectList, ObjectListColumns,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
     use crate::commands::command_options;
@@ -1010,68 +995,6 @@ mod tests {
     }
 
     #[test]
-    fn object_field_summaries_collect_nested_data_paths() {
-        let page = PagedResult {
-            items: vec![
-                test_object(1, json!({"contact": "Entry", "hardware": {"cpu": "M2"}})),
-                test_object(2, json!({"contact": "Dell", "hardware": {"cpu": "i3"}})),
-            ],
-            next_cursor: None,
-            returned_count: 2,
-            total_count: None,
-        };
-
-        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, false);
-
-        assert_eq!(
-            summaries.get("data.contact").map(|summary| summary.count),
-            Some(2)
-        );
-        assert_eq!(
-            summaries.get("data.hardware.cpu").map(|summary| summary
-                .types
-                .iter()
-                .copied()
-                .collect::<Vec<_>>()),
-            Some(vec!["string"])
-        );
-    }
-
-    #[test]
-    fn object_field_summaries_expand_array_item_paths() {
-        let page = PagedResult {
-            items: vec![test_object(
-                1,
-                json!({"network": {"interfaces": [{"ipv4": "127.0.0.1"}]}}),
-            )],
-            next_cursor: None,
-            returned_count: 1,
-            total_count: None,
-        };
-
-        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, false);
-
-        assert!(summaries.contains_key("data.network.interfaces[*].ipv4"));
-        assert!(!summaries.contains_key("data.network"));
-        assert!(!summaries.contains_key("data.network.interfaces"));
-    }
-
-    #[test]
-    fn object_field_summaries_can_include_containers() {
-        let page = PagedResult {
-            items: vec![test_object(1, json!({"hardware": {"cpu": "M2"}}))],
-            next_cursor: None,
-            returned_count: 1,
-            total_count: None,
-        };
-
-        let summaries = object_field_summaries(&page, DEFAULT_OBJECT_FIELD_DEPTH, true);
-
-        assert!(summaries.contains_key("data.hardware"));
-        assert!(summaries.contains_key("data.hardware.cpu"));
-    }
-
-    #[test]
     fn auto_data_columns_are_bounded_for_wide_schemas() {
         let keys = vec![
             "contact".to_string(),
@@ -1553,140 +1476,6 @@ impl CliCommand for ObjectList {
             &where_result_data_keys,
             &computed_selection,
         )
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
-pub struct ObjectFields {
-    #[option(
-        short = "c",
-        long = "class",
-        help = "Name of the class to sample",
-        autocomplete = "classes"
-    )]
-    pub class: String,
-    #[option(
-        long = "limit",
-        help = "Maximum objects to sample (default: 100; server maximum: 250)"
-    )]
-    pub limit: Option<usize>,
-    #[option(
-        long = "depth",
-        help = "Maximum data path depth to inspect (default: 6)"
-    )]
-    pub depth: Option<usize>,
-    #[option(
-        long = "containers",
-        help = "Include object and array container paths",
-        flag = true
-    )]
-    pub containers: Option<bool>,
-}
-
-impl CliCommand for ObjectFields {
-    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
-    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
-
-    fn execute(&self, services: &AppServices, _tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(_tokens)?;
-        let sample_limit =
-            normalize_server_page_size(query.limit)?.unwrap_or(DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT);
-        let list_query = build_list_query(
-            &[],
-            &[],
-            Some(sample_limit),
-            None,
-            false,
-            [equals_clause("class", query.class.clone())],
-        )?;
-        let objects = services.gateway().list_objects(&list_query, false)?;
-        render_object_fields(
-            &objects,
-            sample_limit,
-            query.depth.unwrap_or(DEFAULT_OBJECT_FIELD_DEPTH),
-            query.containers.unwrap_or(false),
-        )
-    }
-}
-
-#[derive(Debug, Default)]
-struct FieldSummary {
-    count: usize,
-    types: BTreeSet<&'static str>,
-    example: Option<String>,
-}
-
-fn render_object_fields(
-    objects: &PagedResult<ResolvedObjectRecord>,
-    sample_limit: usize,
-    depth: usize,
-    include_containers: bool,
-) -> Result<(), AppError> {
-    let summaries = object_field_summaries(objects, depth, include_containers);
-    let rows = summaries
-        .into_iter()
-        .map(|(field, summary)| {
-            json!({
-                "Field": field,
-                "Count": summary.count,
-                "Types": summary.types.into_iter().collect::<Vec<_>>().join(","),
-                "Example": summary.example.unwrap_or_default(),
-                "Sample": objects.returned_count,
-                "Limit": sample_limit,
-            })
-        })
-        .collect::<Vec<_>>();
-    set_semantic_output(OutputEnvelope::rows(
-        rows,
-        vec![
-            "Field".to_string(),
-            "Count".to_string(),
-            "Types".to_string(),
-            "Example".to_string(),
-            "Sample".to_string(),
-            "Limit".to_string(),
-        ],
-    ))?;
-    Ok(())
-}
-
-fn object_field_summaries(
-    objects: &PagedResult<ResolvedObjectRecord>,
-    depth: usize,
-    include_containers: bool,
-) -> BTreeMap<String, FieldSummary> {
-    let mut summaries: BTreeMap<String, FieldSummary> = BTreeMap::new();
-    visit_observed_data_fields(
-        objects
-            .items
-            .iter()
-            .filter_map(|object| object.data.as_ref()),
-        depth,
-        |path, value| {
-            let is_container = matches!(value, Value::Object(_) | Value::Array(_));
-            if is_container && !include_containers {
-                return;
-            }
-
-            let summary = summaries.entry(path.display().to_string()).or_default();
-            summary.count += 1;
-            summary.types.insert(json_type_name(value));
-            summary
-                .example
-                .get_or_insert_with(|| data_preview(Some(value)));
-        },
-    );
-    summaries
-}
-
-fn json_type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "bool",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
     }
 }
 
