@@ -25,3 +25,12 @@
 - Keep invariants close to the data they protect. Constructors and setters should reject invalid states rather than relying on callers to remember preconditions.
 - Use small, explicit APIs. Expose only what callers need, and keep representation details private unless there is a strong reason not to.
 - Prefer `use` imports over inline fully-qualified paths for functions, types, and macros. Only fully qualify a path inline when needed to resolve a genuine name ambiguity (or for a one-off reference where a `use` would mislead).
+
+## Pull Requests And Merges
+
+- Keep each pull request scoped to one coherent change and explain the user or compatibility impact, important design decisions, and verification evidence.
+- Treat changelog review as required for every pull request. Add user-facing additions, changes, fixes, and security notes to [Unreleased](CHANGELOG.md#unreleased). If a change has no changelog-worthy impact, say so explicitly in the pull-request description rather than adding an empty or internal-only entry.
+- Call out every breaking change explicitly in both the pull-request description and the [Unreleased](CHANGELOG.md#unreleased) changelog entry, including the upgrade or migration action users must take.
+- Describe changes to the declared Hubuum server target, OpenAPI surface, feature availability, MSRV, or dependencies explicitly. Include pinned live integration evidence for compatibility claims.
+- Do not merge until required formatting, lint, documentation, tests, feature combinations, MSRV, contract, supply-chain, semver, and pinned integration checks pass or an exceptional failure is understood and documented.
+- When squash-merging, use the detailed pull-request description as the squash commit body. Preserve the substantive summary, rationale, behavior notes, compatibility notes, migration guidance, and issue references; remove verification-only sections such as command transcripts, checklists, and `## Testing` or `## Verification` sections.
