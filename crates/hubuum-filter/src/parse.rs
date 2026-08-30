@@ -836,7 +836,7 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
 
     let Some((name, rest)) = value.split_once('(') else {
         return Err(PipelineError::Pipe(format!(
-            "Unknown aggregate '{value}'. Use count, count(field), count_distinct(field), sum(field), avg(field), min(field), or max(field)"
+            "Unknown aggregate '{value}'. Use count, count(field), count_distinct(field), sum(field), avg(field), min(field), max(field), first(field), or last(field)"
         )));
     };
     let Some(field) = rest.strip_suffix(')') else {
@@ -857,6 +857,8 @@ fn parse_aggregate_function(value: &str) -> Result<AggregateFunction, PipelineEr
         "avg" => Ok(AggregateFunction::Avg(field.parse()?)),
         "min" => Ok(AggregateFunction::Min(field.parse()?)),
         "max" => Ok(AggregateFunction::Max(field.parse()?)),
+        "first" => Ok(AggregateFunction::First(field.parse()?)),
+        "last" => Ok(AggregateFunction::Last(field.parse()?)),
         other => Err(PipelineError::Pipe(format!(
             "Unknown aggregate function '{other}'"
         ))),
@@ -872,6 +874,8 @@ fn default_aggregate_alias(function: &AggregateFunction) -> String {
         AggregateFunction::Avg(field) => format!("avg({field})"),
         AggregateFunction::Min(field) => format!("min({field})"),
         AggregateFunction::Max(field) => format!("max({field})"),
+        AggregateFunction::First(field) => format!("first({field})"),
+        AggregateFunction::Last(field) => format!("last({field})"),
     }
 }
 
@@ -1129,14 +1133,38 @@ mod tests {
     }
 
     #[test]
+    fn first_and_last_aggregates_parse_with_default_and_explicit_aliases() {
+        let (_, stages) =
+            split_pipeline("task events 1 | A GLOBAL first(created_at), last(created_at) AS Last")
+                .expect("ordered aggregate list");
+        let PipeStage::Aggregate(request) = &stages[0] else {
+            panic!("expected aggregate request")
+        };
+
+        assert_eq!(request.specs()[0].alias(), "first(created_at)");
+        assert_eq!(
+            request.specs()[0].function(),
+            &AggregateFunction::First("created_at".parse().expect("valid selector"))
+        );
+        assert_eq!(request.specs()[1].alias(), "Last");
+        assert_eq!(
+            request.specs()[1].function(),
+            &AggregateFunction::Last("created_at".parse().expect("valid selector"))
+        );
+    }
+
+    #[test]
     fn malformed_global_aggregate_lists_fail_during_parsing() {
         for source in [
             "object list | A GLOBAL",
             "object list | A GLOBAL count,",
             "object list | A GLOBAL count,,count(owner)",
             "object list | A GLOBAL count()",
+            "task events 1 | A GLOBAL first()",
+            "audit list | A GLOBAL last(occurred_at",
             "object list | A GLOBAL count(owner) AS",
             "object list | A GLOBAL count AS n, count(owner) AS n",
+            "object list | A GLOBAL first(created_at) AS Boundary, last(created_at) AS Boundary",
         ] {
             assert!(split_pipeline(source).is_err(), "{source}");
         }
@@ -1185,6 +1213,11 @@ mod tests {
             ("object list | G a AS x b AS x", "G", "x"),
             ("object list | G a AS x | A count AS x", "A", "x"),
             ("object list | G a | A count AS n | A count AS n", "A", "n"),
+            (
+                "task events 1 | G kind AS First | A first(created_at) AS First",
+                "A",
+                "First",
+            ),
         ] {
             let error = split_pipeline(line).expect_err("duplicate output name should fail");
             let message = error.to_string();

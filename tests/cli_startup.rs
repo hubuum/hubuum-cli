@@ -438,6 +438,44 @@ fn global_aggregation_works_across_renderers_and_each_redirects() {
 }
 
 #[test]
+fn ordered_aggregates_work_across_renderers_and_each_redirects() {
+    let events = r#"[{"event":"finished","created_at":"2026-08-30T12:00:00Z"},{"event":"started","created_at":"2026-08-30T10:00:00Z"},{"event":null,"created_at":"2026-08-30T11:00:00Z"}]"#;
+    let stage =
+        "S created_at asc AS datetime | A GLOBAL first(event) AS First, last(event) AS Last";
+    for format in ["text", "json", "jsonl", "csv", "tsv"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--command",
+                &format!("config show --output {format} | JQ '{events}' | {stage}"),
+            ])
+            .assert()
+            .success()
+            .stdout(contains("First"))
+            .stdout(contains("Last"))
+            .stdout(contains("started"))
+            .stdout(contains("finished"));
+    }
+
+    let directory = tempdir().expect("temporary directory");
+    let target = directory.path().join("{First}-{Last}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--command",
+            &format!(
+                "config show --output json | JQ '{events}' | {stage} > each:{}",
+                target.display()
+            ),
+        ])
+        .assert()
+        .success();
+
+    let redirected = directory.path().join("started-finished.json");
+    let contents = std::fs::read_to_string(redirected).expect("ordered aggregate each output");
+    assert!(contents.contains("\"First\""), "{contents}");
+    assert!(contents.contains("\"Last\""), "{contents}");
+}
+
+#[test]
 fn structured_pipeline_semantics_are_stable_across_renderers() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")

@@ -70,8 +70,8 @@ The current native stages provide:
   IPv4/IPv6 casts, fanout reduction, and null order;
 - stable distinct over whole visible JSON values or typed selector tuples;
 - head, tail, and count;
-- grouped and global aggregation with selector counts, collapse, and array
-  unroll; and
+- grouped and global aggregation with selector counts and ordered boundaries,
+  collapse, and array unroll; and
 - JQ-compatible transforms through the in-process `jaq` evaluator.
 
 Selectors support dotted fields, indexes, negative indexes, array fanout with

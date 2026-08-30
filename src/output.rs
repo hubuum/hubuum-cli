@@ -1484,6 +1484,42 @@ mod tests {
 
     #[test]
     #[serial]
+    fn ordered_aggregate_boundaries_are_preserved_in_every_format() {
+        init_config(AppConfig::default()).expect("config should initialize");
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().expect("buffer should reset");
+            set_render_format(format).expect("render format should set");
+            set_semantic_output(OutputEnvelope::rows(
+                vec![
+                    json!({"event": "finished", "created_at": "2026-08-30T12:00:00Z"}),
+                    json!({"event": "started", "created_at": "2026-08-30T10:00:00Z"}),
+                    json!({"event": null, "created_at": "2026-08-30T11:00:00Z"}),
+                ],
+                vec!["event".to_string(), "created_at".to_string()],
+            ))
+            .expect("semantic output should be set");
+            let pipeline = Pipeline::parse(
+                "S created_at asc AS datetime | A GLOBAL first(event) AS First, last(event) AS Last",
+            )
+            .expect("ordered aggregate pipeline");
+            set_pipeline(pipeline.into_stages()).expect("pipeline should set");
+
+            let rendered = take_output().expect("snapshot").render();
+            assert!(rendered.contains("First"), "{format:?}: {rendered}");
+            assert!(rendered.contains("Last"), "{format:?}: {rendered}");
+            assert!(rendered.contains("started"), "{format:?}: {rendered}");
+            assert!(rendered.contains("finished"), "{format:?}: {rendered}");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn structured_messages_keep_plain_text_presentation() {
         init_config(AppConfig::default()).expect("config should initialize");
         reset_output().expect("buffer should reset");
