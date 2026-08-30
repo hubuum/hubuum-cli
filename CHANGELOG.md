@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.10] - 2026-08-30
+
 - Added canonical `class fields --name <class>` field discovery, with
   `object fields --class <class>` retained as a deprecated compatibility alias
   that prints an exact replacement command. Existing invocations continue to
@@ -27,9 +29,40 @@
   options, workflows, and inputs use nested named objects. Workflow steps are
   tagged objects in ordered arrays, keeping IDs, bindings, conditions, and
   dependency references together.
+- Expanded the native semantic pipeline with typed boolean `F WHERE` and
+  `reject WHERE` predicates, stable multi-key sorting with strict casts and
+  explicit null placement, projection aliases and deep exclusions, stable
+  `D`/`distinct`, global aggregation, selector counts, and ordered `first` and
+  `last` aggregates. Pipeline stages now operate on canonical semantic JSON
+  before final rendering, validate their selectors, output names, and shape
+  transitions, and apply post-group filters to visible group summaries without
+  mutating member rows.
+  These are breaking validation changes: malformed selectors, duplicate or
+  colliding output names, unsupported stage-shape transitions, and invalid
+  values sorted with `AS ip` now fail instead of being tolerated or coerced.
+  Users must correct selector syntax, give projected/grouped/aggregate outputs
+  unique names, reorder incompatible stages, and filter invalid addresses or
+  select a non-IP cast. Existing legacy filter, projection, one-key sort, and
+  grouped aggregate forms remain available.
+- Interactive REPL sessions now recover from expired or revoked credentials by
+  re-reading token files or logging in again. Read-only commands retry once
+  after successful authentication; potentially mutating commands are not
+  replayed and identify the failed HTTP method and redacted path for review.
+  One-shot commands and scripts remain non-interactive.
 - Server startup now checks the unauthenticated health endpoint before asking
   for an interactive password. Unconfigured ports are tried in order on 443 and
   8080, while an explicitly configured port remains authoritative.
+- Fixed `object show` relation expansion to exclude same-class roots in the
+  server request when the default same-class filter is active, preventing
+  high-fanout neighbors from hitting the graph-size guard before local
+  filtering. Completion now also offers `--class` before the class-dependent
+  `--name` option.
+- Updated `hubuum_client` to 0.9.1 while retaining the declared Hubuum server
+  v0.0.9 target and its pinned immutable integration image. The client update
+  adds strict JSON-query-path validation, atomic export downloads, expanded
+  OpenAPI model reconciliation, and refreshed dependencies. The complete CLI
+  dependency and release-action set was also refreshed, including the `h2`
+  update that addresses RUSTSEC-2026-0258.
 
 ## [0.0.9] - 2026-08-07
 
