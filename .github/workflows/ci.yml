@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Cache cargo and target directories
-        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1
@@ -256,7 +256,7 @@ jobs:
 
       - name: Cache cargo and target directories
         if: matrix.platform.kind == 'native'
-        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: ${{ matrix.platform.target }}-stable-release
 
