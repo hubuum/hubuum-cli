@@ -57,8 +57,8 @@ pub struct RunExportInput {
 /// - `<max_depth>`: optional integer for max traversal depth
 ///
 /// Examples:
-/// - `servers:Hosts` → key="servers", class_id=<Hosts id>, max_depth=None
-/// - `servers:Hosts:3` → key="servers", class_id=<Hosts id>, max_depth=Some(3)
+/// - `servers:Hosts` → `key="servers", class_id=<Hosts id>, max_depth=None`
+/// - `servers:Hosts:3` → `key="servers", class_id=<Hosts id>, max_depth=Some(3)`
 fn parse_include_related_spec(
     gateway: &HubuumGateway,
     spec: &str,

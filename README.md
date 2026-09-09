@@ -35,6 +35,9 @@ CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
 [compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.10 targets Hubuum server
 v0.0.9 through `hubuum_client` v0.9.1 and is the latest published release.
+The unreleased CLI targets server v0.0.13 through `hubuum_client` v0.10.0.
+See the [backup and restore guide](docs/backup-restore.md) before upgrading:
+backup format 5 and queued restore completion require migration steps.
 
 ## Usage
 
@@ -367,9 +370,9 @@ The former
 and config commands, but new writes use `object_list_class_aliases`.
 
 Administrators can create full-system backups and perform the server's two-step restore
-flow. Backup documents may contain credential material, so backup and restore receipt
-files are written with owner-only permissions on Unix and existing files require
-`--force` before replacement:
+flow. Format 5 excludes password hashes and bearer tokens, but contains privileged
+integration configuration. Backup and receipt files are saved atomically with
+owner-only permissions on Unix; existing files require `--force` before replacement:
 
 ```sh
 hubuum-cli backup create --file hubuum-backup.json
@@ -379,10 +382,17 @@ hubuum-cli backup download 123 --file hubuum-backup.json
 
 hubuum-cli restore stage --file hubuum-backup.json --receipt restore-receipt.json
 hubuum-cli restore status --receipt restore-receipt.json
-hubuum-cli restore confirm --receipt restore-receipt.json --yes
+hubuum-cli restore confirm --receipt restore-receipt.json --yes --wait
+hubuum-cli restore wait --receipt restore-receipt.json --timeout 600
 ```
 
-Restore confirmation replaces all Hubuum data and invalidates existing bearer tokens.
+Confirmation queues replacement of all Hubuum data. Use `--wait` or `restore wait`
+to verify completion; status and wait use the receipt without logging in, even
+after existing bearer tokens are invalidated. After success, reset a local
+administrator password with `hubuum-admin --reset-password admin` and issue fresh
+tokens. Keep the receipt until recovery is complete. See the
+[backup and restore guide](docs/backup-restore.md) for server setup, backup-version
+compatibility, larger backups, and recovery instructions.
 
 For paginated commands, `--limit` requests a page size. The CLI currently
 truncates values above 250 to the supported maximum with a

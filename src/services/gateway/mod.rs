@@ -29,7 +29,7 @@ use crate::list_query::{FilterFieldSpec, SortFieldSpec};
 
 use super::AuthenticatedClient;
 
-pub use backups::{BackupInput, RunBackupInput};
+pub use backups::{BackupInput, RestoreMonitor, RunBackupInput};
 pub use classes::{ClassUpdateInput, CreateClassInput};
 pub use collections::{CollectionUpdateInput, CreateCollectionInput};
 pub use computed::{

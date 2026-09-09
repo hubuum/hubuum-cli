@@ -12,7 +12,7 @@ mod admin;
 mod alias;
 mod audit;
 pub(crate) mod auth;
-mod backup;
+pub(crate) mod backup;
 mod builder;
 mod class;
 mod class_fields;

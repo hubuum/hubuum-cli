@@ -11,6 +11,7 @@ use crate::catalog::{
     ResolvedCommand, ScopeAction,
 };
 use crate::commands::auth::render_auth_providers;
+use crate::commands::backup::{render_restore_status, render_restore_wait};
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::metrics::render_metrics;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
@@ -197,6 +198,8 @@ pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
         || command_path_is(parts, &["theme", "preview"])
         || command_path_is(parts, &["auth", "providers"])
         || command_path_is(parts, &["metrics"])
+        || command_path_is(parts, &["restore", "status"])
+        || command_path_is(parts, &["restore", "wait"])
         || command_path_is(parts, &["version"])
 }
 
@@ -304,6 +307,25 @@ async fn execute_offline_line_inner(
         spawn_blocking(move || render_metrics(&tokens))
             .await
             .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+    } else if command_path_is(&parts, &["restore", "status"])
+        || command_path_is(&parts, &["restore", "wait"])
+    {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
+        set_pipeline(pipeline)?;
+        set_pipeline_suffix(pipeline_suffix)?;
+        let wait = command_path_is(&parts, &["restore", "wait"]);
+        spawn_blocking(move || {
+            if wait {
+                render_restore_wait(&tokens)
+            } else {
+                render_restore_status(&tokens)
+            }
+        })
+        .await
+        .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;

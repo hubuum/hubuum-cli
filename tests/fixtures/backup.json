@@ -1,0 +1,8 @@
+{
+  "backup_version": 5,
+  "created_at": "2026-09-09T13:02:03.456789Z",
+  "source_version": "0.0.13",
+  "state": { "sections": { "objects": [{ "data": null }] } },
+  "history": null,
+  "manifest": { "item_counts": { "objects": 1 }, "exclusions": ["tokens", "password_hashes"] }
+}
