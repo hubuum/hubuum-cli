@@ -9,6 +9,7 @@ use std::env::var_os;
 use std::fs::{create_dir_all, read_to_string, write};
 use std::io::ErrorKind;
 use std::mem::take;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use toml::map::Map as TomlMap;
@@ -253,6 +254,8 @@ pub struct ServerConfig {
     pub hostname: String,
     pub port: u16,
     pub ssl_validation: bool,
+    #[serde(default = "Defaults::max_response_body_bytes")]
+    pub max_response_body_bytes: NonZeroUsize,
     pub api_version: String,
     #[serde(default)]
     pub identity_scope: Option<String>,
@@ -323,6 +326,7 @@ enum ConfigValueKind {
     Bool,
     U16,
     U64,
+    PositiveUsize,
     I8,
     I32,
     Protocol,
@@ -416,6 +420,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: Some("ssl_validation"),
         env_var: "HUBUUM_CLI__SERVER__SSL_VALIDATION",
         value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "server.max_response_body_bytes",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__SERVER__MAX_RESPONSE_BODY_BYTES",
+        value_kind: ConfigValueKind::PositiveUsize,
         sensitive: false,
     },
     ConfigKeyDescriptor {
@@ -638,6 +649,7 @@ impl Default for AppConfig {
                 hostname: Defaults::SERVER_HOSTNAME.to_string(),
                 port: Defaults::SERVER_PORT,
                 ssl_validation: Defaults::SERVER_SSL_VALIDATION,
+                max_response_body_bytes: Defaults::max_response_body_bytes(),
                 api_version: Defaults::API_VERSION.to_string(),
                 identity_scope: None,
                 username: Defaults::USER_USERNAME.to_string(),
@@ -742,6 +754,7 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
+        | ConfigValueKind::PositiveUsize
         | ConfigValueKind::I8
         | ConfigValueKind::I32 => Vec::new(),
     }
@@ -1127,6 +1140,10 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default("server.hostname", Defaults::SERVER_HOSTNAME)?
         .set_default("server.port", Defaults::SERVER_PORT)?
         .set_default("server.ssl_validation", Defaults::SERVER_SSL_VALIDATION)?
+        .set_default(
+            "server.max_response_body_bytes",
+            Defaults::max_response_body_bytes().get() as u64,
+        )?
         .set_default("server.api_version", Defaults::API_VERSION)?
         .set_default("server.username", Defaults::USER_USERNAME)?
         .set_default("server.protocol", Defaults::PROTOCOL)?
@@ -1332,6 +1349,9 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "server.hostname" => ConfigValueRef::String(&config.server.hostname),
         "server.port" => ConfigValueRef::U16(config.server.port),
         "server.ssl_validation" => ConfigValueRef::Bool(config.server.ssl_validation),
+        "server.max_response_body_bytes" => {
+            ConfigValueRef::U64(config.server.max_response_body_bytes.get() as u64)
+        }
         "server.api_version" => ConfigValueRef::String(&config.server.api_version),
         "server.identity_scope" => {
             ConfigValueRef::OptionalString(config.server.identity_scope.as_deref())
@@ -1616,6 +1636,17 @@ fn parse_config_value(
         ConfigValueKind::Bool => TomlValue::Boolean(value.parse()?),
         ConfigValueKind::U16 => TomlValue::Integer(value.parse::<u16>()?.into()),
         ConfigValueKind::U64 => TomlValue::Integer(value.parse::<u64>()? as i64),
+        ConfigValueKind::PositiveUsize => {
+            let limit = value.parse::<NonZeroUsize>().map_err(|_| {
+                AppError::InvalidOption(format!("{} must be a positive byte count", descriptor.key))
+            })?;
+            TomlValue::Integer(i64::try_from(limit.get()).map_err(|_| {
+                AppError::InvalidOption(format!(
+                    "{} exceeds the TOML integer range",
+                    descriptor.key
+                ))
+            })?)
+        }
         ConfigValueKind::I8 => TomlValue::Integer(i64::from(value.parse::<i8>()?)),
         ConfigValueKind::I32 => TomlValue::Integer(i64::from(value.parse::<i32>()?)),
         ConfigValueKind::Protocol => TomlValue::String(
@@ -1939,6 +1970,7 @@ mod tests {
             "HUBUUM_CLI__SERVER__HOSTNAME",
             "HUBUUM_CLI__SERVER__PORT",
             "HUBUUM_CLI__SERVER__SSL_VALIDATION",
+            "HUBUUM_CLI__SERVER__MAX_RESPONSE_BODY_BYTES",
             "HUBUUM_CLI__SERVER__API_VERSION",
             "HUBUUM_CLI__SERVER__USERNAME",
             "HUBUUM_CLI__SERVER__PASSWORD",
@@ -1979,6 +2011,7 @@ mod tests {
         set_var("HUBUUM_CLI__SERVER__HOSTNAME", "env.example.com");
         set_var("HUBUUM_CLI__SERVER__PORT", "4321");
         set_var("HUBUUM_CLI__SERVER__SSL_VALIDATION", "false");
+        set_var("HUBUUM_CLI__SERVER__MAX_RESPONSE_BODY_BYTES", "67108864");
         set_var("HUBUUM_CLI__SERVER__API_VERSION", "v9");
         set_var("HUBUUM_CLI__SERVER__USERNAME", "env_user");
         set_var("HUBUUM_CLI__SERVER__PASSWORD", "hunter2");
@@ -2015,6 +2048,7 @@ mod tests {
         assert_eq!(cfg.server.hostname, "env.example.com");
         assert_eq!(cfg.server.port, 4321);
         assert!(!cfg.server.ssl_validation);
+        assert_eq!(cfg.server.max_response_body_bytes.get(), 67108864);
         assert_eq!(cfg.server.api_version, "v9");
         assert_eq!(cfg.server.username, "env_user");
         assert_eq!(cfg.server.password, Some("hunter2".into()));
@@ -2048,6 +2082,23 @@ mod tests {
             ObjectListDataColumns::All
         );
         clear_env();
+    }
+
+    #[test]
+    fn response_body_limit_rejects_zero_negative_and_overflow_values() {
+        let descriptor = descriptor_for_key("server.max_response_body_bytes").unwrap();
+        for value in ["0", "-1", "18446744073709551616"] {
+            assert!(parse_config_value(descriptor, value).is_err());
+        }
+        assert_eq!(
+            parse_config_value(descriptor, "67108864")
+                .unwrap()
+                .as_integer(),
+            Some(67108864)
+        );
+        let mut server = serde_json::to_value(AppConfig::default().server).unwrap();
+        server["max_response_body_bytes"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<ServerConfig>(server).is_err());
     }
 
     #[test]

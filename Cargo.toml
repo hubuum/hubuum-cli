@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2021"
 
 [workspace]
@@ -11,6 +11,10 @@ members = [
     "crates/hubuum-theme",
 ]
 resolver = "2"
+
+[package.metadata.hubuum]
+server-version = "0.0.14"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:6c1c8d7316a1f60a02e4505611a44e21030ba678b5b451f5b293a12f2bd87594"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -30,13 +34,13 @@ reqwest = { version = "0", default-features = false, features = ["blocking", "js
 chrono = { version = "0", features = ["serde"] }
 once_cell = "1"
 regex = "1"
-dirs = "6"
+dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.9.1", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.10.1", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
-jqesque = "0.0.3"
+jqesque = "0.1"
 json-patch = "4"
 jsonpath-rust = "1"
 smooth-json = "0"
@@ -54,12 +58,12 @@ tokio = { version = "1", features = [
 comfy-table = "8"
 crossterm = "0.29"
 toml = "1"
+tempfile = "3"
 
 [dev-dependencies]
 assert_cmd = "2"
 portable-pty = "0.9"
 predicates = "3"
-tempfile = "3"
 
 [profile.release]
 codegen-units = 1
@@ -67,7 +71,3 @@ lto = "fat"
 opt-level = "z"
 panic = "abort"
 strip = "symbols"
-
-[patch.crates-io]
-# jqesque 0.0.3 passes jsonptr values into json-patch 4.2, so Cargo.lock keeps
-# both crates on jsonptr 0.7.1 until their upstream constraints converge.

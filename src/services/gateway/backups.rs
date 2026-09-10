@@ -1,13 +1,33 @@
 use std::time::Duration;
 
 use hubuum_client::{
-    BackupDocument, BackupRequest, RestoreCapability, RestoreConfirmRequest, RestoreId,
+    blocking::Client, BackupRequest, RestoreCapability, RestoreConfirmRequest, RestoreId,
+    Unauthenticated,
 };
 
 use crate::domain::{BackupArtifact, RestoreReceipt, RestoreRecord, TaskRecord};
 use crate::errors::AppError;
 
 use super::HubuumGateway;
+
+pub struct RestoreMonitor {
+    client: Client<Unauthenticated>,
+}
+
+impl RestoreMonitor {
+    pub fn new(client: Client<Unauthenticated>) -> Self {
+        Self { client }
+    }
+
+    pub fn status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
+        let response = self.client.restore_status(
+            RestoreId::from(receipt.restore_id()),
+            &RestoreCapability::new(receipt.capability()),
+        )?;
+        receipt.verify_response(&response)?;
+        RestoreRecord::from_response(response)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BackupInput {
@@ -93,13 +113,7 @@ impl HubuumGateway {
         &self,
         backup_json: &str,
     ) -> Result<(RestoreRecord, RestoreReceipt), AppError> {
-        let document: BackupDocument = serde_json::from_str(backup_json)?;
-        if !document.has_supported_version() {
-            return Err(AppError::InvalidOption(format!(
-                "Unsupported backup version {}",
-                document.backup_version
-            )));
-        }
+        let document = BackupArtifact::parse_document(backup_json)?;
         let mut response = self.client().restores().stage(&document)?;
         let capability = response.restore_capability.take().ok_or_else(|| {
             AppError::CommandExecutionError(
@@ -110,7 +124,7 @@ impl HubuumGateway {
             response.id.into(),
             capability.as_str().to_string(),
             response.sha256.clone(),
-        );
+        )?;
         Ok((RestoreRecord::from_response(response)?, receipt))
     }
 
@@ -119,6 +133,7 @@ impl HubuumGateway {
             RestoreId::from(receipt.restore_id()),
             &RestoreCapability::new(receipt.capability()),
         )?;
+        receipt.verify_response(&response)?;
         RestoreRecord::from_response(response)
     }
 
@@ -131,6 +146,121 @@ impl HubuumGateway {
             .client()
             .restores()
             .confirm(RestoreId::from(receipt.restore_id()), request)?;
+        receipt.verify_response(&response)?;
         RestoreRecord::from_response(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{Method, StatusCode};
+    use serde_json::{from_slice, from_str, json, to_value, Value};
+
+    use super::{HubuumGateway, RestoreMonitor};
+    use crate::domain::RestoreReceipt;
+
+    fn response(status: &str) -> Value {
+        let mut value: Value =
+            from_str(include_str!("../../../tests/fixtures/restore.json")).unwrap();
+        value["status"] = json!(status);
+        value
+    }
+
+    fn gateway(transport: &MockTransport) -> HubuumGateway {
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("old-token"));
+        HubuumGateway::new(Arc::new(client))
+    }
+
+    #[test]
+    fn backup_stage_confirm_and_status_preserve_the_contract_and_redact_secrets() {
+        let transport = MockTransport::default();
+        for status in ["validated", "confirmed", "succeeded"] {
+            transport
+                .push_response(TransportResponse::json(StatusCode::OK, &response(status)).unwrap());
+        }
+        let gateway = gateway(&transport);
+        let (record, receipt) = gateway
+            .stage_restore(include_str!("../../../tests/fixtures/backup.json"))
+            .unwrap();
+        assert!(to_value(record)
+            .unwrap()
+            .get("restore_capability")
+            .is_none());
+        assert_eq!(receipt.capability(), "one-time-secret");
+        let accepted = gateway.confirm_restore(&receipt).unwrap();
+        assert_eq!(to_value(accepted).unwrap()["status"], "confirmed");
+        let completed = gateway.restore_status(&receipt).unwrap();
+        assert_eq!(to_value(completed).unwrap()["status"], "succeeded");
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        let stage: Value = from_slice(requests[0].body()).unwrap();
+        assert_eq!(stage["created_at"], "2026-09-09T13:02:03.456789+00:00");
+        let confirm: Value = from_slice(requests[1].body()).unwrap();
+        assert_eq!(requests[1].method, Method::POST);
+        assert_eq!(confirm["confirmation"], "REPLACE ALL HUBUUM DATA");
+        assert_eq!(confirm["sha256"], "a".repeat(64));
+        assert_eq!(confirm["restore_capability"], "one-time-secret");
+        assert_eq!(requests[2].method, Method::GET);
+        assert_eq!(requests[2].url.path(), "/api/v1/restores/42/status");
+        assert_eq!(
+            requests[2].headers["x-hubuum-restore-capability"],
+            "one-time-secret"
+        );
+        assert!(!requests[2].headers.contains_key("authorization"));
+        assert!(requests[2].url.query().is_none());
+    }
+
+    #[test]
+    fn monitoring_needs_no_authenticated_client_and_checks_the_receipt() {
+        let transport = MockTransport::default();
+        let mut mismatched = response("succeeded");
+        mismatched["sha256"] = json!("b".repeat(64));
+        transport.push_response(TransportResponse::json(StatusCode::OK, &mismatched).unwrap());
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap();
+        let receipt =
+            RestoreReceipt::new(42, "one-time-secret".to_string(), "a".repeat(64)).unwrap();
+        let error = RestoreMonitor::new(client)
+            .status(&receipt)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not match"));
+        assert!(!error.contains("one-time-secret"));
+        assert!(!transport.requests()[0]
+            .headers
+            .contains_key("authorization"));
+    }
+
+    #[test]
+    fn unsupported_backups_never_reach_the_server() {
+        let transport = MockTransport::default();
+        assert!(gateway(&transport)
+            .stage_restore(r#"{"backup_version":4}"#)
+            .is_err());
+        assert!(transport.requests().is_empty());
+    }
+
+    #[test]
+    fn missing_stage_capabilities_cannot_produce_unusable_receipts() {
+        let transport = MockTransport::default();
+        let mut staged = response("validated");
+        staged["restore_capability"] = Value::Null;
+        transport.push_response(TransportResponse::json(StatusCode::OK, &staged).unwrap());
+        assert!(gateway(&transport)
+            .stage_restore(include_str!("../../../tests/fixtures/backup.json"))
+            .unwrap_err()
+            .to_string()
+            .contains("one-time capability"));
     }
 }

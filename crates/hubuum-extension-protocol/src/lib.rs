@@ -2943,7 +2943,7 @@ mod workflow_language_tests {
     fn rejects_toml_json5_extensions_and_invalid_declaration_names() {
         let legacy = "schema_version = 1";
         assert!(matches!(
-            ExtensionManifest::parse(&legacy),
+            ExtensionManifest::parse(legacy),
             Err(ProtocolError::InvalidManifestJsonc(_))
         ));
 

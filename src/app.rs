@@ -211,10 +211,13 @@ fn server_base_url(config: &AppConfig, port: u16) -> Result<BaseUrl, AppError> {
     Ok(baseurl)
 }
 
-fn build_client(config: &AppConfig) -> Result<BlockingClient<Unauthenticated>, AppError> {
+pub(crate) fn build_client(
+    config: &AppConfig,
+) -> Result<BlockingClient<Unauthenticated>, AppError> {
     let baseurl = server_base_url(config, config.server.port)?;
     BlockingClient::builder(baseurl)
         .validate_certs(config.server.ssl_validation)
+        .max_response_body_bytes(config.server.max_response_body_bytes.get())
         .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
         .build()
         .map_err(AppError::from)

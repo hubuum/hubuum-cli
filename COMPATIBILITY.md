@@ -9,7 +9,8 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.10 | 0.9.1 | 0.0.9 | Current published target |
+| 0.0.11 | 0.10.1 | 0.0.14 | Current release target; backup format 5, queued restores, and restorable follow-up backups |
+| 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
 | 0.0.8 | 0.8.0 | 0.0.8 | Previous declared target |
 | 0.0.5 | 0.7.2 | 0.0.5 | Previous declared target |
@@ -43,3 +44,56 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change a published CLI release's declared target.
+
+## CLI v0.0.11: server v0.0.14 target
+
+The release target pins `hubuum_client` 0.10.1 and the immutable server image
+`ghcr.io/hubuum/hubuum-server@sha256:6c1c8d7316a1f60a02e4505611a44e21030ba678b5b451f5b293a12f2bd87594`
+in `Cargo.toml`. The client pins the server's 204-operation OpenAPI contract;
+the previous v0.0.9 target had 202 operations. The added structured-search POST
+routes have no dedicated CLI commands in this update. Administrative config
+output includes the newly modeled storage, database-role, secret-source,
+token-hash, tracing, query-budget, and traversal settings. The OpenAPI contract
+is unchanged from v0.0.13 apart from the server version. Client 0.10.1 retains
+the public APIs and features of 0.10.0.
+
+Backup format 5 excludes password hashes, tokens, and token scopes. Restore
+confirmation queues work for the matching `hubuum-admin --restore-executor`.
+Upgrade the server, administrator, and template-worker binaries together and run
+`hubuum-admin --migrate` before starting the server when upgrading from an older
+schema. Server v0.0.14 adds no migration over v0.0.13; update any separately
+deployed restore executor to obtain its history-free restore fix. Format 4
+backups require a compatible older server. Existing history-free format 5
+artifacts can be restored by the fixed executor. See
+[migration and recovery](docs/backup-restore.md).
+
+The CLI continues to enable only the client's `blocking` feature. Verification
+uses Rust 1.98.0; this update does not introduce a CLI MSRV declaration. The
+client's own MSRV remains 1.88, which is not a claim about the complete CLI
+dependency graph.
+
+The reproducible CLI integration check is
+`cargo build --locked && python3 scripts/test-backup-restore.py`. It provisions
+its own pinned PostgreSQL and Hubuum containers, applies migrations, runs the
+restore executor, and checks both backup history settings and both restore
+confirmation modes. Each cycle verifies receipt-only monitoring, terminal
+success, rejection of the old token, administrator password reset, and recovery
+of a deleted object with JSON-null data, preserving its revision and timestamps.
+It then checks default backup staging immediately after a history-free restore
+and performs a full second-generation restore after further updates and a
+deletion. CI requires this check before publishing rolling binaries.
+
+Executed on 2026-09-10 with Rust 1.98.0 and Podman 5.8.2 on Linux x86_64 against
+the immutable image above. Its source revision is
+`0b0aa17f278496a32cc018cfcac56f34a408ccd6` (server v0.0.14). The pin identifies
+the multi-platform image index; this live run verifies its Linux amd64 image.
+All three restore cycles reached `succeeded`, rejected the old token, and
+recovered the object with its original revision, timestamps, and JSON-null data
+after password reset. Immediate follow-up staging and the second-generation
+restore after updates and a deletion passed. Normal CLI object assignments
+preserved sibling fields; excessive path depth and array indices were rejected
+without modifying the object.
+
+The server's v0.0.13 history-loss rejection is now a required success case;
+the earlier history-free follow-up workaround is no longer needed with the
+fixed executor.

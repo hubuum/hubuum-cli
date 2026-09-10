@@ -2,6 +2,65 @@
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-09-10
+
+- Updated `hubuum_client` to 0.10.1, targeting Hubuum server v0.0.14 and its
+  pinned 204-operation OpenAPI contract. The client remains configured with
+  its blocking feature. Administrative configuration output includes the new
+  storage, database-role, secret-source, token-hash, tracing, query-budget, and
+  traversal settings. New structured-search POST routes have no dedicated CLI
+  commands in this update.
+- **Breaking (backup compatibility):** restores now require backup format 5.
+  Restore format 4 artifacts using a compatible older server, then upgrade and
+  create fresh backups. Editing a backup's version does not convert it. Format 5
+  excludes password hashes, bearer tokens, and token scopes; after restoring,
+  reset a local administrator password and issue fresh tokens.
+- **Breaking (restore completion):** server v0.0.14 confirmation queues a restore.
+  A successful `restore confirm --yes` invocation reports acceptance, not
+  completion. Scripts requiring completion must add `--wait` or run the new
+  `restore wait --receipt <file>` command. Failed, expired, and timed-out waits
+  exit unsuccessfully; a timeout does not cancel the restore. Deploy matching
+  server, administrator, and template-worker binaries, run
+  `hubuum-admin --migrate`, and start `hubuum-admin --restore-executor` before
+  confirming restores. See [backup and restore](docs/backup-restore.md).
+- Fixed restore status to work without login after token invalidation, added
+  receipt-only completion polling, and preserved server creation timestamps
+  when staging backups. Receipt IDs, capabilities, checksums, and status response
+  identity are validated; capabilities remain absent from displayed records and
+  semantic pipelines.
+- Backup and receipt writes now replace files atomically, prepare the destination
+  before submitting remote work, preserve the last file on unsuccessful writes,
+  and keep a recoverable temporary file if final installation fails. Unix files
+  remain owner-only.
+- **Breaking (file destinations):** symbolic links and other non-regular backup
+  and receipt destinations are rejected even with `--force`; use the regular
+  destination path instead.
+- **Breaking (pipeline input):** backup-save summaries and restore records now
+  supply structured fields to semantic pipelines. Update pipelines that filtered
+  formatted lines or flattened key/value rows to select record fields, such as
+  `P backup.source_version` or `P status`.
+- Added positive `server.max_response_body_bytes` configuration for backups
+  larger than the default 16 MiB response limit.
+- Adopted server v0.0.14's fix for history-free restores: later default backups
+  remain restorable while live revisions and timestamps are preserved. The
+  pinned regression check now requires successful follow-up staging and a full
+  second-generation restore after further updates and deletions. Existing
+  history-free format 5 artifacts can be restored with the matching fixed
+  executor. This server release adds no migration over v0.0.13; upgrading alone
+  does not repair an already inconsistent database. See the recovery guide.
+- **Breaking (object assignments):** upgraded `jqesque` to 0.1. Object
+  modification assignments now reject paths deeper than 128 components and
+  array indices above 1,000,000. Reduce path depth or array indices in affected
+  `object modify --data` commands. Ordinary assignments retain their behavior.
+  The updated dependency also resolves the `jsonptr` version conflict, removing
+  the need to manually preserve a shared lockfile pin with `json-patch`.
+- Refreshed all compatible locked dependencies, including `bitflags` 2.13.2 and
+  `jsonpath-rust` 1.0.11, upgraded `dirs` to 7, and refreshed release-action pins.
+  CI now checks workspace formatting, tests and Clippy, plus pinned live
+  backup/restore recovery. Dependabot tracks
+  Cargo and Docker dependencies as well as actions. Verification uses Rust
+  1.98.0; no CLI MSRV declaration is added.
+
 ## [0.0.10] - 2026-08-30
 
 - Added canonical `class fields --name <class>` field discovery, with

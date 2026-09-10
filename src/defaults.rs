@@ -1,3 +1,7 @@
+use std::num::NonZeroUsize;
+
+use hubuum_theme::DEFAULT_THEME;
+
 use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
     TableHeaders, TableStyle, TableWidth, TableWrap,
@@ -10,6 +14,10 @@ impl Defaults {
     pub const SERVER_PORTS: [u16; 2] = [443, 8080];
     pub const SERVER_PORT: u16 = Self::SERVER_PORTS[0];
     pub const SERVER_SSL_VALIDATION: bool = true;
+    pub const fn max_response_body_bytes() -> NonZeroUsize {
+        // Keep the client's default while allowing larger full-system backups.
+        NonZeroUsize::new(16 * 1024 * 1024).unwrap()
+    }
     pub const USER_USERNAME: &'static str = "default_user";
     pub const CACHE_TIME: u64 = 3600;
     pub const CACHE_SIZE: i32 = 104_857_600; // 100 MB
@@ -35,4 +43,3 @@ impl Defaults {
     pub const OUTPUT_OBJECT_SHOW_DATA: bool = false;
     pub const OUTPUT_OBJECT_LIST_DATA_COLUMNS: ObjectListDataColumns = ObjectListDataColumns::Auto;
 }
-use hubuum_theme::DEFAULT_THEME;

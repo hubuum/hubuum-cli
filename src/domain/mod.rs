@@ -38,7 +38,7 @@ mod task_output;
 mod tasks;
 mod users;
 
-pub use backups::{BackupArtifact, RestoreReceipt, RestoreRecord};
+pub use backups::{BackupArtifact, RestoreReceipt, RestoreRecord, RestoreWaitOptions};
 pub use classes::{ClassRecord, ClassShowRecord};
 pub use collections::{
     CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
