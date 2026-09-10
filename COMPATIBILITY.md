@@ -9,8 +9,8 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.11 (upcoming) | 0.10.1 | 0.0.14 | Release target; backup format 5, queued restores, and restorable follow-up backups |
-| 0.0.10 | 0.9.1 | 0.0.9 | Current published target |
+| 0.0.11 | 0.10.1 | 0.0.14 | Current release target; backup format 5, queued restores, and restorable follow-up backups |
+| 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
 | 0.0.8 | 0.8.0 | 0.0.8 | Previous declared target |
 | 0.0.5 | 0.7.2 | 0.0.5 | Previous declared target |

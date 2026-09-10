@@ -33,9 +33,9 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.10 targets Hubuum server
-v0.0.9 through `hubuum_client` v0.9.1 and is the latest published release.
-The upcoming CLI v0.0.11 targets server v0.0.14 through `hubuum_client` v0.10.1.
+[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.11 targets Hubuum server
+v0.0.14 through `hubuum_client` v0.10.1. CLI v0.0.10 targeted server v0.0.9
+through `hubuum_client` v0.9.1.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
 backup format 5 and queued restore completion require migration steps.
 
