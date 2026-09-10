@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- Updated `hubuum_client` to 0.10.0, targeting Hubuum server v0.0.13 and its
+## [0.0.11] - 2026-09-10
+
+- Updated `hubuum_client` to 0.10.1, targeting Hubuum server v0.0.14 and its
   pinned 204-operation OpenAPI contract. The client remains configured with
   its blocking feature. Administrative configuration output includes the new
   storage, database-role, secret-source, token-hash, tracing, query-budget, and
@@ -13,7 +15,7 @@
   create fresh backups. Editing a backup's version does not convert it. Format 5
   excludes password hashes, bearer tokens, and token scopes; after restoring,
   reset a local administrator password and issue fresh tokens.
-- **Breaking (restore completion):** server v0.0.13 confirmation queues a restore.
+- **Breaking (restore completion):** server v0.0.14 confirmation queues a restore.
   A successful `restore confirm --yes` invocation reports acceptance, not
   completion. Scripts requiring completion must add `--wait` or run the new
   `restore wait --receipt <file>` command. Failed, expired, and timed-out waits
@@ -39,14 +41,23 @@
   `P backup.source_version` or `P status`.
 - Added positive `server.max_response_body_bytes` configuration for backups
   larger than the default 16 MiB response limit.
-- Documented and added a pinned regression check for a server v0.0.13 limitation:
-  after a history-free restore, subsequent history-inclusive backups fail
-  staging because their live revisions lack matching history rows. Until a
-  server fix is available, create follow-up backups with `--include-history false`.
-- Refreshed all compatible locked dependencies, upgraded `dirs` to 7, and
-  refreshed release-action pins. The existing `jsonptr` 0.7.1 compatibility pin
-  for `jqesque`/`json-patch` remains necessary. CI now checks workspace formatting,
-  tests and Clippy, plus pinned live backup/restore recovery. Dependabot tracks
+- Adopted server v0.0.14's fix for history-free restores: later default backups
+  remain restorable while live revisions and timestamps are preserved. The
+  pinned regression check now requires successful follow-up staging and a full
+  second-generation restore after further updates and deletions. Existing
+  history-free format 5 artifacts can be restored with the matching fixed
+  executor. This server release adds no migration over v0.0.13; upgrading alone
+  does not repair an already inconsistent database. See the recovery guide.
+- **Breaking (object assignments):** upgraded `jqesque` to 0.1. Object
+  modification assignments now reject paths deeper than 128 components and
+  array indices above 1,000,000. Reduce path depth or array indices in affected
+  `object modify --data` commands. Ordinary assignments retain their behavior.
+  The updated dependency also resolves the `jsonptr` version conflict, removing
+  the need to manually preserve a shared lockfile pin with `json-patch`.
+- Refreshed all compatible locked dependencies, including `bitflags` 2.13.2 and
+  `jsonpath-rust` 1.0.11, upgraded `dirs` to 7, and refreshed release-action pins.
+  CI now checks workspace formatting, tests and Clippy, plus pinned live
+  backup/restore recovery. Dependabot tracks
   Cargo and Docker dependencies as well as actions. Verification uses Rust
   1.98.0; no CLI MSRV declaration is added.
 

@@ -1,15 +1,17 @@
 # Backup and restore
 
-The unreleased CLI uses `hubuum_client` 0.10.0 and targets Hubuum server 0.0.13.
+CLI v0.0.11 uses `hubuum_client` 0.10.1 and targets Hubuum server 0.0.14.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
 Upgrade the server, `hubuum-admin`, and template-worker binaries together to
-0.0.13. Run `hubuum-admin --migrate` before starting the server. Deploy a matching
+0.0.14. Run `hubuum-admin --migrate` before starting the server when upgrading
+from an older schema; v0.0.14 adds no migration over v0.0.13. Deploy a matching
 `hubuum-admin --restore-executor` process against the same database; it performs
-queued restores. Server 0.0.13 fixes restore drain coordination and JSON-null
-insertion failures found in 0.0.12.
+queued restores. Server 0.0.14 includes the drain coordination and JSON-null
+insertion fixes from 0.0.13 and fixes subsequent backups after history-free
+restores. Update any separately deployed restore executor as well as the server.
 
 This target uses backup format 5. Restore format 4 artifacts with a compatible
 older server, then upgrade and take a new backup. Changing `backup_version` in a
@@ -108,25 +110,26 @@ the error gives the private temporary file path for recovery.
 
 On other platforms, use a destination directory with suitable access controls.
 
-## Known server 0.0.13 limitation
+## History-free restores and older artifacts
 
-After restoring a backup created with `--include-history false`, a subsequent
-default backup can be created successfully but rejected when staged with:
+Server 0.0.14 preserves live resource revisions and creates current temporal
+snapshots when restoring a backup made with `--include-history false`. Default
+history-inclusive backups taken afterward remain restorable, including after
+further updates and deletions. Earlier history omitted from the artifact remains
+absent; the snapshots start a new timeline at the restore boundary. Prefer
+history-inclusive backups when the earlier history is needed for recovery.
 
-```text
-Full backup live revisions disagree with 'collection_history'
-```
+Existing history-free format 5 artifacts can be restored directly with the
+matching 0.0.14 executor. Upgrading binaries alone does not recreate history
+missing from a database previously restored by 0.0.13. Restore a valid artifact
+using the fixed executor to establish a consistent state before relying on new
+backups. Backup creation now rejects inconsistent snapshots instead of producing
+an artifact that fails staging. Do not edit revision or history fields to bypass
+validation.
 
-The server retains live resource revisions while discarding their history, then
-requires matching history when validating a later history-inclusive backup.
-This is reproducible against the pinned 0.0.13 image and needs a server fix.
-After a history-free restore, use `backup create --include-history false` until
-the server is fixed; that follow-up backup can be staged. Prefer the default
-history-inclusive backups for normal disaster recovery. Do not edit revision or
-history fields to bypass validation.
-
-The integration check verifies both ordinary restore modes, then reproduces this
-rejection explicitly and verifies the history-free follow-up workaround.
+The earlier 0.0.13 error, `Full backup live revisions disagree with
+'collection_history'`, is covered by a regression check that now requires
+successful staging and a complete second-generation restore on 0.0.14.
 
 ## Reproduce the integration check
 
@@ -140,5 +143,8 @@ Python 3.9+ and Docker or Podman are required. Use `--runtime docker` or
 database, pins the server and PostgreSQL images, applies migrations, and starts
 the restore executor. It exercises backups with and without history, both
 confirmation modes, receipt-only status after token invalidation, and recovery
-of a deleted object after password reset. Its containers and network are removed
+of a deleted object with its original revision and timestamps after password
+reset. It also stages a default backup immediately after a history-free restore,
+then takes and fully restores another default backup after further updates and
+a deletion. Its containers and network are removed
 afterward. It accepts no external server URL.

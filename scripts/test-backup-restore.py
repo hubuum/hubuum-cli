@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -63,7 +64,10 @@ def main():
         container("run", "-d", "--name", db, "--network", network,
                   "-e", "POSTGRES_USER=hubuum", "-e", "POSTGRES_PASSWORD=disposable-test",
                   "-e", "POSTGRES_DB=hubuum", postgres)
-        eventually(lambda: container("exec", db, "pg_isready", "-U", "hubuum", "-d", "hubuum"))
+        # The image's temporary initialization server accepts Unix-socket
+        # connections before the final server starts listening on TCP.
+        eventually(lambda: container("exec", db, "pg_isready", "-h", "127.0.0.1",
+                                     "-U", "hubuum", "-d", "hubuum"))
         db_env = f"HUBUUM_DATABASE_URL=postgres://hubuum:disposable-test@{db}/hubuum"
         container("run", "--rm", "--network", network, "-e", db_env,
                   "--entrypoint", "hubuum-admin", image, "--migrate")
@@ -130,19 +134,23 @@ def main():
                 "hubuum_class_id": cls["id"], "data": {"nullable": None, "value": 42}
             }, token)
             object_path = f'{objects_path}{obj["id"]}'
+            obj = api("PATCH", object_path, {"description": "recover an advanced revision"}, token)
+            assert obj["revision"] > 1
             assert cli("admin", "config")
 
-            # Test a history-inclusive restore before deliberately discarding history.
-            for wait_on_confirm in [True, False]:
-                backup = directory / f"backup-{wait_on_confirm}.json"
-                receipt = directory / f"receipt-{wait_on_confirm}.json"
-                summary = cli("backup", "create", "--file", str(backup),
-                              "--include-history", str(wait_on_confirm).lower())
+            def restore_cycle(label, expected_object, *, include_history=True, wait_on_confirm=True):
+                nonlocal token
+                backup = directory / f"backup-{label}.json"
+                receipt = directory / f"receipt-{label}.json"
+                backup_args = ["backup", "create", "--file", str(backup)]
+                if not include_history:
+                    backup_args += ["--include-history", "false"]
+                summary = cli(*backup_args)
                 assert summary["backup"]["backup_version"] == 5
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))
-                assert (document["history"] is not None) == wait_on_confirm
+                assert (document["history"] is not None) == include_history
                 assert backup.stat().st_mode & 0o777 == 0o600
                 assert "tokens" not in document["state"]["sections"]
                 assert "password_hash" not in json.dumps(document["state"]["sections"].get("principals", []))
@@ -175,27 +183,51 @@ def main():
                 token = eventually(reset_and_login)
                 token_file.write_text(token)
                 recovered = api("GET", object_path, token=token)
-                assert recovered["data"] == {"nullable": None, "value": 42}
-                print(f"PASS: history={wait_on_confirm}, confirm --wait={wait_on_confirm}, "
-                      "completion, token invalidation, password reset, object recovery", flush=True)
+                for field in ["id", "revision", "created_at", "updated_at", "description", "data"]:
+                    assert recovered[field] == expected_object[field], (field, recovered, expected_object)
+                print(f"PASS: {label}, history={include_history}, confirm --wait={wait_on_confirm}, "
+                      "completion, token invalidation, password reset, revision-preserving object recovery",
+                      flush=True)
 
-            # v0.0.13 retains live revisions when restoring without history, but
-            # later rejects history-inclusive backups of that same database.
-            # Keep this limitation visible until a newly pinned target fixes it.
+            restore_cycle("with-history", obj)
+            restore_cycle("without-history", obj, include_history=False, wait_on_confirm=False)
+
+            # v0.0.14 must restore the current history snapshots as well as live
+            # revisions. Check a default backup immediately, then restore a
+            # second generation after further updates and a deletion.
             followup = directory / "followup-with-history.json"
             followup_receipt = directory / "followup-receipt.json"
             cli("backup", "create", "--file", str(followup))
-            error = cli("restore", "stage", "--file", str(followup),
-                        "--receipt", str(followup_receipt), success=False)
-            assert "Full backup live revisions disagree with 'collection_history'" in error
-            assert not followup_receipt.exists()
-            print("KNOWN SERVER LIMITATION: history-inclusive backup after history-free restore "
-                  "is rejected during staging (collection_history revisions)", flush=True)
-            fallback = directory / "followup-without-history.json"
-            cli("backup", "create", "--file", str(fallback), "--include-history", "false")
-            assert cli("restore", "stage", "--file", str(fallback),
+            assert cli("restore", "stage", "--file", str(followup),
                        "--receipt", str(followup_receipt))["status"] == "validated"
-            print("PASS: history-free follow-up backup stages successfully", flush=True)
+            print("PASS: default backup after history-free restore stages successfully", flush=True)
+
+            cli("object", "modify", "--name", prefix, "--class", prefix,
+                "--description", "recover the next generation", "--data", "value=43")
+            updated = api("GET", object_path, token=token)
+            assert updated["data"] == {"nullable": None, "value": 43}
+            assert updated["revision"] > obj["revision"]
+            for assignment in [".".join(["nested"] * 129) + "=1", "items[1000001]=1"]:
+                error = cli("object", "modify", "--name", prefix, "--class", prefix,
+                            "--data", assignment, success=False)
+                assert "Limit exceeded" in error
+                assert api("GET", object_path, token=token) == updated
+            print("PASS: object assignments preserve siblings and reject oversized paths without writes",
+                  flush=True)
+            deleted = api("POST", objects_path, {
+                "name": prefix + "-deleted", "description": "retain deletion history",
+                "collection_id": collection["id"], "hubuum_class_id": cls["id"], "data": {},
+            }, token)
+            deleted_path = f'{objects_path}{deleted["id"]}'
+            api("DELETE", deleted_path, token=token)
+            restore_cycle("second-generation-after-mutations", updated)
+            try:
+                api("GET", deleted_path, token=token)
+            except urllib.error.HTTPError as error:
+                assert error.code == 404
+            else:
+                raise AssertionError("Second-generation restore resurrected a previously deleted object")
+            print("PASS: second-generation restore preserves the prior deletion", flush=True)
     finally:
         for name in [executor, server, db]:
             subprocess.run([args.runtime, "rm", "-f", "-v", name], capture_output=True)
@@ -203,4 +235,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        sys.stderr.write(error.stdout or "")
+        sys.stderr.write(error.stderr or "")
+        raise
