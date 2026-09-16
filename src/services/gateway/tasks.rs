@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use hubuum_client::{TaskCancelRequest, TaskCancellationReason, TaskKind, TaskStatus};
+use hubuum_client::{
+    types::SortDirection, TaskCancelRequest, TaskCancellationReason, TaskKind, TaskStatus,
+};
 
 use crate::domain::{
     ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord,
@@ -44,6 +46,21 @@ impl HubuumGateway {
                 .transpose()?,
         };
         Ok(self.client().tasks().cancel(input.task_id, request)?.into())
+    }
+
+    pub fn recent_schema_tasks(&self) -> Result<Vec<TaskRecord>, AppError> {
+        Ok(self
+            .client()
+            .tasks()
+            .query()
+            .kind(TaskKind::SchemaValidation)
+            .sort("id", SortDirection::Desc)
+            .limit(50)
+            .page()?
+            .items
+            .into_iter()
+            .map(TaskRecord::from)
+            .collect())
     }
 
     pub fn task_queue_state(&self) -> Result<TaskQueueStateRecord, AppError> {

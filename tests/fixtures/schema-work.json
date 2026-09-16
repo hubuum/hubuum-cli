@@ -1,0 +1,47 @@
+{
+  "batches": 3,
+  "created_at": "2026-09-16T00:00:00Z",
+  "current_active_schema": {"class_id": 9, "revision": 1},
+  "current_epoch": 4,
+  "cursor": 200,
+  "elapsed_millis": 75,
+  "end_epoch": 4,
+  "examined": 200,
+  "impact": {
+    "baseline": {"class_id": 9, "revision": 1},
+    "counts": {
+      "newly_invalid": 20,
+      "newly_required_valid": 178,
+      "newly_valid": 0,
+      "no_longer_required": 0,
+      "still_invalid": 0,
+      "still_valid": 0,
+      "unchanged_not_required": 0,
+      "uninspectable": 2
+    },
+    "failures": [{
+      "objects": 20,
+      "reason": {"keyword": "required", "missing_property": "serial", "schema_path": "/required"},
+      "samples": [11, 12, 13, 14]
+    }],
+    "findings": [{
+      "object_id": 11,
+      "reason": {"keyword": "required", "missing_property": "serial", "schema_path": "/required"},
+      "snapshot": null
+    }],
+    "ungrouped_failures": 1
+  },
+  "invalid": 20,
+  "invalid_samples": [11, 12, 13, 14],
+  "kind": "impact",
+  "not_required": 0,
+  "readiness": "incompatible",
+  "stale": 1,
+  "start_epoch": 4,
+  "status": "complete",
+  "target": {"class_id": 9, "revision": 2},
+  "task_id": 123,
+  "uninspectable": 2,
+  "upper_bound": 200,
+  "valid": 178
+}

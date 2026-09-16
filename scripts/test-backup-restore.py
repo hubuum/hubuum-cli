@@ -111,14 +111,14 @@ def main():
             env = {key: value for key, value in os.environ.items() if not key.startswith("HUBUUM_CLI__")}
             env.update(XDG_CONFIG_HOME=temporary, XDG_DATA_HOME=temporary, XDG_STATE_HOME=temporary)
 
-            def cli(*command, success=True):
+            def cli(*command, success=True, output="json"):
                 result = subprocess.run(
                     [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
-                     "--protocol", "http", "--token-file", str(token_file), *command, "--output", "json"],
+                     "--protocol", "http", "--token-file", str(token_file), *command, "--output", output],
                     text=True, capture_output=True, env=env, timeout=180,
                 )
                 assert (result.returncode == 0) == success, (command, result.stdout, result.stderr)
-                return json.loads(result.stdout) if success else result.stdout + result.stderr
+                return (json.loads(result.stdout) if output == "json" else result.stdout) if success else result.stdout + result.stderr
 
             groups = api("GET", "/api/v1/iam/me/groups", token=token)
             collection = api("POST", "/api/v1/collections", {
@@ -153,6 +153,14 @@ def main():
             impact = schema("impact", "--revision", str(proposal))["task_id"]
             work = eventually(lambda: completed_work(impact))
             assert work["readiness"] == "incompatible"
+            summary = cli("class", "schema", "work", "--class", prefix, "--task", str(impact), output="text")
+            assert "Readiness: incompatible" in summary and "1 newly invalid" in summary
+            assert '"snapshot"' not in summary and "--output json" in summary
+            assert len(summary) < 2000
+            policy_summary = cli("class", "schema", "revision", "--class", prefix,
+                                 "--revision", str(proposal), output="text")
+            assert "Schema: present" in policy_summary and '"required"' not in policy_summary
+
             html = schema("generate-report", "--task", str(impact),
                           "--object-url-template", "https://inventory.example/objects/{object_id}")
             assert "<html" in html.lower()

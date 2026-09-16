@@ -8,13 +8,14 @@ use hubuum_client::{
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, required_option_or_pos, CliCommand};
+use super::{desired_format, render_format, required_option_or_pos, CliCommand};
 use crate::autocomplete::{bool, classes};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
+use crate::domain::SchemaOutput;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json;
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_line, append_lines, has_pipeline, RenderFormat};
 use crate::services::{AppServices, SchemaOperation};
 use crate::tokenizer::CommandTokenizer;
 
@@ -195,7 +196,10 @@ impl CliCommand for SchemaShow {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Show;
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -221,7 +225,10 @@ impl CliCommand for SchemaRevisions {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Revisions(page_options(query.after, query.limit)?);
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -252,7 +259,10 @@ impl CliCommand for SchemaObjects {
             page_options(query.after, query.limit)?,
             parse_status(query.status.as_deref())?,
         );
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -314,7 +324,10 @@ impl CliCommand for SchemaStage {
         let query = Self::parse_tokens(tokens)?;
         let operation = query.operation()?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -338,7 +351,10 @@ impl CliCommand for SchemaRevisionShow {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Revision(SchemaRevision::new(query.revision)?);
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -360,7 +376,10 @@ impl CliCommand for SchemaAbandon {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Abandon(SchemaRevision::new(query.revision)?);
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -382,7 +401,10 @@ impl CliCommand for SchemaImpact {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Impact(SchemaRevision::new(query.revision)?);
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -404,7 +426,10 @@ impl CliCommand for SchemaRevalidate {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Revalidate(SchemaRevision::new(query.revision)?);
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -450,7 +475,10 @@ impl CliCommand for SchemaActivate {
                 },
             },
         );
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -474,7 +502,10 @@ impl CliCommand for SchemaWork {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Work(query.task.into());
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -496,7 +527,10 @@ impl CliCommand for SchemaCancel {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let operation = SchemaOperation::Cancel(query.task.into());
-        append_json(&services.gateway().schema_operation(&class, operation)?)?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )?;
         Ok(())
     }
 }
@@ -568,6 +602,14 @@ impl CliCommand for SchemaGenerateReport {
         Ok(())
     }
 }
+fn render_schema_output(tokens: &CommandTokenizer, result: &SchemaOutput) -> Result<(), AppError> {
+    if has_pipeline()? || render_format(tokens)? != RenderFormat::Text {
+        append_json(result)
+    } else {
+        append_lines(&result.summary_lines())
+    }
+}
+
 fn page_options(after: Option<i64>, limit: Option<usize>) -> Result<SchemaPageOptions, AppError> {
     let mut page = SchemaPageOptions::default();
     if let Some(after) = after {
@@ -598,6 +640,49 @@ fn parse_status(value: Option<&str>) -> Result<Option<ComplianceStatus>, AppErro
 mod tests {
     use super::*;
     use crate::commands::CommandArgs;
+
+    #[test]
+    #[serial_test::serial]
+    fn text_summarizes_work_but_json_and_pipelines_keep_full_diagnostics() {
+        use crate::commands::command_options;
+        use crate::output::{reset_output, set_pipeline, set_render_format, take_output};
+        use hubuum_client::SchemaWorkResponse;
+        use hubuum_filter::Pipeline;
+        use serde_json::{from_str, Value};
+
+        let work: SchemaWorkResponse =
+            from_str(include_str!("../../tests/fixtures/schema-work.json")).unwrap();
+        let output = SchemaOutput::Work(Box::new(work));
+        for (args, format, pipeline) in [
+            ("work Hosts --task 123", RenderFormat::Text, false),
+            (
+                "work Hosts --task 123 --output json",
+                RenderFormat::Json,
+                false,
+            ),
+            ("work Hosts --task 123", RenderFormat::Json, true),
+        ] {
+            reset_output().unwrap();
+            set_render_format(format).unwrap();
+            if pipeline {
+                set_pipeline(Pipeline::parse("P impact.findings").unwrap().into_stages()).unwrap();
+            }
+            let tokens =
+                CommandTokenizer::new(args, "work", &command_options::<SchemaWork>()).unwrap();
+            render_schema_output(&tokens, &output).unwrap();
+            let rendered = take_output().unwrap().lines.join("\n");
+            if format == RenderFormat::Text {
+                assert!(rendered.contains("Readiness: incompatible"));
+                assert!(!rendered.contains("\"snapshot\""));
+            } else {
+                let value: Value = from_str(&rendered).unwrap();
+                assert!(value.to_string().contains("snapshot"));
+                if !pipeline {
+                    assert_eq!(value["impact"]["findings"][0]["object_id"], 11);
+                }
+            }
+        }
+    }
 
     #[test]
     fn schema_pages_reject_out_of_range_bounds_and_unknown_statuses() {

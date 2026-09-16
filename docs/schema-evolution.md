@@ -6,6 +6,19 @@ All schema policy writes use `class schema`. The old `--schema`/`-s` and
 Create the class first, then use the same staged workflow for initial setup and
 later changes. Commands accept `--class NAME` or the class name as a positional.
 
+Default text output summarizes policies, compliance pages, and schema work.
+Impact summaries show readiness, progress, transition counts, and up to five
+failure groups with sample object IDs. Large schemas and per-object diagnostics
+are omitted from text. Use `--output json` for the complete response, semantic
+pipelines to select diagnostic fields, or HTML repair reports for detailed review.
+
+In the REPL, Tab completes `--task` for `work`, `cancel`, `report`, and
+`generate-report`, and `--impact-task` for activation. Suggestions show the latest
+50 visible schema tasks with status/summary labels, refreshed after five seconds
+or a local mutation. The server cannot filter the task list by class, so suggestions
+can include other classes; the work command still validates class ownership.
+Completion respects `completion.disable_api_related` and does not fetch findings.
+
 ## Stage, inspect, activate
 
 ```sh

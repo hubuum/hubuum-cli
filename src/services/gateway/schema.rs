@@ -2,7 +2,9 @@ use hubuum_client::{
     ComplianceStatus, SchemaActivationRequest, SchemaPageOptions, SchemaRepairReportRequest,
     SchemaRevision, SchemaStageRequest, TaskId,
 };
-use serde_json::{to_value, Value};
+use serde_json::Value;
+
+use crate::domain::SchemaOutput;
 
 use crate::errors::AppError;
 
@@ -34,15 +36,17 @@ impl HubuumGateway {
         &self,
         class: &str,
         operation: SchemaOperation,
-    ) -> Result<Value, AppError> {
+    ) -> Result<SchemaOutput, AppError> {
         let client = self.client();
         let class = client.classes().get_by_name(class)?;
         let schema = class.schema();
         Ok(match operation {
-            SchemaOperation::Show => to_value(schema.get()?)?,
-            SchemaOperation::Revisions(page) => to_value(schema.revisions(&page)?)?,
-            SchemaOperation::Objects(page, status) => to_value(schema.objects(&page, status)?)?,
-            SchemaOperation::Stage(request) => to_value(schema.stage(request)?)?,
+            SchemaOperation::Show => SchemaOutput::State(schema.get()?),
+            SchemaOperation::Revisions(page) => SchemaOutput::Revisions(schema.revisions(&page)?),
+            SchemaOperation::Objects(page, status) => {
+                SchemaOutput::Compliance(schema.objects(&page, status)?)
+            }
+            SchemaOperation::Stage(request) => SchemaOutput::Revision(schema.stage(request)?),
             SchemaOperation::StageValidation { validate_schema } => {
                 let active = schema.get()?.active;
                 if validate_schema && active.json_schema.as_ref().is_none_or(Value::is_null) {
@@ -51,10 +55,10 @@ impl HubuumGateway {
                             .into(),
                     ));
                 }
-                to_value(schema.stage(SchemaStageRequest {
+                SchemaOutput::Revision(schema.stage(SchemaStageRequest {
                     json_schema: active.json_schema,
                     validate_schema,
-                })?)?
+                })?)
             }
             SchemaOperation::StageFromRevision {
                 revision,
@@ -65,20 +69,28 @@ impl HubuumGateway {
                 if validate_schema && source.json_schema.as_ref().is_none_or(Value::is_null) {
                     return Err(AppError::InvalidOption("The source revision has no schema; provide --schema instead of --from-revision to enable validation".into()));
                 }
-                to_value(schema.stage(SchemaStageRequest {
+                SchemaOutput::Revision(schema.stage(SchemaStageRequest {
                     json_schema: source.json_schema,
                     validate_schema,
-                })?)?
+                })?)
             }
-            SchemaOperation::Revision(revision) => to_value(schema.revision(revision)?)?,
-            SchemaOperation::Abandon(revision) => to_value(schema.abandon(revision)?)?,
+            SchemaOperation::Revision(revision) => {
+                SchemaOutput::Revision(schema.revision(revision)?)
+            }
+            SchemaOperation::Abandon(revision) => SchemaOutput::Revision(schema.abandon(revision)?),
             SchemaOperation::Activate(revision, request) => {
-                to_value(schema.activate(revision, request)?)?
+                SchemaOutput::Activation(schema.activate(revision, request)?)
             }
-            SchemaOperation::Impact(revision) => to_value(schema.impact(revision)?)?,
-            SchemaOperation::Revalidate(revision) => to_value(schema.revalidate(revision)?)?,
-            SchemaOperation::Work(task) => to_value(schema.work(task)?)?,
-            SchemaOperation::Cancel(task) => to_value(schema.cancel_work(task)?)?,
+            SchemaOperation::Impact(revision) => {
+                SchemaOutput::Work(Box::new(schema.impact(revision)?))
+            }
+            SchemaOperation::Revalidate(revision) => {
+                SchemaOutput::Work(Box::new(schema.revalidate(revision)?))
+            }
+            SchemaOperation::Work(task) => SchemaOutput::Work(Box::new(schema.work(task)?)),
+            SchemaOperation::Cancel(task) => {
+                SchemaOutput::Work(Box::new(schema.cancel_work(task)?))
+            }
         })
     }
 
