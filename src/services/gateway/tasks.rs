@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use hubuum_client::{TaskKind, TaskStatus};
+use hubuum_client::{TaskCancelRequest, TaskCancellationReason, TaskKind, TaskStatus};
 
 use crate::domain::{
     ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord,
@@ -30,6 +30,22 @@ pub struct ListTasksInput {
 }
 
 impl HubuumGateway {
+    pub fn cancel_task(
+        &self,
+        input: TaskLookupInput,
+        reason: Option<String>,
+        expected_status: Option<String>,
+    ) -> Result<TaskRecord, AppError> {
+        let request = TaskCancelRequest {
+            reason: reason.map(TaskCancellationReason::new).transpose()?,
+            expected_status: expected_status
+                .as_deref()
+                .map(parse_task_status)
+                .transpose()?,
+        };
+        Ok(self.client().tasks().cancel(input.task_id, request)?.into())
+    }
+
     pub fn task_queue_state(&self) -> Result<TaskQueueStateRecord, AppError> {
         Ok(TaskQueueStateRecord::from(self.client().meta_tasks()?))
     }
@@ -112,8 +128,9 @@ fn parse_task_kind(s: &str) -> Result<TaskKind, AppError> {
         "backup" => Ok(TaskKind::Backup),
         "reindex" => Ok(TaskKind::Reindex),
         "remotecall" => Ok(TaskKind::RemoteCall),
+        "schemavalidation" | "schema_validation" => Ok(TaskKind::SchemaValidation),
         _ => Err(AppError::InvalidOption(format!(
-            "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall",
+            "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall, schema_validation",
             s
         ))),
     }
@@ -147,9 +164,83 @@ pub(crate) const TASK_EVENT_SORT_SPECS: &[SortFieldSpec] = &[
 mod tests {
     use super::*;
 
+    use crate::formatting::DetailRenderable;
+    use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+    use reqwest::{Method, StatusCode};
+    use serde_json::{from_slice, json, Value};
+    use std::sync::Arc;
+
+    fn gateway(transport: &MockTransport) -> HubuumGateway {
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test-token"));
+        HubuumGateway::new(Arc::new(client))
+    }
+
+    #[test]
+    fn cancellation_preserves_running_cleanup_state_and_sends_precondition() {
+        let transport = MockTransport::default();
+        transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+            "id": 71, "kind": "schema_validation", "status": "running",
+            "created_at": "2026-09-15T00:00:00Z",
+            "progress": {"total_items": 10, "processed_items": 2, "success_items": 2, "failed_items": 0},
+            "links": {"task": "/api/v1/tasks/71", "events": "/api/v1/tasks/71/events"},
+            "cancel_requested_at": "2026-09-15T00:01:00Z", "cancel_requested_by": 1,
+            "cancel_reason": "Withdraw work", "unattempted_items": 8,
+            "remote_side_effect_state": "possibly_sent",
+            "execution_deadline_at": "2026-09-15T01:00:00Z"
+        })).unwrap());
+        let task = gateway(&transport)
+            .cancel_task(
+                TaskLookupInput { task_id: 71 },
+                Some("Withdraw work".into()),
+                Some("running".into()),
+            )
+            .unwrap();
+        assert_eq!(task.0.status, TaskStatus::Running);
+        assert_eq!(task.0.kind, TaskKind::SchemaValidation);
+        let rows = task.detail_rows();
+        assert!(rows.contains(&("Unattempted", "8".into())));
+        assert!(rows.contains(&("Remote Side Effects", "PossiblySent".into())));
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::POST);
+        assert_eq!(requests[0].url.path(), "/api/v1/tasks/71/cancel");
+        assert_eq!(
+            from_slice::<Value>(requests[0].body()).unwrap(),
+            json!({"reason": "Withdraw work", "expected_status": "running"})
+        );
+    }
+
+    #[test]
+    fn invalid_cancellation_options_do_not_send_requests() {
+        let transport = MockTransport::default();
+        let gateway = gateway(&transport);
+        for reason in ["", "  ", "two\nlines"] {
+            assert!(gateway
+                .cancel_task(TaskLookupInput { task_id: 71 }, Some(reason.into()), None)
+                .is_err());
+        }
+        assert!(gateway
+            .cancel_task(
+                TaskLookupInput { task_id: 71 },
+                None,
+                Some("invalid".into())
+            )
+            .is_err());
+        assert!(transport.requests().is_empty());
+    }
+
     #[test]
     fn parse_task_kind_accepts_valid_lowercase() {
         assert!(matches!(parse_task_kind("import"), Ok(TaskKind::Import)));
+        assert!(matches!(
+            parse_task_kind("schema_validation"),
+            Ok(TaskKind::SchemaValidation)
+        ));
         assert!(matches!(parse_task_kind("export"), Ok(TaskKind::Export)));
         assert!(matches!(parse_task_kind("backup"), Ok(TaskKind::Backup)));
         assert!(matches!(parse_task_kind("reindex"), Ok(TaskKind::Reindex)));

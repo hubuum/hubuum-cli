@@ -16,8 +16,6 @@ pub struct CreateClassInput {
     pub name: String,
     pub collection: String,
     pub description: String,
-    pub json_schema: Option<Value>,
-    pub validate_schema: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +24,6 @@ pub struct ClassUpdateInput {
     pub rename: Option<String>,
     pub collection: Option<String>,
     pub description: Option<String>,
-    pub json_schema: Option<Value>,
-    pub validate_schema: Option<bool>,
 }
 
 impl HubuumGateway {
@@ -58,8 +54,8 @@ impl HubuumGateway {
             name: input.name,
             collection_id: collection.id(),
             description: input.description,
-            json_schema: input.json_schema,
-            validate_schema: input.validate_schema,
+            json_schema: None,
+            validate_schema: None,
         })?;
         Ok(ClassRecord::from(class))
     }
@@ -127,8 +123,8 @@ impl HubuumGateway {
                 name: input.rename,
                 collection_id,
                 description: input.description,
-                json_schema: input.json_schema,
-                validate_schema: input.validate_schema,
+                json_schema: None,
+                validate_schema: None,
             },
         )?;
 

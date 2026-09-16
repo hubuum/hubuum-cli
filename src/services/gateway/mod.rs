@@ -13,6 +13,7 @@ mod objects;
 mod principal_tokens;
 mod relations;
 mod remote_targets;
+mod schema;
 mod search;
 mod service_accounts;
 mod settings;
@@ -59,6 +60,7 @@ pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,
 };
+pub use schema::SchemaOperation;
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
 pub use tasks::{ListTasksInput, TaskLookupInput};

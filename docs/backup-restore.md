@@ -1,21 +1,20 @@
 # Backup and restore
 
-CLI v0.0.11 uses `hubuum_client` 0.10.1 and targets Hubuum server 0.0.14.
+The development CLI uses `hubuum_client` 0.11.0 and targets Hubuum server 0.0.15.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-Upgrade the server, `hubuum-admin`, and template-worker binaries together to
-0.0.14. Run `hubuum-admin --migrate` before starting the server when upgrading
-from an older schema; v0.0.14 adds no migration over v0.0.13. Deploy a matching
-`hubuum-admin --restore-executor` process against the same database; it performs
-queued restores. Server 0.0.14 includes the drain coordination and JSON-null
-insertion fixes from 0.0.13 and fixes subsequent backups after history-free
-restores. Update any separately deployed restore executor as well as the server.
+Drain old workers and upgrade the server, `hubuum-admin`, template worker, and
+separately supervised `hubuum-admin --restore-executor` together to 0.0.15.
+Run `hubuum-admin --migrate` in a quiet window before starting upgraded processes.
+Existing enforced objects start pending; request schema revalidation. Review
+[schema evolution](schema-evolution.md) for policy and authorization migration.
 
-This target uses backup format 5. Restore format 4 artifacts with a compatible
-older server, then upgrade and take a new backup. Changing `backup_version` in a
-file does not migrate its contents.
+This target uses backup format 6, including schema revisions, state, evidence,
+and history. Restore format 5 artifacts with the matching older server, then
+migrate and take a new backup. Changing `backup_version` does not convert it.
+Keep a verified 0.0.14 backup before upgrading.
 
 ## Create a backup
 
@@ -33,7 +32,7 @@ hubuum-cli backup show 123
 hubuum-cli backup download 123 --file hubuum-backup.json
 ```
 
-Format 5 excludes password hashes, bearer tokens, and token scopes. Its manifest
+Format 6 excludes password hashes, bearer tokens, and token scopes. Its manifest
 lists excluded data. Privileged integration configuration remains sensitive;
 protect the backup accordingly. Saved JSON retains the server's creation instant,
 including its UTC offset and fractional seconds, so it can be staged again.
@@ -97,7 +96,7 @@ hubuum-admin --reset-password admin
 Substitute a restored local administrator's name when needed. Log in with the
 reset password and issue fresh tokens, including replacements for service
 accounts and any CLI `--token-file`. Old passwords and tokens are absent from
-format 5 backups. Recheck integration configuration before resuming automation.
+format 6 backups. Recheck integration configuration before resuming automation.
 
 ## File handling
 
@@ -112,7 +111,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.14 preserves live resource revisions and creates current temporal
+Server 0.0.15 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -129,7 +128,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.14.
+successful staging and a complete second-generation restore on 0.0.15.
 
 ## Reproduce the integration check
 

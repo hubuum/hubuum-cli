@@ -18,6 +18,34 @@ impl DetailRenderable for TaskRecord {
             ("Processed", task.progress.processed_items.to_string()),
             ("Succeeded", task.progress.success_items.to_string()),
             ("Failed", task.progress.failed_items.to_string()),
+            ("Unattempted", task.unattempted_items.to_string()),
+            (
+                "Cancel Requested",
+                display_or_empty(task.cancel_requested_at.as_ref()),
+            ),
+            (
+                "Cancel Requested By",
+                display_or_empty(task.cancel_requested_by),
+            ),
+            (
+                "Cancel Reason",
+                task.cancel_reason.clone().unwrap_or_default(),
+            ),
+            (
+                "Execution Deadline",
+                display_or_empty(task.execution_deadline_at.as_ref()),
+            ),
+            (
+                "Terminal Reason",
+                task.terminal_reason.clone().unwrap_or_default(),
+            ),
+            (
+                "Remote Side Effects",
+                task.remote_side_effect_state
+                    .as_ref()
+                    .map(|state| format!("{state:?}"))
+                    .unwrap_or_default(),
+            ),
             ("Task URL", task.links.task.clone()),
             ("Events URL", task.links.events.clone()),
             (

@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+- Upgrade `hubuum_client` to 0.11.0 and target Hubuum server v0.0.15's pinned
+  218-operation OpenAPI contract. Client features remain blocking-only; its
+  MSRV remains Rust 1.88, with no new CLI MSRV declaration. Update locked Rustls
+  to 0.23.45. Administrative output includes schema budgets, backup row limits,
+  and task execution timeouts.
+- **Breaking (schema commands):** remove `--schema`/`-s` and `--validate`/`-v`
+  from `class create` and `class modify`. Use `class schema stage`, `impact`,
+  and `activate` for all schema policy changes, including initial setup.
+  Activation requires an explicit expected active revision and defaults to
+  rejecting incompatible objects. Add revision inspection/abandonment,
+  compliance pages, revalidation, work diagnostics, and retained HTML reports.
+  See [schema migration examples](docs/schema-evolution.md).
+- Add `task cancel` with validated reasons and optional expected status, plus
+  class-scoped `class schema cancel`. Cancellation can remain pending while
+  executors finish cleanup; inspect `task show` for cancellation metadata,
+  deadlines, unattempted items, terminal reasons, and remote side effects.
+  Task filtering/completion includes `schema_validation`.
+- **Breaking (server and backup compatibility):** backups now require format 6.
+  Restore format 5 artifacts with the matching older server, migrate, then
+  create new format 6 backups; no conversion is available. Drain old workers,
+  run migrations in a quiet window, and upgrade server, administrator, template
+  worker, and restore executor together. Revalidate existing enforced classes,
+  add external `CancelTask` permissions, and restart string-sorted pagination.
+
 ## [0.0.11] - 2026-09-10
 
 - Updated `hubuum_client` to 0.10.1, targeting Hubuum server v0.0.14 and its

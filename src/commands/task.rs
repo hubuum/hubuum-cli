@@ -21,6 +21,17 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         .add_command(
             &["task"],
             catalog_command(
+                "cancel",
+                TaskCancel::default(),
+                CommandDocs {
+                    about: Some("Request task cancellation; use task show to monitor cleanup"),
+                    ..CommandDocs::default()
+                },
+            ),
+        )
+        .add_command(
+            &["task"],
+            catalog_command(
                 "show",
                 TaskShow::default(),
                 CommandDocs {
@@ -252,5 +263,35 @@ impl CliCommand for TaskOutputCmd {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct TaskCancel {
+    #[option(short = "i", long = "id", help = "Task ID")]
+    pub id: Option<i32>,
+    #[option(
+        long = "reason",
+        help = "Cancellation reason (nonblank, single line, at most 512 bytes)"
+    )]
+    pub reason: Option<String>,
+    #[option(
+        long = "expected-status",
+        help = "Cancel only if the task still has this status",
+        autocomplete = "task_statuses"
+    )]
+    pub expected_status: Option<String>,
+}
+
+impl CliCommand for TaskCancel {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let id = super::required_option_or_pos(query.id, tokens, 0, "id")?;
+        let task = services.gateway().cancel_task(
+            TaskLookupInput { task_id: id },
+            query.reason,
+            query.expected_status,
+        )?;
+        render_task_record(tokens, &task)
     }
 }

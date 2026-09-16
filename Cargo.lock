@@ -1025,9 +1025,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f147202b06a9e867bc51ee7292f10d1b46ecaf4f28a17efa64779a80e9a659a2"
+checksum = "a6a8fd7cdf7eeccd6d51b22265cf7a60eaf67b87bf97faa5e25b352ec1496a97"
 dependencies = [
  "chrono",
  "fastrand",
@@ -2261,9 +2261,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.44"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "once_cell",

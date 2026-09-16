@@ -380,6 +380,29 @@ mod tests {
     }
 
     #[test]
+    fn import_overrides_preserve_exact_staged_schema_activation() {
+        let activation = json!({"revision": 3, "expected_active_revision": 1,
+            "policy": "reject_incompatible", "impact_task_id": 42});
+        let body = json!({"version": 2, "graph": {"classes": [{
+            "name": "Hosts", "description": "", "collection_ref": "old",
+            "json_schema": {"type": "object"}, "validate_schema": true,
+            "schema_activation": activation
+        }]}});
+        let request = import_request(&ImportSubmit {
+            http: Some(body.to_string()),
+            collection: Some("Inventory".into()),
+            ..ImportSubmit::default()
+        })
+        .unwrap();
+        let serialized = serde_json::to_value(request).unwrap();
+        let class = &serialized["graph"]["classes"][0];
+        assert_eq!(class["schema_activation"], activation);
+        assert_eq!(class["json_schema"], json!({"type": "object"}));
+        assert_eq!(class["validate_schema"], true);
+        assert_eq!(class["collection_key"]["name"], "Inventory");
+    }
+
+    #[test]
     fn import_request_rejects_missing_or_multiple_sources() {
         assert!(matches!(
             import_request(&ImportSubmit::default()),

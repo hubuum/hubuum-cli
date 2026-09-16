@@ -1,6 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::{to_string_pretty, Value};
+use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -9,7 +9,7 @@ use super::{
 };
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
-use crate::autocomplete::{bool, class_sort, class_where, classes, collections};
+use crate::autocomplete::{class_sort, class_where, classes, collections};
 use crate::config::get_config;
 use crate::domain::ClassShowRecord;
 use crate::errors::{AppError, ReauthenticationRetry};
@@ -31,7 +31,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                     long_about: Some("Create a new class with the specified properties."),
                     examples: Some(
                         r#"-n MyClass -N collection_1 -d "My class description"
---name MyClass --collection collection_1 --description 'My class' --schema '{\"type\": \"object\"}'"#,
+--name MyClass --collection collection_1 --description 'My class'"#,
                     ),
                 },
             ),
@@ -99,20 +99,6 @@ pub struct ClassNew {
     pub collection: String,
     #[option(short = "d", long = "description", help = "Description of the class")]
     pub description: String,
-    #[option(
-        short = "s",
-        long = "schema",
-        help = "JSON schema for the class",
-        value_source = true
-    )]
-    pub json_schema: Option<Value>,
-    #[option(
-        short = "v",
-        long = "validate",
-        help = "Validate against schema, requires schema to be set",
-        autocomplete = "bool"
-    )]
-    pub validate_schema: Option<bool>,
 }
 
 impl CliCommand for ClassNew {
@@ -122,8 +108,6 @@ impl CliCommand for ClassNew {
             name: new.name,
             collection: new.collection,
             description: new.description,
-            json_schema: new.json_schema,
-            validate_schema: new.validate_schema,
         })?;
 
         match desired_format(tokens)? {
@@ -249,20 +233,6 @@ pub struct ClassModify {
         help = "New description of the class"
     )]
     pub description: Option<String>,
-    #[option(
-        short = "s",
-        long = "schema",
-        help = "JSON schema for the class",
-        value_source = true
-    )]
-    pub json_schema: Option<Value>,
-    #[option(
-        short = "v",
-        long = "validate",
-        help = "Set schema validation",
-        autocomplete = "bool"
-    )]
-    pub validate_schema: Option<bool>,
 }
 
 impl CliCommand for ClassModify {
@@ -275,8 +245,6 @@ impl CliCommand for ClassModify {
             rename: query.rename,
             collection: query.collection,
             description: query.description,
-            json_schema: query.json_schema,
-            validate_schema: query.validate_schema,
         })?;
 
         match desired_format(tokens)? {
@@ -363,9 +331,22 @@ mod tests {
     use serde_json::{from_value, json};
     use serial_test::serial;
 
-    use super::render_class_show_text;
+    use super::{render_class_show_text, ClassModify, ClassNew};
+    use crate::commands::CommandArgs;
     use crate::domain::{ClassRecord, ClassShowRecord, RelatedClassTreeNode};
     use crate::output::{reset_output, take_output};
+
+    #[test]
+    fn schema_policy_flags_are_exclusive_to_the_schema_workflow() {
+        for options in [ClassNew::options(), ClassModify::options()] {
+            assert!(!options
+                .iter()
+                .any(|option| matches!(option.long.as_deref(), Some("--schema" | "--validate"))));
+            assert!(!options
+                .iter()
+                .any(|option| matches!(option.short.as_deref(), Some("-s" | "-v"))));
+        }
+    }
 
     #[test]
     #[serial]
