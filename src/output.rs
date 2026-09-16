@@ -576,7 +576,7 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
         .collect())
 }
 
-fn render_detail_field(column: &str, value: &str, padding: usize) -> String {
+pub(crate) fn render_detail_field(column: &str, value: &str, padding: usize) -> String {
     let mut lines = value.split('\n');
     let first = lines.next().unwrap_or_default();
     let mut rendered = format!("{column:<padding$}: {first}");

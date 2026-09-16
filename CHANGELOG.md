@@ -20,7 +20,9 @@
   `stage --from-revision` copies a previous policy into a new proposal for impact
   analysis and activation, with an optional validation override.
 - Schema commands now show concise text summaries by default, including impact
-  readiness, counts, and bounded failure groups. Full schemas and diagnostics
+  readiness, counts, and bounded failure groups. Aligned labels follow the
+  configured output padding; results, impact, and failure details are grouped and
+  indented, with zero-only secondary counters omitted. Full schemas and diagnostics
   remain available through `--output json`, structured formats, and pipelines.
 - Complete recent schema task IDs with status/summary labels for `work`, reports,
   cancellation, and activation. Suggestions use a bounded task-list request,

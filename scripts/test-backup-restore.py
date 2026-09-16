@@ -154,12 +154,16 @@ def main():
             work = eventually(lambda: completed_work(impact))
             assert work["readiness"] == "incompatible"
             summary = cli("class", "schema", "work", "--class", prefix, "--task", str(impact), output="text")
-            assert "Readiness: incompatible" in summary and "1 newly invalid" in summary
+            fields = {label.strip(): value.strip() for line in summary.splitlines()
+                      if ":" in line for label, value in [line.split(":", 1)]}
+            assert fields["Readiness"] == "incompatible" and fields["Newly invalid"] == "1"
             assert '"snapshot"' not in summary and "--output json" in summary
             assert len(summary) < 2000
             policy_summary = cli("class", "schema", "revision", "--class", prefix,
                                  "--revision", str(proposal), output="text")
-            assert "Schema: present" in policy_summary and '"required"' not in policy_summary
+            assert any(line.startswith("Schema ") and line.endswith(": present")
+                       for line in policy_summary.splitlines())
+            assert '"required"' not in policy_summary
 
             html = schema("generate-report", "--task", str(impact),
                           "--object-url-template", "https://inventory.example/objects/{object_id}")

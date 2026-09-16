@@ -8,7 +8,9 @@ later changes. Commands accept `--class NAME` or the class name as a positional.
 
 Default text output summarizes policies, compliance pages, and schema work.
 Impact summaries show readiness, progress, transition counts, and up to five
-failure groups with sample object IDs. Large schemas and per-object diagnostics
+failure groups with sample object IDs. Aligned labels use `output.padding`, with
+indented results, impact, and failure sections. Zero-only secondary counters are
+omitted from text. Large schemas and per-object diagnostics
 are omitted from text. Use `--output json` for the complete response, semantic
 pipelines to select diagnostic fields, or HTML repair reports for detailed review.
 

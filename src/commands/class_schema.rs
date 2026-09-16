@@ -672,7 +672,12 @@ mod tests {
             render_schema_output(&tokens, &output).unwrap();
             let rendered = take_output().unwrap().lines.join("\n");
             if format == RenderFormat::Text {
-                assert!(rendered.contains("Readiness: incompatible"));
+                assert!(
+                    rendered
+                        .lines()
+                        .any(|line| line.starts_with("Readiness ")
+                            && line.ends_with(": incompatible"))
+                );
                 assert!(!rendered.contains("\"snapshot\""));
             } else {
                 let value: Value = from_str(&rendered).unwrap();
