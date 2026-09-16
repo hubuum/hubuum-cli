@@ -14,6 +14,11 @@
   rejecting incompatible objects. Add revision inspection/abandonment,
   compliance pages, revalidation, work diagnostics, and retained HTML reports.
   See [schema migration examples](docs/schema-evolution.md).
+- Add a schema-scope help walkthrough and allow `class schema stage --validate`
+  to reuse the active schema. Preview validation changes with impact analysis
+  before explicit activation; `--schema null` still explicitly removes a schema.
+  `stage --from-revision` copies a previous policy into a new proposal for impact
+  analysis and activation, with an optional validation override.
 - Add `task cancel` with validated reasons and optional expected status, plus
   class-scoped `class schema cancel`. Cancellation can remain pending while
   executors finish cleanup; inspect `task show` for cancellation metadata,

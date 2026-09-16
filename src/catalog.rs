@@ -241,6 +241,7 @@ pub enum CompletionSpec {
 
 #[derive(Debug, Clone, Default)]
 pub struct ScopeSpec {
+    help: Option<String>,
     pub name: String,
     pub commands: BTreeMap<String, CommandSpec>,
     pub scopes: BTreeMap<String, ScopeSpec>,
@@ -394,6 +395,7 @@ impl ScopeSpec {
     fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            help: None,
             commands: BTreeMap::new(),
             scopes: BTreeMap::new(),
         }
@@ -433,6 +435,18 @@ impl CommandCatalogBuilder {
                 .or_insert_with(|| ScopeSpec::new(*segment));
         }
         current.commands.insert(command.name.clone(), command);
+        self
+    }
+
+    pub fn set_scope_help(&mut self, path: &[&str], help: impl Into<String>) -> &mut Self {
+        let mut current = &mut self.root;
+        for segment in path {
+            current = current
+                .scopes
+                .entry((*segment).to_string())
+                .or_insert_with(|| ScopeSpec::new(*segment));
+        }
+        current.help = Some(help.into());
         self
     }
 
@@ -587,6 +601,11 @@ impl CommandCatalog {
                     lines.push(format!("  {:<command_width$}  {}", command.name, about));
                 }
             }
+        }
+
+        if let Some(help) = &scope_spec.help {
+            lines.push(String::new());
+            lines.push(help.clone());
         }
 
         lines.push(String::new());

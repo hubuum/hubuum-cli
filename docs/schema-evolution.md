@@ -20,10 +20,22 @@ hubuum-cli class schema activate Hosts --revision 2 --expected-active-revision 1
 ```
 
 Replace example revisions and task IDs with returned values. Staging requires
-both the complete schema and an explicit validation boolean. `--schema` accepts
+an explicit validation boolean unless copying a previous revision. Omit `--schema` to copy the active schema and
+change only its validation setting. `--schema` accepts
 inline JSON, a `file://` local JSON file, or an HTTP(S) URL. To remove the schema, stage
 `--schema null --validate false`, then analyze and activate that revision.
-Changing only validation still requires staging the complete intended schema.
+For example, preview enabling validation against the existing schema:
+
+```sh
+hubuum-cli class schema stage Hosts --validate true
+hubuum-cli class schema impact Hosts --revision 2
+hubuum-cli class schema work Hosts --task 123
+```
+
+Use the returned revision and task IDs. The active policy stays unchanged until
+explicit activation. Use `--validate false` to stage disabling validation while
+keeping the schema. If no active schema exists, enabling validation requires
+`--schema`. `class schema help` shows a short version of this workflow.
 
 Impact and revalidation return immediately with a task ID. Poll `class schema
 work` until `status` is `complete`, inspect `readiness` and findings, then activate.
@@ -49,6 +61,24 @@ empty visible pages; authorization filtering can hide scanned objects. Revision
 lists resume with `--after` set to the last returned revision. These commands
 return one page per invocation. Administrative state and diagnostics require an
 unscoped administrator; compliance results respect object visibility.
+
+## Return to a previous policy
+
+```sh
+hubuum-cli class schema revisions Hosts
+hubuum-cli class schema stage Hosts --from-revision 4
+hubuum-cli class schema impact Hosts --revision 8
+hubuum-cli class schema work Hosts --task 125
+hubuum-cli class schema activate Hosts --revision 8 --expected-active-revision 7 --impact-task 125
+```
+
+Copying creates a new staged revision with the previous schema and validation
+setting; it does not reactivate or modify the historical revision. Use returned
+IDs and the current active revision instead of the example numbers. Analyze the
+impact against today's objects before explicitly activating the new proposal.
+Add `--validate true` or `--validate false` to override the copied setting.
+`--from-revision` and `--schema` cannot be combined. This restores schema policy,
+not past object data.
 
 ## Repair reports
 

@@ -73,6 +73,10 @@ async fn execute_line_inner(
         return render_help(app, session.scope(), &parts[1..]);
     }
 
+    if let Some(path) = scope_help_path(&catalog, &session.scope(), &parts) {
+        return render_help(app, session.scope(), path);
+    }
+
     if parts[0] == "exit" || parts[0] == "quit" {
         return Ok(CommandOutcome {
             output: Default::default(),
@@ -147,6 +151,18 @@ async fn execute_line_inner(
         .map_err(|error| error.for_command(resolved.command.reauthentication_retry))
 }
 
+fn scope_help_path<'a>(
+    catalog: &CommandCatalog,
+    scope: &[String],
+    parts: &'a [String],
+) -> Option<&'a [String]> {
+    let (last, path) = parts.split_last()?;
+    (matches!(last.as_str(), "help" | "?" | "--help" | "-h")
+        && !path.is_empty()
+        && catalog.resolve_scope(scope, path).is_some())
+    .then_some(path)
+}
+
 fn is_help_alias(parts: &[String]) -> bool {
     matches!(parts.first().map(String::as_str), Some("help" | "?"))
         && !parts.iter().skip(1).any(|part| part.starts_with('-'))
@@ -180,7 +196,8 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
             .map_or(true, |resolved| {
                 !resolved.command.handler.requires_authentication()
             });
-    is_offline_builtin_command(&parts)
+    scope_help_path(catalog, &[], &parts).is_some()
+        || is_offline_builtin_command(&parts)
         || extension_offline
         || catalog
             .resolve_command(&[], &parts)
@@ -230,6 +247,10 @@ async fn execute_offline_line_inner(
 
     if is_help_alias(&parts) {
         return render_help_from_catalog(catalog, Vec::new(), &parts[1..]);
+    }
+
+    if let Some(path) = scope_help_path(catalog, &[], &parts) {
+        return render_help_from_catalog(catalog, Vec::new(), path);
     }
 
     if parts

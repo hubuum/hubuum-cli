@@ -19,6 +19,20 @@ use crate::services::{AppServices, SchemaOperation};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder.set_scope_help(
+        &["class", "schema"],
+        "Enable validation using the active schema (commands within this scope):\n\
+         \x20 show Hosts\n\
+         \x20 stage Hosts --validate true\n\
+         \x20 impact Hosts --revision 2\n\
+         \x20 work Hosts --task 123\n\
+         \x20 activate Hosts --revision 2 --expected-active-revision 1 --impact-task 123\n\n\
+         Use returned revision/task IDs. Poll work until complete and inspect readiness.\n\
+         Staging and impact do not change the active policy. Use --validate false to disable\n\
+         validation, or add --schema file://schema.json to stage a replacement schema.\n\
+         Restore an earlier policy: stage Hosts --from-revision 4, then impact and activate\n\
+         the new revision. Add --validate true|false to override the copied setting.",
+    );
     builder.add_command(
         &["class", "schema"],
         catalog_command(
@@ -254,25 +268,52 @@ struct SchemaStage {
     class: Option<String>,
     #[option(
         long = "schema",
-        help = "Complete JSON schema, or JSON null to remove it",
+        help = "Replacement JSON schema; omit to reuse the active schema, or use null to remove it",
         value_source = true
     )]
-    schema: Value,
+    schema: Option<Value>,
     #[option(
         long = "validate",
         help = "Whether the policy enforces validation",
         autocomplete = "bool"
     )]
-    validate: bool,
+    validate: Option<bool>,
+    #[option(
+        long = "from-revision",
+        help = "Copy a previous schema policy into a new staged revision; optionally override --validate"
+    )]
+    from_revision: Option<i64>,
+}
+impl SchemaStage {
+    fn operation(&self) -> Result<SchemaOperation, AppError> {
+        if let Some(revision) = self.from_revision {
+            if self.schema.is_some() {
+                return Err(AppError::InvalidOption(
+                    "Use either --from-revision or --schema, not both".into(),
+                ));
+            }
+            return Ok(SchemaOperation::StageFromRevision {
+                revision: SchemaRevision::new(revision)?,
+                validate_schema: self.validate,
+            });
+        }
+        let validate_schema = self.validate.ok_or_else(|| {
+            AppError::MissingOptions(vec!["validate (or use --from-revision)".into()])
+        })?;
+        Ok(match &self.schema {
+            Some(schema) => SchemaOperation::Stage(SchemaStageRequest {
+                json_schema: (!schema.is_null()).then(|| schema.clone()),
+                validate_schema,
+            }),
+            None => SchemaOperation::StageValidation { validate_schema },
+        })
+    }
 }
 impl CliCommand for SchemaStage {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
+        let operation = query.operation()?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
-        let operation = SchemaOperation::Stage(SchemaStageRequest {
-            json_schema: (!query.schema.is_null()).then_some(query.schema),
-            validate_schema: query.validate,
-        });
         append_json(&services.gateway().schema_operation(&class, operation)?)?;
         Ok(())
     }
@@ -569,14 +610,16 @@ mod tests {
     }
 
     #[test]
-    fn staging_requires_a_complete_explicit_policy() {
-        for input in [
-            "stage --class Hosts",
-            "stage --class Hosts --schema null",
-            "stage --class Hosts --validate false",
-        ] {
+    fn staging_requires_validation_but_distinguishes_reuse_from_removal() {
+        for input in ["stage --class Hosts", "stage --class Hosts --schema null"] {
             let tokens = CommandTokenizer::new(input, "stage", &SchemaStage::options()).unwrap();
-            assert!(SchemaStage::parse_tokens(&tokens).is_err(), "{input}");
+            assert!(
+                SchemaStage::parse_tokens(&tokens)
+                    .unwrap()
+                    .operation()
+                    .is_err(),
+                "{input}"
+            );
         }
         let tokens = CommandTokenizer::new(
             "stage --class Hosts --schema null --validate false",
@@ -585,8 +628,41 @@ mod tests {
         )
         .unwrap();
         let policy = SchemaStage::parse_tokens(&tokens).unwrap();
-        assert!(policy.schema.is_null());
-        assert!(!policy.validate);
+        assert_eq!(policy.schema, Some(Value::Null));
+        let tokens = CommandTokenizer::new(
+            "stage --class Hosts --validate true",
+            "stage",
+            &SchemaStage::options(),
+        )
+        .unwrap();
+        let reused = SchemaStage::parse_tokens(&tokens).unwrap();
+        assert!(reused.schema.is_none());
+        assert_eq!(reused.validate, Some(true));
+        assert_eq!(policy.validate, Some(false));
+    }
+
+    #[test]
+    fn copying_a_revision_preserves_validation_unless_explicitly_overridden() {
+        let parse = |input| {
+            let tokens = CommandTokenizer::new(input, "stage", &SchemaStage::options()).unwrap();
+            SchemaStage::parse_tokens(&tokens).unwrap().operation()
+        };
+        assert!(matches!(
+            parse("stage Hosts --from-revision 4").unwrap(),
+            SchemaOperation::StageFromRevision {
+                validate_schema: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("stage Hosts --from-revision 4 --validate false").unwrap(),
+            SchemaOperation::StageFromRevision {
+                validate_schema: Some(false),
+                ..
+            }
+        ));
+        assert!(parse("stage Hosts --from-revision 0").is_err());
+        assert!(parse("stage Hosts --from-revision 4 --schema null").is_err());
     }
 
     #[test]

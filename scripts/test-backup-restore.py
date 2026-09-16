@@ -169,6 +169,19 @@ def main():
             activated = schema("activate", "--revision", str(proposal),
                                "--expected-active-revision", str(active), "--impact-task", str(impact))
             assert activated["active"]["revision"] == proposal
+            toggle = schema("stage", "--validate", "false")
+            assert toggle["json_schema"] == {"type": "object"}
+            assert toggle["validate_schema"] is False
+            toggle_impact = schema("impact", "--revision", str(toggle["revision"]))["task_id"]
+            assert eventually(lambda: completed_work(toggle_impact))["readiness"] == "compatible"
+            assert schema("show")["active"]["validate_schema"] is True
+            schema("abandon", "--revision", str(toggle["revision"]))
+            copied = schema("stage", "--from-revision", str(active))
+            assert copied["json_schema"] is None and copied["validate_schema"] is False
+            copied_impact = schema("impact", "--revision", str(copied["revision"]))["task_id"]
+            assert eventually(lambda: completed_work(copied_impact))["readiness"] == "compatible"
+            assert schema("show")["active"]["revision"] == proposal
+            schema("abandon", "--revision", str(copied["revision"]))
             validation = schema("revalidate", "--revision", str(proposal))["task_id"]
             eventually(lambda: completed_work(validation))
             page = schema("objects", "--status", "valid", "--limit", "1")
