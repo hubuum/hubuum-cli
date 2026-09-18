@@ -43,6 +43,15 @@
   worker, and restore executor together. Revalidate existing enforced classes,
   add external `CancelTask` permissions, and restart string-sorted pagination.
 
+- **Breaking (example wrapper verbose output):** `hubuum-host --verbose` now
+  delegates to `object show --data` with two levels of relations and text output.
+  Data keys omit the `data.` prefix and values align to the longest key. Verbose
+  output uses the CLI's standard metadata and general relation tree. The ID field
+  is omitted, and relations include classes beyond Jacks and Rooms.
+  Scripts parsing the previous verbose text must migrate to `hubuum-host --json`;
+  JSON output retains its Host and placement structure and takes precedence over
+  `--verbose`.
+
 ## [0.0.11] - 2026-09-10
 
 - Updated `hubuum_client` to 0.10.1, targeting Hubuum server v0.0.14 and its

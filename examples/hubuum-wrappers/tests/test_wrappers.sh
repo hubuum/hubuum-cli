@@ -28,8 +28,37 @@ while [[ $# -gt 2 ]]; do
     arguments+=("$1")
     shift
 done
-[[ ${1:-} == --output && ${2:-} == json ]] || exit 90
+[[ ${1:-} == --output ]] || exit 90
+output_format=${2:-}
 set -- "${arguments[@]}"
+
+if [[ ${1:-} == object && ${2:-} == show ]]; then
+    [[ $output_format == text ]] || exit 90
+    shift 2
+    class_name=
+    name=
+    show_data=0
+    max_depth=
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --class) class_name=$2; shift 2 ;;
+            --name) name=$2; shift 2 ;;
+            --data) show_data=1; shift ;;
+            --max-depth) max_depth=$2; shift 2 ;;
+            *) exit 91 ;;
+        esac
+    done
+    [[ $class_name == Hosts && $name == primary.example.org \
+        && $show_data -eq 1 && $max_depth -eq 2 ]] || exit 92
+    if [[ ${FAKE_FAIL_SHOW:-0} -eq 1 ]]; then
+        printf '%s\n' "injected show failure" >&2
+        exit 89
+    fi
+    printf '%s\n' "CLI details for $class_name/$name"
+    exit 0
+fi
+
+[[ $output_format == json ]] || exit 90
 
 if [[ ${1:-} == me && ${2:-} == permissions ]]; then
     case ${FAKE_ME_PERMISSIONS_CASE:-single} in
@@ -131,6 +160,7 @@ JSON
         *) exit 92 ;;
     esac
 elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == list ]]; then
+    [[ ${FAKE_FAIL_RELATION_LIST:-0} -eq 0 ]] || exit 88
     shift 3
     root_class=
     root_object=
@@ -257,6 +287,29 @@ output_text=$(<"$TEST_TMP/output")
 queries=$(<"$TEST_TMP/object-list-queries")
 [[ $queries == $'Hosts\tprimary.example.org' ]]
 
+for verbose_option in --verbose -v; do
+    FAKE_FAIL_RELATION_LIST=1 "$WRAPPER_DIR/hubuum-host" \
+        --id primary "$verbose_option" >"$TEST_TMP/output"
+    output_text=$(<"$TEST_TMP/output")
+    [[ $output_text == 'CLI details for Hosts/primary.example.org' ]]
+done
+
+if FAKE_FAIL_SHOW=1 "$WRAPPER_DIR/hubuum-host" --verbose primary \
+    >"$TEST_TMP/output" 2>"$TEST_TMP/error"; then
+    printf '%s\n' "expected the delegated show failure" >&2
+    exit 1
+else
+    [[ $? -eq 89 ]]
+fi
+[[ ! -s $TEST_TMP/output ]]
+error_text=$(<"$TEST_TMP/error")
+[[ $error_text == 'injected show failure' ]]
+
+FAKE_FAIL_SHOW=1 "$WRAPPER_DIR/hubuum-host" --verbose --json primary \
+    >"$TEST_TMP/output"
+jq -e '.host.name == "primary.example.org" and .placement[0].rooms == ["R-1"]' \
+    "$TEST_TMP/output" >/dev/null
+
 "$WRAPPER_DIR/hubuum-move" primary J-2 --target-type jack --dry-run \
     >"$TEST_TMP/output"
 assert_edges $'primary.example.org\tJ-1'
@@ -361,7 +414,7 @@ jq -e '
 
 printf 'primary.example.org\tJ-1\n' >"$TEST_TMP/edges"
 HUBUUM_EXTENSION_PROTOCOL=hubuum-cli.extension/v1 \
-    "$WRAPPER_DIR/hubuum-extension" host show primary \
+    "$WRAPPER_DIR/hubuum-extension" host show primary --verbose \
     >"$TEST_TMP/output"
 jq -e '
     .protocol == "hubuum-cli.extension/v1"
