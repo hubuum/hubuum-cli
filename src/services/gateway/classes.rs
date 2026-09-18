@@ -9,15 +9,13 @@ use crate::list_query::{
     SortFieldSpec,
 };
 
-use super::{HubuumGateway, RelationTraversalOptions};
+use super::{shared::class_collection_id, HubuumGateway, RelationTraversalOptions};
 
 #[derive(Debug, Clone)]
 pub struct CreateClassInput {
     pub name: String,
     pub collection: String,
     pub description: String,
-    pub json_schema: Option<Value>,
-    pub validate_schema: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +24,6 @@ pub struct ClassUpdateInput {
     pub rename: Option<String>,
     pub collection: Option<String>,
     pub description: Option<String>,
-    pub json_schema: Option<Value>,
-    pub validate_schema: Option<bool>,
 }
 
 impl HubuumGateway {
@@ -58,8 +54,8 @@ impl HubuumGateway {
             name: input.name,
             collection_id: collection.id(),
             description: input.description,
-            json_schema: input.json_schema,
-            validate_schema: input.validate_schema,
+            json_schema: None,
+            validate_schema: None,
         })?;
         Ok(ClassRecord::from(class))
     }
@@ -88,11 +84,18 @@ impl HubuumGateway {
                 .classes
                 .iter()
                 .map(|related_class| related_class.collection_id)
+                .chain(class_collection_id(class.resource()))
                 .collect::<Vec<_>>(),
         )?;
 
+        let mut resolved_class = class.resource().clone();
+        if resolved_class.collection.is_none() {
+            resolved_class.collection = class_collection_id(&resolved_class)
+                .and_then(|id| collection_map.get(&i32::from(id)).cloned());
+        }
+
         Ok(ClassShowRecord {
-            class: ClassRecord::from(class.resource()),
+            class: ClassRecord::from(resolved_class),
             objects,
             related_classes: build_related_class_tree(
                 &related_graph.classes,
@@ -127,8 +130,8 @@ impl HubuumGateway {
                 name: input.rename,
                 collection_id,
                 description: input.description,
-                json_schema: input.json_schema,
-                validate_schema: input.validate_schema,
+                json_schema: None,
+                validate_schema: None,
             },
         )?;
 

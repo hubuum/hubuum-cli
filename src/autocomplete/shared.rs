@@ -27,7 +27,14 @@ pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
 
 pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(
-        &["import", "export", "backup", "reindex", "remotecall"],
+        &[
+            "import",
+            "export",
+            "backup",
+            "reindex",
+            "remotecall",
+            "schema_validation",
+        ],
         prefix,
     )
 }

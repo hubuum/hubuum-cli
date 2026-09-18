@@ -716,6 +716,20 @@ impl ReplCompleter {
                 context.replacement_start,
                 context.replacement_end,
             ),
+            IdCompletionKind::SchemaTask => self
+                .completion
+                .schema_task_ids(context.prefix)
+                .into_iter()
+                .map(|item| {
+                    suggestion_with_whitespace(
+                        item.value,
+                        context.replacement_start,
+                        context.replacement_end,
+                        item.description,
+                        true,
+                    )
+                })
+                .collect(),
             IdCompletionKind::ImportTask => self.import_task_id_suggestions(
                 context.prefix,
                 context.replacement_start,
@@ -815,6 +829,7 @@ enum IdCompletionKind {
     LocalJob,
     Task,
     ImportTask,
+    SchemaTask,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -871,7 +886,9 @@ fn id_completion_context<'a>(
         }
     }
 
-    if is_completing_positional_id(command_path, parts, ends_with_space) {
+    if kind != IdCompletionKind::SchemaTask
+        && is_completing_positional_id(command_path, parts, ends_with_space)
+    {
         return Some(IdCompletionContext {
             kind,
             prefix: if ends_with_space { "" } else { word },
@@ -1115,12 +1132,23 @@ fn id_completion_kind(command_path: &[String]) -> Option<IdCompletionKind> {
             Some(IdCompletionKind::Task)
         }
         [scope, command]
-            if scope == "task" && matches!(command.as_str(), "show" | "events" | "output") =>
+            if scope == "task"
+                && matches!(command.as_str(), "show" | "events" | "output" | "cancel") =>
         {
             Some(IdCompletionKind::Task)
         }
         [scope, command] if scope == "import" && matches!(command.as_str(), "show" | "results") => {
             Some(IdCompletionKind::ImportTask)
+        }
+        [scope, nested, command]
+            if scope == "class"
+                && nested == "schema"
+                && matches!(
+                    command.as_str(),
+                    "work" | "cancel" | "report" | "generate-report" | "activate"
+                ) =>
+        {
+            Some(IdCompletionKind::SchemaTask)
         }
         _ => None,
     }
@@ -1136,6 +1164,10 @@ fn id_completion_option_names(
         {
             &["--task", "-t"]
         }
+        (IdCompletionKind::SchemaTask, [_, _, command]) if command == "activate" => {
+            &["--impact-task"]
+        }
+        (IdCompletionKind::SchemaTask, _) => &["--task"],
         (IdCompletionKind::LocalJob, _)
         | (IdCompletionKind::Task, _)
         | (IdCompletionKind::ImportTask, _) => &["--id", "-i"],
@@ -1715,6 +1747,7 @@ mod tests {
     use hubuum_client::ApiError;
     use reqwest::{Method, StatusCode};
     use serde_json::json;
+    use shlex::split;
     use std::any::TypeId;
 
     use crossterm::event::{
@@ -2380,6 +2413,31 @@ mod tests {
                 "interfaces[*].ipv4".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn schema_task_completion_handles_nested_scopes_and_never_treats_class_as_task() {
+        let path = vec!["class".into(), "schema".into(), "work".into()];
+        for line in [
+            "class schema work Hosts --task 12",
+            "work Hosts --task 12",
+            "work --class Hosts --task=12",
+        ] {
+            let parts = split(line).unwrap();
+            let word = parts.last().unwrap();
+            let start = line.rfind(' ').unwrap() + 1;
+            let context =
+                id_completion_context(&path, &parts, start, line.len(), word, false).unwrap();
+            assert_eq!(context.kind, IdCompletionKind::SchemaTask);
+            assert_eq!(context.prefix, "12");
+            assert_eq!(context.replacement_start, line.len() - 2);
+        }
+        let parts = split("class schema work ").unwrap();
+        assert!(id_completion_context(&path, &parts, 18, 18, "", true).is_none());
+        let parts = split("work Hosts --task ").unwrap();
+        let context = id_completion_context(&path, &parts, 18, 18, "", true).unwrap();
+        assert_eq!(context.kind, IdCompletionKind::SchemaTask);
+        assert_eq!(context.prefix, "");
     }
 
     #[test]

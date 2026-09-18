@@ -26,9 +26,9 @@ pub use gateway::{
     ObjectAggregateDimensionInput, ObjectAggregateInput, ObjectAggregateMeasureInput,
     ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput, RelatedObjectOptions,
     RelationRoot, RelationTarget, RelationTraversalOptions, RemoteAuthConfigInput, RenewTokenInput,
-    RestoreMonitor, RunBackupInput, RunExportInput, SearchInput, SearchKind, SourceTokenRevocation,
-    SubmitImportInput, TaskLookupInput, TokenStateFilter, UpdateExportTemplateInput,
-    UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
+    RestoreMonitor, RunBackupInput, RunExportInput, SchemaOperation, SearchInput, SearchKind,
+    SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,
+    UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
 };
 
 #[derive(Debug, Clone)]

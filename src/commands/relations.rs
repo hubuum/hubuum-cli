@@ -118,7 +118,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("List objects related to one root object"),
                     long_about: Some(
-                        "List objects related to a root object, with traversal filters like depth and ignore-class.",
+                        "List objects related to a root object. Select a target class by name with --where class equals Hosts; intermediate classes need not be specified. Use --max-depth to bound traversal and --all to fetch every page.",
                     ),
                     ..CommandDocs::default()
                 },

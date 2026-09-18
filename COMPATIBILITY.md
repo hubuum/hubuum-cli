@@ -9,7 +9,8 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.11 | 0.10.1 | 0.0.14 | Current release target; backup format 5, queued restores, and restorable follow-up backups |
+| Development | 0.11.0 | 0.0.15 | Schema evolution, task cancellation, and backup format 6 |
+| 0.0.11 | 0.10.1 | 0.0.14 | Previous release target; backup format 5, queued restores, and restorable follow-up backups |
 | 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
 | 0.0.8 | 0.8.0 | 0.0.8 | Previous declared target |
@@ -44,6 +45,34 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change a published CLI release's declared target.
+
+## Development: server v0.0.15 target
+
+`Cargo.toml` pins client 0.11.0 and the immutable multi-platform server image
+`ghcr.io/hubuum/hubuum-server@sha256:36af667dbc9e221a40448496d4a87e168c999d0834df4b69177345ff3d36e821`.
+The client's OpenAPI contract grows from 204 to 218 operations. The CLI exposes
+schema lifecycle/report routes and task cancellation; import JSON can carry
+`schema_activation`. Administrative config includes schema validation budgets,
+backup capture row limits, and task execution timeouts. Client features remain
+blocking-only; its MSRV remains 1.88. No CLI MSRV is declared.
+
+This is a breaking schema-command and backup-format upgrade. Follow
+[schema evolution](docs/schema-evolution.md) and
+[backup migration](docs/backup-restore.md). All schema writes move to
+`class schema`; the old class create/modify policy flags are removed.
+
+The pinned integration script now also exercises incompatible/compatible impact,
+HTML report retention, explicit activation, compliance pagination, revalidation,
+and both idempotent cancellation routes before the format 6 restore cycles.
+Executed successfully on 2026-09-16 with Rust 1.98.0 on Linux x86_64 against
+that pinned image. Schema checks passed, including rejecting incompatible
+activation, retaining/fetching identical HTML, strict compatible activation,
+compliance queries, revalidation, and cancellation of completed work through
+both routes. All three format 6 restore cycles succeeded, invalidated old tokens,
+and recovered revision/timestamp/JSON-null state; immediate follow-up staging
+and the second-generation restore preserved earlier deletions. Running-task
+cancellation metadata and expected-status requests are also covered with a mock
+transport; live cancellation checks cover idempotence on completed work.
 
 ## CLI v0.0.11: server v0.0.14 target
 

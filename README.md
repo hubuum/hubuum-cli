@@ -33,11 +33,11 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). Hubuum CLI v0.0.11 targets Hubuum server
-v0.0.14 through `hubuum_client` v0.10.1. CLI v0.0.10 targeted server v0.0.9
-through `hubuum_client` v0.9.1.
+[compatibility matrix](COMPATIBILITY.md). The development CLI targets Hubuum
+server v0.0.15 through `hubuum_client` v0.11.0. Released CLI v0.0.11 targeted
+server v0.0.14 through `hubuum_client` v0.10.1.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
-backup format 5 and queued restore completion require migration steps.
+backup format 6 and staged schema policy changes require migration steps.
 
 ## Usage
 
@@ -296,6 +296,20 @@ and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
 
+Related objects can be selected by target class name without specifying any
+intermediate classes:
+
+```sh
+hubuum-cli relation object list --root-class Person --root-object Alice \
+  --where class equals Hosts --max-depth 10 --all
+```
+
+This includes paths such as Person → Room → Host and other connecting paths,
+subject to server limits and permissions. The default maximum depth is 2;
+`--all` follows pagination, while `--max-depth` bounds traversal distance.
+Related class and object queries also accept `--where collection equals Inventory`.
+Class and collection filter values support name completion.
+
 Object-list text and pipeline output automatically promotes dotted data fields
 referenced by `--where` into explicit columns. This makes the matching value
 visible without separately repeating the path in `--data-columns`:
@@ -539,5 +553,14 @@ Large payload options can read from explicit value sources. This is opt-in per o
 
 ```sh
 hubuum-cli object create --name item-1 --class Device --collection main --description "imported" --data file://payload.json
-hubuum-cli class create --name Device --collection main --description "devices" --schema https://example.com/schema.json
+hubuum-cli class create --name Device --collection main --description "devices"
+hubuum-cli class schema stage --class Device --schema https://example.com/schema.json --validate true
 ```
+
+## Schema evolution and cancellation
+
+All schema policy changes use `class schema`, including initial schema setup.
+The former `class create` and `class modify` schema/validation flags are removed.
+Stage a policy, inspect its impact, then explicitly activate the exact revision.
+See [schema evolution and task cancellation](docs/schema-evolution.md) for the
+workflow, compliance pages, repair reports, import activation, and upgrade notes.

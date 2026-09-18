@@ -15,8 +15,8 @@ use crate::domain::{
 use crate::errors::AppError;
 use crate::list_query::{
     fetch_cursor_results, validate_filter_clauses, validate_sort_clauses, FilterClause,
-    FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, ListQuery, PagedResult,
-    SortFieldSpec,
+    FilterFieldSpec, FilterOperatorProfile, FilterValueProfile, FilterValueResolver, ListQuery,
+    PagedResult, SortFieldSpec,
 };
 
 use super::{
@@ -717,6 +717,20 @@ pub(crate) const CLASS_RELATION_SORT_SPECS: &[SortFieldSpec] = &[
 
 pub(crate) const RELATED_CLASS_FILTER_SPECS: &[FilterFieldSpec] = &[
     FilterFieldSpec::new(
+        "class",
+        "id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::ClassNameToId),
+    FilterFieldSpec::new(
+        "collection",
+        "collection_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::CollectionNameToId),
+    FilterFieldSpec::new(
         "id",
         "id",
         FilterOperatorProfile::NumericOrDate,
@@ -932,6 +946,20 @@ pub(crate) const OBJECT_RELATION_SORT_SPECS: &[SortFieldSpec] = &[
 
 pub(crate) const RELATED_OBJECT_FILTER_SPECS: &[FilterFieldSpec] = &[
     FilterFieldSpec::new(
+        "class",
+        "class_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::ClassNameToId),
+    FilterFieldSpec::new(
+        "collection",
+        "collection_id",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    )
+    .resolver(FilterValueResolver::CollectionNameToId),
+    FilterFieldSpec::new(
         "id",
         "id",
         FilterOperatorProfile::NumericOrDate,
@@ -1139,6 +1167,106 @@ mod tests {
     use serde_json::{from_slice, from_value, json, Value};
 
     use super::{CreateClassRelationInput, HubuumGateway};
+
+    #[test]
+    fn class_show_resolves_root_collection_without_related_classes() {
+        let transport = MockTransport::default();
+        let mut class = class_json(42, "Hosts");
+        let collection = class["collection"].take();
+        class["collection_id"] = json!(1);
+        for response in [
+            class,
+            json!([]),
+            json!({"classes": [], "relations": []}),
+            json!([collection]),
+        ] {
+            transport.push_response(TransportResponse::json(StatusCode::OK, &response).unwrap());
+        }
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("secret"));
+        let gateway = HubuumGateway::new(Arc::new(client));
+        let details = gateway
+            .class_show_details(
+                "Hosts",
+                &super::RelationTraversalOptions {
+                    include_self_class: false,
+                    max_depth: 2,
+                },
+            )
+            .unwrap();
+        assert_eq!(details.class.0.collection.unwrap().name, "default");
+        let requests = transport.requests();
+        assert!(requests
+            .last()
+            .unwrap()
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "id__equals" && value == "1"));
+    }
+
+    #[test]
+    fn related_objects_resolve_target_class_and_collection_names() {
+        use crate::list_query::list_query_from_raw;
+
+        for operator in ["equals", "not_equals"] {
+            let transport = MockTransport::default();
+            for response in [
+                class_json(42, "Person"),
+                json!([object_json(7, "Alice")]),
+                class_json(9, "Hosts"),
+                json!([class_json(9, "Hosts")["collection"].clone()]),
+                json!([]),
+            ] {
+                transport
+                    .push_response(TransportResponse::json(StatusCode::OK, &response).unwrap());
+            }
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap()
+                .authenticate(Token::new("secret"));
+            let gateway = HubuumGateway::new(Arc::new(client));
+            let query = list_query_from_raw(
+                &[
+                    format!("class {operator} Hosts"),
+                    "collection equals default".to_string(),
+                ],
+                &[],
+                None,
+                None,
+            )
+            .unwrap();
+            gateway
+                .list_related_objects(
+                    &super::RelationRoot {
+                        root_class: "Person".to_string(),
+                        root_object: "Alice".to_string(),
+                    },
+                    &super::RelatedObjectOptions {
+                        ignore_classes: vec![],
+                        include_self_class: false,
+                    },
+                    &query,
+                )
+                .unwrap();
+            let requests = transport.requests();
+            let request = requests.last().unwrap();
+            assert!(request.url.path().ends_with("/related/objects"));
+            assert!(request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == format!("class_id__{operator}") && value == "9"));
+            assert!(request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "collection_id__equals" && value == "1"));
+        }
+    }
 
     #[test]
     fn class_relation_create_preserves_input_side_options_when_ids_are_canonicalized() {

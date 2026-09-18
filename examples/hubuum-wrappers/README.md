@@ -120,7 +120,15 @@ hubuum-cli extension host show server-01
 ```
 
 The normal display selects useful fields from the facts structure and nests
-Rooms below their Jacks. `--json` emits the resolved Host plus placement data.
+Rooms below their Jacks. `--verbose` resolves the identifier, then delegates to
+`hubuum-cli object show --data --max-depth 2 --output text` using the configured
+Hosts class and resolved object name. This uses the CLI's standard metadata,
+relation tree, and sorted, aligned data fields without a `data.` prefix. The
+relation tree includes other related classes as well as Jacks and Rooms; the
+standard detail display omits the object ID.
+
+`--json` emits the resolved Host (including its ID) plus placement data and takes
+precedence over `--verbose`. Use it for scripts that need structured fields.
 
 ## `hubuum-move`
 

@@ -44,6 +44,9 @@ object list --class Hosts | contact
 
 ## Design Rules
 
+- Default text output should summarize large JSON documents with useful counts,
+  status, and bounded previews. Keep full payloads available through explicit
+  structured output and semantic pipelines.
 - Commands should return semantic values before formatting.
 - Pipes should run before final rendering.
 - Selectors should mean the same thing across filter, projection, sort, and value extraction.

@@ -13,6 +13,7 @@ Usage: hubuum-host [--id IDENTIFIER] [--verbose] [--json] [IDENTIFIER]
 Show a Hubuum Host and its Jack/Room placement.
 The identifier may be an object name or ID, hostname, FQDN, IP address,
 MAC address, or serial number. The local hostname is used by default.
+Verbose output uses hubuum-cli object show --data.
 EOF
 }
 
@@ -82,6 +83,16 @@ identifier=${identifier_option:-${identifier:-$(hostname)}}
 hubuum_init
 host_json=$(hubuum_resolve_host "$identifier") || exit $?
 host_name=$(jq -r '.name' <<<"$host_json")
+if [[ $verbose -eq 1 && $json_output -eq 0 ]]; then
+    "$HUBUUM_CLI_BIN" object show \
+        --class "$HUBUUM_HOSTS_CLASS" \
+        --name "$host_name" \
+        --data \
+        --max-depth 2 \
+        --output text
+    exit 0
+fi
+
 jacks_json=$(hubuum_related_names \
     "$HUBUUM_HOSTS_CLASS" "$host_name" "$HUBUUM_JACKS_CLASS")
 placement_json='[]'
@@ -105,51 +116,37 @@ display id "$(jq -r '.id // ""' <<<"$host_json")"
 display description "$(jq -r '.description // ""' <<<"$host_json")"
 display collection "$(jq -r '.collection // ""' <<<"$host_json")"
 
-if [[ $verbose -eq 1 ]]; then
-    while IFS=$'\t' read -r key value; do
-        display "$key" "$value"
-    done < <(jq -r '
-        .data
-        | paths(scalars) as $path
-        | [
-            ("data." + ($path | map(tostring) | join("."))),
-            (getpath($path) | if . == null then "" else tostring end)
-          ]
-        | @tsv
-    ' <<<"$host_json")
-else
-    while IFS=$'\t' read -r key value; do
-        display "$key" "$value"
-    done < <(jq -r '
-        .data.facts as $facts
-        | [
-            ["hostname", $facts.identity.hostname],
-            ["fqdn", $facts.identity.fqdn],
-            ["ipv4_address", $facts.network.default_ipv4.address],
-            ["ipv4_gateway", $facts.network.default_ipv4.gateway],
-            ["ipv4_interface", $facts.network.default_ipv4.interface],
-            ["ipv6_address", $facts.network.default_ipv6.address],
-            ["serial_number", $facts.hardware.serial_number],
-            ["hardware_model", $facts.hardware.model],
-            ["memory_mb", $facts.hardware.memory_mb],
-            ["processor", $facts.hardware.processor.summary],
-            ["os_distribution", $facts.operating_system.distribution],
-            ["os_version", $facts.operating_system.version],
-            ["kernel", $facts.operating_system.kernel],
-            ["host_type", $facts.classification.host_type],
-            ["virtualization_role", $facts.virtualization.role],
-            ["virtualization_type", $facts.virtualization.type],
-            ["uptime_seconds", $facts.activity.uptime_seconds],
-            ["last_top_user", $facts.activity.last_top_user],
-            ["mac_addresses", ($facts.network.interfaces // [] | map(.mac_address // empty) | join(", "))],
-            ["facts_source", $facts.source],
-            ["collected_at", $facts.collected_at]
-          ]
-        | .[]
-        | [.[0], (.[1] // "" | tostring)]
-        | @tsv
-    ' <<<"$host_json")
-fi
+while IFS=$'\t' read -r key value; do
+    display "$key" "$value"
+done < <(jq -r '
+    .data.facts as $facts
+    | [
+        ["hostname", $facts.identity.hostname],
+        ["fqdn", $facts.identity.fqdn],
+        ["ipv4_address", $facts.network.default_ipv4.address],
+        ["ipv4_gateway", $facts.network.default_ipv4.gateway],
+        ["ipv4_interface", $facts.network.default_ipv4.interface],
+        ["ipv6_address", $facts.network.default_ipv6.address],
+        ["serial_number", $facts.hardware.serial_number],
+        ["hardware_model", $facts.hardware.model],
+        ["memory_mb", $facts.hardware.memory_mb],
+        ["processor", $facts.hardware.processor.summary],
+        ["os_distribution", $facts.operating_system.distribution],
+        ["os_version", $facts.operating_system.version],
+        ["kernel", $facts.operating_system.kernel],
+        ["host_type", $facts.classification.host_type],
+        ["virtualization_role", $facts.virtualization.role],
+        ["virtualization_type", $facts.virtualization.type],
+        ["uptime_seconds", $facts.activity.uptime_seconds],
+        ["last_top_user", $facts.activity.last_top_user],
+        ["mac_addresses", ($facts.network.interfaces // [] | map(.mac_address // empty) | join(", "))],
+        ["facts_source", $facts.source],
+        ["collected_at", $facts.collected_at]
+      ]
+    | .[]
+    | [.[0], (.[1] // "" | tostring)]
+    | @tsv
+' <<<"$host_json")
 
 if [[ $(jq 'length' <<<"$placement_json") -eq 0 ]]; then
     display jack ''

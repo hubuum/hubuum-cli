@@ -9,6 +9,7 @@ mod identity;
 mod imports;
 mod objects;
 mod relations;
+mod schema;
 mod service_accounts;
 mod tasks;
 mod users;

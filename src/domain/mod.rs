@@ -33,6 +33,7 @@ mod object_fields;
 mod objects;
 mod relations;
 mod remote_targets;
+mod schema;
 mod search;
 mod task_output;
 mod tasks;
@@ -78,6 +79,7 @@ pub use relations::{
     ResolvedRelatedObjectRecord,
 };
 pub use remote_targets::RemoteTargetRecord;
+pub use schema::SchemaOutput;
 pub use search::{
     SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,
     SearchResultsRecord, SearchStreamEvent,

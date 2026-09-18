@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+- Resolve collection names in `class show` when the server returns only a collection
+  ID. Related object and class queries now accept class and collection names through
+  `--where class equals Hosts` and `--where collection equals Inventory`.
+
+- Upgrade `hubuum_client` to 0.11.0 and target Hubuum server v0.0.15's pinned
+  218-operation OpenAPI contract. Client features remain blocking-only; its
+  MSRV remains Rust 1.88, with no new CLI MSRV declaration. Update locked Rustls
+  to 0.23.45. Administrative output includes schema budgets, backup row limits,
+  and task execution timeouts.
+- **Breaking (schema commands):** remove `--schema`/`-s` and `--validate`/`-v`
+  from `class create` and `class modify`. Use `class schema stage`, `impact`,
+  and `activate` for all schema policy changes, including initial setup.
+  Activation requires an explicit expected active revision and defaults to
+  rejecting incompatible objects. Add revision inspection/abandonment,
+  compliance pages, revalidation, work diagnostics, and retained HTML reports.
+  See [schema migration examples](docs/schema-evolution.md).
+- Add a schema-scope help walkthrough and allow `class schema stage --validate`
+  to reuse the active schema. Preview validation changes with impact analysis
+  before explicit activation; `--schema null` still explicitly removes a schema.
+  `stage --from-revision` copies a previous policy into a new proposal for impact
+  analysis and activation, with an optional validation override.
+- Schema commands now show concise text summaries by default, including impact
+  readiness, counts, and bounded failure groups. Aligned labels follow the
+  configured output padding; results, impact, and failure details are grouped and
+  indented, with zero-only secondary counters omitted. Full schemas and diagnostics
+  remain available through `--output json`, structured formats, and pipelines.
+- Complete recent schema task IDs with status/summary labels for `work`, reports,
+  cancellation, and activation. Suggestions use a bounded task-list request,
+  without downloading diagnostics; task cancellation also gains ID completion.
+- Add `task cancel` with validated reasons and optional expected status, plus
+  class-scoped `class schema cancel`. Cancellation can remain pending while
+  executors finish cleanup; inspect `task show` for cancellation metadata,
+  deadlines, unattempted items, terminal reasons, and remote side effects.
+  Task filtering/completion includes `schema_validation`.
+- **Breaking (server and backup compatibility):** backups now require format 6.
+  Restore format 5 artifacts with the matching older server, migrate, then
+  create new format 6 backups; no conversion is available. Drain old workers,
+  run migrations in a quiet window, and upgrade server, administrator, template
+  worker, and restore executor together. Revalidate existing enforced classes,
+  add external `CancelTask` permissions, and restart string-sorted pagination.
+
+- **Breaking (example wrapper verbose output):** `hubuum-host --verbose` now
+  delegates to `object show --data` with two levels of relations and text output.
+  Data keys omit the `data.` prefix and values align to the longest key. Verbose
+  output uses the CLI's standard metadata and general relation tree. The ID field
+  is omitted, and relations include classes beyond Jacks and Rooms.
+  Scripts parsing the previous verbose text must migrate to `hubuum-host --json`;
+  JSON output retains its Host and placement structure and takes precedence over
+  `--verbose`.
+
 ## [0.0.11] - 2026-09-10
 
 - Updated `hubuum_client` to 0.10.1, targeting Hubuum server v0.0.14 and its

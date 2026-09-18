@@ -40,6 +40,7 @@ struct CompletionSnapshot {
     observed_fields_by_class: HashMap<String, TimedCompletion<ObservedObjectDataFields>>,
     computed_sort_fields_by_class: HashMap<String, Vec<String>>,
     task_ids: Option<Vec<CompletionItem>>,
+    schema_task_ids: Option<TimedCompletion<Vec<CompletionItem>>>,
     audit_event_ids: Option<Vec<String>>,
     event_delivery_ids: Option<Vec<String>>,
     user_token_ids: HashMap<String, Vec<String>>,
@@ -229,6 +230,20 @@ impl CompletionContext {
                 self.services
                     .completion_store()
                     .load_task_id_items(self.services.gateway()),
+            )
+            .map(|items| filter_item_prefix(&items, prefix))
+            .unwrap_or_default()
+    }
+
+    pub fn schema_task_ids(&self, prefix: &str) -> Vec<CompletionItem> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_schema_task_id_items(self.services.gateway()),
             )
             .map(|items| filter_item_prefix(&items, prefix))
             .unwrap_or_default()
@@ -626,6 +641,39 @@ impl CompletionStore {
         Ok(fetched)
     }
 
+    async fn load_schema_task_id_items(
+        &self,
+        gateway: Arc<HubuumGateway>,
+    ) -> Result<Vec<CompletionItem>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot
+                .schema_task_ids
+                .as_ref()
+                .and_then(|cache| cache.fresh_value(Duration::from_secs(5), Instant::now()))
+            {
+                return Ok(cached);
+            }
+        }
+        let fetched = spawn_blocking(move || {
+            Ok::<_, AppError>(
+                gateway
+                    .recent_schema_tasks()?
+                    .iter()
+                    .map(|task| CompletionItem {
+                        value: task.0.id.to_string(),
+                        description: Some(task_description(task)),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot.schema_task_ids = Some(TimedCompletion::new(fetched.clone()));
+        }
+        Ok(fetched)
+    }
+
     async fn load_audit_event_ids(
         &self,
         gateway: Arc<HubuumGateway>,
@@ -881,6 +929,7 @@ fn json_record_i64(record: &JsonRecord, keys: &[&str]) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -937,6 +986,65 @@ mod tests {
             .as_deref(),
             Some("mi-ansible-facts")
         );
+    }
+
+    #[test]
+    fn schema_task_completion_loads_recent_ids_and_refreshes_its_bounded_cache() {
+        let transport = MockTransport::default();
+        let tasks = json!([{
+            "id": 123, "kind": "schema_validation", "status": "succeeded",
+            "summary": "Schema impact", "created_at": "2026-09-16T00:00:00Z",
+            "progress": {"total_items": 1, "processed_items": 1, "success_items": 1, "failed_items": 0},
+            "links": {"task": "/api/v1/tasks/123", "events": "/api/v1/tasks/123/events"}
+        }]);
+        for _ in 0..2 {
+            transport.push_response(TransportResponse::json(StatusCode::OK, &tasks).unwrap());
+        }
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test-token"));
+        let gateway = Arc::new(HubuumGateway::new(Arc::new(client)));
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let store = CompletionStore::default();
+        let first = runtime
+            .block_on(store.load_schema_task_id_items(gateway.clone()))
+            .unwrap();
+        assert_eq!(first[0].value, "123");
+        assert!(first[0]
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("Schema impact"));
+        assert_eq!(
+            runtime
+                .block_on(store.load_schema_task_id_items(gateway.clone()))
+                .unwrap(),
+            first
+        );
+        assert_eq!(transport.requests().len(), 1);
+        store.snapshot.write().unwrap().schema_task_ids = Some(TimedCompletion::new_at(
+            first.clone(),
+            Instant::now() - Duration::from_secs(6),
+        ));
+        assert_eq!(
+            runtime
+                .block_on(store.load_schema_task_id_items(gateway))
+                .unwrap(),
+            first
+        );
+        assert_eq!(transport.requests().len(), 2);
+        for request in transport.requests() {
+            assert_eq!(request.url.path(), "/api/v1/tasks");
+            let query = request.url.query_pairs().collect::<HashMap<_, _>>();
+            assert_eq!(query.get("kind").unwrap(), "schema_validation");
+            assert_eq!(query.get("limit").unwrap(), "50");
+            assert_eq!(query.get("sort").unwrap(), "id.desc");
+        }
+        store.invalidate_volatile();
+        assert!(store.snapshot.read().unwrap().schema_task_ids.is_none());
     }
 
     #[test]

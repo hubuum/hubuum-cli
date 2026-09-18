@@ -285,7 +285,7 @@ mod tests {
         let error = BackupArtifact::parse_document(r#"{"backup_version":4}"#)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("format 5"));
+        assert!(error.contains("format 6"));
         assert!(error.contains("compatible older server"));
         assert!(error.contains("does not convert"));
     }

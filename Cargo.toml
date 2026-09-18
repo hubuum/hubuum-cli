@@ -13,8 +13,8 @@ members = [
 resolver = "2"
 
 [package.metadata.hubuum]
-server-version = "0.0.14"
-server-image = "ghcr.io/hubuum/hubuum-server@sha256:6c1c8d7316a1f60a02e4505611a44e21030ba678b5b451f5b293a12f2bd87594"
+server-version = "0.0.15"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:36af667dbc9e221a40448496d4a87e168c999d0834df4b69177345ff3d36e821"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -37,7 +37,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.10.1", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.11.0", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"

@@ -111,14 +111,14 @@ def main():
             env = {key: value for key, value in os.environ.items() if not key.startswith("HUBUUM_CLI__")}
             env.update(XDG_CONFIG_HOME=temporary, XDG_DATA_HOME=temporary, XDG_STATE_HOME=temporary)
 
-            def cli(*command, success=True):
+            def cli(*command, success=True, output="json"):
                 result = subprocess.run(
                     [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
-                     "--protocol", "http", "--token-file", str(token_file), *command, "--output", "json"],
+                     "--protocol", "http", "--token-file", str(token_file), *command, "--output", output],
                     text=True, capture_output=True, env=env, timeout=180,
                 )
                 assert (result.returncode == 0) == success, (command, result.stdout, result.stderr)
-                return json.loads(result.stdout) if success else result.stdout + result.stderr
+                return (json.loads(result.stdout) if output == "json" else result.stdout) if success else result.stdout + result.stderr
 
             groups = api("GET", "/api/v1/iam/me/groups", token=token)
             collection = api("POST", "/api/v1/collections", {
@@ -138,6 +138,78 @@ def main():
             assert obj["revision"] > 1
             assert cli("admin", "config")
 
+            def schema(command, *options, success=True):
+                return cli("class", "schema", command, "--class", prefix, *options, success=success)
+
+            def completed_work(task):
+                work = schema("work", "--task", str(task))
+                assert work["status"] == "complete", work
+                return work
+
+            active = schema("show")["active"]["revision"]
+            proposal = schema("stage", "--schema", '{"type":"object","required":["missing"]}',
+                              "--validate", "true")["revision"]
+            assert schema("revision", "--revision", str(proposal))["status"] == "staged"
+            impact = schema("impact", "--revision", str(proposal))["task_id"]
+            work = eventually(lambda: completed_work(impact))
+            assert work["readiness"] == "incompatible"
+            summary = cli("class", "schema", "work", "--class", prefix, "--task", str(impact), output="text")
+            fields = {label.strip(): value.strip() for line in summary.splitlines()
+                      if ":" in line for label, value in [line.split(":", 1)]}
+            assert fields["Readiness"] == "incompatible" and fields["Newly invalid"] == "1"
+            assert '"snapshot"' not in summary and "--output json" in summary
+            assert len(summary) < 2000
+            policy_summary = cli("class", "schema", "revision", "--class", prefix,
+                                 "--revision", str(proposal), output="text")
+            assert any(line.startswith("Schema ") and line.endswith(": present")
+                       for line in policy_summary.splitlines())
+            assert '"required"' not in policy_summary
+
+            html = schema("generate-report", "--task", str(impact),
+                          "--object-url-template", "https://inventory.example/objects/{object_id}")
+            assert "<html" in html.lower()
+            assert schema("report", "--task", str(impact)) == html
+            schema("activate", "--revision", str(proposal), "--expected-active-revision", str(active),
+                   "--impact-task", str(impact), success=False)
+            assert schema("show")["active"]["revision"] == active
+            assert schema("abandon", "--revision", str(proposal))["status"] == "abandoned"
+
+            proposal = schema("stage", "--schema", '{"type":"object"}',
+                              "--validate", "true")["revision"]
+            impact = schema("impact", "--revision", str(proposal))["task_id"]
+            assert eventually(lambda: completed_work(impact))["readiness"] == "compatible"
+            activated = schema("activate", "--revision", str(proposal),
+                               "--expected-active-revision", str(active), "--impact-task", str(impact))
+            assert activated["active"]["revision"] == proposal
+            toggle = schema("stage", "--validate", "false")
+            assert toggle["json_schema"] == {"type": "object"}
+            assert toggle["validate_schema"] is False
+            toggle_impact = schema("impact", "--revision", str(toggle["revision"]))["task_id"]
+            assert eventually(lambda: completed_work(toggle_impact))["readiness"] == "compatible"
+            assert schema("show")["active"]["validate_schema"] is True
+            schema("abandon", "--revision", str(toggle["revision"]))
+            copied = schema("stage", "--from-revision", str(active))
+            assert copied["json_schema"] is None and copied["validate_schema"] is False
+            copied_impact = schema("impact", "--revision", str(copied["revision"]))["task_id"]
+            assert eventually(lambda: completed_work(copied_impact))["readiness"] == "compatible"
+            assert schema("show")["active"]["revision"] == proposal
+            schema("abandon", "--revision", str(copied["revision"]))
+            validation = schema("revalidate", "--revision", str(proposal))["task_id"]
+            eventually(lambda: completed_work(validation))
+            page = schema("objects", "--status", "valid", "--limit", "1")
+            assert page["items"][0]["object_id"] == obj["id"]
+            assert schema("revisions", "--after", str(active), "--limit", "1")[0]["revision"] > active
+            tasks = cli("task", "list", "--kind", "schema_validation")
+            assert tasks
+            cancelled = cli("task", "cancel", str(validation), "--reason", "Lifecycle check")
+            assert cancelled["kind"] == "schema_validation" and cancelled["status"] == "succeeded"
+            assert schema("cancel", "--task", str(validation))["status"] == "complete"
+            assert "unattempted_items" in cancelled
+            # Retain the current object state as the restore expectation.
+            obj = api("GET", object_path, token=token)
+            print("PASS: schema staging, incompatible/compatible impact, reports, activation, compliance, "
+                  "revalidation, and idempotent cancellation", flush=True)
+
             def restore_cycle(label, expected_object, *, include_history=True, wait_on_confirm=True):
                 nonlocal token
                 backup = directory / f"backup-{label}.json"
@@ -146,7 +218,7 @@ def main():
                 if not include_history:
                     backup_args += ["--include-history", "false"]
                 summary = cli(*backup_args)
-                assert summary["backup"]["backup_version"] == 5
+                assert summary["backup"]["backup_version"] == 6
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))

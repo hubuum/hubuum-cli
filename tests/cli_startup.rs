@@ -631,3 +631,20 @@ fn json_alias_conflicts_with_non_json_output() {
         .failure()
         .stdout(contains("--json conflicts"));
 }
+
+#[test]
+fn schema_scope_help_explains_validation_preview_without_login() {
+    for args in [
+        vec!["help", "class", "schema"],
+        vec!["class", "schema", "help"],
+        vec!["class", "schema", "--help"],
+    ] {
+        cargo_bin_cmd!("hubuum-cli")
+            .args(args)
+            .assert()
+            .success()
+            .stdout(contains("stage Hosts --validate true"))
+            .stdout(contains("impact Hosts --revision"))
+            .stdout(contains("do not change the active policy"));
+    }
+}
