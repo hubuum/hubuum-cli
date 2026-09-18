@@ -296,6 +296,20 @@ and then applies `--limit`. Computed sorting cannot
 be combined with `--cursor`. A computed sort fetches its key internally but does
 not display it unless the same field is selected with `--computed`.
 
+Related objects can be selected by target class name without specifying any
+intermediate classes:
+
+```sh
+hubuum-cli relation object list --root-class Person --root-object Alice \
+  --where class equals Hosts --max-depth 10 --all
+```
+
+This includes paths such as Person → Room → Host and other connecting paths,
+subject to server limits and permissions. The default maximum depth is 2;
+`--all` follows pagination, while `--max-depth` bounds traversal distance.
+Related class and object queries also accept `--where collection equals Inventory`.
+Class and collection filter values support name completion.
+
 Object-list text and pipeline output automatically promotes dotted data fields
 referenced by `--where` into explicit columns. This makes the matching value
 visible without separately repeating the path in `--data-columns`:

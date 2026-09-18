@@ -206,6 +206,9 @@ impl HubuumGateway {
     ) -> Result<QueryFilter, AppError> {
         let resolved_value = match clause.spec.resolver {
             FilterValueResolver::None => clause.value.clone(),
+            FilterValueResolver::ClassNameToId => {
+                self.class_handle_by_name(&clause.value)?.id().to_string()
+            }
             FilterValueResolver::CollectionNameToId => {
                 self.collection_id(&clause.value)?.to_string()
             }

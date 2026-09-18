@@ -146,6 +146,7 @@ pub enum FilterValueProfile {
 pub enum FilterValueResolver {
     None,
     CollectionNameToId,
+    ClassNameToId,
 }
 
 #[derive(Debug, Clone)]

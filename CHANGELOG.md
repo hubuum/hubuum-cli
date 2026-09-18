@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Resolve collection names in `class show` when the server returns only a collection
+  ID. Related object and class queries now accept class and collection names through
+  `--where class equals Hosts` and `--where collection equals Inventory`.
+
 - Upgrade `hubuum_client` to 0.11.0 and target Hubuum server v0.0.15's pinned
   218-operation OpenAPI contract. Client features remain blocking-only; its
   MSRV remains Rust 1.88, with no new CLI MSRV declaration. Update locked Rustls
