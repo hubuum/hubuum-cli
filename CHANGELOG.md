@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 - Refresh locked Rust dependencies, including Clap 4.6.7 and Quinn 0.11.12,
-  and update Docker build workflow actions.
+  and update Docker build workflow actions and the pinned Rust builder to 1.98.1.
 
 - Resolve collection names in `class show` when the server returns only a collection
   ID. Related object and class queries now accept class and collection names through
