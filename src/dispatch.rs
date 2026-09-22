@@ -37,7 +37,7 @@ pub async fn execute_line(
     let aliases = get_config();
     let expansion = expand_command_aliases(&catalog, &scope, &aliases.aliases, line)?;
     let (line, redirect) = prepare_redirect(&catalog, &scope, expansion.line())?;
-    let mut outcome = execute_line_inner(app, session, &line).await?;
+    let mut outcome = execute_line_inner(app, session, &line, redirect.is_none()).await?;
     outcome.redirect = redirect;
     Ok(outcome)
 }
@@ -46,6 +46,7 @@ async fn execute_line_inner(
     app: Arc<AppRuntime>,
     session: &SharedSession,
     line: &str,
+    stream_output: bool,
 ) -> Result<CommandOutcome, AppError> {
     let catalog = app.catalog.snapshot();
     reset_output()?;
@@ -131,6 +132,7 @@ async fn execute_line_inner(
         );
     }
     let invocation = CommandInvocation {
+        stream_output,
         raw_line: line.clone(),
         command_index: resolved.command_index,
         command_path: resolved.command_path.clone(),
@@ -359,6 +361,7 @@ async fn execute_offline_line_inner(
             return Err(AppError::CommandNotFound(parts.join(" ")));
         }
         let invocation = CommandInvocation {
+            stream_output: false,
             raw_line: line,
             command_index: resolved.command_index,
             command_path: resolved.command_path,

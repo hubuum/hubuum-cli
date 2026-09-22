@@ -1,4 +1,5 @@
-use hubuum_client::ImportRequest;
+use super::credential_approvals::send_approved;
+use hubuum_client::{CredentialOperation, FullImportRequest};
 
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
@@ -10,16 +11,37 @@ use super::HubuumGateway;
 
 #[derive(Debug, Clone)]
 pub struct SubmitImportInput {
-    pub request: ImportRequest,
+    pub request: FullImportRequest,
     pub idempotency_key: Option<String>,
 }
 
 impl HubuumGateway {
     pub fn submit_import(&self, input: SubmitImportInput) -> Result<TaskRecord, AppError> {
-        let submit = self.client().imports().submit(input.request);
-        let task = match input.idempotency_key {
-            Some(key) => submit.idempotency_key(key).send()?,
-            None => submit.send()?,
+        let client = self.client();
+        let submit = client.imports().submit_full(input.request.clone());
+        let result = match input.idempotency_key.as_ref() {
+            Some(key) => submit.idempotency_key(key).send(),
+            None => submit.send(),
+        };
+        let task = match result {
+            Ok(task) => task,
+            Err(error) if error.is_reauthentication_required() => {
+                let description = format!(
+                    "Import {} items, dry run: {}",
+                    input.request.total_items(),
+                    input.request.dry_run.unwrap_or(false)
+                );
+                let mut approved = self.approval_source().approve(
+                    &client,
+                    CredentialOperation::import_credentials(input.request),
+                    &description,
+                )?;
+                if let Some(key) = input.idempotency_key {
+                    approved = approved.idempotency_key(key);
+                }
+                send_approved(approved)?
+            }
+            Err(error) => return Err(error.into()),
         };
 
         Ok(TaskRecord::from(task))

@@ -16,7 +16,9 @@ use shlex::split;
 use tokio::runtime::Handle;
 
 use crate::app::{reauthenticate, AppRuntime, SharedSession};
-use crate::autocomplete::{complete_sort_clause, complete_where_clause, file_paths};
+use crate::autocomplete::{
+    complete_search_predicate, complete_sort_clause, complete_where_clause, file_paths,
+};
 use crate::background::BackgroundManager;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::config::get_config;
@@ -525,6 +527,24 @@ impl ReplCompleter {
         let scope = self.session.scope();
         let catalog = self.app.catalog.snapshot();
         let resolved = catalog.resolve_command(&scope, &parts).ok()?;
+        if resolved.command_path == ["search"] {
+            let (offset, candidates) =
+                complete_search_predicate(&self.completion, &parts, quoted.clause_prefix);
+            return Some(
+                candidates
+                    .into_iter()
+                    .map(|candidate| {
+                        where_suggestion(
+                            candidate.value,
+                            quoted.start + offset,
+                            pos,
+                            candidate.description,
+                            candidate.append_whitespace,
+                        )
+                    })
+                    .collect(),
+            );
+        }
         let replacement_start = quoted.start
             + clause_active_token_offset(quoted.clause_prefix, quoted.clause_ends_with_space);
         Some(
@@ -558,6 +578,10 @@ impl ReplCompleter {
         word: &str,
         ends_with_space: bool,
     ) -> Option<Vec<Suggestion>> {
+        if command_path == ["search"] {
+            // Search takes a single quoted predicate; open quotes are handled above.
+            return None;
+        }
         let context =
             clause_option_context(parts, "--where", 3, start, pos, word, ends_with_space)?;
         if context.is_complete && !ends_with_space {
@@ -2153,6 +2177,61 @@ mod tests {
     #[test]
     fn quoted_where_context_ignores_closed_quotes() {
         assert!(quoted_where_context("collection list --where 'name icontains foo'").is_none());
+    }
+
+    #[test]
+    fn search_predicate_completion_preserves_quotes_groups_and_following_flags() {
+        use super::ReplCompleter;
+        use crate::app::AppRuntime;
+        use crate::catalog::CatalogStore;
+        use crate::config::AppConfig;
+        use crate::services::AppServices;
+        use hubuum_client::{blocking::Client, Token};
+        use std::time::Duration;
+
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test"));
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let handle = runtime.handle().clone();
+        let services = Arc::new(AppServices::new(
+            Arc::new(client),
+            handle.clone(),
+            Duration::from_secs(60),
+        ));
+        let config = Arc::new(AppConfig::default());
+        let mut completer = ReplCompleter {
+            completion: services.completion_context(handle, &config),
+            app: Arc::new(AppRuntime {
+                config,
+                services,
+                catalog: Arc::new(CatalogStore::new(build_command_catalog())),
+            }),
+            session: SharedSession::new(),
+        };
+        for (line, expected, replaced) in [
+            ("search --target object --where 'na", "name", "na"),
+            ("search --target object --where 'name ", "==", ""),
+            (
+                "search --target object --where 'name == \"røm\" AND (",
+                "name",
+                "",
+            ),
+            (
+                "search --target object --where 'name == \"røm\"' --li",
+                "--limit",
+                "--li",
+            ),
+        ] {
+            let suggestions = completer.suggestions(line, line.len());
+            let found = suggestions
+                .iter()
+                .find(|item| item.value == expected)
+                .unwrap_or_else(|| panic!("{line}: {suggestions:?}"));
+            assert_eq!(&line[found.span.start..found.span.end], replaced);
+        }
     }
 
     #[test]

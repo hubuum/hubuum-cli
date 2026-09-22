@@ -14,7 +14,7 @@ use crate::list_query::{
 };
 use crate::services::WaitTaskInput;
 
-use super::HubuumGateway;
+use super::{HubuumGateway, TaskDiscovery};
 
 #[derive(Debug, Clone)]
 pub struct TaskLookupInput {
@@ -23,6 +23,7 @@ pub struct TaskLookupInput {
 
 #[derive(Debug, Clone, Default)]
 pub struct ListTasksInput {
+    pub discovery: TaskDiscovery,
     pub kind: Option<String>,
     pub status: Option<String>,
     pub limit: Option<usize>,
@@ -117,10 +118,18 @@ impl HubuumGateway {
     pub fn list_tasks(&self, input: ListTasksInput) -> Result<PagedResult<TaskRecord>, AppError> {
         let mut q = self.client().tasks().query();
         if let Some(k) = input.kind.as_deref() {
-            q = q.kind(parse_task_kind(k)?);
+            q = q.kinds(
+                k.split(',')
+                    .map(|kind| parse_task_kind(kind.trim()))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
         }
         if let Some(s) = input.status.as_deref() {
-            q = q.status(parse_task_status(s)?);
+            q = q.statuses(
+                s.split(',')
+                    .map(|status| parse_task_status(status.trim()))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
         }
         if let Some(l) = input.limit {
             q = q.limit(l);
@@ -128,7 +137,7 @@ impl HubuumGateway {
         if let Some(c) = input.cursor {
             q = q.cursor(c);
         }
-        q = q.include_total(input.include_total);
+        q = input.discovery.apply(q).include_total(input.include_total);
         let page = if matches!(input.page_selection, PageSelection::All) {
             PagedResult::from_pages(q.pages())?
         } else {
@@ -144,7 +153,7 @@ fn parse_task_kind(s: &str) -> Result<TaskKind, AppError> {
         "export" => Ok(TaskKind::Export),
         "backup" => Ok(TaskKind::Backup),
         "reindex" => Ok(TaskKind::Reindex),
-        "remotecall" => Ok(TaskKind::RemoteCall),
+        "remote_call" | "remotecall" => Ok(TaskKind::RemoteCall),
         "schemavalidation" | "schema_validation" => Ok(TaskKind::SchemaValidation),
         _ => Err(AppError::InvalidOption(format!(
             "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall, schema_validation",
@@ -160,7 +169,7 @@ fn parse_task_status(s: &str) -> Result<TaskStatus, AppError> {
         "running" => Ok(TaskStatus::Running),
         "succeeded" => Ok(TaskStatus::Succeeded),
         "failed" => Ok(TaskStatus::Failed),
-        "partiallysucceeded" => Ok(TaskStatus::PartiallySucceeded),
+        "partially_succeeded" | "partiallysucceeded" => Ok(TaskStatus::PartiallySucceeded),
         "cancelled" => Ok(TaskStatus::Cancelled),
         _ => Err(AppError::InvalidOption(format!(
             "Invalid task status '{}'. Valid values: queued, validating, running, succeeded, failed, partiallysucceeded, cancelled",

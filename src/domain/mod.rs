@@ -81,7 +81,7 @@ pub use relations::{
 pub use remote_targets::RemoteTargetRecord;
 pub use schema::SchemaOutput;
 pub use search::{
-    SearchBatchRecord, SearchCursorSet, SearchErrorEvent, SearchQueryEvent, SearchResponseRecord,
+    SearchBatchRecord, SearchCursorSet, SearchQueryEvent, SearchResponseRecord,
     SearchResultsRecord, SearchStreamEvent,
 };
 pub use task_output::TaskOutput;

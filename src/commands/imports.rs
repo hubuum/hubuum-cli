@@ -2,8 +2,8 @@ use std::fs::read_to_string;
 
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
-    ClassKey, CollectionKey, ImportAtomicity, ImportCollisionPolicy, ImportMode,
-    ImportPermissionPolicy, ImportRequest,
+    ClassKey, CollectionKey, FullImportRequest, ImportAtomicity, ImportCollisionPolicy, ImportMode,
+    ImportPermissionPolicy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
@@ -137,7 +137,7 @@ impl CliCommand for ImportSubmit {
     }
 }
 
-fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
+fn import_request(query: &ImportSubmit) -> Result<FullImportRequest, AppError> {
     let body = match (&query.file, &query.http) {
         (Some(_), Some(_)) => Err(AppError::ParseError(
             "Use either --file or --http, not both".to_string(),
@@ -149,7 +149,7 @@ fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
             "http".to_string(),
         ])),
     }?;
-    let mut request = from_str::<ImportRequest>(&body)?;
+    let mut request = from_str::<FullImportRequest>(&body)?;
     apply_mode_overrides(&mut request, query);
     if let Some(collection) = &query.collection {
         apply_existing_collection_override(&mut request, collection);
@@ -157,7 +157,7 @@ fn import_request(query: &ImportSubmit) -> Result<ImportRequest, AppError> {
     Ok(request)
 }
 
-fn apply_mode_overrides(request: &mut ImportRequest, query: &ImportSubmit) {
+fn apply_mode_overrides(request: &mut FullImportRequest, query: &ImportSubmit) {
     if query.atomicity.is_none()
         && query.collision_policy.is_none()
         && query.permission_policy.is_none()
@@ -182,7 +182,7 @@ fn apply_mode_overrides(request: &mut ImportRequest, query: &ImportSubmit) {
     }
 }
 
-fn apply_existing_collection_override(request: &mut ImportRequest, collection: &str) {
+fn apply_existing_collection_override(request: &mut FullImportRequest, collection: &str) {
     let collection_key = CollectionKey {
         name: collection.to_string(),
         path: None,
@@ -201,6 +201,24 @@ fn apply_existing_collection_override(request: &mut ImportRequest, collection: &
         if let Some(class_key) = &mut computed_field.class_key {
             rewrite_class_key_collection(class_key, collection_key.clone());
         }
+    }
+    for template in &mut request.graph.export_templates {
+        template.collection_ref = None;
+        template.collection_key = Some(collection_key.clone());
+        if let Some(class_key) = &mut template.class_key {
+            rewrite_class_key_collection(class_key, collection_key.clone());
+        }
+    }
+    for target in &mut request.graph.remote_targets {
+        target.collection_ref = None;
+        target.collection_key = Some(collection_key.clone());
+        if let Some(class_key) = &mut target.class_key {
+            rewrite_class_key_collection(class_key, collection_key.clone());
+        }
+    }
+    for subscription in &mut request.graph.event_subscriptions {
+        subscription.collection_ref = None;
+        subscription.collection_key = Some(collection_key.clone());
     }
     for relation in &mut request.graph.class_relations {
         for class_key in [&mut relation.from_class_key, &mut relation.to_class_key]

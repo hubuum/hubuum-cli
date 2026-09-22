@@ -1,9 +1,16 @@
 use cli_command_derive::CommandArgs;
+use hubuum_filter::OutputEnvelope;
+use hubuum_search::{
+    PageOptions, ResourceKind, SearchError, SearchRequest, SortDirection, MAX_REQUEST_BYTES,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::{from_value, Value};
+use std::fs::File;
+use std::io::Read;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, option_or_pos, CliCommand};
-use crate::autocomplete::search_kinds;
+use super::{desired_format, option_or_pos, render_format, CliCommand};
+use crate::autocomplete::{classes, file_paths, search_kinds, search_targets};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::command_line::rebuild_with_replaced_options;
 use crate::config::get_config;
@@ -13,9 +20,12 @@ use crate::domain::{
 };
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json, OutputFormatter, TableRenderable};
-use crate::list_query::PARTIAL_PIPELINE_WARNING;
+use crate::list_query::{parse_sort_clause, SortDirectionArg, PARTIAL_PIPELINE_WARNING};
 use crate::models::OutputFormat;
-use crate::output::{add_error, add_warning, append_line, has_pipeline, set_next_page_command};
+use crate::output::{
+    add_warning, append_line, flush_stream_output, has_pipeline, set_next_page_command,
+    set_semantic_output, RenderFormat,
+};
 use crate::services::{AppServices, SearchInput, SearchKind};
 use crate::tokenizer::CommandTokenizer;
 
@@ -26,14 +36,16 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             "search",
             SearchCommand::default(),
             CommandDocs {
-                about: Some("Run a unified search"),
+                about: Some("Search resources by text or a structured predicate"),
                 long_about: Some(
-                    "Search across collections, classes, and objects. Pass the query as the first positional argument or with --query. Use --stream to consume the server-sent event variant of the endpoint.",
+                    "Search across collections, classes, and objects with a plain-text query, or choose --target and a quoted --where predicate for structured server-side search. The REPL completes fields, operators, and boolean expressions inside --where quotes. Use --query-file for the full version 1 JSON search language, including relations. Structured search supports --sort, --limit, --cursor, --include-total, and --all. Plain-text --stream displays text batches or JSONL events as they arrive; JSON output, pipelines, and file redirects are buffered.",
                 ),
                 examples: Some(
                     r#"server
 --query server --kind class --kind object --limit-per-kind 5
-streamneedle --stream --kind class --kind object --search-object-data"#,
+streamneedle --stream --kind class --kind object --search-object-data
+--target object --class Hosts --where 'data.cpu.cores >= 8 AND name ~ "^srv-"' --sort name asc --limit 25
+--query-file search.json --include-total --all --output json"#,
                 ),
             },
         ),
@@ -42,6 +54,46 @@ streamneedle --stream --kind class --kind object --search-object-data"#,
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, CommandArgs)]
 pub struct SearchCommand {
+    #[option(
+        long = "target",
+        help = "Structured search target: object, class, collection, audit_event, user, group, service_account",
+        autocomplete = "search_targets"
+    )]
+    pub target: Option<String>,
+    #[option(
+        long = "class",
+        help = "Exact class name for a structured object search",
+        autocomplete = "classes"
+    )]
+    pub class: Option<String>,
+    #[option(
+        long = "where",
+        help = "Quoted search predicate with AND, OR, NOT, comparisons, IN, or IS NULL",
+        nargs = 1
+    )]
+    pub predicate: Option<String>,
+    #[option(
+        long = "sort",
+        help = "Structured search sort: field asc|desc",
+        nargs = 2
+    )]
+    pub sorts: Vec<String>,
+    #[option(
+        long = "query-file",
+        help = "JSON file containing a version 1 structured resource search",
+        autocomplete = "file_paths"
+    )]
+    pub query_file: Option<String>,
+    #[option(long = "limit", help = "Page size for structured search")]
+    pub limit: Option<usize>,
+    #[option(long = "cursor", help = "Next-page cursor for structured search")]
+    pub cursor: Option<String>,
+    #[option(
+        long = "include-total",
+        help = "Request the exact authorized structured-search count",
+        flag = true
+    )]
+    pub include_total: Option<bool>,
     #[option(short = "q", long = "query", help = "Plain-text search query")]
     pub query: Option<String>,
     #[option(
@@ -105,6 +157,19 @@ impl CliCommand for SearchCommand {
         let mut query = Self::parse_tokens(tokens)?;
         query.query = option_or_pos(query.query, tokens, 0, "query")?;
 
+        if query.query_file.is_some() || query.target.is_some() {
+            return query.execute_structured(services, tokens);
+        }
+        if query.limit.is_some()
+            || query.cursor.is_some()
+            || query.include_total.is_some()
+            || query.class.is_some()
+            || query.predicate.is_some()
+            || !query.sorts.is_empty()
+        {
+            return Err(AppError::InvalidOption("Structured search options require --target or --query-file; plain-text search uses --limit-per-kind and per-kind cursors".into()));
+        }
+
         let query_string = query
             .query
             .clone()
@@ -125,8 +190,24 @@ impl CliCommand for SearchCommand {
         };
 
         if stream {
-            let events = services.gateway().search_stream(&input)?;
-            render_search_stream(tokens, &events)
+            let format = render_format(tokens)?;
+            let mut events = Vec::new();
+            let next = services.gateway().search_stream(&input, |event| {
+                if matches!(desired_format(tokens)?, OutputFormat::Json) {
+                    events.push(event);
+                } else if format == RenderFormat::Jsonl && !has_pipeline()? {
+                    append_json(&event)?;
+                    flush_stream_output()?;
+                } else {
+                    render_search_event(&event, format == RenderFormat::Text)?;
+                    flush_stream_output()?;
+                }
+                Ok(())
+            })?;
+            if matches!(desired_format(tokens)?, OutputFormat::Json) {
+                append_json(&events)?;
+            }
+            apply_next_page_state(tokens, &next, format == RenderFormat::Text, false)
         } else {
             let response = if fetch_all {
                 services.gateway().search_all(&input)?
@@ -135,6 +216,131 @@ impl CliCommand for SearchCommand {
             };
             render_search_response(tokens, &response)
         }
+    }
+}
+
+impl SearchCommand {
+    fn execute_structured(
+        &self,
+        services: &AppServices,
+        tokens: &CommandTokenizer,
+    ) -> Result<(), AppError> {
+        if self.query.is_some()
+            || !self.kinds.is_empty()
+            || self.limit_per_kind.is_some()
+            || self.cursor_collections.is_some()
+            || self.cursor_classes.is_some()
+            || self.cursor_objects.is_some()
+            || self.search_class_schema.is_some()
+            || self.search_object_data.is_some()
+            || self.stream.unwrap_or(false)
+        {
+            return Err(AppError::InvalidOption(
+                "Structured search cannot be combined with plain-text search options or --stream"
+                    .into(),
+            ));
+        }
+        let request = self.structured_request()?;
+        let mut page = PageOptions::new();
+        if let Some(limit) = self.limit {
+            page = page.limit(limit);
+        }
+        if let Some(cursor) = &self.cursor {
+            page = page.cursor(cursor);
+        }
+        if let Some(total) = self.include_total {
+            page = page.include_total(total);
+        }
+        let request = request
+            .with_page(page)
+            .map_err(|error| AppError::InvalidOption(error.to_string()))?;
+        let response = services
+            .gateway()
+            .structured_search(request, self.all.unwrap_or(false))?;
+        if let Some(next) = response.next() {
+            set_next_page_command(rebuild_with_replaced_options(
+                tokens,
+                &["--cursor"],
+                [("--cursor", Some(next))],
+            ))?;
+            if has_pipeline()? {
+                add_warning(PARTIAL_PIPELINE_WARNING)?;
+            }
+        }
+        if matches!(desired_format(tokens)?, OutputFormat::Json) {
+            return append_json(&response);
+        }
+        let columns: &[&str] = match response.kind() {
+            ResourceKind::AuditEvent => &["id", "occurred_at", "action", "summary"],
+            ResourceKind::User => &["id", "name", "identity_scope", "email"],
+            ResourceKind::Object => &[
+                "id",
+                "name",
+                "description",
+                "hubuum_class_id",
+                "collection_id",
+            ],
+            _ => &["id", "name", "description"],
+        };
+        set_semantic_output(OutputEnvelope::rows(
+            response.rows(),
+            columns.iter().map(|c| c.to_string()).collect(),
+        ))?;
+        if matches!(render_format(tokens)?, RenderFormat::Text) && !has_pipeline()? {
+            if let Some(total) = response.total() {
+                append_line(format!(
+                    "Total matching {} results: {total}",
+                    response.kind().as_str()
+                ))?;
+            }
+            if response.next().is_some() {
+                append_line("More results available; use next or --all.")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn structured_request(&self) -> Result<SearchRequest, AppError> {
+        let invalid = |error: SearchError| AppError::InvalidOption(error.to_string());
+        if let Some(path) = &self.query_file {
+            if self.target.is_some()
+                || self.class.is_some()
+                || self.predicate.is_some()
+                || !self.sorts.is_empty()
+            {
+                return Err(AppError::InvalidOption(
+                    "--query-file cannot be combined with --target, --class, --where, or --sort"
+                        .into(),
+                ));
+            }
+            let mut json = String::new();
+            File::open(path)?
+                .take(MAX_REQUEST_BYTES as u64 + 1)
+                .read_to_string(&mut json)?;
+            return SearchRequest::parse(&json).map_err(invalid);
+        }
+        let target = self
+            .target
+            .as_deref()
+            .ok_or_else(|| AppError::MissingOptions(vec!["target".into()]))?;
+        let kind: ResourceKind = from_value(Value::String(target.into()))
+            .map_err(|_| AppError::InvalidOption(format!("Unknown search target '{target}'; use object, class, collection, audit_event, user, group, or service_account")))?;
+        let mut request = SearchRequest::new(kind);
+        if let Some(class) = &self.class {
+            request = request.in_class(class).map_err(invalid)?;
+        }
+        if let Some(predicate) = &self.predicate {
+            request = request.with_predicate(predicate).map_err(invalid)?;
+        }
+        for clause in &self.sorts {
+            let sort = parse_sort_clause(clause)?;
+            let direction = match sort.direction {
+                SortDirectionArg::Asc => SortDirection::Asc,
+                SortDirectionArg::Desc => SortDirection::Desc,
+            };
+            request = request.sort_by(sort.field, direction).map_err(invalid)?;
+        }
+        Ok(request)
     }
 }
 
@@ -168,47 +374,35 @@ fn render_search_response(
     apply_next_page_state(tokens, &response.next, true, true)
 }
 
-fn render_search_stream(
-    tokens: &CommandTokenizer,
-    events: &[SearchStreamEvent],
-) -> Result<(), AppError> {
-    if matches!(desired_format(tokens)?, OutputFormat::Json) {
-        append_json(events)?;
-        let next = next_from_stream(events);
-        return apply_next_page_state(tokens, &next, false, false);
-    }
-
-    let mut started_query: Option<String> = None;
-    for event in events {
-        match event {
-            SearchStreamEvent::Started(payload) => {
-                started_query = Some(payload.query.clone());
-                append_line(format!("Streaming query: {}", payload.query))?;
-            }
-            SearchStreamEvent::Batch(batch) => {
-                append_line("")?;
+fn render_search_event(event: &SearchStreamEvent, text: bool) -> Result<(), AppError> {
+    match event {
+        SearchStreamEvent::Started(payload) if text => {
+            append_line(format!("Streaming query: {}", payload.query))
+        }
+        SearchStreamEvent::Batch(batch) => {
+            if text {
                 append_line(format!("Batch: {}", batch.kind))?;
-                render_search_batch(batch)?;
-                if let Some(next) = &batch.next {
-                    append_line(format!("Next cursor for {}: {}", batch.kind, next))?;
+            }
+            if text {
+                render_search_batch(batch)
+            } else {
+                if !batch.collections.is_empty() {
+                    batch.collections.format_noreturn()?;
                 }
-            }
-            SearchStreamEvent::Done(payload) => {
-                append_line("")?;
-                append_line(format!("Search complete: {}", payload.query))?;
-            }
-            SearchStreamEvent::Error(payload) => {
-                add_error(&payload.message)?;
+                if !batch.classes.is_empty() {
+                    batch.classes.format_noreturn()?;
+                }
+                if !batch.objects.is_empty() {
+                    batch.objects.format_noreturn()?;
+                }
+                Ok(())
             }
         }
+        SearchStreamEvent::Done(payload) if text => {
+            append_line(format!("Search complete: {}", payload.query))
+        }
+        _ => Ok(()),
     }
-
-    if started_query.is_none() && events.is_empty() {
-        append_line("No events returned.")?;
-    }
-
-    let next = next_from_stream(events);
-    apply_next_page_state(tokens, &next, true, false)
 }
 
 fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> {
@@ -248,25 +442,6 @@ where
     append_line(title)?;
     items.to_vec().format_noreturn()?;
     Ok(true)
-}
-
-fn next_from_stream(events: &[SearchStreamEvent]) -> SearchCursorSet {
-    let mut next = SearchCursorSet::default();
-
-    for event in events {
-        let SearchStreamEvent::Batch(batch) = event else {
-            continue;
-        };
-
-        match batch.kind.as_str() {
-            "collections" => next.collections = batch.next.clone(),
-            "classes" => next.classes = batch.next.clone(),
-            "objects" => next.objects = batch.next.clone(),
-            _ => {}
-        }
-    }
-
-    next
 }
 
 fn apply_next_page_state(
@@ -396,6 +571,21 @@ mod tests {
 
         let parsed = SearchCommand::parse_tokens(&tokens).expect("parse should succeed");
         assert_eq!(parsed.all, Some(true));
+    }
+
+    #[test]
+    fn terminal_predicate_preserves_quotes_and_repeatable_sort_fields() {
+        let tokens = CommandTokenizer::new(
+            r#"search --target object --class Hosts --where 'name == "a room" AND data.cores >= 8' --sort name asc --sort id desc"#,
+            "search",
+            &command_options::<SearchCommand>(),
+        ).unwrap();
+        let parsed = SearchCommand::parse_tokens(&tokens).unwrap();
+        let wire = serde_json::to_value(parsed.structured_request().unwrap()).unwrap();
+        assert_eq!(wire["filter"]["args"][0]["predicate"]["value"], "a room");
+        assert_eq!(wire["filter"]["args"][1]["predicate"]["value"], 8);
+        assert_eq!(wire["sort"][0]["field"], "name");
+        assert_eq!(wire["sort"][1]["direction"], "desc");
     }
 
     #[test]

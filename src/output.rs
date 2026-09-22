@@ -94,6 +94,7 @@ pub fn print_rendered(text: &str) -> Result<(), AppError> {
 
 #[derive(Debug, Default)]
 pub struct OutputBuffer {
+    stream_output: bool,
     events: Vec<OutputEvent>,
     pipeline: Vec<PipeStage>,
     pipeline_suffix: Option<String>,
@@ -178,6 +179,7 @@ impl OutputBuffer {
     }
 
     fn reset(&mut self) {
+        self.stream_output = false;
         self.events.clear();
         self.warnings.clear();
         self.errors.clear();
@@ -352,6 +354,32 @@ pub fn take_output() -> Result<OutputSnapshot, AppError> {
         .lock()
         .map_err(|_| AppError::LockError)?
         .take_snapshot()
+}
+
+/// Permit direct incremental output only when dispatch owns the terminal sink.
+pub(crate) fn set_stream_output(enabled: bool) -> Result<(), AppError> {
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .stream_output = enabled;
+    Ok(())
+}
+
+/// Drain one stream batch without losing renderer or pagination settings.
+/// Pipelines, redirects, and extension capture retain their complete snapshot.
+pub(crate) fn flush_stream_output() -> Result<(), AppError> {
+    let snapshot = {
+        let mut output = OUTPUT_BUFFER.lock().map_err(|_| AppError::LockError)?;
+        if !output.stream_output || output.has_pipeline() {
+            return Ok(());
+        }
+        let snapshot = output.snapshot()?;
+        output.events.clear();
+        output.warnings.clear();
+        output.errors.clear();
+        snapshot
+    };
+    print_rendered(&snapshot.render())
 }
 
 pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {

@@ -1,8 +1,12 @@
 # RFC 0001: Native Pipeline DSL Increment
 
-- Status: Proposed
+- Status: Implemented (predicates, sorting, projection aliases, distinct, aggregation)
 - Tracking issue: [#46](https://github.com/hubuum/hubuum-cli/issues/46)
 - Scope: predicates, sorting, projection aliases, distinct, and aggregation
+
+The current user reference is [the pipeline DSL guide](../DSL.md).
+Server-side search now reuses the predicate grammar through
+[structured search](../search.md), with the documented server-side subset.
 
 ## Summary
 

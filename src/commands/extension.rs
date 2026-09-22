@@ -943,6 +943,7 @@ impl WorkflowCommandHandler {
                 .execute(
                     ctx.clone(),
                     CommandInvocation {
+                        stream_output: false,
                         raw_line,
                         command_index,
                         command_path,
@@ -1980,6 +1981,7 @@ mod tests {
             .execute(
                 context,
                 CommandInvocation {
+                    stream_output: false,
                     raw_line: "extension demo snapshot 7 --output json".to_string(),
                     command_index: 2,
                     command_path: vec![

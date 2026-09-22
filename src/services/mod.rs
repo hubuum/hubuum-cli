@@ -30,6 +30,7 @@ pub use gateway::{
     SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,
     UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
 };
+pub(crate) use gateway::{CredentialApprovalSource, TaskDiscovery};
 
 #[derive(Debug, Clone)]
 pub struct WaitTaskInput {

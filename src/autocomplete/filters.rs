@@ -63,6 +63,10 @@ pub(crate) fn complete_where_clause(
     }
 }
 
+pub fn task_where(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
+    complete_for_path(ctx, &["task", "list"], prefix, parts)
+}
+
 pub fn class_where(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_for_path(ctx, &["class", "list"], prefix, _parts)
 }

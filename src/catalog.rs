@@ -336,6 +336,7 @@ pub struct CommandContext {
 
 #[derive(Debug, Clone)]
 pub struct CommandInvocation {
+    pub stream_output: bool,
     pub raw_line: String,
     pub command_index: usize,
     pub command_path: Vec<String>,
@@ -1912,6 +1913,7 @@ mod tests {
 
         let allowed = [
             "audit show --id",
+            "auth approval show --id",
             "backup download --task",
             "backup show --task",
             "bg forget --id",
