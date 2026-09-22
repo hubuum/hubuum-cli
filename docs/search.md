@@ -131,6 +131,8 @@ hubuum-cli search server --stream --output jsonl
 ```
 
 Unredirected text batches and JSONL event envelopes are flushed as they arrive.
+Text batches include any next-page cursor; reuse it with `--cursor-collections`,
+`--cursor-classes`, or `--cursor-objects` for the corresponding result kind.
 JSONL contains one serialized `started`, `batch`, or `done` event per line,
 identified by `event`, with its payload in `data`. Batch payloads contain
 `kind`, `collections`, `classes`, `objects`, and `next`.

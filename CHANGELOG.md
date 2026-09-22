@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Display group names in structured tabular search output, preserve per-kind
+  pagination cursors in text search streams, and restrict task-filter completion
+  to the supported `equals` operator.
 - Prepare CLI v0.0.12 with `hubuum_client` 0.12.0 and the immutable Hubuum server
   v0.0.16 target (220 OpenAPI operations, 330 schemas). Client features remain
   blocking-only and its MSRV stays at Rust 1.88; no CLI MSRV is declared.

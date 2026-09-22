@@ -62,7 +62,7 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
             "batch",
             json!({"kind":"collections","classes":[],"objects":[],"collections":[{
             "id":1,"name":"early","description":"fixture","group_id":1,"created_at":"2026-09-22T00:00:00Z","updated_at":"2026-09-22T00:00:00Z","revision":1
-        }],"next":null}),
+        }],"next":"collection-page-2"}),
         );
         write!(stream, "{first}{batch}").unwrap();
         stream.flush().unwrap();
@@ -128,7 +128,7 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
                     panic!("no incremental batch: {error}");
                 }
             };
-            if line.contains("early") {
+            if line.contains("collection-page-2") {
                 break;
             }
         }
@@ -138,6 +138,9 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
     let output = reader.join().unwrap();
     server.join().unwrap();
     assert_eq!(status.success(), terminal, "{output}");
+    if !redirect {
+        assert!(output.contains("early"), "{output}");
+    }
     if redirect {
         let file = std::fs::read_to_string(destination).unwrap();
         if terminal {
@@ -156,6 +159,11 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
             .collect();
         assert_eq!(events.len(), 3);
         assert_eq!(events[2]["event"], "done");
+    } else if terminal && format == "text" {
+        assert!(
+            output.contains("Next collections cursor: collection-page-2"),
+            "{output}"
+        );
     } else if !terminal {
         assert!(output.contains("incomplete"));
     }

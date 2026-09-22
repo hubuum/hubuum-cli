@@ -2180,7 +2180,38 @@ mod tests {
     }
 
     #[test]
-    fn search_predicate_completion_preserves_quotes_groups_and_following_flags() {
+    fn task_filter_completion_only_produces_accepted_operators() {
+        use crate::services::TaskDiscovery;
+
+        let (_runtime, mut completer) = search_task_completer();
+        for (field, value) in [
+            ("output_state", "available"),
+            ("terminal", "true"),
+            ("class_id", "7"),
+        ] {
+            for quote in ["", "'"] {
+                let line = format!("task list --where {quote}{field} ");
+                let suggestions = completer.suggestions(&line, line.len());
+                let operators = suggestions
+                    .iter()
+                    .map(|item| item.value.as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(operators, ["equals"], "{line}");
+                for operator in operators {
+                    assert!(TaskDiscovery::parse(&[format!("{field} {operator} {value}")]).is_ok());
+                }
+                for prefix in ["not_", "i"] {
+                    let line = format!("{line}{prefix}");
+                    assert!(
+                        completer.suggestions(&line, line.len()).is_empty(),
+                        "{line}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn search_task_completer() -> (tokio::runtime::Runtime, super::ReplCompleter) {
         use super::ReplCompleter;
         use crate::app::AppRuntime;
         use crate::catalog::CatalogStore;
@@ -2202,7 +2233,7 @@ mod tests {
             Duration::from_secs(60),
         ));
         let config = Arc::new(AppConfig::default());
-        let mut completer = ReplCompleter {
+        let completer = ReplCompleter {
             completion: services.completion_context(handle, &config),
             app: Arc::new(AppRuntime {
                 config,
@@ -2211,6 +2242,12 @@ mod tests {
             }),
             session: SharedSession::new(),
         };
+        (runtime, completer)
+    }
+
+    #[test]
+    fn search_predicate_completion_preserves_quotes_groups_and_following_flags() {
+        let (_runtime, mut completer) = search_task_completer();
         for (line, expected, replaced) in [
             ("search --target object --where 'na", "name", "na"),
             ("search --target object --where 'name ", "==", ""),

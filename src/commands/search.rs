@@ -273,6 +273,7 @@ impl SearchCommand {
         let columns: &[&str] = match response.kind() {
             ResourceKind::AuditEvent => &["id", "occurred_at", "action", "summary"],
             ResourceKind::User => &["id", "name", "identity_scope", "email"],
+            ResourceKind::Group => &["id", "groupname", "description"],
             ResourceKind::Object => &[
                 "id",
                 "name",
@@ -428,6 +429,10 @@ fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
         append_line("No results in this batch.")?;
     }
 
+    if let Some(cursor) = &batch.next {
+        append_line(format!("Next {} cursor: {cursor}", batch.kind))?;
+    }
+
     Ok(())
 }
 
@@ -506,6 +511,97 @@ mod tests {
     use crate::domain::SearchCursorSet;
     use crate::services::SearchKind;
     use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    #[serial_test::serial]
+    fn text_stream_batches_report_each_kind_cursor_even_without_rows() {
+        use super::render_search_event;
+        use crate::domain::{SearchBatchRecord, SearchStreamEvent};
+        use crate::output::{reset_output, take_output};
+
+        for kind in ["collections", "classes", "objects"] {
+            for next in [None, Some("next-page")] {
+                reset_output().unwrap();
+                let batch = SearchBatchRecord {
+                    kind: kind.into(),
+                    collections: Vec::new(),
+                    classes: Vec::new(),
+                    objects: Vec::new(),
+                    next: next.map(str::to_string),
+                };
+                render_search_event(&SearchStreamEvent::Batch(batch), true).unwrap();
+                let output = take_output().unwrap().render();
+                assert_eq!(
+                    output.contains(&format!("Next {kind} cursor: next-page")),
+                    next.is_some(),
+                    "{output}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn structured_group_output_displays_groupname_and_preserves_resource_fields() {
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+        use reqwest::StatusCode;
+        use serde_json::{from_str, json, Value};
+        use tokio::runtime::Runtime;
+
+        use crate::commands::CliCommand;
+        use crate::output::{reset_output, set_render_format, take_output, RenderFormat};
+        use crate::services::AppServices;
+
+        let transport = MockTransport::default();
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test"));
+        let runtime = Runtime::new().unwrap();
+        let services = AppServices::new(
+            Arc::new(client),
+            runtime.handle().clone(),
+            Duration::from_secs(60),
+        );
+        let group = json!({"id": 7, "groupname": "staff", "description": "operators", "identity_scope": "local"});
+        for (name, format) in [
+            ("text", RenderFormat::Text),
+            ("csv", RenderFormat::Csv),
+            ("tsv", RenderFormat::Tsv),
+            ("jsonl", RenderFormat::Jsonl),
+            ("json", RenderFormat::Json),
+        ] {
+            transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+                "version": 1, "kind": "group", "results": [{"kind": "group", "resource": group}],
+                "next": null, "total": null,
+            })).unwrap());
+            let tokens = CommandTokenizer::new(
+                &format!("search --target group --output {name}"),
+                "search",
+                &command_options::<SearchCommand>(),
+            )
+            .unwrap();
+            reset_output().unwrap();
+            set_render_format(format).unwrap();
+            SearchCommand::default()
+                .execute(&services, &tokens)
+                .unwrap();
+            let output = take_output().unwrap();
+            let rendered = output.render();
+            assert!(rendered.contains("staff"), "{name}: {rendered}");
+            if format == RenderFormat::Json {
+                let value: Value = from_str(&rendered).unwrap();
+                assert_eq!(value["results"][0]["resource"], group);
+            } else {
+                assert_eq!(output.semantic[0].value(), &json!([group]));
+            }
+        }
+    }
 
     #[test]
     fn query_or_pos_uses_first_positional_when_missing_flag() {
