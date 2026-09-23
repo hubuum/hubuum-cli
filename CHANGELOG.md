@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Preserve local filters and projections when continuing structured search with
+  `next`. Reject excessive boolean expressions regardless of keyword casing
+  before recursive parsing, preventing stack overflows from long lowercase
+  or mixed-case negation chains.
 - Display group names in structured tabular search output, preserve per-kind
   pagination cursors in text search streams, and restrict task-filter completion
   to the supported `equals` operator.

@@ -43,7 +43,11 @@ fn check_complexity(source: &str) -> Result<(), SearchError> {
     require(
         unquoted
             .split(|ch: char| !ch.is_ascii_alphabetic())
-            .filter(|word| matches!(*word, "AND" | "OR" | "NOT"))
+            .filter(|word| {
+                ["AND", "OR", "NOT"]
+                    .iter()
+                    .any(|keyword| word.eq_ignore_ascii_case(keyword))
+            })
             .count()
             <= 64,
         "search predicate exceeds 64 boolean operators",
@@ -123,8 +127,58 @@ fn literal_value(literal: &TypedLiteral) -> Result<Value, SearchError> {
 
 #[cfg(test)]
 mod tests {
+    use super::check_complexity;
     use crate::{ResourceKind, SearchRequest};
     use serde_json::{json, to_value};
+
+    #[test]
+    fn rejects_large_negation_chains_before_recursive_parsing_in_every_case() {
+        for keyword in ["NOT", "not", "nOt"] {
+            let source = format!("{}name == \"a\"", format!("{keyword} ").repeat(10_000));
+            assert!(source.len() < crate::MAX_REQUEST_BYTES);
+            // Fail this assertion before invoking the recursive parser if the guard regresses.
+            assert!(check_complexity(&source).is_err(), "{keyword}");
+            let error = SearchRequest::new(ResourceKind::Object)
+                .with_predicate(&source)
+                .unwrap_err();
+            assert!(error.to_string().contains("64 boolean operators"));
+        }
+    }
+
+    #[test]
+    fn counts_conjunctions_and_disjunctions_case_insensitively() {
+        for keyword in ["AND", "and", "aNd", "OR", "or", "oR"] {
+            let source = format!(
+                "{}name == \"a\"",
+                format!("name == \"a\" {keyword} ").repeat(65)
+            );
+            let error = SearchRequest::new(ResourceKind::Object)
+                .with_predicate(&source)
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("64 boolean operators"),
+                "{keyword}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_mixed_case_expressions_and_ignores_quoted_boolean_words() {
+        let source = r#"not name == "and OR nOt" aNd (name == "srv" oR name == "host")"#;
+        let request = SearchRequest::new(ResourceKind::Object)
+            .with_predicate(source)
+            .unwrap();
+        assert_eq!(to_value(request).unwrap()["filter"]["op"], "and");
+
+        let literal = "and OR nOt ".repeat(1_000);
+        let request = SearchRequest::new(ResourceKind::Object)
+            .with_predicate(&format!("name == {}", json!(literal)))
+            .unwrap();
+        assert_eq!(
+            to_value(request).unwrap()["filter"]["predicate"]["value"],
+            literal
+        );
+    }
 
     #[test]
     fn compiles_boolean_precedence_typed_values_and_json_paths() {

@@ -618,6 +618,114 @@ mod tests {
 
     #[test]
     #[serial]
+    fn structured_search_next_preserves_local_filters_and_projection_across_pages() {
+        use std::fs::write;
+        use std::time::Duration;
+
+        use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
+        use reqwest::StatusCode;
+        use serde_json::{from_slice, json, Value};
+        use tempfile::tempdir;
+        use tokio::runtime::Runtime;
+
+        use super::execute_line;
+        use crate::app::AppRuntime;
+        use crate::command_line::shell_escape;
+        use crate::config::get_config;
+        use crate::services::AppServices;
+
+        let transport = MockTransport::default();
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test"));
+        let runtime = Runtime::new().unwrap();
+        let services = Arc::new(AppServices::new(
+            Arc::new(client),
+            runtime.handle().clone(),
+            Duration::from_secs(60),
+        ));
+        let app = Arc::new(AppRuntime::new(
+            get_config(),
+            services,
+            Arc::new(CatalogStore::new(build_command_catalog())),
+        ));
+        let directory = tempdir().unwrap();
+        let query_file = directory.path().join("search query.json");
+        let filter = json!({"op": "field", "predicate": {
+            "field": "name", "operator": "regex", "value": "^srv|^skip",
+        }});
+        write(
+            &query_file,
+            json!({
+                "version": 1, "target": {"kind": "object", "class": {"name": "Test Hosts"}},
+                "filter": filter,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let suffix = r#"| F WHERE name != "skip" | P name AS "Host name""#;
+
+        for source in [
+            r#"search --target object --class 'Test Hosts' --where 'name ~ "^srv|^skip"'"#
+                .to_string(),
+            format!(
+                "search --query-file {}",
+                shell_escape(query_file.to_str().unwrap())
+            ),
+        ] {
+            let session = SharedSession::new();
+            let initial =
+                format!("{source} --limit 2 --cursor='initial cursor' --output json {suffix}");
+            for (page, next) in [(1, Some("page 2")), (2, Some("page 3")), (3, None)] {
+                transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+                    "version": 1, "kind": "object", "next": next,
+                    "results": [
+                        {"kind": "object", "resource": {"id": page, "name": format!("srv-{page}"), "description": "hidden"}},
+                        {"kind": "object", "resource": {"id": page + 10, "name": "skip", "description": "filtered"}},
+                    ],
+                })).unwrap());
+                let line = if page == 1 { initial.as_str() } else { "next" };
+                let outcome = runtime
+                    .block_on(execute_line(app.clone(), &session, line))
+                    .unwrap();
+                assert_eq!(
+                    outcome.output.semantic[0].value(),
+                    &json!([{"Host name": format!("srv-{page}")}]),
+                    "{source}, page {page}",
+                );
+                if let Some(next) = next {
+                    let command = outcome.output.next_page_command.as_ref().unwrap();
+                    assert!(command.contains(&format!("--cursor '{}'", next)));
+                    assert!(command.ends_with(suffix), "{command}");
+                    assert_eq!(command.matches(suffix).count(), 1, "{command}");
+                    assert!(!command.contains("initial cursor"));
+                } else {
+                    assert!(outcome.output.next_page_command.is_none());
+                }
+                apply_output_state(&session, &outcome.output);
+
+                let requests = transport.requests();
+                let request = requests.last().unwrap();
+                let body: Value = from_slice(request.body()).unwrap();
+                let cursor = match page {
+                    1 => "initial cursor",
+                    2 => "page 2",
+                    _ => "page 3",
+                };
+                assert_eq!(body["cursor"], cursor);
+                assert_eq!(body["limit"], 2);
+                assert_eq!(body["filter"], filter);
+                assert_eq!(body["target"]["class"]["name"], "Test Hosts");
+            }
+        }
+        assert_eq!(transport.requests().len(), 6);
+    }
+
+    #[test]
+    #[serial]
     fn process_filter_sets_runtime_filter() {
         reset_output().expect("buffer should reset");
         let (line, _pipeline, _pipeline_suffix) =

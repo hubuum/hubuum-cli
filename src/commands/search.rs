@@ -23,8 +23,8 @@ use crate::formatting::{append_json, OutputFormatter, TableRenderable};
 use crate::list_query::{parse_sort_clause, SortDirectionArg, PARTIAL_PIPELINE_WARNING};
 use crate::models::OutputFormat;
 use crate::output::{
-    add_warning, append_line, flush_stream_output, has_pipeline, set_next_page_command,
-    set_semantic_output, RenderFormat,
+    add_warning, append_line, append_pipeline_suffix, flush_stream_output, has_pipeline,
+    set_next_page_command, set_semantic_output, RenderFormat,
 };
 use crate::services::{AppServices, SearchInput, SearchKind};
 use crate::tokenizer::CommandTokenizer;
@@ -258,11 +258,9 @@ impl SearchCommand {
             .gateway()
             .structured_search(request, self.all.unwrap_or(false))?;
         if let Some(next) = response.next() {
-            set_next_page_command(rebuild_with_replaced_options(
-                tokens,
-                &["--cursor"],
-                [("--cursor", Some(next))],
-            ))?;
+            let next_command =
+                rebuild_with_replaced_options(tokens, &["--cursor"], [("--cursor", Some(next))]);
+            set_next_page_command(append_pipeline_suffix(next_command)?)?;
             if has_pipeline()? {
                 add_warning(PARTIAL_PIPELINE_WARNING)?;
             }
