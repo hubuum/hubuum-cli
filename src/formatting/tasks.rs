@@ -83,6 +83,93 @@ impl DetailRenderable for TaskRecord {
             ]);
         }
 
+        if let Some(details) = &task.details {
+            if let Some(retained) = details
+                .import_details
+                .as_ref()
+                .and_then(|d| d.retained.as_ref())
+            {
+                if let Some(value) = retained.dry_run {
+                    rows.push(("Import Dry Run", value.to_string()));
+                }
+                if let Some(value) = &retained.atomicity {
+                    rows.push(("Import Atomicity", value.to_string()));
+                }
+                if let Some(value) = &retained.collision_policy {
+                    rows.push(("Import Collision Policy", value.to_string()));
+                }
+                if let Some(value) = &retained.permission_policy {
+                    rows.push(("Import Permission Policy", value.to_string()));
+                }
+                if let Some(value) = retained.has_failed_items {
+                    rows.push(("Import Has Failed Items", value.to_string()));
+                }
+            }
+            if let Some(retained) = details.export.as_ref().and_then(|d| d.retained.as_ref()) {
+                rows.push(("Output State", retained.output_state.to_string()));
+                if let Some(value) = &retained.target {
+                    rows.push((
+                        "Target",
+                        serde_json::to_string(value).expect("task target serializes"),
+                    ));
+                }
+                if let Some(value) = retained.template_id {
+                    rows.push(("Export Template", value.to_string()));
+                }
+                if let Some(value) = retained.scope_kind {
+                    rows.push(("Export Scope", value.to_string()));
+                }
+                if let Some(value) = retained.warning_count {
+                    rows.push(("Export Warnings", value.to_string()));
+                }
+                if let Some(value) = retained.truncated {
+                    rows.push(("Export Truncated", value.to_string()));
+                }
+            }
+            if let Some(retained) = details.backup.as_ref().and_then(|d| d.retained.as_ref()) {
+                rows.push(("Output State", retained.output_state.to_string()));
+                if let Some(value) = retained.include_history {
+                    rows.push(("Backup Includes History", value.to_string()));
+                }
+            }
+            if let Some(rebuild) = &details.reindex {
+                if let Some(value) = rebuild.class_id {
+                    rows.push(("Class ID", value.to_string()));
+                }
+                if let Some(value) = rebuild.computation_revision {
+                    rows.push(("Computation Revision", value.to_string()));
+                }
+            }
+            if let Some(remote) = &details.remote_call {
+                if let Some(value) = remote.remote_target_id {
+                    rows.push(("Remote Target ID", value.to_string()));
+                }
+                if let Some(value) = &remote.target {
+                    rows.push((
+                        "Target",
+                        serde_json::to_string(value).expect("task target serializes"),
+                    ));
+                }
+            }
+            if let Some(schema) = &details.schema_validation {
+                if let Some(value) = schema.class_id {
+                    rows.push(("Class ID", value.to_string()));
+                }
+                if let Some(value) = schema.schema_revision {
+                    rows.push(("Schema Revision", value.to_string()));
+                }
+                if let Some(value) = schema.work_kind {
+                    rows.push(("Schema Work Kind", value.to_string()));
+                }
+                if let Some(value) = schema.work_status {
+                    rows.push(("Schema Work Status", value.to_string()));
+                }
+                if let Some(value) = &schema.results_url {
+                    rows.push(("Schema Results URL", value.clone()));
+                }
+            }
+        }
+
         rows
     }
 }

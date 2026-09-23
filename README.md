@@ -17,7 +17,7 @@ Each release provides four small, stripped archives and matching SHA-256 files:
   Windows system DLLs remain platform dependencies.
 
 Rolling builds identify their source commit using SemVer build metadata, for example
-`v0.0.11+main.g0123456789ab`. Tagged releases use the clean package version. Show the
+`v0.0.12+main.g0123456789ab`. Tagged releases use the clean package version. Show the
 current build identity without logging in, or also query the configured server:
 
 ```sh
@@ -34,10 +34,12 @@ the server's unauthenticated OpenAPI metadata.
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
 [compatibility matrix](COMPATIBILITY.md). The development CLI targets Hubuum
-server v0.0.15 through `hubuum_client` v0.11.0. Released CLI v0.0.11 targeted
+server v0.0.16 through `hubuum_client` v0.12.0, preparing CLI v0.0.12. Released CLI v0.0.11 targeted
 server v0.0.14 through `hubuum_client` v0.10.1.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
 backup format 6 and staged schema policy changes require migration steps.
+Server v0.0.16 also requires [fresh credential approvals](docs/credential-approvals.md)
+for credential changes and restore confirmation.
 
 ## Usage
 
@@ -448,6 +450,19 @@ The current command vocabulary follows the Hubuum API:
 - `task list --kind export` filters export tasks.
 - `task list --kind backup` filters backup tasks.
 - `search --limit-per-kind` limits each result family independently.
+
+Structured search runs predicates on the server and completes them with Tab in the
+REPL. Quote the predicate, using double quotes for strings inside single quotes:
+
+```sh
+hubuum-cli search --target object --class Hosts --where 'data.cpu.cores >= 8 AND name ~ "^srv-"' --sort name asc
+hubuum-cli search --query-file search.json --include-total --all --output json
+hubuum-cli search server --stream --output jsonl
+```
+
+See [search and its terminal DSL](docs/search.md) for fields, pagination, relation
+queries, and streaming behavior, and [task discovery](docs/tasks.md) for finding
+background work by retained targets and options.
 
 Output pipes now support small in-process transformations in both the REPL and one-shot command mode.
 The old shorthand still works:

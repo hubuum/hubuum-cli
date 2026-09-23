@@ -320,7 +320,13 @@ Expected results:
 
 - `--limit-per-kind` limits each result family independently.
 - Cursor output uses `--cursor-collections`, `--cursor-classes`, and `--cursor-objects`.
-- The old `--limit` search option should be rejected with a useful suggestion.
+- Plain-text search with `--limit` should suggest `--limit-per-kind`; structured
+  search accepts `--limit`.
+- In `search --target object --class Hosts --where '`, Tab should complete fields;
+  after `data.cpu.cores` and a space, it should offer comparisons. After a complete comparison
+  and a space, it should offer `AND` and `OR`. Close the quote before running.
+- `search --stream --output jsonl` should print started/batch/done events as they
+  arrive. File redirects should install output only after successful completion.
 
 ## Relations
 

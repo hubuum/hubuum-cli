@@ -336,6 +336,7 @@ pub struct CommandContext {
 
 #[derive(Debug, Clone)]
 pub struct CommandInvocation {
+    pub stream_output: bool,
     pub raw_line: String,
     pub command_index: usize,
     pub command_path: Vec<String>,
@@ -1077,8 +1078,7 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
         .into_iter()
         .flat_map(completion_operators)
         .copied()
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect::<Vec<_>>();
 
     let mut help = String::new();
     help.push_str(&paint(ThemeRole::Heading, "Where:"));
@@ -1096,11 +1096,16 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
     help.push_str(&fields);
     help.push('\n');
     help.push_str("  Operators: ");
-    help.push_str(&operators);
+    help.push_str(&operators.join(", "));
     help.push('\n');
-    help.push_str(
-        "  Negation: prefix an operator with not_, such as not_equals or not_icontains.\n",
-    );
+    if operators
+        .iter()
+        .any(|operator| operator.starts_with("not_"))
+    {
+        help.push_str(
+            "  Negation: prefix an operator with not_, such as not_equals or not_icontains.\n",
+        );
+    }
 
     if specs.iter().any(|spec| spec.json_root) {
         help.push_str(&format!(
@@ -1114,11 +1119,12 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
 
 fn operator_profile_rank(profile: &FilterOperatorProfile) -> u8 {
     match profile {
-        FilterOperatorProfile::EqualityOnly => 0,
-        FilterOperatorProfile::Boolean => 1,
-        FilterOperatorProfile::String => 2,
-        FilterOperatorProfile::NumericOrDate => 3,
-        FilterOperatorProfile::Any => 4,
+        FilterOperatorProfile::EqualsOnly => 0,
+        FilterOperatorProfile::EqualityOnly => 1,
+        FilterOperatorProfile::Boolean => 2,
+        FilterOperatorProfile::String => 3,
+        FilterOperatorProfile::NumericOrDate => 4,
+        FilterOperatorProfile::Any => 5,
     }
 }
 
@@ -1762,6 +1768,18 @@ mod tests {
     }
 
     #[test]
+    fn task_where_help_lists_only_equals_and_omits_negation() {
+        let catalog = build_command_catalog();
+        let help = catalog
+            .render_command_help(&["task".to_string(), "list".to_string()])
+            .expect("task help should render");
+        let plain = strip_ansi(&help);
+        assert!(plain.lines().any(|line| line.trim() == "Operators: equals"));
+        assert!(!plain.contains("Negation:"));
+        assert!(!plain.contains("not_equals"));
+    }
+
+    #[test]
     fn list_command_help_includes_where_guide() {
         let catalog = build_command_catalog();
         let help = catalog
@@ -1912,6 +1930,7 @@ mod tests {
 
         let allowed = [
             "audit show --id",
+            "auth approval show --id",
             "backup download --task",
             "backup show --task",
             "bg forget --id",

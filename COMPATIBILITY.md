@@ -9,7 +9,7 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Development | 0.11.0 | 0.0.15 | Schema evolution, task cancellation, and backup format 6 |
+| 0.0.12 (unreleased) | 0.12.0 | 0.0.16 | Structured search, credential approvals, task discovery, and backup format 6 |
 | 0.0.11 | 0.10.1 | 0.0.14 | Previous release target; backup format 5, queued restores, and restorable follow-up backups |
 | 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
@@ -46,33 +46,52 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change a published CLI release's declared target.
 
-## Development: server v0.0.15 target
+## CLI v0.0.12 preparation: server v0.0.16 target
 
-`Cargo.toml` pins client 0.11.0 and the immutable multi-platform server image
-`ghcr.io/hubuum/hubuum-server@sha256:36af667dbc9e221a40448496d4a87e168c999d0834df4b69177345ff3d36e821`.
-The client's OpenAPI contract grows from 204 to 218 operations. The CLI exposes
-schema lifecycle/report routes and task cancellation; import JSON can carry
-`schema_activation`. Administrative config includes schema validation budgets,
-backup capture row limits, and task execution timeouts. Client features remain
-blocking-only; its MSRV remains 1.88. No CLI MSRV is declared.
+`Cargo.toml` pins client 0.12.0 and the immutable multi-platform server image
+`ghcr.io/hubuum/hubuum-server@sha256:37b3299edd845a0c2aa7772d7d68565233ac8c1802bc44be3fb4bbc6dfa8778e`.
+The client's pinned OpenAPI contract has 220 operations and 330 schemas, up from
+204 operations at CLI v0.0.11. New client features include fresh credential
+approvals and typed task discovery. The CLI also exposes structured resource
+search through the client's raw request API, with validation owned by the new
+`hubuum-search` workspace crate. Client features remain blocking-only; its MSRV
+remains 1.88. No CLI MSRV is declared. Local verification uses Rust 1.98.0.
 
-This is a breaking schema-command and backup-format upgrade. Follow
-[schema evolution](docs/schema-evolution.md) and
-[backup migration](docs/backup-restore.md). All schema writes move to
-`class schema`; the old class create/modify policy flags are removed.
+This upgrade includes the schema-command and backup-format changes introduced
+by server v0.0.15, plus v0.0.16's credential approval requirement. Follow
+[schema evolution](docs/schema-evolution.md),
+[backup migration](docs/backup-restore.md), and
+[credential approvals](docs/credential-approvals.md). All schema writes move to
+`class schema`; the old class create/modify policy flags are removed. Backup
+format remains 6 when upgrading from server v0.0.15. Older format 6 artifacts
+without task discovery metadata remain accepted.
 
-The pinned integration script now also exercises incompatible/compatible impact,
-HTML report retention, explicit activation, compliance pagination, revalidation,
-and both idempotent cancellation routes before the format 6 restore cycles.
-Executed successfully on 2026-09-16 with Rust 1.98.0 on Linux x86_64 against
-that pinned image. Schema checks passed, including rejecting incompatible
-activation, retaining/fetching identical HTML, strict compatible activation,
-compliance queries, revalidation, and cancellation of completed work through
-both routes. All three format 6 restore cycles succeeded, invalidated old tokens,
-and recovered revision/timestamp/JSON-null state; immediate follow-up staging
-and the second-generation restore preserved earlier deletions. Running-task
-cancellation metadata and expected-status requests are also covered with a mock
-transport; live cancellation checks cover idempotence on completed work.
+Drain workers, quiesce credential changes, and run `hubuum-admin --migrate`
+before starting upgraded API, administrator, template-worker, and restore-executor
+processes together. Server v0.0.16 adds task-discovery and credential-approval
+migrations. Keep a verified backup from the previous server version.
+
+The reproducible check is
+`cargo build --locked && python3 scripts/test-backup-restore.py`.
+Executed successfully on 2026-09-22 with Rust 1.98.0 on Linux x86_64 against the
+pinned image above. It verified structured query files and equivalent terminal
+predicates, JSONL search events, bearer-only credential rejection, approved local
+user creation/password changes, user token creation/renewal, service-account token
+creation, credential-import dry runs, and retained backup task discovery. Schema checks covered
+incompatible/compatible impact, retained HTML reports, strict activation,
+compliance, revalidation, and idempotent cancellation through both routes.
+All three format 6 restore cycles passed with fresh approval, invalidated old
+tokens, and recovered revision/timestamp/JSON-null state. Follow-up staging and
+the second-generation restore preserved earlier deletions. This run verifies
+the Linux amd64 image from the pinned multi-platform index.
+
+Mock-transport tests additionally cover bound approval payloads, the original
+bearer, server-normalized token expiry, ambiguous-send evidence without replay,
+structured cursor preservation and loop rejection, and typed task filters across
+pages. Subprocess tests require text and JSONL batches to reach stdout before
+the server sends `done`, and verify truncated-stream failure and atomic redirects.
+These checks do not imply that every OpenAPI operation has a CLI command or that
+other server versions are supported.
 
 ## CLI v0.0.11: server v0.0.14 target
 

@@ -7,13 +7,13 @@ use super::{
     build_list_query, desired_format, normalize_server_page_size, option_or_pos, render_list_page,
     render_task_record, CliCommand, PageSelection,
 };
-use crate::autocomplete::{task_event_sort, task_kinds, task_statuses};
+use crate::autocomplete::{task_event_sort, task_kinds, task_statuses, task_where};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_line;
-use crate::services::{AppServices, ListTasksInput, TaskLookupInput};
+use crate::services::{AppServices, ListTasksInput, TaskDiscovery, TaskLookupInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -188,6 +188,13 @@ impl CliCommand for TaskQueue {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskList {
     #[option(
+        long = "where",
+        help = "Task discovery: field equals value (repeatable)",
+        nargs = 3,
+        autocomplete = "task_where"
+    )]
+    pub where_clauses: Vec<String>,
+    #[option(
         long = "kind",
         help = "Filter by task kind",
         autocomplete = "task_kinds"
@@ -195,7 +202,7 @@ pub struct TaskList {
     pub kind: Option<String>,
     #[option(
         long = "status",
-        help = "Filter by task status",
+        help = "Filter by task statuses (comma-separated)",
         autocomplete = "task_statuses"
     )]
     pub status: Option<String>,
@@ -224,6 +231,7 @@ impl CliCommand for TaskList {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let tasks = services.gateway().list_tasks(ListTasksInput {
+            discovery: TaskDiscovery::parse(&query.where_clauses)?,
             kind: query.kind,
             status: query.status,
             limit: normalize_server_page_size(query.limit)?,

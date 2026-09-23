@@ -14,7 +14,7 @@ use crate::errors::AppError;
 use crate::extensions::{ExtensionRegistry, WorkflowProgram};
 use crate::output::{
     add_warning, reset_output, set_pipeline, set_pipeline_suffix, set_render_format,
-    set_table_headers, take_output,
+    set_stream_output, set_table_headers, take_output,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -280,6 +280,7 @@ where
             set_render_format(render_format(&tokens)?)?;
             set_table_headers(table_headers(&tokens)?)?;
 
+            set_stream_output(invocation.stream_output)?;
             command.execute(services.as_ref(), &tokens)?;
             services.invalidate_completion();
 

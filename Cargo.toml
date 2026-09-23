@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.11"
+version = "0.0.12"
 edition = "2021"
 
 [workspace]
@@ -8,13 +8,14 @@ members = [
     "cli_command_derive",
     "crates/hubuum-extension-protocol",
     "crates/hubuum-filter",
+    "crates/hubuum-search",
     "crates/hubuum-theme",
 ]
 resolver = "2"
 
 [package.metadata.hubuum]
-server-version = "0.0.15"
-server-image = "ghcr.io/hubuum/hubuum-server@sha256:36af667dbc9e221a40448496d4a87e168c999d0834df4b69177345ff3d36e821"
+server-version = "0.0.16"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:37b3299edd845a0c2aa7772d7d68565233ac8c1802bc44be3fb4bbc6dfa8778e"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +23,7 @@ serde_json = "1"
 semver = "1"
 cli_command_derive = { path = "./cli_command_derive" }
 hubuum-filter = { path = "./crates/hubuum-filter" }
+hubuum-search = { path = "./crates/hubuum-search" }
 hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
 thiserror = "2"
@@ -37,7 +39,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.11.0", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.12.0", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"

@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::CliCommand;
+use super::{required_option_or_pos, CliCommand};
 use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
@@ -34,6 +34,51 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             },
         ),
     );
+    builder.add_command(
+        &["auth", "approval"],
+        catalog_command(
+            "show",
+            ApprovalShow::default(),
+            CommandDocs {
+                about: Some("Inspect retained credential approval evidence by ID"),
+                ..CommandDocs::default()
+            },
+        ),
+    );
+}
+
+#[derive(Debug, Serialize, Clone, CommandArgs, Default)]
+pub struct ApprovalShow {
+    #[option(long = "id", help = "Credential approval ID")]
+    id: Option<i32>,
+}
+
+impl CliCommand for ApprovalShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let id = required_option_or_pos(query.id, tokens, 0, "id")?;
+        let value = services.gateway().credential_approval(id)?;
+        set_semantic_output(OutputEnvelope::detail(
+            value,
+            vec![
+                "id",
+                "actor_id",
+                "operation",
+                "target_id",
+                "restore_job_id",
+                "authenticated_at",
+                "expires_at",
+                "consumed_at",
+                "invalidated_at",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        ))
+    }
 }
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]

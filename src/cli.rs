@@ -23,6 +23,13 @@ pub fn build_cli() -> Command {
                 .help("Specify a custom configuration file"),
         )
         .arg(
+            Arg::new("approval_password_file")
+                .long("approval-password-file")
+                .value_name("FILE")
+                .value_parser(value_parser!(PathBuf))
+                .help("Read the acting human's fresh approval password from an owner-only file"),
+        )
+        .arg(
             Arg::new("hostname")
                 .long("hostname")
                 .value_name("HOST")
@@ -394,6 +401,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--username"
             | "--password"
             | "--token-file"
+            | "--approval-password-file"
             | "--cache-time"
             | "--cache-size"
             | "--background-poll-interval"
@@ -615,6 +623,8 @@ mod tests {
             "secret",
             "--token-file",
             "/run/secrets/hubuum",
+            "--approval-password-file",
+            "/run/secrets/approval",
         ]);
 
         assert!(result.is_err());
@@ -702,6 +712,8 @@ mod tests {
             "corp-directory",
             "--token-file",
             "/run/secrets/hubuum",
+            "--approval-password-file",
+            "/run/secrets/approval",
             "--table-style",
             "plain",
             "object",
@@ -720,6 +732,8 @@ mod tests {
                 "corp-directory",
                 "--token-file",
                 "/run/secrets/hubuum",
+                "--approval-password-file",
+                "/run/secrets/approval",
                 "--table-style",
                 "plain"
             ]

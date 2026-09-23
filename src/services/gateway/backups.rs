@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use hubuum_client::{
-    blocking::Client, BackupRequest, RestoreCapability, RestoreConfirmRequest, RestoreId,
-    Unauthenticated,
+    blocking::Client, BackupRequest, CredentialOperation, RestoreCapability, RestoreConfirmRequest,
+    RestoreId, Unauthenticated,
 };
 
 use crate::domain::{BackupArtifact, RestoreReceipt, RestoreRecord, TaskRecord};
 use crate::errors::AppError;
 
-use super::HubuumGateway;
+use super::{credential_approvals::send_approved, HubuumGateway};
 
 pub struct RestoreMonitor {
     client: Client<Unauthenticated>,
@@ -142,10 +142,19 @@ impl HubuumGateway {
             RestoreCapability::new(receipt.capability()),
             receipt.sha256(),
         );
-        let response = self
-            .client()
-            .restores()
-            .confirm(RestoreId::from(receipt.restore_id()), request)?;
+        let client = self.client();
+        let id = RestoreId::from(receipt.restore_id());
+        let response = match client.restores().confirm(id, request.clone()) {
+            Ok(response) => response,
+            Err(error) if error.is_reauthentication_required() => {
+                send_approved(self.approval_source().approve(
+                    &client,
+                    CredentialOperation::confirm_restore(id, request),
+                    &format!("Confirm restore {id}: replace all Hubuum data"),
+                )?)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         receipt.verify_response(&response)?;
         RestoreRecord::from_response(response)
     }

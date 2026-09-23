@@ -945,7 +945,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hubuum-cli"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anstream",
  "anstyle",
@@ -960,6 +960,7 @@ dependencies = [
  "dirs",
  "hubuum-extension-protocol",
  "hubuum-filter",
+ "hubuum-search",
  "hubuum-theme",
  "hubuum_client",
  "jqesque",
@@ -1014,6 +1015,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hubuum-search"
+version = "0.1.0"
+dependencies = [
+ "hubuum-filter",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "hubuum-theme"
 version = "0.0.1"
 dependencies = [
@@ -1025,9 +1036,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6a8fd7cdf7eeccd6d51b22265cf7a60eaf67b87bf97faa5e25b352ec1496a97"
+checksum = "253a8ce174d66027dab9c6d4a82c734a1e7338cc336cc3823add3b4ccf58769e"
 dependencies = [
  "chrono",
  "fastrand",

@@ -9,8 +9,7 @@ use strum::{Display, EnumString};
 
 use crate::domain::{
     ClassRecord, CollectionRecord, ResolvedObjectRecord, SearchBatchRecord, SearchCursorSet,
-    SearchErrorEvent, SearchQueryEvent, SearchResponseRecord, SearchResultsRecord,
-    SearchStreamEvent,
+    SearchQueryEvent, SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
 };
 use crate::errors::AppError;
 
@@ -181,35 +180,57 @@ impl HubuumGateway {
         Ok(response)
     }
 
-    pub fn search_stream(&self, input: &SearchInput) -> Result<Vec<SearchStreamEvent>, AppError> {
-        let mut mapped = Vec::new();
-
-        for event in self.build_search_request(input).stream()? {
-            match event? {
+    pub fn search_stream(
+        &self,
+        input: &SearchInput,
+        mut emit: impl FnMut(SearchStreamEvent) -> Result<(), AppError>,
+    ) -> Result<SearchCursorSet, AppError> {
+        let stream = self.build_search_request(input).stream()?;
+        let mut next = SearchCursorSet::default();
+        for event in stream {
+            // A stream may already have emitted data. Never replay it on an error.
+            let event = event.map_err(|error| {
+                AppError::CommandExecutionError(format!("Search stream failed: {error}"))
+            })?;
+            let mapped = match event {
                 UnifiedSearchEvent::Started(payload) => {
-                    mapped.push(SearchStreamEvent::Started(SearchQueryEvent {
+                    SearchStreamEvent::Started(SearchQueryEvent {
                         query: payload.query,
-                    }))
+                    })
                 }
                 UnifiedSearchEvent::Batch(batch) => {
-                    mapped.push(SearchStreamEvent::Batch(self.map_search_batch(batch)?))
+                    let mapped = self.map_search_batch(batch).map_err(|error| {
+                        AppError::CommandExecutionError(format!(
+                            "Search stream batch failed: {error}"
+                        ))
+                    })?;
+                    match mapped.kind.as_str() {
+                        "collections" => next.collections = mapped.next.clone(),
+                        "classes" => next.classes = mapped.next.clone(),
+                        "objects" => next.objects = mapped.next.clone(),
+                        _ => {}
+                    }
+                    SearchStreamEvent::Batch(mapped)
                 }
                 UnifiedSearchEvent::Done(payload) => {
-                    mapped.push(SearchStreamEvent::Done(SearchQueryEvent {
+                    emit(SearchStreamEvent::Done(SearchQueryEvent {
                         query: payload.query,
-                    }))
+                    }))?;
+                    return Ok(next);
                 }
                 UnifiedSearchEvent::Error(payload) => {
-                    mapped.push(SearchStreamEvent::Error(SearchErrorEvent {
-                        message: payload.message,
-                    }))
+                    return Err(AppError::CommandExecutionError(format!(
+                        "Search stream failed: {}",
+                        payload.message
+                    )))
                 }
-                UnifiedSearchEvent::Unknown { .. } => {}
-                _ => {}
-            }
+                _ => continue,
+            };
+            emit(mapped)?;
         }
-
-        Ok(mapped)
+        Err(AppError::CommandExecutionError(
+            "Search stream ended before its done event; results are incomplete".into(),
+        ))
     }
 
     fn build_search_request(&self, input: &SearchInput) -> UnifiedSearchRequest {

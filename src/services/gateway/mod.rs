@@ -3,6 +3,7 @@ mod backups;
 mod classes;
 mod collections;
 mod computed;
+mod credential_approvals;
 mod events;
 mod exports;
 mod groups;
@@ -18,11 +19,14 @@ mod search;
 mod service_accounts;
 mod settings;
 mod shared;
+mod structured_search;
+mod task_discovery;
 mod tasks;
+pub(crate) use task_discovery::TaskDiscovery;
 mod tokens;
 mod users;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use hubuum_client::{blocking::Client as BlockingClient, Authenticated};
 
@@ -37,6 +41,7 @@ pub use computed::{
     ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
     ComputedPreviewTarget, ComputedResultKind,
 };
+pub(crate) use credential_approvals::CredentialApprovalSource;
 pub use events::{
     AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, HistoryInput, HistoryScope,
 };
@@ -69,6 +74,7 @@ pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 #[derive(Clone)]
 pub struct HubuumGateway {
     client: AuthenticatedClient,
+    approval_source: Arc<RwLock<CredentialApprovalSource>>,
 }
 
 impl HubuumGateway {
@@ -76,11 +82,15 @@ impl HubuumGateway {
     pub fn new(client: Arc<BlockingClient<Authenticated>>) -> Self {
         Self {
             client: AuthenticatedClient::new(client),
+            approval_source: Arc::default(),
         }
     }
 
     pub(super) fn new_with_authenticated_client(client: AuthenticatedClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            approval_source: Arc::default(),
+        }
     }
 
     pub(super) fn replace_authenticated_client(&self, client: Arc<BlockingClient<Authenticated>>) {
@@ -96,6 +106,9 @@ pub(crate) fn filter_specs_for_command_path(
     command_path: &[String],
 ) -> Option<&'static [FilterFieldSpec]> {
     match command_path {
+        [scope, command] if scope == "task" && command == "list" => {
+            Some(task_discovery::TASK_FILTER_SPECS)
+        }
         [scope, command] if scope == "class" && command == "list" => {
             Some(classes::CLASS_FILTER_SPECS)
         }

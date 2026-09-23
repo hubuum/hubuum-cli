@@ -135,8 +135,17 @@ impl HubuumGateway {
         name: &str,
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        Ok(handle.tokens_create_token(input.into_request()?)?.into())
+        let client = self.client();
+        let handle = client.service_accounts().get_by_name(name)?;
+        let request = input.into_request()?;
+        let token = match handle.tokens_create_token(request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.create_approved_token(&client, handle.id().into(), request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(token.into())
     }
 
     pub fn service_account_token_renew(
@@ -145,8 +154,17 @@ impl HubuumGateway {
         token_id: TokenId,
         input: RenewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        Ok(handle.token_renew(token_id, input.into_request())?.into())
+        let client = self.client();
+        let handle = client.service_accounts().get_by_name(name)?;
+        let request = input.into_request();
+        let token = match handle.token_renew(token_id, request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.renew_approved_token(&client, handle.id().into(), token_id, request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(token.into())
     }
 
     pub fn service_account_token_clone(
@@ -154,12 +172,19 @@ impl HubuumGateway {
         name: &str,
         input: CloneTokenInput,
     ) -> Result<CloneTokenOutcome, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
+        let client = self.client();
+        let handle = client.service_accounts().get_by_name(name)?;
         let source_token_id = input.source_token_id();
         let source = find_source_token(handle.tokens()?, source_token_id)?;
-        let issued_token = handle
-            .tokens_create_token(input.request_for(&source)?)?
-            .into();
+        let request = input.request_for(&source)?;
+        let token = match handle.tokens_create_token(request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.create_approved_token(&client, handle.id().into(), request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let issued_token = token.into();
         let source_revocation = if input.should_revoke_source() {
             let revoke_result = (|| -> Result<(), AppError> {
                 let current = handle.token(source_token_id)?;

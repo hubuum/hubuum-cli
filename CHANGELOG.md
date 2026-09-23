@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+- Preserve local filters and projections when continuing structured search with
+  `next`. Reject excessive boolean expressions regardless of keyword casing
+  before recursive parsing, preventing stack overflows from long lowercase
+  or mixed-case negation chains.
+- Display group names in structured tabular search output, preserve per-kind
+  pagination cursors in text search streams, and restrict task-filter completion
+  to the supported `equals` operator.
+- Prepare CLI v0.0.12 with `hubuum_client` 0.12.0 and the immutable Hubuum server
+  v0.0.16 target (220 OpenAPI operations, 330 schemas). Client features remain
+  blocking-only and its MSRV stays at Rust 1.88; no CLI MSRV is declared.
+  See [pinned integration evidence](COMPATIBILITY.md).
+- Add structured resource search with validated `--query-file` requests or
+  `--target`, `--class`, and a quoted `--where` predicate. The terminal DSL supports
+  boolean groups, typed comparisons, regex, membership, and null tests, with REPL
+  Tab completion for fields, class data paths, operators, and boolean continuations.
+  Add sorting, cursor pagination, exact totals, all-page collection, and semantic
+  resource rows for pipelines. See [search](docs/search.md).
+- Stream plain-text search batches and JSONL events to the terminal as they arrive.
+  JSON arrays, pipelines, and redirects remain buffered. **Breaking (stream output):**
+  `search --stream --output jsonl` now emits one event envelope per line; update
+  consumers to read `event` and `data`. Truncated streams and server error events
+  now exit unsuccessfully instead of appearing complete.
+- **Breaking (credential operations):** server v0.0.16 requires fresh approval for
+  local user creation, password changes, token creation/renewal/cloning, credential
+  imports (including dry runs), and restore confirmation. Use an unscoped human
+  bearer and enter that human's current password when prompted, or pass the new
+  global `--approval-password-file FILE` before the command for automation.
+  Stored login passwords are not reused. Service-account tokens cannot approve
+  these operations. Approval failures and ambiguous mutation responses are not
+  replayed; inspect the reported ID with `auth approval show ID` before retrying.
+  See [credential migration](docs/credential-approvals.md).
+- **Breaking (import payloads):** submission preserves the full supported graph, including credential and
+  integration entries, instead of dropping extended fields. Review existing import
+  files before resubmission: previously ignored entries now take effect.
+- Add typed `task list --where FIELD equals VALUE` discovery filters and
+  comma-separated kind/status sets. `task show` exposes retained targets, options,
+  output availability, remote side effects, and schema/rebuild details when present.
+  See [task discovery](docs/tasks.md).
+
 - Refresh the pinned PostgreSQL 18 integration fixture image.
 
 - Refresh locked Rust dependencies, including Clap 4.6.7 and Quinn 0.11.12,
@@ -11,11 +50,9 @@
   ID. Related object and class queries now accept class and collection names through
   `--where class equals Hosts` and `--where collection equals Inventory`.
 
-- Upgrade `hubuum_client` to 0.11.0 and target Hubuum server v0.0.15's pinned
-  218-operation OpenAPI contract. Client features remain blocking-only; its
-  MSRV remains Rust 1.88, with no new CLI MSRV declaration. Update locked Rustls
-  to 0.23.45. Administrative output includes schema budgets, backup row limits,
-  and task execution timeouts.
+- Include server v0.0.15 schema evolution and task cancellation in the v0.0.16
+  upgrade. Update locked Rustls to 0.23.45. Administrative output includes schema
+  budgets, backup row limits, and task execution timeouts.
 - **Breaking (schema commands):** remove `--schema`/`-s` and `--validate`/`-v`
   from `class create` and `class modify`. Use `class schema stage`, `impact`,
   and `activate` for all schema policy changes, including initial setup.

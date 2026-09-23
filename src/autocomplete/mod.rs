@@ -5,7 +5,10 @@ mod exports;
 mod filters;
 mod groups;
 mod objects;
+mod search;
 mod shared;
+pub(crate) use search::complete_search_predicate;
+pub use search::search_targets;
 mod sorts;
 mod tokens;
 
@@ -21,7 +24,8 @@ pub(crate) use filters::complete_where_clause;
 pub use filters::{
     class_where, collection_where, export_where, group_where, object_aggregate_where, object_where,
     relation_class_direct_where, relation_class_graph_where, relation_class_list_where,
-    relation_object_direct_where, relation_object_graph_where, relation_object_where, user_where,
+    relation_object_direct_where, relation_object_graph_where, relation_object_where, task_where,
+    user_where,
 };
 pub use groups::groups;
 pub use objects::{

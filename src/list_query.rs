@@ -130,6 +130,8 @@ pub enum FilterOperatorProfile {
     NumericOrDate,
     Boolean,
     EqualityOnly,
+    /// Non-negated, case-sensitive equals, as required by task discovery.
+    EqualsOnly,
     Any,
 }
 
@@ -532,6 +534,7 @@ pub fn completion_operators(profile: FilterOperatorProfile) -> &'static [&'stati
         ],
         FilterOperatorProfile::Boolean => &["equals", "not_equals"],
         FilterOperatorProfile::EqualityOnly => &["equals", "not_equals", "iequals", "not_iequals"],
+        FilterOperatorProfile::EqualsOnly => &["equals"],
         FilterOperatorProfile::Any => &[
             "equals",
             "not_equals",
@@ -714,6 +717,9 @@ fn unknown_value_message(label: &str, value: &str, candidates: Vec<String>) -> S
 fn operator_is_allowed(operator: &FilterOperator, profile: FilterOperatorProfile) -> bool {
     match profile {
         FilterOperatorProfile::Any => !matches!(operator, FilterOperator::Raw),
+        FilterOperatorProfile::EqualsOnly => {
+            matches!(operator, FilterOperator::Equals { is_negated: false })
+        }
         FilterOperatorProfile::EqualityOnly => matches!(
             operator,
             FilterOperator::Equals { .. } | FilterOperator::IEquals { .. }

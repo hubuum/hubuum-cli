@@ -1,5 +1,6 @@
+use super::credential_approvals::send_approved;
 use chrono::NaiveDateTime;
-use hubuum_client::{FilterOperator, TokenId, UserPatch};
+use hubuum_client::{CredentialOperation, FilterOperator, TokenId, UserPatch, UserPost};
 
 use crate::domain::{
     CreatedUser, IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, UserRecord,
@@ -52,17 +53,25 @@ impl HubuumGateway {
     }
 
     pub fn create_user(&self, input: CreateUserInput) -> Result<CreatedUser, AppError> {
-        // Create user with name/email/password
-        let mut create = self
-            .client()
-            .users()
-            .create_checked()
-            .name(input.username.clone())
-            .password(input.password.clone());
-        if let Some(email) = input.email {
-            create = create.email(email);
-        }
-        let user = create.send()?;
+        let client = self.client();
+        let request = UserPost {
+            name: input.username.clone(),
+            password: input.password.clone(),
+            email: input.email,
+            identity_scope: None,
+            proper_name: None,
+        };
+        let user = match client.users().create_raw(request.clone()) {
+            Ok(user) => user,
+            Err(error) if error.is_reauthentication_required() => {
+                send_approved(self.approval_source().approve(
+                    &client,
+                    CredentialOperation::create_user(request),
+                    &format!("Create local user {}", input.username),
+                )?)?
+            }
+            Err(error) => return Err(error.into()),
+        };
 
         Ok(CreatedUser {
             user: UserRecord::from(user),
@@ -183,8 +192,17 @@ impl HubuumGateway {
         username: &str,
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client().users().get_by_name(username)?;
-        Ok(handle.tokens_create_token(input.into_request()?)?.into())
+        let client = self.client();
+        let handle = client.users().get_by_name(username)?;
+        let request = input.into_request()?;
+        let token = match handle.tokens_create_token(request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.create_approved_token(&client, handle.id().into(), request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(token.into())
     }
 
     pub fn user_token_renew(
@@ -193,8 +211,17 @@ impl HubuumGateway {
         token_id: TokenId,
         input: RenewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
-        let handle = self.client().users().get_by_name(username)?;
-        Ok(handle.token_renew(token_id, input.into_request())?.into())
+        let client = self.client();
+        let handle = client.users().get_by_name(username)?;
+        let request = input.into_request();
+        let token = match handle.token_renew(token_id, request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.renew_approved_token(&client, handle.id().into(), token_id, request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(token.into())
     }
 
     pub fn user_token_clone(
@@ -202,12 +229,19 @@ impl HubuumGateway {
         username: &str,
         input: CloneTokenInput,
     ) -> Result<CloneTokenOutcome, AppError> {
-        let handle = self.client().users().get_by_name(username)?;
+        let client = self.client();
+        let handle = client.users().get_by_name(username)?;
         let source_token_id = input.source_token_id();
         let source = find_source_token(handle.tokens()?, source_token_id)?;
-        let issued_token = handle
-            .tokens_create_token(input.request_for(&source)?)?
-            .into();
+        let request = input.request_for(&source)?;
+        let token = match handle.tokens_create_token(request.clone()) {
+            Ok(token) => token,
+            Err(error) if error.is_reauthentication_required() => {
+                self.create_approved_token(&client, handle.id().into(), request)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let issued_token = token.into();
         let source_revocation = if input.should_revoke_source() {
             let revoke_result = (|| -> Result<(), AppError> {
                 let current = handle.token(source_token_id)?;
@@ -240,9 +274,20 @@ impl HubuumGateway {
     }
 
     pub fn set_user_password(&self, username: &str, password: &str) -> Result<(), AppError> {
-        let handle = self.client().users().get_by_name(username)?;
-        handle.set_password(password)?;
-        Ok(())
+        let client = self.client();
+        let handle = client.users().get_by_name(username)?;
+        match handle.set_password(password) {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_reauthentication_required() => {
+                send_approved(self.approval_source().approve(
+                    &client,
+                    CredentialOperation::set_password(handle.id(), password),
+                    &format!("Change password for user {username}"),
+                )?)?;
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

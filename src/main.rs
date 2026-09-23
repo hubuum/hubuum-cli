@@ -1,4 +1,6 @@
 use std::env::args;
+use std::io::{stdin, IsTerminal};
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +17,7 @@ use errors::AppError;
 use output::{print_rendered, OutputSnapshot};
 use redirection::write_output;
 use repl::run;
-use services::AppServices;
+use services::{AppServices, CredentialApprovalSource};
 use tokio::fs::read_to_string;
 use tokio::runtime::Handle;
 
@@ -86,6 +88,16 @@ async fn main() -> Result<(), AppError> {
         Handle::current(),
         Duration::from_secs(config.background.poll_interval_seconds),
     ));
+    let approval_source = match matches.get_one::<PathBuf>("approval_password_file") {
+        Some(path) => CredentialApprovalSource::File(path.clone()),
+        None if !matches!(mode, StartupMode::Script(_)) && stdin().is_terminal() => {
+            CredentialApprovalSource::Prompt
+        }
+        None => CredentialApprovalSource::Unavailable,
+    };
+    services
+        .gateway()
+        .set_credential_approval_source(approval_source);
     let runtime = Arc::new(AppRuntime::new(config, services, catalog));
     let session = SharedSession::new();
 
