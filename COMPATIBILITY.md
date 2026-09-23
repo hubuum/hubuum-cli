@@ -9,7 +9,7 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.12 (unreleased) | 0.12.0 | 0.0.16 | Structured search, credential approvals, task discovery, and backup format 6 |
+| 0.0.12 | 0.12.0 | 0.0.16 | Current release target; structured search, credential approvals, task discovery, and backup format 6 |
 | 0.0.11 | 0.10.1 | 0.0.14 | Previous release target; backup format 5, queued restores, and restorable follow-up backups |
 | 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
@@ -46,7 +46,7 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change a published CLI release's declared target.
 
-## CLI v0.0.12 preparation: server v0.0.16 target
+## CLI v0.0.12: server v0.0.16 target
 
 `Cargo.toml` pins client 0.12.0 and the immutable multi-platform server image
 `ghcr.io/hubuum/hubuum-server@sha256:37b3299edd845a0c2aa7772d7d68565233ac8c1802bc44be3fb4bbc6dfa8778e`.

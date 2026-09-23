@@ -7,7 +7,7 @@ pre-release state and under heavy development.
 
 Successful pushes to `main` publish rolling binaries in the
 [`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
-Version tags such as `v0.0.11` publish immutable, versioned GitHub releases.
+Version tags such as `v0.0.12` publish immutable, versioned GitHub releases.
 
 Each release provides four small, stripped archives and matching SHA-256 files:
 
@@ -33,9 +33,9 @@ the server's unauthenticated OpenAPI metadata.
 
 CLI and server releases are versioned independently. The declared targets and
 their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). The development CLI targets Hubuum
-server v0.0.16 through `hubuum_client` v0.12.0, preparing CLI v0.0.12. Released CLI v0.0.11 targeted
-server v0.0.14 through `hubuum_client` v0.10.1.
+[compatibility matrix](COMPATIBILITY.md). CLI v0.0.12 targets Hubuum server
+v0.0.16 through `hubuum_client` v0.12.0. CLI v0.0.11 targeted server v0.0.14
+through `hubuum_client` v0.10.1.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
 backup format 6 and staged schema policy changes require migration steps.
 Server v0.0.16 also requires [fresh credential approvals](docs/credential-approvals.md)

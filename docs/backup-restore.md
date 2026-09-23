@@ -1,6 +1,6 @@
 # Backup and restore
 
-The development CLI uses `hubuum_client` 0.12.0 and targets Hubuum server 0.0.16.
+CLI v0.0.12 uses `hubuum_client` 0.12.0 and targets Hubuum server 0.0.16.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server

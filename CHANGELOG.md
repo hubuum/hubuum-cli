@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.0.12] - 2026-09-23
+
+| CLI | `hubuum_client` | Hubuum server target | Backup format |
+| --- | --- | --- | --- |
+| 0.0.12 | 0.12.0 | 0.0.16 | 6 |
+| 0.0.11 | 0.10.1 | 0.0.14 | 5 |
+
 - Preserve local filters and projections when continuing structured search with
   `next`. Reject excessive boolean expressions regardless of keyword casing
   before recursive parsing, preventing stack overflows from long lowercase
@@ -9,7 +16,7 @@
 - Display group names in structured tabular search output, preserve per-kind
   pagination cursors in text search streams, and restrict task-filter completion
   to the supported `equals` operator.
-- Prepare CLI v0.0.12 with `hubuum_client` 0.12.0 and the immutable Hubuum server
+- Release CLI v0.0.12 with `hubuum_client` 0.12.0 and the immutable Hubuum server
   v0.0.16 target (220 OpenAPI operations, 330 schemas). Client features remain
   blocking-only and its MSRV stays at Rust 1.88; no CLI MSRV is declared.
   See [pinned integration evidence](COMPATIBILITY.md).
