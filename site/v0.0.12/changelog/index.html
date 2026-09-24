@@ -1,0 +1,2283 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Terminal, interactive, and scripted workflows for Hubuum.">
+      
+      
+      
+        <link rel="canonical" href="https://hubuum.github.io/hubuum-cli/v0.0.12/changelog/">
+      
+      
+        <link rel="prev" href="../rfcs/0001-native-pipeline-dsl/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.64">
+    
+    
+      
+        <title>Release notes - Hubuum CLI</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.40d3fdbb.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  <nav class="hubuum-ecosystem" aria-label="Hubuum projects">
+    <a href="https://hubuum.github.io/"><strong>Hubuum</strong></a>
+    
+      <a href="https://hubuum.github.io/hubuum/">Server</a>
+    
+      <a href="https://hubuum.github.io/hubuum-frontend/">Frontend</a>
+    
+      <a href="https://hubuum.github.io/hubuum-cli/">CLI</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-rust/">Rust client</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-python/">Python client</a>
+    
+  </nav>
+  
+  
+    Documentation for <strong>v0.0.12</strong>.
+  
+  <label for="docs-version">Version</label>
+  <select id="docs-version" data-version="v0.0.12"
+    data-manifest="../../versions.json">
+    <option value="v0.0.12">v0.0.12</option>
+  </select>
+  
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="Hubuum CLI" class="md-header__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Hubuum CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Release notes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="./.." class="md-tabs__link">
+          
+  
+  Overview
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../search/" class="md-tabs__link">
+          
+  
+  Use the CLI
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../extensions/" class="md-tabs__link">
+          
+  
+  Extend and automate
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/aliases/" class="md-tabs__link">
+          
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../manual-test/" class="md-tabs__link">
+          
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="Hubuum CLI" class="md-nav__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    Hubuum CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_1">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Overview
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Welcome
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install and connect
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Server compatibility
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the CLI
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Use the CLI
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Search
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../output-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Output pipelines
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DSL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Query and script language
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Task discovery
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../schema-evolution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Schema evolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../credential-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Credential approvals
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Backup and restore
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../themes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Themes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ansible-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ansible facts
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extend and automate
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Extend and automate
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extensions
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension tutorial
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filter-language/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Local filters
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Examples
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Aliases
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inventory
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-jacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Jacks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wrappers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Contributing
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Contributing
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Manual test plan
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rfcs/0001-native-pipeline-dsl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline design RFC
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Release notes
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Release notes
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [Unreleased]
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0012-2026-09-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.12] - 2026-09-23
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0011-2026-09-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.11] - 2026-09-10
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0010-2026-08-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.10] - 2026-08-30
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#009-2026-08-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.9] - 2026-08-07
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#008-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.8] - 2026-08-05
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#005-2026-07-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.5] - 2026-07-26
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#004-2026-07-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.4] - 2026-07-26
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#003-2026-07-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.3] - 2026-07-23
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#002-2026-07-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.2] - 2026-07-18
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#001-2026-07-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.1] - 2026-07-13
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [Unreleased]
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0012-2026-09-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.12] - 2026-09-23
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0011-2026-09-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.11] - 2026-09-10
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0010-2026-08-30" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.10] - 2026-08-30
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#009-2026-08-07" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.9] - 2026-08-07
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#008-2026-08-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.8] - 2026-08-05
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#005-2026-07-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.5] - 2026-07-26
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#004-2026-07-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.4] - 2026-07-26
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#003-2026-07-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.3] - 2026-07-23
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#002-2026-07-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.2] - 2026-07-18
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#001-2026-07-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.1] - 2026-07-13
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="0012-2026-09-23">[0.0.12] - 2026-09-23<a class="headerlink" href="#0012-2026-09-23" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>CLI</th>
+<th><code>hubuum_client</code></th>
+<th>Hubuum server target</th>
+<th>Backup format</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.0.12</td>
+<td>0.12.0</td>
+<td>0.0.16</td>
+<td>6</td>
+</tr>
+<tr>
+<td>0.0.11</td>
+<td>0.10.1</td>
+<td>0.0.14</td>
+<td>5</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Preserve local filters and projections when continuing structured search with
+  <code>next</code>. Reject excessive boolean expressions regardless of keyword casing
+  before recursive parsing, preventing stack overflows from long lowercase
+  or mixed-case negation chains.</li>
+<li>Display group names in structured tabular search output, preserve per-kind
+  pagination cursors in text search streams, and restrict task-filter completion
+  to the supported <code>equals</code> operator.</li>
+<li>Release CLI v0.0.12 with <code>hubuum_client</code> 0.12.0 and the immutable Hubuum server
+  v0.0.16 target (220 OpenAPI operations, 330 schemas). Client features remain
+  blocking-only and its MSRV stays at Rust 1.88; no CLI MSRV is declared.
+  See <a href="../compatibility/">pinned integration evidence</a>.</li>
+<li>Add structured resource search with validated <code>--query-file</code> requests or
+  <code>--target</code>, <code>--class</code>, and a quoted <code>--where</code> predicate. The terminal DSL supports
+  boolean groups, typed comparisons, regex, membership, and null tests, with REPL
+  Tab completion for fields, class data paths, operators, and boolean continuations.
+  Add sorting, cursor pagination, exact totals, all-page collection, and semantic
+  resource rows for pipelines. See <a href="../search/">search</a>.</li>
+<li>Stream plain-text search batches and JSONL events to the terminal as they arrive.
+  JSON arrays, pipelines, and redirects remain buffered. <strong>Breaking (stream output):</strong>
+  <code>search --stream --output jsonl</code> now emits one event envelope per line; update
+  consumers to read <code>event</code> and <code>data</code>. Truncated streams and server error events
+  now exit unsuccessfully instead of appearing complete.</li>
+<li><strong>Breaking (credential operations):</strong> server v0.0.16 requires fresh approval for
+  local user creation, password changes, token creation/renewal/cloning, credential
+  imports (including dry runs), and restore confirmation. Use an unscoped human
+  bearer and enter that human's current password when prompted, or pass the new
+  global <code>--approval-password-file FILE</code> before the command for automation.
+  Stored login passwords are not reused. Service-account tokens cannot approve
+  these operations. Approval failures and ambiguous mutation responses are not
+  replayed; inspect the reported ID with <code>auth approval show ID</code> before retrying.
+  See <a href="../credential-approvals/">credential migration</a>.</li>
+<li><strong>Breaking (import payloads):</strong> submission preserves the full supported graph, including credential and
+  integration entries, instead of dropping extended fields. Review existing import
+  files before resubmission: previously ignored entries now take effect.</li>
+<li>
+<p>Add typed <code>task list --where FIELD equals VALUE</code> discovery filters and
+  comma-separated kind/status sets. <code>task show</code> exposes retained targets, options,
+  output availability, remote side effects, and schema/rebuild details when present.
+  See <a href="../tasks/">task discovery</a>.</p>
+</li>
+<li>
+<p>Refresh the pinned PostgreSQL 18 integration fixture image.</p>
+</li>
+<li>
+<p>Refresh locked Rust dependencies, including Clap 4.6.7 and Quinn 0.11.12,
+  and update Docker build workflow actions and the pinned Rust builder to 1.98.1.</p>
+</li>
+<li>
+<p>Resolve collection names in <code>class show</code> when the server returns only a collection
+  ID. Related object and class queries now accept class and collection names through
+  <code>--where class equals Hosts</code> and <code>--where collection equals Inventory</code>.</p>
+</li>
+<li>
+<p>Include server v0.0.15 schema evolution and task cancellation in the v0.0.16
+  upgrade. Update locked Rustls to 0.23.45. Administrative output includes schema
+  budgets, backup row limits, and task execution timeouts.</p>
+</li>
+<li><strong>Breaking (schema commands):</strong> remove <code>--schema</code>/<code>-s</code> and <code>--validate</code>/<code>-v</code>
+  from <code>class create</code> and <code>class modify</code>. Use <code>class schema stage</code>, <code>impact</code>,
+  and <code>activate</code> for all schema policy changes, including initial setup.
+  Activation requires an explicit expected active revision and defaults to
+  rejecting incompatible objects. Add revision inspection/abandonment,
+  compliance pages, revalidation, work diagnostics, and retained HTML reports.
+  See <a href="../schema-evolution/">schema migration examples</a>.</li>
+<li>Add a schema-scope help walkthrough and allow <code>class schema stage --validate</code>
+  to reuse the active schema. Preview validation changes with impact analysis
+  before explicit activation; <code>--schema null</code> still explicitly removes a schema.
+  <code>stage --from-revision</code> copies a previous policy into a new proposal for impact
+  analysis and activation, with an optional validation override.</li>
+<li>Schema commands now show concise text summaries by default, including impact
+  readiness, counts, and bounded failure groups. Aligned labels follow the
+  configured output padding; results, impact, and failure details are grouped and
+  indented, with zero-only secondary counters omitted. Full schemas and diagnostics
+  remain available through <code>--output json</code>, structured formats, and pipelines.</li>
+<li>Complete recent schema task IDs with status/summary labels for <code>work</code>, reports,
+  cancellation, and activation. Suggestions use a bounded task-list request,
+  without downloading diagnostics; task cancellation also gains ID completion.</li>
+<li>Add <code>task cancel</code> with validated reasons and optional expected status, plus
+  class-scoped <code>class schema cancel</code>. Cancellation can remain pending while
+  executors finish cleanup; inspect <code>task show</code> for cancellation metadata,
+  deadlines, unattempted items, terminal reasons, and remote side effects.
+  Task filtering/completion includes <code>schema_validation</code>.</li>
+<li>
+<p><strong>Breaking (server and backup compatibility):</strong> backups now require format 6.
+  Restore format 5 artifacts with the matching older server, migrate, then
+  create new format 6 backups; no conversion is available. Drain old workers,
+  run migrations in a quiet window, and upgrade server, administrator, template
+  worker, and restore executor together. Revalidate existing enforced classes,
+  add external <code>CancelTask</code> permissions, and restart string-sorted pagination.</p>
+</li>
+<li>
+<p><strong>Breaking (example wrapper verbose output):</strong> <code>hubuum-host --verbose</code> now
+  delegates to <code>object show --data</code> with two levels of relations and text output.
+  Data keys omit the <code>data.</code> prefix and values align to the longest key. Verbose
+  output uses the CLI's standard metadata and general relation tree. The ID field
+  is omitted, and relations include classes beyond Jacks and Rooms.
+  Scripts parsing the previous verbose text must migrate to <code>hubuum-host --json</code>;
+  JSON output retains its Host and placement structure and takes precedence over
+  <code>--verbose</code>.</p>
+</li>
+</ul>
+<h2 id="0011-2026-09-10">[0.0.11] - 2026-09-10<a class="headerlink" href="#0011-2026-09-10" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.10.1, targeting Hubuum server v0.0.14 and its
+  pinned 204-operation OpenAPI contract. The client remains configured with
+  its blocking feature. Administrative configuration output includes the new
+  storage, database-role, secret-source, token-hash, tracing, query-budget, and
+  traversal settings. New structured-search POST routes have no dedicated CLI
+  commands in this update.</li>
+<li><strong>Breaking (backup compatibility):</strong> restores now require backup format 5.
+  Restore format 4 artifacts using a compatible older server, then upgrade and
+  create fresh backups. Editing a backup's version does not convert it. Format 5
+  excludes password hashes, bearer tokens, and token scopes; after restoring,
+  reset a local administrator password and issue fresh tokens.</li>
+<li><strong>Breaking (restore completion):</strong> server v0.0.14 confirmation queues a restore.
+  A successful <code>restore confirm --yes</code> invocation reports acceptance, not
+  completion. Scripts requiring completion must add <code>--wait</code> or run the new
+  <code>restore wait --receipt &lt;file&gt;</code> command. Failed, expired, and timed-out waits
+  exit unsuccessfully; a timeout does not cancel the restore. Deploy matching
+  server, administrator, and template-worker binaries, run
+  <code>hubuum-admin --migrate</code>, and start <code>hubuum-admin --restore-executor</code> before
+  confirming restores. See <a href="../backup-restore/">backup and restore</a>.</li>
+<li>Fixed restore status to work without login after token invalidation, added
+  receipt-only completion polling, and preserved server creation timestamps
+  when staging backups. Receipt IDs, capabilities, checksums, and status response
+  identity are validated; capabilities remain absent from displayed records and
+  semantic pipelines.</li>
+<li>Backup and receipt writes now replace files atomically, prepare the destination
+  before submitting remote work, preserve the last file on unsuccessful writes,
+  and keep a recoverable temporary file if final installation fails. Unix files
+  remain owner-only.</li>
+<li><strong>Breaking (file destinations):</strong> symbolic links and other non-regular backup
+  and receipt destinations are rejected even with <code>--force</code>; use the regular
+  destination path instead.</li>
+<li><strong>Breaking (pipeline input):</strong> backup-save summaries and restore records now
+  supply structured fields to semantic pipelines. Update pipelines that filtered
+  formatted lines or flattened key/value rows to select record fields, such as
+  <code>P backup.source_version</code> or <code>P status</code>.</li>
+<li>Added positive <code>server.max_response_body_bytes</code> configuration for backups
+  larger than the default 16 MiB response limit.</li>
+<li>Adopted server v0.0.14's fix for history-free restores: later default backups
+  remain restorable while live revisions and timestamps are preserved. The
+  pinned regression check now requires successful follow-up staging and a full
+  second-generation restore after further updates and deletions. Existing
+  history-free format 5 artifacts can be restored with the matching fixed
+  executor. This server release adds no migration over v0.0.13; upgrading alone
+  does not repair an already inconsistent database. See the recovery guide.</li>
+<li><strong>Breaking (object assignments):</strong> upgraded <code>jqesque</code> to 0.1. Object
+  modification assignments now reject paths deeper than 128 components and
+  array indices above 1,000,000. Reduce path depth or array indices in affected
+  <code>object modify --data</code> commands. Ordinary assignments retain their behavior.
+  The updated dependency also resolves the <code>jsonptr</code> version conflict, removing
+  the need to manually preserve a shared lockfile pin with <code>json-patch</code>.</li>
+<li>Refreshed all compatible locked dependencies, including <code>bitflags</code> 2.13.2 and
+  <code>jsonpath-rust</code> 1.0.11, upgraded <code>dirs</code> to 7, and refreshed release-action pins.
+  CI now checks workspace formatting, tests and Clippy, plus pinned live
+  backup/restore recovery. Dependabot tracks
+  Cargo and Docker dependencies as well as actions. Verification uses Rust
+  1.98.0; no CLI MSRV declaration is added.</li>
+</ul>
+<h2 id="0010-2026-08-30">[0.0.10] - 2026-08-30<a class="headerlink" href="#0010-2026-08-30" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added canonical <code>class fields --name &lt;class&gt;</code> field discovery, with
+  <code>object fields --class &lt;class&gt;</code> retained as a deprecated compatibility alias
+  that prints an exact replacement command. Existing invocations continue to
+  work; users should migrate to <code>class fields --name &lt;class&gt;</code>. Reusable command
+  deprecation metadata now annotates help and rewrites renamed options in
+  warnings. The inventory includes enabled shared and personal computed
+  selectors alongside sampled <code>data.*</code> paths, identifies each field's source,
+  and summarizes computed values observed in the same object sample. This is a
+  breaking output-shape change: the inventory gains a <code>Source</code> column and
+  computed-selector rows. Structured consumers that assumed an exact column set
+  or data-only rows must accept the new column and rows.</li>
+<li>Added extension packs under <code>extension &lt;pack&gt;</code>, with dependency-free portable
+  JSONC/JQ workflow packs as the preferred kind and a versioned argv/JSON
+  protocol for explicitly executable packs. Packs have deterministic system and
+  user discovery, catalog help and static completion, semantic output pipelines,
+  diagnostics, and local user-package lifecycle commands. The Host, Jack, and
+  Room placement example is one portable workflow pack; the Host shell wrappers
+  remain a tested executable pack pilot and retain their standalone entry
+  points.
+  Workflow commands use strict manifest schemas and a catalog contract with
+  stable input IDs, portable types and cardinality, explicit effects, early
+  compatibility checks, and preserved step-output metadata. Manifest commands,
+  options, workflows, and inputs use nested named objects. Workflow steps are
+  tagged objects in ordered arrays, keeping IDs, bindings, conditions, and
+  dependency references together.</li>
+<li>Expanded the native semantic pipeline with typed boolean <code>F WHERE</code> and
+  <code>reject WHERE</code> predicates, stable multi-key sorting with strict casts and
+  explicit null placement, projection aliases and deep exclusions, stable
+  <code>D</code>/<code>distinct</code>, global aggregation, selector counts, and ordered <code>first</code> and
+  <code>last</code> aggregates. Pipeline stages now operate on canonical semantic JSON
+  before final rendering, validate their selectors, output names, and shape
+  transitions, and apply post-group filters to visible group summaries without
+  mutating member rows.
+  These are breaking validation changes: malformed selectors, duplicate or
+  colliding output names, unsupported stage-shape transitions, and invalid
+  values sorted with <code>AS ip</code> now fail instead of being tolerated or coerced.
+  Users must correct selector syntax, give projected/grouped/aggregate outputs
+  unique names, reorder incompatible stages, and filter invalid addresses or
+  select a non-IP cast. Existing legacy filter, projection, one-key sort, and
+  grouped aggregate forms remain available.</li>
+<li>Interactive REPL sessions now recover from expired or revoked credentials by
+  re-reading token files or logging in again. Read-only commands retry once
+  after successful authentication; potentially mutating commands are not
+  replayed and identify the failed HTTP method and redacted path for review.
+  One-shot commands and scripts remain non-interactive.</li>
+<li>Server startup now checks the unauthenticated health endpoint before asking
+  for an interactive password. Unconfigured ports are tried in order on 443 and
+  8080, while an explicitly configured port remains authoritative.</li>
+<li>Fixed <code>object show</code> relation expansion to exclude same-class roots in the
+  server request when the default same-class filter is active, preventing
+  high-fanout neighbors from hitting the graph-size guard before local
+  filtering. Completion now also offers <code>--class</code> before the class-dependent
+  <code>--name</code> option.</li>
+<li>Updated <code>hubuum_client</code> to 0.9.1 while retaining the declared Hubuum server
+  v0.0.9 target and its pinned immutable integration image. The client update
+  adds strict JSON-query-path validation, atomic export downloads, expanded
+  OpenAPI model reconciliation, and refreshed dependencies. The complete CLI
+  dependency and release-action set was also refreshed, including the <code>h2</code>
+  update that addresses RUSTSEC-2026-0258.</li>
+</ul>
+<h2 id="009-2026-08-07">[0.0.9] - 2026-08-07<a class="headerlink" href="#009-2026-08-07" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.9.0 for Hubuum server v0.0.9. The CLI now
+  handles revisioned resources, optional point/list projections, both SQL and
+  expanded collection-permission responses, and the revised identity and group
+  membership shapes. Token lists accept lifecycle-state filters and token
+  output includes lifecycle state and revision. User and service-account tokens
+  can be renewed into replacement credentials without mutating the source.</li>
+<li>Computed-field updates and deletes retain their <code>--revision</code> safety contract
+  by resolving the canonical point resource and sending its strong ETag with
+  <code>If-Match</code>. Collection ACL grants and token revocations also use conditional
+  requests when the server exposes a revisioned resource.</li>
+<li>Portable preference export now applies one bounded RFC 6902 operation to the
+  authenticated principal's <code>hubuum-cli</code> settings namespace. This atomically
+  replaces the CLI snapshot without reading and replacing settings owned by
+  other clients. <code>config remote</code> displays the stored CLI snapshot and its server
+  revision without importing or modifying it.</li>
+<li>Import v2 requests preserve per-item write conditions and computed-field
+  inputs. <code>import submit --collection</code> also rewrites computed-field class keys
+  to the selected existing collection.</li>
+</ul>
+<h2 id="008-2026-08-05">[0.0.8] - 2026-08-05<a class="headerlink" href="#008-2026-08-05" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.8.0 for Hubuum server v0.0.8. Class relation
+  creation now accepts forward/reverse template aliases and validated per-side
+  object-relation limits; relation output includes both aliases and limits.
+  Core graph imports preserve collection, class, object, class-relation, and
+  object-relation timestamps and class-relation limits, while export task
+  details expose total, query, hydration, and render timings. Typed relation ID
+  filters also use the server's canonical query keys.</li>
+<li>Paginated commands now accept <code>--all</code> to fetch and buffer every
+  remaining cursor page before output pipelines run. Pipelines applied without
+  <code>--all</code> warn when more server pages are available, and unified streaming
+  search rejects the incompatible <code>--all --stream</code> combination.</li>
+<li>Added personal command aliases for complete command lines, including pipe
+  stages and redirects. Aliases accept an optional one-line description; alias
+  lists, root help, and effective-config output use the description instead of
+  printing long command pipelines, while <code>alias show</code> retains the full command.
+  Structured map and list values in text <code>config show</code> output are now rendered
+  as sorted, indented trees instead of dense JSON strings. Existing
+  string-valued aliases remain compatible.</li>
+<li>Added scope-preserving token cloning for users and service accounts, with
+  optional expiry overrides and post-create source revocation. Active token IDs
+  are available through contextual completion.</li>
+<li>Added configurable grouped, full, or hidden table headers. Automatically
+  sized tables now stay within terminal width and wrap aligned cell content,
+  including compact dense-table rendering.</li>
+<li>Added <code>object aggregate</code>, exposing the server's permission-scoped object
+  aggregation with ordered data or computed dimensions, numeric measures,
+  pre-aggregation filters, aggregate sorting, cursor pagination, and optional
+  total counts. Aggregate dimensions, measures, and data filters complete from
+  both class schemas and sampled object fields; inspected fields use the
+  configured completion cache lifetime. The existing <code>G</code> and <code>A</code> pipe stages
+  remain local transforms over rows already returned by another command.</li>
+<li>Object-list text and pipeline output now promotes dotted data fields used by
+  <code>--where</code> into explicit columns by default. Use
+  <code>--include-where-results false</code> to retain the configured data-column layout.
+  REPL completion also resumes normal option suggestions immediately after a
+  complete <code>--where</code> or <code>--sort</code> clause.</li>
+<li>Added tested Bash wrapper examples for Host inventory creation, lookup, and
+  placement workflows, plus a loadable personal-alias example for finding
+  hosts with outdated kernels.</li>
+</ul>
+<h2 id="005-2026-07-26">[0.0.5] - 2026-07-26<a class="headerlink" href="#005-2026-07-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.7.2 for Hubuum server v0.0.5. User and
+  service-account token creation now reports the authoritative expiry returned
+  by the server, including its materialized default. Administrative
+  configuration output also includes the token-retention purge settings added
+  by the server.</li>
+</ul>
+<h2 id="004-2026-07-26">[0.0.4] - 2026-07-26<a class="headerlink" href="#004-2026-07-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.7.1 for Hubuum server v0.0.4, including sensitive
+  header handling that keeps bearer tokens, restore capabilities, and custom
+  raw headers out of debug output and HTTP/2 compression tables. Object-data
+  patches exceeding the server's 1,000-operation limit are now rejected before
+  transport.</li>
+<li>Added <code>user token show</code> and <code>service-account token show</code> with complete token
+  metadata, permission and resource boundaries, and resolved collection, class,
+  and object names. Object IDs outside the token's explicitly scoped classes
+  are marked <code>unreachable</code>. ID resolution follows every server cursor page and
+  uses command-local positive and negative caches with bounded per-class object
+  lookups.</li>
+<li>Expanded <code>audit show</code> with the provenance initiator's principal ID and name
+  while preserving the complete provenance object in structured output. Audit
+  lists now display the immediate actor kind and complete <code>user</code>, <code>system</code>, and
+  <code>worker</code> actor filters.</li>
+<li>Added explicit <code>group add_service_account</code> and
+  <code>group remove_service_account</code> commands for managing service-account group
+  membership by name.</li>
+<li>Changed <code>user set-password</code> to prompt for the new password by default and
+  added <code>--password-file</code> for automation, preventing inline passwords from
+  being stored in REPL history or trace logs.</li>
+</ul>
+<h2 id="003-2026-07-23">[0.0.3] - 2026-07-23<a class="headerlink" href="#003-2026-07-23" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.6.1 for Hubuum server v0.0.3 and refreshed all
+  compatible direct and transitive dependencies. This includes transport
+  confinement, redirect prevention, and sensitive diagnostic redaction from
+  the client's security-focused 0.6.1 release.</li>
+<li>Added exact-name RFC 6902 object-data patching with optional create-if-missing
+  behavior and a bounded retry when concurrent creation returns a conflict.</li>
+<li>Added <code>--token-file</code> and <code>HUBUUM_CLI__SERVER__TOKEN_FILE</code> authentication for
+  non-interactive service-account workflows.</li>
+<li>Added a readable nested <code>diff</code> to <code>audit show</code> output when both snapshots are
+  available. Full <code>before</code> and <code>after</code> values are available with <code>--complete</code>.
+  The referenced user and collection names are resolved when still available,
+  and the diff is rendered after the event metadata.</li>
+<li>Added <code>history show</code> for detailed class or object versions selected by history
+  ID or an RFC 3339 as-of timestamp.</li>
+</ul>
+<h2 id="002-2026-07-18">[0.0.2] - 2026-07-18<a class="headerlink" href="#002-2026-07-18" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Updated <code>hubuum_client</code> to 0.5.1 for Hubuum server v0.0.2 and refreshed all
+  compatible direct and transitive dependencies.</li>
+<li>Added a compatibility matrix recording the CLI, client-library, and declared
+  Hubuum server targets.</li>
+<li>Expanded user list and detail output with proper names, identity scopes,
+  provider ownership, management state, and synchronization timestamps.</li>
+<li>Expanded group list and detail output with identity scopes, provider ownership,
+  external keys, and synchronization timestamps. Detail labels now expand their
+  alignment width when fields exceed the configured minimum padding.</li>
+<li>Added unauthenticated Prometheus metrics retrieval from the default <code>/metrics</code>
+  route or a runtime-configured path.</li>
+<li>Added shared and personal computed-field list, create, update, delete, preview,
+  and rebuild commands, plus computed scopes on object reads.</li>
+<li>Added computed-field JSON Pointer completion from the class schema, falling
+  back to observed paths from a cached sample of up to 100 class objects.</li>
+<li>Expanded computed values in object-list text output as compact <code>S:&lt;key&gt;</code> and
+  <code>P:&lt;key&gt;</code> columns instead of a truncated envelope preview.</li>
+<li>Added repeatable, dynamically completed <code>--computed S:&lt;key&gt;</code> and
+  <code>--computed P:&lt;key&gt;</code> selections for object list and show commands, plus
+  <code>--computed all</code>; computed values remain off by default.</li>
+<li>Added portable per-class computed defaults under
+  <code>output.object_class_computed_fields</code>, with dynamic config completion and
+  explicit <code>--computed none</code> overrides.</li>
+<li>Made <code>S:&lt;key&gt;</code> and <code>P:&lt;key&gt;</code> first-class semantic pipe selectors for object
+  list and show output, preserving computed JSON types through pipe stages.</li>
+<li>Added local object-list sorting by <code>S:&lt;key&gt;</code> and <code>P:&lt;key&gt;</code>, including dynamic
+  completion from enabled definitions. Computed sorts run before <code>--limit</code> and
+  reject server cursors because server v0.0.2 cannot represent that ordering.</li>
+<li>Treats <code>--limit</code> as a requested page size while enforcing the Hubuum server
+  v0.0.2 maximum of 250. Larger values are truncated with a warning, and generated
+  next-page commands use the effective value.</li>
+<li>Renamed class-specific local meta columns to display aliases under
+  <code>output.object_list_class_aliases</code>; the former config and stored-preference
+  name remains readable for compatibility.</li>
+<li>Added administrator backup submission, task inspection, secure download, and
+  high-level create commands.</li>
+<li>Added two-step destructive restore staging, status, and confirmation. One-time
+  capabilities are kept in owner-only receipt files and confirmation requires
+  an explicit <code>--yes</code>.</li>
+<li>Extended task-kind filtering and completion with backup tasks. The existing
+  administrator configuration dump now includes the server v0.0.2 settings.</li>
+<li>Adapted object JSONPath handling for the refreshed <code>jsonpath-rust</code> API.</li>
+</ul>
+<h2 id="001-2026-07-13">[0.0.1] - 2026-07-13<a class="headerlink" href="#001-2026-07-13" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added rolling <code>main</code> and version-tagged release archives for static musl Linux binaries,
+  Apple Silicon macOS, and Windows, with SHA-256 checksums for every artifact.</li>
+<li>Added an offline <code>version</code> command for one-shot and REPL use, optional server version
+  lookup, and commit-derived SemVer build metadata for rolling <code>main</code> binaries.</li>
+<li>Updated all dependencies, including <code>hubuum_client</code> 0.4.0, and added authentication
+  provider discovery, provider-scoped login, redacted administrative server configuration,
+  and opt-in exact totals for supported paginated commands.</li>
+<li>Using <code>show</code> on an object or class now displays the object's or class's relations. Defaults
+  to depth 2 and ignoring self-class relations. This behavior can be configured with the
+  <code>--max-depth</code> and <code>--include-self-class</code> flags.</li>
+<li>Redesigned relationship commands around rooted <code>relation class</code> and <code>relation object</code>
+  workflows that use the newer related-resource endpoints.</li>
+<li>Added class relation traversal support (<code>list</code>, <code>direct</code>, and <code>graph</code>) to match the newer
+  object relation interface.</li>
+<li>Switched search and relationship handling to the released <code>hubuum_client</code> crate.</li>
+<li>Improved relation UX with better nested scope help, depth defaults, object-name completion,
+  and resolved relation paths.</li>
+<li>Reduced relation hydration overhead by batching related class-relation lookups instead of
+  repeatedly fetching the same relation ids.</li>
+<li>Added rendered output redirects with <code>&gt;</code> and <code>&gt;&gt;</code>, including REPL file path completion and
+  support for redirecting piped JSON projections.</li>
+<li>Updated to <code>hubuum_client</code> 0.2.0 and made the CLI vocabulary match the current Hubuum API:
+  <code>collection</code> replaces namespace commands and <code>export</code> replaces report commands.</li>
+<li>Added semantic <code>each:&lt;template&gt;</code> redirects, aggregate sorting support, themes, and expanded
+  pipe DSL help topics.</li>
+<li>
+<p>Fixed pipeline comparisons being mistaken for redirects, enabled jq-compatible <code>JQ</code>
+  transforms, included hidden values in broad search, and made direct redirects honor shell
+  argument and color-mode behavior.</p>
+</li>
+<li>
+<p>Switched the CLI to the published <code>hubuum_client</code> crate on crates.io.</p>
+</li>
+<li>Added GitHub Actions release automation for rolling <code>main</code> binaries and tagged <code>v*</code> releases.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../rfcs/0001-native-pipeline-dsl/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Pipeline design RFC">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Pipeline design RFC
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Hubuum · MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.tabs","navigation.tabs.sticky","navigation.sections","navigation.path","navigation.top","navigation.footer","navigation.instant","navigation.instant.progress","content.code.copy","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c04ba553.min.js"></script>
+      
+        <script src="../assets/javascripts/versions.js"></script>
+      
+    
+  </body>
+</html>

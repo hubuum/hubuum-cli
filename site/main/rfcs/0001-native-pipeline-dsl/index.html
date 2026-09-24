@@ -1,0 +1,2328 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Terminal, interactive, and scripted workflows for Hubuum.">
+      
+      
+      
+        <link rel="canonical" href="https://hubuum.github.io/hubuum-cli/main/rfcs/0001-native-pipeline-dsl/">
+      
+      
+        <link rel="prev" href="../../manual-test/">
+      
+      
+        <link rel="next" href="../../changelog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.64">
+    
+    
+      
+        <title>Pipeline design RFC - Hubuum CLI</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.40d3fdbb.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#rfc-0001-native-pipeline-dsl-increment" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  <nav class="hubuum-ecosystem" aria-label="Hubuum projects">
+    <a href="https://hubuum.github.io/"><strong>Hubuum</strong></a>
+    
+      <a href="https://hubuum.github.io/hubuum/">Server</a>
+    
+      <a href="https://hubuum.github.io/hubuum-frontend/">Frontend</a>
+    
+      <a href="https://hubuum.github.io/hubuum-cli/">CLI</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-rust/">Rust client</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-python/">Python client</a>
+    
+  </nav>
+  
+  
+    <strong>Development documentation</strong> — may describe unreleased changes.
+  
+  <label for="docs-version">Version</label>
+  <select id="docs-version" data-version="main"
+    data-manifest="../../../versions.json">
+    <option value="main">main</option>
+  </select>
+  
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Hubuum CLI" class="md-header__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Hubuum CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pipeline design RFC
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../.." class="md-tabs__link">
+          
+  
+  Overview
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../search/" class="md-tabs__link">
+          
+  
+  Use the CLI
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../extensions/" class="md-tabs__link">
+          
+  
+  Extend and automate
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../examples/aliases/" class="md-tabs__link">
+          
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../manual-test/" class="md-tabs__link">
+          
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Hubuum CLI" class="md-nav__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    Hubuum CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_1">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Overview
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Welcome
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install and connect
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Server compatibility
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the CLI
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Use the CLI
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Search
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../output-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Output pipelines
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../DSL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Query and script language
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Task discovery
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../schema-evolution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Schema evolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../credential-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Credential approvals
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Backup and restore
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../themes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Themes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ansible-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ansible facts
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extend and automate
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Extend and automate
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extensions
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../extension-tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension tutorial
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../extension-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../extension-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../filter-language/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Local filters
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Examples
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Aliases
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hubuum-inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inventory
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hubuum-jacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Jacks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hubuum-placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hubuum-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hubuum-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wrappers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Contributing
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Contributing
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Manual test plan
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline design RFC
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline design RFC
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Summary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Goals
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compatibility Boundary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lexical-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lexical Rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#predicate-grammar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Predicate Grammar
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Predicate Grammar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#typed-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed Values
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selector-cardinality-and-missing-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Selector Cardinality And Missing Values
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redirect-disambiguation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Redirect Disambiguation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ordered-multi-key-sorting" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Ordered Multi-key Sorting
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#projection-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Projection Aliases
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stable-distinct" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Stable Distinct
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grouped-and-global-aggregation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Grouped And Global Aggregation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typed-model-and-library-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed Model And Library Boundary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#delivery-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Delivery Plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deferred-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Deferred Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Release notes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Documentation website
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Summary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Goals
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compatibility Boundary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lexical-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lexical Rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#predicate-grammar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Predicate Grammar
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Predicate Grammar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#typed-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed Values
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selector-cardinality-and-missing-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Selector Cardinality And Missing Values
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redirect-disambiguation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Redirect Disambiguation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ordered-multi-key-sorting" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Ordered Multi-key Sorting
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#projection-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Projection Aliases
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stable-distinct" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Stable Distinct
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grouped-and-global-aggregation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Grouped And Global Aggregation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typed-model-and-library-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Typed Model And Library Boundary
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#delivery-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Delivery Plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deferred-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Deferred Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/hubuum/hubuum-cli/edit/main/docs/rfcs/0001-native-pipeline-dsl.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="rfc-0001-native-pipeline-dsl-increment">RFC 0001: Native Pipeline DSL Increment<a class="headerlink" href="#rfc-0001-native-pipeline-dsl-increment" title="Permanent link">&para;</a></h1>
+<ul>
+<li>Status: Implemented (predicates, sorting, projection aliases, distinct, aggregation)</li>
+<li>Tracking issue: <a href="https://github.com/hubuum/hubuum-cli/issues/46">#46</a></li>
+<li>Scope: predicates, sorting, projection aliases, distinct, and aggregation</li>
+</ul>
+<p>The current user reference is <a href="../../DSL/">the pipeline DSL guide</a>.
+Server-side search now reuses the predicate grammar through
+<a href="../../search/">structured search</a>, with the documented server-side subset.</p>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>This RFC defines the next compatible increment of the native JSON pipeline
+language. It adds an explicit typed predicate grammar, stable multi-key sorting,
+strict casts including IPv4 and IPv6, projection aliases, stable distinct, and
+global aggregation. The existing shorthand remains valid.</p>
+<p>The native language is for operations where the CLI can preserve semantic
+shape, column metadata, completion, renderer independence, and redirect safety.
+JQ remains the escape hatch for arbitrary JSON construction. Joins, unions,
+window functions, and unbounded collection are outside this increment.</p>
+<h2 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Make boolean filtering and typed comparisons explicit and predictable.</li>
+<li>Keep redirection unambiguous even when comparisons contain a spaced <code>&gt;</code>.</li>
+<li>Make multi-key ordering stable and reject invalid casts with useful context.</li>
+<li>Preserve JSON values and column metadata through common transformations.</li>
+<li>Add only aggregation operations supported by current CLI workflows.</li>
+<li>Represent parsed syntax with validated types rather than string rewriting.</li>
+<li>Deliver the work in reviewable slices that each include help, completion,
+  documentation, and tests.</li>
+</ul>
+<h2 id="compatibility-boundary">Compatibility Boundary<a class="headerlink" href="#compatibility-boundary" title="Permanent link">&para;</a></h2>
+<p>Existing syntax keeps its current meaning:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>| contact
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>| F contact
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>| F age&gt;=3
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>| F age equals 3
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>| reject retired
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>| S name
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>| S name desc AS str
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>| P Name os_version
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>| G os_version | A count AS Hosts | Z
+</code></pre></div>
+<p>In particular, existing <code>F</code> comparisons retain scalar-text compatibility. The
+new typed predicate grammar begins only after the <code>WHERE</code> marker:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>| F WHERE age AS num &gt;= 3 AND (state == "active" OR state IS NULL)
+</code></pre></div>
+<p>This boundary prevents a typed literal such as <code>3</code> from changing whether the
+legacy expression <code>F age=3</code> matches a JSON string, a JSON number, or both.
+<code>reject WHERE predicate</code> is the negation of the complete typed predicate. Bare
+search, legacy <code>F</code>, and legacy <code>reject</code> continue to use their current parser.</p>
+<p>A current one-key sort is a one-element multi-key sort. Unaliased projection,
+grouped aggregation, output names, selectors, and stage aliases remain valid.
+<code>D</code> is available for distinct because unknown single-letter stages already
+fail; accepting it does not reinterpret a previously valid pipeline.</p>
+<h2 id="lexical-rules">Lexical Rules<a class="headerlink" href="#lexical-rules" title="Permanent link">&para;</a></h2>
+<p>The typed grammar needs a dedicated lexer over the original stage source.
+Using shell-style word splitting would discard the distinction between <code>3</code> and
+<code>"3"</code> before typed literal parsing.</p>
+<ul>
+<li>Whitespace separates tokens except inside quotes.</li>
+<li>Keywords in the new grammar are ASCII case-insensitive. Stage aliases retain
+  their documented spelling.</li>
+<li>Double-quoted strings accept JSON escapes, including Unicode escapes.</li>
+<li>Single-quoted strings accept <code>\\</code>, <code>\'</code>, and otherwise preserve their text.</li>
+<li>A selector in operand position may be bare or quoted. Quoting is necessary
+  for a visible alias containing whitespace.</li>
+<li>A comma separates sort keys, aliased projection terms, aggregate expressions,
+  and membership values. A trailing comma is an error.</li>
+<li>Parentheses group predicates. Brackets delimit an <code>IN</code> list and retain their
+  existing selector meaning when attached to a selector component.</li>
+<li>Empty expressions, unterminated quotes, unexpected delimiters, and extra
+  tokens fail during pipeline parsing with a byte position.</li>
+</ul>
+<p>POSIX shell quoting is a separate outer layer. The examples in this document
+are REPL or script syntax; a one-shot shell command must still quote or escape
+its pipe and redirect characters.</p>
+<h2 id="predicate-grammar">Predicate Grammar<a class="headerlink" href="#predicate-grammar" title="Permanent link">&para;</a></h2>
+<p>The proposed grammar is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">typed-filter    </span><span class="o">=</span> <span class="p">(</span><span class="s2">"F"</span> <span class="p">|</span> <span class="s2">"grep"</span><span class="p">),</span> <span class="s2">"WHERE"</span><span class="p">,</span> <span class="k">predicate </span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">typed-reject    </span><span class="o">=</span> <span class="s2">"reject"</span><span class="p">,</span> <span class="s2">"WHERE"</span><span class="p">,</span> <span class="k">predicate </span><span class="p">;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">predicate       </span><span class="o">=</span> <span class="k">or-expression </span><span class="p">;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">or-expression   </span><span class="o">=</span> <span class="k">and-expression</span><span class="p">,</span> <span class="p">{</span> <span class="s2">"OR"</span><span class="p">,</span> <span class="k">and-expression </span><span class="p">}</span> <span class="p">;</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">and-expression  </span><span class="o">=</span> <span class="k">not-expression</span><span class="p">,</span> <span class="p">{</span> <span class="s2">"AND"</span><span class="p">,</span> <span class="k">not-expression </span><span class="p">}</span> <span class="p">;</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">not-expression  </span><span class="o">=</span> <span class="p">{</span> <span class="s2">"NOT"</span> <span class="p">},</span> <span class="k">primary </span><span class="p">;</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">primary         </span><span class="o">=</span> <span class="s2">"("</span><span class="p">,</span> <span class="k">predicate</span><span class="p">,</span> <span class="s2">")"</span> <span class="p">|</span> <span class="k">test </span><span class="p">;</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="k">test            </span><span class="o">=</span> <span class="k">operand</span><span class="p">,</span> <span class="p">[</span> <span class="s2">"AS"</span><span class="p">,</span> <span class="k">cast </span><span class="p">],</span> <span class="k">test-tail </span><span class="p">;</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">test-tail       </span><span class="o">=</span> <span class="k">comparator</span><span class="p">,</span> <span class="k">literal</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>                <span class="p">|</span> <span class="p">(</span><span class="s2">"~"</span> <span class="p">|</span> <span class="s2">"!~"</span> <span class="p">|</span> <span class="s2">"MATCHES"</span><span class="p">),</span> <span class="k">string</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>                <span class="p">|</span> <span class="p">[</span> <span class="s2">"NOT"</span> <span class="p">],</span> <span class="s2">"IN"</span><span class="p">,</span> <span class="s2">"["</span><span class="p">,</span> <span class="k">literal-list</span><span class="p">,</span> <span class="s2">"]"</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>                <span class="p">|</span> <span class="s2">"IS"</span><span class="p">,</span> <span class="p">[</span> <span class="s2">"NOT"</span> <span class="p">],</span> <span class="p">(</span><span class="s2">"NULL"</span> <span class="p">|</span> <span class="s2">"MISSING"</span><span class="p">)</span> <span class="p">;</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="k">operand         </span><span class="o">=</span> <span class="k">selector </span><span class="p">;</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="k">comparator      </span><span class="o">=</span> <span class="s2">"="</span> <span class="p">|</span> <span class="s2">"=="</span> <span class="p">|</span> <span class="s2">"!="</span> <span class="p">|</span> <span class="s2">"&lt;"</span> <span class="p">|</span> <span class="s2">"&lt;="</span> <span class="p">|</span> <span class="s2">"&gt;"</span> <span class="p">|</span> <span class="s2">"&gt;="</span> <span class="p">;</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="k">literal-list    </span><span class="o">=</span> <span class="p">[</span> <span class="k">literal</span><span class="p">,</span> <span class="p">{</span> <span class="s2">","</span><span class="p">,</span> <span class="k">literal </span><span class="p">}</span> <span class="p">]</span> <span class="p">;</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="k">literal         </span><span class="o">=</span> <span class="k">string </span><span class="p">|</span> <span class="k">number </span><span class="p">|</span> <span class="s2">"true"</span> <span class="p">|</span> <span class="s2">"false"</span> <span class="p">|</span> <span class="s2">"null"</span> <span class="p">;</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="k">cast            </span><span class="o">=</span> <span class="s2">"str"</span> <span class="p">|</span> <span class="s2">"num"</span> <span class="p">|</span> <span class="s2">"bool"</span> <span class="p">|</span> <span class="s2">"ip"</span> <span class="p">|</span> <span class="s2">"datetime"</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>                <span class="p">|</span> <span class="s2">"version"</span> <span class="p">|</span> <span class="s2">"natural"</span> <span class="p">;</span>
+</code></pre></div>
+<p>Precedence from highest to lowest is parentheses, <code>NOT</code>, a field test, <code>AND</code>,
+then <code>OR</code>. Operators at the same level associate left to right. Comparisons do
+not chain: <code>1 &lt; age &lt; 10</code> is an error and must be written as two tests joined by
+<code>AND</code>.</p>
+<p>Examples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>| F WHERE state IN ["ready", "running"] AND retries AS num &lt; 3
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>| F WHERE NOT (owner IS MISSING OR owner IS NULL)
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>| F WHERE "OS Version" AS natural &gt;= "9.4"
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>| F WHERE address AS ip &gt;= "2001:db8::1"
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>| reject WHERE status == "retired" OR disabled == true
+</code></pre></div>
+<h3 id="typed-values">Typed Values<a class="headerlink" href="#typed-values" title="Permanent link">&para;</a></h3>
+<p><code>null</code>, booleans, and numbers use their JSON types. Quoted values are strings.
+Without <code>AS</code>, equality requires the same JSON type; <code>3</code> and <code>"3"</code> differ.
+Ordered comparison without a cast requires two values of the same orderable
+type. Arrays and objects are not implicitly stringified.</p>
+<p>Casts apply to selected non-null values and to the comparison literal:</p>
+<ul>
+<li><code>str</code> accepts JSON strings, numbers, and booleans and uses their canonical
+  scalar text.</li>
+<li><code>num</code> accepts a JSON number or a string containing one complete finite JSON
+  number. Prefixes, suffixes, NaN, and infinity are invalid.</li>
+<li><code>bool</code> accepts JSON booleans or the strings <code>true</code> and <code>false</code>, ignoring ASCII
+  case.</li>
+<li><code>ip</code> accepts only values parsed by <code>std::net::IpAddr</code>.</li>
+<li><code>datetime</code> accepts RFC 3339 with an explicit offset and compares instants
+  after normalization to UTC.</li>
+<li><code>version</code> accepts Semantic Versioning 2.0 values.</li>
+<li><code>natural</code> accepts strings and compares alternating digit and non-digit runs;
+  digit runs compare by numeric magnitude and text runs compare by Unicode
+  scalar value. Equal numeric runs use fewer leading zeroes first as a stable
+  tie-break.</li>
+</ul>
+<p>An invalid literal is a parse error. A selected non-null value that cannot be
+cast aborts evaluation and reports the stage, selector, cast, row index, and
+offending JSON value. Missing and null values are not cast failures. Boolean
+evaluation short-circuits left to right, so an unevaluated branch cannot cause
+a cast error.</p>
+<h3 id="selector-cardinality-and-missing-values">Selector Cardinality And Missing Values<a class="headerlink" href="#selector-cardinality-and-missing-values" title="Permanent link">&para;</a></h3>
+<p>Positive comparisons, regex matches, and <code>IN</code> are existential for fanout
+selectors: any selected value may satisfy the test. <code>!=</code>, <code>!~</code>, and <code>NOT IN</code>
+require at least one selected value and require every selected value to satisfy
+the negative test. This preserves the current safe behavior where a missing
+field does not satisfy <code>field != value</code>.</p>
+<p><code>IS NULL</code> tests for an actual selected JSON null. <code>IS MISSING</code> tests whether the
+selector produced no values. Their <code>IS NOT</code> forms are exact logical opposites.
+The general <code>NOT</code> operator negates the complete nested predicate, including its
+missing-value result.</p>
+<h2 id="redirect-disambiguation">Redirect Disambiguation<a class="headerlink" href="#redirect-disambiguation" title="Permanent link">&para;</a></h2>
+<p>Redirects remain standalone <code>&gt;</code> or <code>&gt;&gt;</code> tokens followed by exactly one sink.
+Compact comparison tokens such as <code>age&gt;3</code> and <code>age&gt;=3</code> can never be redirects.</p>
+<p>For spaced typed comparisons, redirect discovery scans candidates from right to
+left. A token is a redirect only when:</p>
+<ol>
+<li>the suffix is one valid file or <code>each:</code> sink;</li>
+<li>the prefix is a complete command and complete pipeline under the typed
+   predicate grammar; and</li>
+<li>consuming the token as a predicate operator is not required to complete the
+   active <code>WHERE</code> expression.</li>
+</ol>
+<p>Thus the first <code>&gt;</code> below is a comparison and the second is a redirect:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>object list --class Hosts | F WHERE age &gt; 3 &gt; adults.json
+</code></pre></div>
+<p>An incomplete comparison such as <code>F WHERE age &gt;</code> is a predicate error, not a
+redirect to an empty or missing sink. Redirect parsing must consume the same
+typed pipeline AST used by execution; it must not duplicate a partial grammar.</p>
+<h2 id="ordered-multi-key-sorting">Ordered Multi-key Sorting<a class="headerlink" href="#ordered-multi-key-sorting" title="Permanent link">&para;</a></h2>
+<p>Sorting extends the current stage without changing its one-key form:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">sort-stage      </span><span class="o">=</span> <span class="p">(</span><span class="s2">"S"</span> <span class="p">|</span> <span class="s2">"sort"</span><span class="p">),</span> <span class="k">sort-key</span><span class="p">,</span> <span class="p">{</span> <span class="s2">","</span><span class="p">,</span> <span class="k">sort-key </span><span class="p">}</span> <span class="p">;</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">sort-key        </span><span class="o">=</span> <span class="p">[</span> <span class="s2">"!"</span> <span class="p">],</span> <span class="k">selector</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>                  <span class="p">[</span> <span class="s2">"asc"</span> <span class="p">|</span> <span class="s2">"desc"</span> <span class="p">],</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>                  <span class="p">[</span> <span class="s2">"AS"</span><span class="p">,</span> <span class="k">cast </span><span class="p">],</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>                  <span class="p">[</span> <span class="s2">"USING"</span><span class="p">,</span> <span class="p">(</span><span class="s2">"first"</span> <span class="p">|</span> <span class="s2">"min"</span> <span class="p">|</span> <span class="s2">"max"</span><span class="p">)</span> <span class="p">],</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>                  <span class="p">[</span> <span class="s2">"NULLS"</span><span class="p">,</span> <span class="p">(</span><span class="s2">"FIRST"</span> <span class="p">|</span> <span class="s2">"LAST"</span><span class="p">)</span> <span class="p">]</span> <span class="p">;</span>
+</code></pre></div>
+<p>Examples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>| S state asc, updated_at desc AS datetime, Name asc AS natural
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>| S data.network.interfaces[].ipv4 asc AS ip USING min, Name
+</code></pre></div>
+<p>Keys compare lexicographically in declaration order. The sort is stable, so
+rows equal on every key retain their input order. <code>!field</code> remains the short
+form of <code>field desc</code>.</p>
+<p>A selector producing no values supplies a null key. Nulls default to last for
+both ascending and descending order; <code>NULLS FIRST</code> or <code>NULLS LAST</code> overrides
+that per key. A fanout selector defaults to <code>USING first</code> for backward
+compatibility. <code>USING min</code> and <code>USING max</code> cast every selected value and reduce
+them under that key's ordering. An invalid selected cast aborts the stage using
+the diagnostic policy defined above.</p>
+<p><code>AS ip</code> uses validated IPv4 and IPv6 addresses. IPv4 sorts by its numeric
+32-bit value and IPv6 by its numeric 128-bit value. IPv4 sorts before IPv6 in
+ascending order; descending reverses the family and address order. IPv4-mapped
+IPv6 remains IPv6. Invalid addresses never become zero and never silently sort
+as null.</p>
+<h2 id="projection-aliases">Projection Aliases<a class="headerlink" href="#projection-aliases" title="Permanent link">&para;</a></h2>
+<p>Projection gains an optional output name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">projection-stage </span><span class="o">=</span> <span class="p">(</span><span class="s2">"P"</span> <span class="p">|</span> <span class="s2">"columns"</span><span class="p">),</span> <span class="k">projection-term</span><span class="p">,</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>                   <span class="p">{</span> <span class="p">[</span> <span class="s2">","</span> <span class="p">],</span> <span class="k">projection-term </span><span class="p">}</span> <span class="p">;</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">projection-term  </span><span class="o">=</span> <span class="p">[</span> <span class="s2">"!"</span> <span class="p">],</span> <span class="k">selector</span><span class="p">,</span> <span class="p">[</span> <span class="s2">"AS"</span><span class="p">,</span> <span class="k">output-name </span><span class="p">]</span> <span class="p">;</span>
+</code></pre></div>
+<p>When any term uses <code>AS</code>, commas are required between terms. This avoids guessing
+where an alias ends and the next selector begins.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>| P Name AS Host, data.os_version AS "OS Version"
+</code></pre></div>
+<p>An alias creates one top-level output field with the selected JSON value. One
+match remains scalar, multiple matches become an array, and no match becomes
+null, matching current projection behavior. Unaliased terms retain their
+current output name. Drop terms cannot use <code>AS</code>.</p>
+<p>Aliases use the validated output-name type. Empty names and duplicate final
+names fail during parsing. An alias may not overwrite another projected field,
+group key, or aggregate field. Projection of grouped output continues to act on
+visible summaries and keeps member rows attached for later aggregation.</p>
+<p>Native computed expressions are deferred. <code>P selector AS name</code> only renames a
+selected value; JQ remains the explicit mechanism for constructing new values.</p>
+<h2 id="stable-distinct">Stable Distinct<a class="headerlink" href="#stable-distinct" title="Permanent link">&para;</a></h2>
+<p><code>D</code> and <code>distinct</code> remove duplicates while retaining the first occurrence:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">distinct-stage </span><span class="o">=</span> <span class="p">(</span><span class="s2">"D"</span> <span class="p">|</span> <span class="s2">"distinct"</span><span class="p">),</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>                 <span class="p">[</span> <span class="k">distinct-key</span><span class="p">,</span> <span class="p">{</span> <span class="s2">","</span><span class="p">,</span> <span class="k">distinct-key </span><span class="p">}</span> <span class="p">]</span> <span class="p">;</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="k">distinct-key   </span><span class="o">=</span> <span class="k">selector</span><span class="p">,</span> <span class="p">[</span> <span class="s2">"AS"</span><span class="p">,</span> <span class="k">cast </span><span class="p">]</span> <span class="p">;</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>| D
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>| D os_version
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>| D owner, address AS ip
+</code></pre></div>
+<p>Without keys, equality uses the complete visible JSON value. Object field order
+does not affect equality. With keys, equality uses the ordered tuple of selected
+results. A fanout result participates as its complete ordered sequence; it is
+not reduced to the first value. Missing is a distinct sentinel and is not equal
+to JSON null. Cast failures use the common strict diagnostic policy.</p>
+<p>Distinct accepts <code>Empty</code>, <code>Lines</code>, <code>Rows</code>, <code>Values</code>, and <code>Groups</code>, retains the
+input shape, order, and columns, and rejects <code>Detail</code> and <code>Message</code>. For Groups,
+keys and whole-value equality see only the visible summary and duplicates are
+removed as whole groups; hidden members are never merged.</p>
+<h2 id="grouped-and-global-aggregation">Grouped And Global Aggregation<a class="headerlink" href="#grouped-and-global-aggregation" title="Permanent link">&para;</a></h2>
+<p>Current grouped aggregation remains unchanged:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>| G os_version | A count AS Hosts | Z
+</code></pre></div>
+<p>Global aggregation is explicit and does not synthesize a fake group key:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">global-aggregate </span><span class="o">=</span> <span class="s2">"A"</span><span class="p">,</span> <span class="s2">"GLOBAL"</span><span class="p">,</span> <span class="k">aggregate-list </span><span class="p">;</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">aggregate-list   </span><span class="o">=</span> <span class="k">aggregate-term</span><span class="p">,</span> <span class="p">{</span> <span class="s2">","</span><span class="p">,</span> <span class="k">aggregate-term </span><span class="p">}</span> <span class="p">;</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="k">aggregate-term   </span><span class="o">=</span> <span class="k">aggregate-expression</span><span class="p">,</span> <span class="p">[</span> <span class="s2">"AS"</span><span class="p">,</span> <span class="k">output-name </span><span class="p">]</span> <span class="p">;</span>
+</code></pre></div>
+<p><code>A GLOBAL</code> accepts <code>Empty</code>, <code>Rows</code>, and <code>Values</code> and returns exactly one <code>Rows</code>
+record containing the aggregate aliases. It consumes its input collection.
+Applying it to <code>Groups</code>, <code>Detail</code>, <code>Message</code>, or <code>Lines</code> is an actionable shape
+error. Use <code>Z</code> before a global aggregate of visible group summaries.</p>
+<p>The following additions have concrete repository workflows:</p>
+<ul>
+<li><code>count(selector)</code> counts non-null selector matches. Fanout selectors count
+  each selected value. This answers inventory completeness questions such as
+  how many returned hosts report an owner or an interface address.</li>
+<li><code>count_distinct(selector)</code> counts distinct non-null selected values using the
+  same equality rules as <code>D</code>. This answers inventory cardinality questions for
+  OS versions, owners, collections, and addresses.</li>
+<li><code>first(selector)</code> and <code>last(selector)</code> return the first or last non-null match
+  in current row and selector order. Sorting before <code>G</code> makes task or audit
+  event boundaries explicit and reproducible.</li>
+</ul>
+<p>Examples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>object list --class Hosts \
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>  | A GLOBAL count AS Hosts, count(data.owner) AS Owned, \
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>      count_distinct(os_version) AS Versions
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>task events &lt;task-id&gt; \
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>  | S created_at asc AS datetime \
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>  | G kind \
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>  | A first(created_at) AS First \
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>  | A last(created_at) AS Last \
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>  | Z
+</code></pre></div>
+<p><code>count</code> on an empty input is zero. <code>count(selector)</code> and
+<code>count_distinct(selector)</code> are also zero. Numeric, <code>first</code>, and <code>last</code>
+aggregates return null when they have no contributing values. Existing default
+aggregate aliases remain; all final names must be unique.</p>
+<p><code>collect</code>, string joining, percentile, median, and arbitrary reducers are
+deferred. Collection needs an explicit item/byte bound, while percentile needs
+an agreed interpolation method and a demonstrated command-level workflow.
+Adding them speculatively would enlarge the language without a stable contract.</p>
+<h2 id="typed-model-and-library-boundary">Typed Model And Library Boundary<a class="headerlink" href="#typed-model-and-library-boundary" title="Permanent link">&para;</a></h2>
+<p>The parser should produce small validated types with private fields:</p>
+<ul>
+<li><code>Predicate</code>, <code>PredicateExpr</code>, <code>Comparison</code>, <code>TypedLiteral</code>, and <code>ValueCast</code>;</li>
+<li><code>SortSpec</code>, <code>SortKey</code>, <code>SortDirection</code>, <code>FanoutReduction</code>, and <code>NullOrder</code>;</li>
+<li><code>ProjectionSpec</code> and <code>ProjectionTerm</code> with an optional <code>OutputName</code>;</li>
+<li><code>DistinctSpec</code> and <code>DistinctKey</code>;</li>
+<li><code>AggregateRequest</code>, <code>AggregateSpec</code>, and validated aggregate functions.</li>
+</ul>
+<p>Evaluation accepts those types and <code>serde_json::Value</code>; it must not depend on
+Hubuum commands, global configuration, terminal rendering, or app errors. Cast
+and selector behavior belongs in the reusable pipeline crate. The CLI owns
+command tokenization, final rendering, help presentation, completion sources,
+and redirect sinks.</p>
+<p>Every new stage or variant must extend the stage/shape contract metadata. The
+same metadata should constrain REPL stage completion after a statically known
+transition where possible.</p>
+<h2 id="delivery-plan">Delivery Plan<a class="headerlink" href="#delivery-plan" title="Permanent link">&para;</a></h2>
+<p>Each item below is independently deliverable and should be tracked by its own
+follow-up issue and PR against the then-current <code>main</code>:</p>
+<ol>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/55">#55</a>: typed <code>F WHERE</code> and
+   <code>reject WHERE</code> predicate lexer, AST, evaluation, and parser-aware redirect
+   disambiguation.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/56">#56</a>: stable ordered
+   multi-key sorting, strict common cast policy, fanout reduction, and null
+   placement.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/57">#57</a>: strict <code>IpAddr</code>
+   sorting for IPv4 and IPv6, separated so address-ordering tests and diagnostics
+   stay focused.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/58">#58</a>: projection aliases
+   using validated output names and collision checks.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/59">#59</a>: stable <code>D</code>/<code>distinct</code>
+   for lines and semantic collections.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/60">#60</a>: <code>A GLOBAL</code> plus
+   <code>count(selector)</code> and <code>count_distinct(selector)</code>.</li>
+<li><a href="https://github.com/hubuum/hubuum-cli/issues/61">#61</a>: ordered
+   <code>first(selector)</code> and <code>last(selector)</code> aggregates, with task and audit workflow
+   examples.</li>
+</ol>
+<p>Dependencies are limited: item 3 builds on item 2's cast interface, and items 6
+and 7 share the aggregate model. The other items can land independently after
+rebasing onto updated <code>main</code>.</p>
+<p>Every item includes:</p>
+<ul>
+<li>parser, model, evaluator, and stage/shape contract tests;</li>
+<li>legacy syntax and redirect regression tests;</li>
+<li>text, JSON, JSONL, CSV, and TSV renderer coverage where output changes;</li>
+<li><code>each:</code> redirect coverage when names or cardinality change;</li>
+<li><code>help pipe</code>, REPL completion, and <code>docs/DSL.md</code> updates; and</li>
+<li>workspace tests, clippy with warnings denied, rustfmt, and Markdown lint.</li>
+</ul>
+<h2 id="deferred-features">Deferred Features<a class="headerlink" href="#deferred-features" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Native computed projection expressions remain JQ territory.</li>
+<li>Joins, unions, and window functions remain JQ territory until a concrete
+  Hubuum workflow demonstrates a metadata-preserving native design.</li>
+<li>Locale-sensitive collation is not part of <code>str</code> or <code>natural</code> ordering.</li>
+<li>Implicit coercion is not added to the typed grammar.</li>
+<li>Invalid casts do not gain a silent skip, zero, or null mode in this increment.</li>
+</ul>
+<p>These choices keep the native layer small, deterministic, and suitable for a
+standalone JSON pipeline crate.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../../manual-test/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Manual test plan">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Manual test plan
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../changelog/" class="md-footer__link md-footer__link--next" aria-label="Next: Release notes">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Release notes
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Hubuum · MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.tabs","navigation.tabs.sticky","navigation.sections","navigation.path","navigation.top","navigation.footer","navigation.instant","navigation.instant.progress","content.action.edit","content.code.copy","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c04ba553.min.js"></script>
+      
+        <script src="../../assets/javascripts/versions.js"></script>
+      
+    
+  </body>
+</html>

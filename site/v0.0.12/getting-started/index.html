@@ -1,0 +1,2138 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Terminal, interactive, and scripted workflows for Hubuum.">
+      
+      
+      
+        <link rel="canonical" href="https://hubuum.github.io/hubuum-cli/v0.0.12/getting-started/">
+      
+      
+        <link rel="prev" href="./..">
+      
+      
+        <link rel="next" href="../compatibility/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.64">
+    
+    
+      
+        <title>Install and connect - Hubuum CLI</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.40d3fdbb.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#a-cli-for-hubuum" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  <nav class="hubuum-ecosystem" aria-label="Hubuum projects">
+    <a href="https://hubuum.github.io/"><strong>Hubuum</strong></a>
+    
+      <a href="https://hubuum.github.io/hubuum/">Server</a>
+    
+      <a href="https://hubuum.github.io/hubuum-frontend/">Frontend</a>
+    
+      <a href="https://hubuum.github.io/hubuum-cli/">CLI</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-rust/">Rust client</a>
+    
+      <a href="https://hubuum.github.io/hubuum-client-python/">Python client</a>
+    
+  </nav>
+  
+  
+    Documentation for <strong>v0.0.12</strong>.
+  
+  <label for="docs-version">Version</label>
+  <select id="docs-version" data-version="v0.0.12"
+    data-manifest="../../versions.json">
+    <option value="v0.0.12">v0.0.12</option>
+  </select>
+  
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="Hubuum CLI" class="md-header__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Hubuum CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Install and connect
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./.." class="md-tabs__link">
+          
+  
+  Overview
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../search/" class="md-tabs__link">
+          
+  
+  Use the CLI
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../extensions/" class="md-tabs__link">
+          
+  
+  Extend and automate
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/aliases/" class="md-tabs__link">
+          
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../manual-test/" class="md-tabs__link">
+          
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="Hubuum CLI" class="md-nav__button md-logo" aria-label="Hubuum CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-network" viewBox="0 0 24 24"><rect width="6" height="6" x="16" y="16" rx="1"/><rect width="6" height="6" x="2" y="16" rx="1"/><rect width="6" height="6" x="9" y="2" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/></svg>
+
+    </a>
+    Hubuum CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/hubuum/hubuum-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    hubuum/hubuum-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_1">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Overview
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Welcome
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install and connect
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install and connect
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#release-binaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Release binaries
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compatibility
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Usage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-evolution-and-cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Schema evolution and cancellation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Server compatibility
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Use the CLI
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Use the CLI
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Search
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../output-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Output pipelines
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DSL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Query and script language
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Task discovery
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../schema-evolution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Schema evolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../credential-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Credential approvals
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Backup and restore
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../themes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Themes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ansible-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ansible facts
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extend and automate
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Extend and automate
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extensions
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension tutorial
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extension-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extension recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filter-language/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Local filters
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Examples
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Aliases
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Inventory
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-jacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Jacks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Recipes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hubuum-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Wrappers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Contributing
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Contributing
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Manual test plan
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rfcs/0001-native-pipeline-dsl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipeline design RFC
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Release notes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#release-binaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Release binaries
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Compatibility
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Usage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-evolution-and-cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Schema evolution and cancellation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+  
+
+
+<h1 id="a-cli-for-hubuum">A CLI for Hubuum<a class="headerlink" href="#a-cli-for-hubuum" title="Permanent link">&para;</a></h1>
+<p>This CLI interface for <a href="https://github.com/hubuum/hubuum">Hubuum</a> is still in
+pre-release state and under heavy development.</p>
+<h2 id="release-binaries">Release binaries<a class="headerlink" href="#release-binaries" title="Permanent link">&para;</a></h2>
+<p>Successful pushes to <code>main</code> publish rolling binaries in the
+<a href="https://github.com/hubuum/hubuum-cli/releases/tag/main-latest"><code>main-latest</code> release</a>.
+Version tags such as <code>v0.0.12</code> publish immutable, versioned GitHub releases.</p>
+<p>Each release provides four small, stripped archives and matching SHA-256 files:</p>
+<ul>
+<li>Linux x86_64 and ARM64 binaries are statically linked with musl.</li>
+<li>The Apple Silicon macOS binary depends only on Apple-provided system libraries.</li>
+<li>The Windows x86_64 binary uses the MSVC ABI with a statically linked C runtime;
+  Windows system DLLs remain platform dependencies.</li>
+</ul>
+<p>Rolling builds identify their source commit using SemVer build metadata, for example
+<code>v0.0.12+main.g0123456789ab</code>. Tagged releases use the clean package version. Show the
+current build identity without logging in, or also query the configured server:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>version
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>version<span class="w"> </span>--server
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>hubuum-cli<span class="w"> </span>version<span class="w"> </span>--output<span class="w"> </span>json
+</code></pre></div>
+<p>The same <code>version</code> commands are available in the REPL. The server version comes from
+the server's unauthenticated OpenAPI metadata.</p>
+<h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
+<p>CLI and server releases are versioned independently. The declared targets and
+their client-library versions are recorded in the
+<a href="../compatibility/">compatibility matrix</a>. CLI v0.0.12 targets Hubuum server
+v0.0.16 through <code>hubuum_client</code> v0.12.0. CLI v0.0.11 targeted server v0.0.14
+through <code>hubuum_client</code> v0.10.1.
+See the <a href="../backup-restore/">backup and restore guide</a> before upgrading:
+backup format 6 and staged schema policy changes require migration steps.
+Server v0.0.16 also requires <a href="../credential-approvals/">fresh credential approvals</a>
+for credential changes and restore confirmation.</p>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<p>Start the interactive REPL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hubuum-cli
+</code></pre></div>
+<p>Run one command and exit:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>hubuum-cli<span class="w"> </span>collection<span class="w"> </span>list
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>hubuum-cli<span class="w"> </span><span class="nb">export</span><span class="w"> </span>list
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>paths
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>hubuum-cli<span class="w"> </span><span class="nb">help</span><span class="w"> </span>--tree
+</code></pre></div>
+<p>In a POSIX shell, quote or escape application-level pipe and redirect operators
+so the shell passes them to Hubuum CLI as standalone arguments:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span><span class="se">\|</span><span class="w"> </span>F<span class="w"> </span>output<span class="w"> </span><span class="se">\|</span><span class="w"> </span>L<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span><span class="nb">help</span><span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>help.txt
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>each:/tmp/hubuum-config-<span class="o">{</span>n<span class="o">}</span>.txt
+</code></pre></div>
+<p>Operators do not need escaping inside the REPL or a Hubuum CLI script file.</p>
+<p>Run commands from a script file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>commands.hubuum
+</code></pre></div>
+<p>Personal command aliases bind one root-level word to a complete command line,
+including pipe stages and redirects. They are stored in the active user config
+and participate in preference export/import. Built-in commands and scopes take
+precedence over aliases.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'List known hosts'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--command<span class="w"> </span><span class="s1">'object list --class Hosts | P Name'</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>hubuum-cli<span class="w"> </span>hosts
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>list
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>show<span class="w"> </span>--name<span class="w"> </span>hosts
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--name<span class="w"> </span>hosts
+</code></pre></div>
+<p><code>alias list</code>, root help, and <code>config show</code> use the optional description so long
+command pipelines do not overwhelm summary output. <code>alias show</code> retains the
+complete command. Described aliases use this compatible expanded TOML form;
+existing <code>name = "command"</code> aliases remain valid:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[aliases.hosts]</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"object list --class Hosts | P Name"</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"List known hosts"</span>
+</code></pre></div>
+<p>Larger site workflows can be installed as extension packs. They
+live under the reserved <code>extension &lt;pack&gt; ...</code> namespace and join the normal
+help tree, validation, completion, semantic output, pipeline, and redirect
+machinery:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>init<span class="w"> </span>./my-pack<span class="w"> </span>--template<span class="w"> </span>minimal
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>contract<span class="w"> </span>object<span class="w"> </span>list
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>validate<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>explain<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>install<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>list
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>host<span class="w"> </span>placement<span class="w"> </span>server-01
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>room<span class="w"> </span>jacks<span class="w"> </span>R-301
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>doctor
+</code></pre></div>
+<p>Portable workflow packs are the preferred extension kind. They run reusable,
+typed JSONC workflows in-process, require no runtime dependency other than
+<code>hubuum-cli</code>, and support bounded JQ expressions, conditions, assertions,
+same-pack calls, and bounded iteration. Executable packs remain available for
+work that cannot be expressed through built-in commands and JQ. They use a
+small versioned JSON process protocol, may add runtime dependencies, and are
+trusted rather than sandboxed. Start with the
+<a href="../extension-tutorial/">ten-minute extension tutorial</a>, then use the
+<a href="../extensions/">extension overview</a>,
+<a href="../extension-reference/">JSONC reference</a>, and
+<a href="../extension-recipes/">portable recipes</a> for the complete model.
+The <a href="../examples/hubuum-placement/">placement example</a> combines Host,
+Jack, and Room operations in one dependency-free portable workflow pack.
+The <a href="../examples/hubuum-jacks/">Jacks example</a> is a smaller introduction
+to typed inputs and explicit step dependencies.
+The <a href="../examples/hubuum-recipes/">recipes example</a> is a compile-checked
+catalog of every tagged workflow step and binding form.</p>
+<p>Long aliases can be loaded from a one-command script file. This example finds
+hosts whose kernel is older than the newest numeric kernel version observed in
+the same OS major version:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>examples/aliases/outdated-kernels.hubuum
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>outdated-kernels<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'Show hosts with kernels older than the newest observed for their OS release'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>--command<span class="w"> </span>file://examples/aliases/outdated-kernels.hubuum
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>hubuum-cli<span class="w"> </span>outdated-kernels
+</code></pre></div>
+<p>The example converts each kernel into an array of numeric components, so
+<code>553.16</code> becomes <code>[553, 16]</code> rather than <code>55316</code>. The example uses <code>--all</code> so
+<code>object list</code> fetches the complete matching set before the local pipe runs.</p>
+<p><code>help</code>, <code>help --tree</code>, <code>version</code>, <code>config show</code>, and <code>config paths</code> run from the local
+command catalog and configuration files without logging in. <code>version --server</code>,
+<code>auth providers</code>, and <code>metrics</code> make unauthenticated requests. Other API-backed
+commands authenticate before execution.</p>
+<p>If an API-backed command receives <code>401 Unauthorized</code> in the interactive REPL,
+Hubuum CLI reports that the session expired or the token was revoked, then
+immediately renews the session. It rereads <code>--token-file</code> credentials, uses a
+configured password without prompting, or prompts for the password when needed.
+Read-only commands are retried once after a successful login. Commands that may
+have changed server state are not replayed; the error identifies the first
+failed HTTP method and path so the current state can be reviewed safely. One-shot
+commands and scripts never start this interactive recovery flow.</p>
+<p>Global configuration flags go before the command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--username<span class="w"> </span>alice<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+</code></pre></div>
+<p>Before requesting an interactive password, Hubuum CLI checks the server's
+unauthenticated health endpoint. When <code>server.port</code> has not been configured, it
+tries port 443 first and then port 8080. A port supplied by a config file, the
+environment, or <code>--port</code> is authoritative and is the only port tried.</p>
+<p>Discover identity providers before login, then select one for scoped credentials:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>auth<span class="w"> </span>providers
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--identity-scope<span class="w"> </span>corp-directory<span class="w"> </span>--username<span class="w"> </span>alice<span class="w"> </span>object<span class="w"> </span>list
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>server.identity_scope<span class="w"> </span>--value<span class="w"> </span>corp-directory
+</code></pre></div>
+<p>For non-interactive automation, read a service-account bearer token from an
+owner-only file. The token is not placed in the process arguments or copied into
+the CLI token cache:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>/run/secrets/hubuum.token
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--token-file<span class="w"> </span>/run/secrets/hubuum.token<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+</code></pre></div>
+<p>Atomically patch an object's raw data through exact class and object names. The
+patch can be inline, loaded from <code>@FILE</code>, or loaded through the existing
+<code>file://FILE</code> value-source form:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--token-file<span class="w"> </span>/run/secrets/hubuum.token<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>object<span class="w"> </span>data<span class="w"> </span>patch<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--name<span class="w"> </span>srv-01<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>--patch<span class="w"> </span>@facts-patch.json<span class="w"> </span>--create<span class="w"> </span>--description<span class="w"> </span><span class="s2">"Managed by Ansible"</span>
+</code></pre></div>
+<p>With <code>--create</code>, Hubuum CLI initializes a missing object by applying the patch to
+an empty JSON object. A concurrent create conflict causes one exact-name PATCH
+retry. In this example, RFC 6902 <code>add</code> at <code>/facts</code> creates or completely replaces
+that member without changing other object data. The path and its contents are
+chosen by the consumer. See the
+<a href="../ansible-facts/">Ansible fact publication guide</a> for the accepted JSON
+Patch format, create-if-missing behavior, and service-account permissions.</p>
+<p>Administrators can inspect the server's redacted effective process configuration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config<span class="w"> </span>--output<span class="w"> </span>json
+</code></pre></div>
+<p>Fetch Prometheus exposition text without logging in. The default route is <code>/metrics</code>;
+use the path reported by <code>admin config</code> when the server has configured another route:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>hubuum-cli<span class="w"> </span>metrics
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>hubuum-cli<span class="w"> </span>metrics<span class="w"> </span>--path<span class="w"> </span>/internal/metrics
+</code></pre></div>
+<p>Computed fields can be managed as shared class definitions or personal
+definitions. Paths are JSON Pointers into object <code>data</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>create<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--key<span class="w"> </span>average_load<span class="w"> </span>--label<span class="w"> </span><span class="s2">"Average load"</span><span class="w"> </span>--operation<span class="w"> </span>average<span class="w"> </span>--path<span class="w"> </span>/load/one<span class="w"> </span>--path<span class="w"> </span>/load/five<span class="w"> </span>--result-type<span class="w"> </span>number
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>personal<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>S:average_load
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>all<span class="w"> </span>--output<span class="w"> </span>json
+</code></pre></div>
+<p>In the REPL, data-field completion merges the selected class's JSON Schema with
+a sample of up to 100 objects, using the same depth-six traversal as
+<code>class fields</code>. This supplies escaped JSON Pointers for computed <code>--path</code>
+options and dotted paths for aggregate dimensions, measures, and filters.
+Inspected fields are cached for <code>cache.time</code> seconds (one hour by default) and
+the cache can be bypassed with <code>cache.disable</code>.</p>
+<p><code>class fields --name &lt;class&gt;</code> is also the field inventory for downstream
+selectors. Alongside sampled <code>data.*</code> paths, it lists enabled shared and
+personal computed fields as <code>S:&lt;key&gt;</code> and <code>P:&lt;key&gt;</code>. The <code>Source</code> column
+distinguishes the three kinds; counts, types, and examples are observed from the
+same object sample, so a computed definition with no sampled value still
+appears with an empty observation. The former <code>object fields --class &lt;class&gt;</code>
+spelling remains available as a deprecated compatibility alias and prints an
+exact replacement command when invoked.</p>
+<p>Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
+<code>--computed S:&lt;key&gt;</code> and <code>--computed P:&lt;key&gt;</code> options to select individual
+shared or personal fields, or <code>--computed all</code> to select every field:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>S:average_load<span class="w"> </span>--computed<span class="w"> </span>P:preferred_name
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>all
+</code></pre></div>
+<p>Per-class defaults apply to both object list and show commands:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">[output.object_class_computed_fields]</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">Hosts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"S:average_load"</span><span class="p">,</span><span class="w"> </span><span class="s2">"P:preferred_name"</span><span class="p">]</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">Switches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"all"</span><span class="p">]</span>
+</code></pre></div>
+<p>They can also be changed from the CLI; the key and value both support dynamic
+completion:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts<span class="w"> </span>--value<span class="w"> </span>S:average_load,P:preferred_name
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts
+</code></pre></div>
+<p>An explicit <code>--computed</code> selection replaces the class default for that command.
+Use <code>--computed none</code> to suppress configured defaults temporarily.</p>
+<p>Object-list text output renders selected values as compact scoped columns.
+Selected JSON output retains scope metadata such as revisions while excluding
+unselected values; <code>--computed all</code> retains the complete computed envelope.
+Computed columns can also be sorted with the same scoped names:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>S:average_load<span class="w"> </span>desc<span class="w"> </span>--limit<span class="w"> </span><span class="m">10</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>P:preferred_name<span class="w"> </span>asc
+</code></pre></div>
+<p>The CLI fetches all matching objects for computed sorting, sorts them locally,
+and then applies <code>--limit</code>. Computed sorting cannot
+be combined with <code>--cursor</code>. A computed sort fetches its key internally but does
+not display it unless the same field is selected with <code>--computed</code>.</p>
+<p>Related objects can be selected by target class name without specifying any
+intermediate classes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--root-class<span class="w"> </span>Person<span class="w"> </span>--root-object<span class="w"> </span>Alice<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>--where<span class="w"> </span>class<span class="w"> </span>equals<span class="w"> </span>Hosts<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">10</span><span class="w"> </span>--all
+</code></pre></div>
+<p>This includes paths such as Person → Room → Host and other connecting paths,
+subject to server limits and permissions. The default maximum depth is 2;
+<code>--all</code> follows pagination, while <code>--max-depth</code> bounds traversal distance.
+Related class and object queries also accept <code>--where collection equals Inventory</code>.
+Class and collection filter values support name completion.</p>
+<p>Object-list text and pipeline output automatically promotes dotted data fields
+referenced by <code>--where</code> into explicit columns. This makes the matching value
+visible without separately repeating the path in <code>--data-columns</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span>--where<span class="w"> </span>json_data.facts.operating_system.major_version<span class="w"> </span>lt<span class="w"> </span><span class="m">8</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">  </span>--include-where-results<span class="w"> </span><span class="nb">false</span>
+</code></pre></div>
+<p>The second form keeps the normal configured or automatic data-column layout.
+Raw JSON output already contains these values in the nested <code>data</code> object and
+is not flattened.</p>
+<p>Run permission-scoped aggregation on the server with <code>object aggregate</code>.
+<code>--group-by</code> accepts scalar object fields, dotted <code>data</code> paths, and computed
+selectors. Numeric measures use <code>operation:field</code>; repeat dimensions up to three
+times and measures up to four times:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--group-by<span class="w"> </span>data.os_version
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">  </span>--group-by<span class="w"> </span>data.region<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span>--aggregate<span class="w"> </span>sum:data.cpu.cores<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:S:load<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">  </span>--sort<span class="w"> </span>object_count<span class="w"> </span>desc<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">  </span>--limit<span class="w"> </span><span class="m">25</span><span class="w"> </span>--include-total
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:data.cpu.cores<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production
+</code></pre></div>
+<p>Every aggregate row includes <code>object_count</code>. Measures support <code>sum</code>, <code>average</code>
+(<code>avg</code> is accepted as an input alias), <code>min</code>, and <code>max</code> over numeric <code>data.path</code>,
+<code>S:key</code>, or <code>P:key</code> values. Filters run before aggregation and accept the same
+object fields and dotted data paths as <code>object list</code>, plus up to two computed
+selectors.
+Text output exposes flattened dimension and measure columns; JSON preserves the
+server's dimension and measure states, contributing counts, and skipped counts.
+Cursor pagination and generated next-page commands operate on aggregate rows.</p>
+<p>The <code>G</code> and <code>A</code> pipe stages are still useful for ad hoc local transformations,
+but they only process rows already returned by the preceding command. Use
+<code>object aggregate</code> when the result must cover the complete server-side matching
+set.</p>
+<p>Class-specific display aliases provide short local names for raw object-data
+paths. Selectors are tried in order and the first present value is displayed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">[output.object_list_class_aliases.Hosts]</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="n">os_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.os.macos.version"</span><span class="p">,</span><span class="w"> </span><span class="s2">"data.os.redhat.version"</span><span class="p">]</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">primary_ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.network.interfaces[*].ipv4"</span><span class="p">]</span>
+</code></pre></div>
+<p>The aliases can be included in <code>output.object_list_class_columns.Hosts</code> or
+requested with <code>--data-columns</code>. An unambiguous alias is also used as the text
+table header when its raw selector is included automatically, such as by an
+object-list <code>--where</code> clause. Configure aliases from the CLI with the alias as
+the final key component and its selectors as a comma-separated value:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span>--key<span class="w"> </span>output.object_list_class_aliases.Hosts.IPv4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">  </span>--value<span class="w"> </span>data.facts.network.default_ipv4.address
+</code></pre></div>
+<p>The former
+<code>output.object_list_class_meta</code> name remains accepted for existing config files
+and config commands, but new writes use <code>object_list_class_aliases</code>.</p>
+<p>Administrators can create full-system backups and perform the server's two-step restore
+flow. Format 5 excludes password hashes and bearer tokens, but contains privileged
+integration configuration. Backup and receipt files are saved atomically with
+owner-only permissions on Unix; existing files require <code>--force</code> before replacement:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>submit
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>download<span class="w"> </span><span class="m">123</span><span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>stage<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>status<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>confirm<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--yes<span class="w"> </span>--wait
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span><span class="nb">wait</span><span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--timeout<span class="w"> </span><span class="m">600</span>
+</code></pre></div>
+<p>Confirmation queues replacement of all Hubuum data. Use <code>--wait</code> or <code>restore wait</code>
+to verify completion; status and wait use the receipt without logging in, even
+after existing bearer tokens are invalidated. After success, reset a local
+administrator password with <code>hubuum-admin --reset-password admin</code> and issue fresh
+tokens. Keep the receipt until recovery is complete. See the
+<a href="../backup-restore/">backup and restore guide</a> for server setup, backup-version
+compatibility, larger backups, and recovery instructions.</p>
+<p>For paginated commands, <code>--limit</code> requests a page size. The CLI currently
+truncates values above 250 to the supported maximum with a
+warning. Generated next-page commands retain that effective value. Paginated
+commands also accept <code>--include-total</code> when an exact count is useful. Exact counts
+can require additional server work, so they remain opt-in:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">25</span><span class="w"> </span>--include-total
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>list<span class="w"> </span>--include-total<span class="w"> </span>--output<span class="w"> </span>json
+</code></pre></div>
+<p>Use <code>--all</code> to follow every remaining server cursor and buffer the complete
+result before output pipelines run. <code>--limit</code> remains the page size when it is
+combined with <code>--all</code>, and <code>--cursor &lt;token&gt; --all</code> starts from that cursor. The
+CLI and client enforce automatic-pagination safety limits and reject repeated cursors.
+Because complete results are held in memory, use <code>--all</code> deliberately for large
+datasets:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--all<span class="w"> </span><span class="se">\|</span><span class="w"> </span>count
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>hubuum-cli<span class="w"> </span>audit<span class="w"> </span>list<span class="w"> </span>--cursor<span class="w"> </span>eyJpZCI6MTAwfQ<span class="w"> </span>--all<span class="w"> </span>--output<span class="w"> </span>json
+</code></pre></div>
+<p>If a pipeline is applied to a page that has more results without <code>--all</code>, the
+CLI warns that the transformation only covered the current page.</p>
+<p>Colored output defaults to terminal-aware <code>auto</code> mode and can be controlled per run or via <code>output.color</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>hubuum-cli<span class="w"> </span>--color<span class="w"> </span>never<span class="w"> </span><span class="nb">help</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>hubuum-cli<span class="w"> </span>--color<span class="w"> </span>always<span class="w"> </span>config<span class="w"> </span>paths
+</code></pre></div>
+<p>The current command vocabulary follows the Hubuum API:</p>
+<ul>
+<li><code>collection</code> replaces the older namespace terminology.</li>
+<li><code>export</code> replaces the older report terminology.</li>
+<li><code>task list --kind export</code> filters export tasks.</li>
+<li><code>task list --kind backup</code> filters backup tasks.</li>
+<li><code>search --limit-per-kind</code> limits each result family independently.</li>
+</ul>
+<p>Structured search runs predicates on the server and completes them with Tab in the
+REPL. Quote the predicate, using double quotes for strings inside single quotes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>hubuum-cli<span class="w"> </span>search<span class="w"> </span>--target<span class="w"> </span>object<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--where<span class="w"> </span><span class="s1">'data.cpu.cores &gt;= 8 AND name ~ "^srv-"'</span><span class="w"> </span>--sort<span class="w"> </span>name<span class="w"> </span>asc
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>hubuum-cli<span class="w"> </span>search<span class="w"> </span>--query-file<span class="w"> </span>search.json<span class="w"> </span>--include-total<span class="w"> </span>--all<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>hubuum-cli<span class="w"> </span>search<span class="w"> </span>server<span class="w"> </span>--stream<span class="w"> </span>--output<span class="w"> </span>jsonl
+</code></pre></div>
+<p>See <a href="../search/">search and its terminal DSL</a> for fields, pagination, relation
+queries, and streaming behavior, and <a href="../tasks/">task discovery</a> for finding
+background work by retained targets and options.</p>
+<p>Output pipes now support small in-process transformations in both the REPL and one-shot command mode.
+The old shorthand still works:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a># before
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>object list --class Hosts | contact
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a># after
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>object list --class Hosts | grep contact | head 5
+<a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a>object list --class Hosts | reject retired | sort line desc | count
+</code></pre></div>
+<p>There are short aliases for the common DSL-shaped operations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>object list --class Hosts | F contact | L 5 | C
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>object list --class Hosts | P name id | S !name
+</code></pre></div>
+<p>For shared table/detail output, pipes run against semantic JSON before rendering, so projection and field sorting affect every output format:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>config show | F output | P key value | S key
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>config show | VALUE key | C
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>config show | JQ 'map({key, value})' | L 5
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>object list --json --class Hosts | P Name os_version data.network.interfaces[*].ipv4
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>object list --class Hosts --computed S:average_load --computed P:note | F S:average_load&gt;=1 | P Name S:average_load P:note | S S:average_load desc AS num
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a>object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
+</code></pre></div>
+<p>Computed <code>S:&lt;key&gt;</code> and <code>P:&lt;key&gt;</code> fields are ordinary semantic selectors for
+projection, filtering, sorting, grouping, aggregation, value extraction, and
+redirection once selected with <code>--computed</code>. Their JSON number, boolean, object,
+and array types are preserved through the pipe engine; computed errors remain
+visible as <code>ERROR: ...</code> strings.
+Top-level <code>--sort S:&lt;key&gt;</code> sorts the full matching set before <code>--limit</code>, while a
+pipe sort operates on the rows returned by the object command.</p>
+<p>See <a href="../output-pipeline/">docs/output-pipeline.md</a> for the semantic output pipeline direction.
+See <a href="../DSL/">docs/DSL.md</a> for the full pipe DSL with Hubuum object examples.
+See <a href="../themes/">docs/themes.md</a> for color themes, custom theme files, and palette licensing.
+See <a href="../manual-test/">docs/manual-test.md</a> for a current manual smoke-test checklist.</p>
+<p>Rendered output can be redirected to a file from the REPL, one-shot commands,
+or scripts. These examples use REPL/script syntax:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>config show --output json &gt; config.json
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>object list --class Hosts | P Name os_version &gt; hosts.txt
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>object list --output jsonl --class Hosts | P Name data.network.interfaces[*].ipv4 &gt;&gt; hosts.jsonl
+<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a>object list --json --class Hosts | P Name os_version &gt; each:hosts/{Name}.json
+<a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>object list --class Hosts | VALUE Name &gt; each:names/{value}.txt
+</code></pre></div>
+<p>Use <code>&gt;</code> to create or truncate the target file and <code>&gt;&gt;</code> to append. Operators
+must be standalone, whitespace-delimited tokens. Redirect paths support
+quoting, <code>~/...</code> expansion, and REPL file path completion. Parent directories
+must already exist.</p>
+<p>Use <code>each:&lt;template&gt;</code> to write one file per semantic row or value after pipe
+stages have run; placeholders such as <code>{Name}</code>, <code>{data.owner}</code>, <code>{value}</code>, and
+<code>{n}</code> can be used in the filename. A trailing redirect is accepted only when
+the preceding command is valid. Compact pipeline comparisons such as
+<code>F age&gt;3</code> are therefore distinct from redirects, while command filters such as
+<code>--where age &gt; 3</code> continue to work normally.</p>
+<p>Redirect files honor <code>output.color</code>: <code>auto</code> and <code>never</code> remove ANSI styling
+from files, while <code>always</code> preserves it.</p>
+<p>Machine-oriented output can be selected per command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span>--output<span class="w"> </span>jsonl
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span>--output<span class="w"> </span>csv
+<a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span>--output<span class="w"> </span>tsv
+</code></pre></div>
+<p>Table rendering can be tuned per run or with config keys:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>plain<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>dense<span class="w"> </span>--table-bands<span class="w"> </span>auto<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a>hubuum-cli<span class="w"> </span>--table-width<span class="w"> </span>full<span class="w"> </span>--table-wrap<span class="w"> </span><span class="m">40</span><span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-35-4" name="__codelineno-35-4" href="#__codelineno-35-4"></a>hubuum-cli<span class="w"> </span>--empty-result<span class="w"> </span>silent<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">0</span>
+<a id="__codelineno-35-5" name="__codelineno-35-5" href="#__codelineno-35-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>full
+<a id="__codelineno-35-6" name="__codelineno-35-6" href="#__codelineno-35-6"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>none
+</code></pre></div>
+<p>Grouped headers are the default for text tables. Dotted paths are displayed on
+multiple header lines so path names do not determine individual column widths;
+unambiguous class aliases take precedence. Use <code>--table-headers full</code> for the
+original flat paths, or <code>--table-headers none</code> to suppress table headers.
+Machine-oriented formats retain their semantic column names. Persist the mode
+with <code>hubuum-cli config set --key output.table_headers --value none</code>.</p>
+<p>Related config keys are <code>output.table_style</code>, <code>output.table_headers</code>,
+<code>output.table_width</code>, <code>output.table_wrap</code>, <code>output.table_bands</code>, and
+<code>output.empty_result</code>.</p>
+<p>Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>item-1<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"imported"</span><span class="w"> </span>--data<span class="w"> </span>file://payload.json
+<a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"devices"</span>
+<a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--schema<span class="w"> </span>https://example.com/schema.json<span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
+</code></pre></div>
+<h2 id="schema-evolution-and-cancellation">Schema evolution and cancellation<a class="headerlink" href="#schema-evolution-and-cancellation" title="Permanent link">&para;</a></h2>
+<p>All schema policy changes use <code>class schema</code>, including initial schema setup.
+The former <code>class create</code> and <code>class modify</code> schema/validation flags are removed.
+Stage a policy, inspect its impact, then explicitly activate the exact revision.
+See <a href="../schema-evolution/">schema evolution and task cancellation</a> for the
+workflow, compliance pages, repair reports, import activation, and upgrade notes.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="./.." class="md-footer__link md-footer__link--prev" aria-label="Previous: Welcome">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Welcome
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../compatibility/" class="md-footer__link md-footer__link--next" aria-label="Next: Server compatibility">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Server compatibility
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Hubuum · MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.tabs","navigation.tabs.sticky","navigation.sections","navigation.path","navigation.top","navigation.footer","navigation.instant","navigation.instant.progress","content.code.copy","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c04ba553.min.js"></script>
+      
+        <script src="../assets/javascripts/versions.js"></script>
+      
+    
+  </body>
+</html>
