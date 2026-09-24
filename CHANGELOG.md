@@ -8,6 +8,12 @@
   automatic GitHub Pages publishing, the latest release as its default,
   immutable release snapshots, and an explicit development edition.
 
+### Fixed
+
+- Documentation tables keep long environment-variable names readable, use wider
+  reference layouts, and scroll within the table on small screens. Shared style
+  fixes also reach retained release documentation.
+
 ## [0.0.12] - 2026-09-23
 
 | CLI | `hubuum_client` | Hubuum server target | Backup format |

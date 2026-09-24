@@ -43,3 +43,7 @@ and pinned to the selected release. Keep examples and compatibility records
 with the project that owns them. Shared branding and ecosystem navigation are
 maintained centrally; update the pinned tooling SHA and reusable-workflow SHAs
 together to adopt a reviewed shared change.
+
+Shared stylesheet fixes apply to retained release editions without re-rendering
+their content. Released HTML, downloads, scripts, and source revisions stay
+unchanged; only the shared presentation CSS is refreshed.
