@@ -1,0 +1,65 @@
+[project]
+site_name = "Hubuum CLI"
+site_description = "Terminal, interactive, and scripted workflows for Hubuum."
+site_url = "https://hubuum.github.io/hubuum-cli/"
+repo_url = "https://github.com/hubuum/hubuum-cli"
+repo_name = "hubuum/hubuum-cli"
+edit_uri = "edit/main/docs/"
+docs_dir = "docs"
+nav = [
+  { "Overview" = [
+    { "Welcome" = "index.md" },
+    { "Install and connect" = "getting-started.md" },
+    { "Server compatibility" = "compatibility.md" },
+  ] },
+  { "Use the CLI" = [
+    { "Search" = "search.md" },
+    { "Output pipelines" = "output-pipeline.md" },
+    { "Query and script language" = "DSL.md" },
+    { "Task discovery" = "tasks.md" },
+    { "Schema evolution" = "schema-evolution.md" },
+    { "Credential approvals" = "credential-approvals.md" },
+    { "Backup and restore" = "backup-restore.md" },
+    { "Themes" = "themes.md" },
+    { "Ansible facts" = "ansible-facts.md" },
+  ] },
+  { "Extend and automate" = [
+    { "Extensions" = "extensions.md" },
+    { "Extension tutorial" = "extension-tutorial.md" },
+    { "Extension reference" = "extension-reference.md" },
+    { "Extension recipes" = "extension-recipes.md" },
+    { "Local filters" = "filter-language.md" },
+  ] },
+  { "Examples" = [
+    { "Aliases" = "examples/aliases.md" },
+    { "Inventory" = "examples/hubuum-inventory.md" },
+    { "Jacks" = "examples/hubuum-jacks.md" },
+    { "Placement" = "examples/hubuum-placement.md" },
+    { "Recipes" = "examples/hubuum-recipes.md" },
+    { "Wrappers" = "examples/hubuum-wrappers.md" },
+  ] },
+  { "Contributing" = [
+    { "Manual test plan" = "manual-test.md" },
+    { "Pipeline design RFC" = "rfcs/0001-native-pipeline-dsl.md" },
+    { "Release notes" = "changelog.md" },
+    { "Documentation website" = "documentation.md" },
+  ] },
+]
+
+[tool.hubuum_docs]
+versioned = true
+
+[tool.hubuum_docs.source_files]
+"README.md" = "getting-started.md"
+"COMPATIBILITY.md" = "compatibility.md"
+"CHANGELOG.md" = "changelog.md"
+"crates/hubuum-filter/README.md" = "filter-language.md"
+"examples/aliases/README.md" = "examples/aliases.md"
+"examples/hubuum-inventory/README.md" = "examples/hubuum-inventory.md"
+"examples/hubuum-jacks/README.md" = "examples/hubuum-jacks.md"
+"examples/hubuum-placement/README.md" = "examples/hubuum-placement.md"
+"examples/hubuum-recipes/README.md" = "examples/hubuum-recipes.md"
+"examples/hubuum-wrappers/README.md" = "examples/hubuum-wrappers.md"
+
+[tool.hubuum_docs.link_migrations]
+"docs/extensions.md#executable-packs" = "docs/extension-reference.md#executable-packs"

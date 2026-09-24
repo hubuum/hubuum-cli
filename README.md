@@ -1,5 +1,7 @@
 # A CLI for Hubuum
 
+[Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
+
 This CLI interface for [Hubuum](https://github.com/hubuum/hubuum) is still in
 pre-release state and under heavy development.
 
