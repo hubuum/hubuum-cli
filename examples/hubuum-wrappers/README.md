@@ -3,7 +3,7 @@
 These example programs provide convenient Host inventory and placement
 workflows without becoming built-in Hubuum commands. They are both standalone
 Bash wrappers and the `host` pilot for the
-[executable extension protocol](../../docs/extensions.md#executable-packs). Every server
+[executable extension protocol](../../docs/extension-reference.md#executable-packs). Every server
 operation invokes `hubuum-cli`; the wrappers do not use a Hubuum API client
 library.
 

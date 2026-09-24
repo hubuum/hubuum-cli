@@ -1,0 +1,69 @@
+name: Documentation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["CI and release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Also publish an older stable release (vX.Y.Z); leave empty for latest and main'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentation-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build documentation
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'v'))
+    uses: hubuum/.github/.github/workflows/docs-build.yml@b900399e221aa53b09d280c13052e09f64929550 # shared documentation platform
+    with:
+      tooling_revision: 'b900399e221aa53b09d280c13052e09f64929550'
+      source_ref: ${{ (github.event_name == 'release' || github.event_name == 'workflow_run') && 'main' || github.sha }}
+      versioned: true
+      python_api: false
+      version: ${{ inputs.version || github.event.workflow_run.head_branch || (github.event_name == 'release' && !github.event.release.prerelease && github.event.release.tag_name) || '' }}
+
+  check:
+    name: Documentation check
+    needs: build
+    if: always() && needs.build.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          BUILD: ${{ needs.build.result }}
+        run: test "$BUILD" = success
+
+  publish:
+    name: Publish documentation
+    needs: [build, check]
+    if: >-
+      github.repository == 'hubuum/hubuum-cli' &&
+      ((github.ref == 'refs/heads/main' && github.event_name != 'pull_request') ||
+      (github.event_name == 'release' && !github.event.release.prerelease) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success'))
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    uses: hubuum/.github/.github/workflows/docs-publish.yml@b900399e221aa53b09d280c13052e09f64929550 # shared documentation platform
+    with:
+      tooling_revision: 'b900399e221aa53b09d280c13052e09f64929550'
+      source_sha: ${{ needs.build.outputs.source_sha }}

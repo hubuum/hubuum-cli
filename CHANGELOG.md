@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- A searchable, versioned documentation site with shared Hubuum navigation,
+  automatic GitHub Pages publishing, the latest release as its default,
+  immutable release snapshots, and an explicit development edition.
+
 ## [0.0.12] - 2026-09-23
 
 | CLI | `hubuum_client` | Hubuum server target | Backup format |
