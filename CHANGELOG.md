@@ -4,6 +4,9 @@
 
 ### Added
 
+- A walkthrough using the shared Atlas example inventory, with classes, objects,
+  relations, and permissions linked to the server-owned import and backup.
+
 - A searchable, versioned documentation site with shared Hubuum navigation,
   automatic GitHub Pages publishing, the latest release as its default,
   immutable release snapshots, and an explicit development edition.
