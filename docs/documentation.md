@@ -47,3 +47,10 @@ together to adopt a reviewed shared change.
 Shared stylesheet fixes apply to retained release editions without re-rendering
 their content. Released HTML, downloads, scripts, and source revisions stay
 unchanged; only the shared presentation CSS is refreshed.
+
+## Shared examples
+
+Use the [Atlas inventory](example-dataset.md) for walkthroughs and screenshots.
+Keep the server repository as the source of the downloadable import and backup.
+Pin a matching server edition or commit for repeatable tests, resolve IDs at
+runtime, and identify tutorial additions separately from the baseline dataset.
