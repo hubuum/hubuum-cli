@@ -7,6 +7,8 @@ on:
     tags:
       - "v*"
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,9 +23,45 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  changes:
+    name: Classify changes
     if: "!startsWith(github.ref, 'refs/tags/')"
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.policy.outputs.code }}
+      markdown: ${{ steps.policy.outputs.markdown }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Test CI selection and gate
+        run: python3 scripts/test-ci-policy.py
+      - name: Classify changes
+        id: policy
+        run: python3 scripts/ci-policy.py
+
+  markdown:
+    name: Markdown lint
+    needs: changes
+    if: needs.changes.outputs.markdown == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
+        with:
+          config: '.markdownlint.json'
+          globs: '**/*.md'
+
+  lint:
+    needs: changes
+    name: Application quality
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -44,15 +82,11 @@ jobs:
       - name: Validate extension JSON Schema
         run: npx --yes ajv-cli@5.0.0 compile --spec=draft2020 -s schemas/hubuum-extension.schema.json
 
-      - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
-        with:
-          config: ".markdownlint.json"
-          globs: "**/*.md"
 
   test:
+    needs: changes
     name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
@@ -99,8 +133,9 @@ jobs:
           args: "--locked --workspace --release"
 
   backup-restore:
+    needs: changes
     name: Pinned backup and restore integration
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -480,3 +515,22 @@ jobs:
           overwrite_files: true
           fail_on_unmatched_files: true
           files: dist/*
+
+  ci-gate:
+    # Preserve the existing required check name while aggregating every CI job.
+    name: Lint
+    if: always() && !startsWith(github.ref, 'refs/tags/')
+    needs: [changes, markdown, lint, test, backup-restore]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Require every selected check to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          CODE_JOBS: lint test backup-restore
+        run: python3 scripts/ci-policy.py --gate

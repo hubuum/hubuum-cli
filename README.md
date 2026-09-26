@@ -581,3 +581,21 @@ The former `class create` and `class modify` schema/validation flags are removed
 Stage a policy, inspect its impact, then explicitly activate the exact revision.
 See [schema evolution and task cancellation](docs/schema-evolution.md) for the
 workflow, compliance pages, repair reports, import activation, and upgrade notes.
+
+## Documentation-only CI
+
+Pull requests and pushes containing only prose or documentation-site inputs run
+Markdown lint and documentation validation without the application test/build
+matrix. Unknown files, source changes, executable examples, and declared
+test/build inputs retain application CI. Mixed changes run both kinds of checks.
+
+`scripts/ci-policy.py` owns the allowlist and exceptions. Update its regression
+tests whenever a document becomes a build, test, or packaging input; direct
+literal Rust includes are checked automatically. Run the policy tests with
+`python3 scripts/test-ci-policy.py`.
+
+The `Lint` check is the aggregate CI gate: classification failures,
+failed checks, and unexpectedly skipped required jobs fail it. Keep that check
+required in branch protection. Add the `ci:full` pull-request label or dispatch
+the CI workflow manually to request complete validation. Release validation
+and separately scheduled checks retain their existing coverage.
