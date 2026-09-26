@@ -575,6 +575,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#documentation-only-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Documentation-only CI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1587,6 +1598,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#documentation-only-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Documentation-only CI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2052,6 +2074,20 @@ The former <code>class create</code> and <code>class modify</code> schema/valida
 Stage a policy, inspect its impact, then explicitly activate the exact revision.
 See <a href="../schema-evolution/">schema evolution and task cancellation</a> for the
 workflow, compliance pages, repair reports, import activation, and upgrade notes.</p>
+<h2 id="documentation-only-ci">Documentation-only CI<a class="headerlink" href="#documentation-only-ci" title="Permanent link">&para;</a></h2>
+<p>Pull requests and pushes containing only prose or documentation-site inputs run
+Markdown lint and documentation validation without the application test/build
+matrix. Unknown files, source changes, executable examples, and declared
+test/build inputs retain application CI. Mixed changes run both kinds of checks.</p>
+<p><code>scripts/ci-policy.py</code> owns the allowlist and exceptions. Update its regression
+tests whenever a document becomes a build, test, or packaging input; direct
+literal Rust includes are checked automatically. Run the policy tests with
+<code>python3 scripts/test-ci-policy.py</code>.</p>
+<p>The <code>Lint</code> check is the aggregate CI gate: classification failures,
+failed checks, and unexpectedly skipped required jobs fail it. Keep that check
+required in branch protection. Add the <code>ci:full</code> pull-request label or dispatch
+the CI workflow manually to request complete validation. Release validation
+and separately scheduled checks retain their existing coverage.</p>
 
 
 
