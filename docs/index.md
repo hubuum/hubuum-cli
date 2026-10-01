@@ -21,3 +21,8 @@ The CLI connects through the server's HTTP API. The separately shipped
 `hubuum-admin` executable performs local server administration. See
 [server operations](https://hubuum.github.io/hubuum/) and the
 [Hubuum ecosystem](https://hubuum.github.io/) for the other interfaces.
+
+## Explore a shared example
+
+[Load and explore Atlas](example-dataset.md) to work with the same classes,
+objects, and relations used in the server, CLI, frontend, and client guides.

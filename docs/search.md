@@ -1,5 +1,8 @@
 # Search
 
+For a small inventory shared across Hubuum interfaces, use the
+[Atlas example walkthrough](example-dataset.md).
+
 Search can match plain text across collections, classes, and objects, or evaluate
 structured predicates on one resource kind. Structured search uses server
 v0.0.16's version 1 `POST /api/v1/search` API. Local output pipelines run afterward
