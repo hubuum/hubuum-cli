@@ -49,7 +49,7 @@ smooth-json = "0"
 serial_test = "4.0"
 strum = { version = "0.28", features = ["derive", "strum_macros"] }
 async-trait = "0.1"
-reedline = "0.51"
+reedline = "0.52"
 tokio = { version = "1", features = [
     "fs",
     "macros",
