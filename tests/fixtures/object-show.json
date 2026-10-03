@@ -1,0 +1,216 @@
+{
+  "root_class": {
+    "id": 9,
+    "name": "Hosts",
+    "description": "",
+    "collection": null,
+    "json_schema": null,
+    "validate_schema": false,
+    "revision": 1,
+    "created_at": "2020-07-30T11:46:02+00:00",
+    "updated_at": "2026-09-16T03:05:32.190117+00:00",
+    "collection_id": 7
+  },
+  "graph": {
+    "objects": [
+      {
+        "id": 42,
+        "name": "nommo.uio.no",
+        "description": "nommo.uio.no",
+        "hubuum_class_id": 9,
+        "collection_id": 7,
+        "data": {
+          "facts": {
+            "hardware": {
+              "memory_mb": 32768
+            },
+            "network": {
+              "addresses": [
+                "129.240.222.179",
+                "192.168.50.193"
+              ]
+            }
+          },
+          "nullable": null
+        },
+        "revision": 2,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00",
+        "path": [
+          42
+        ]
+      },
+      {
+        "id": 43,
+        "name": "Entry",
+        "description": "Entry",
+        "hubuum_class_id": 10,
+        "collection_id": 7,
+        "data": null,
+        "revision": 2,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00",
+        "path": [
+          42,
+          43
+        ]
+      },
+      {
+        "id": 44,
+        "name": "BL14=521.A7-UD7056",
+        "description": "BL14=521.A7-UD7056",
+        "hubuum_class_id": 11,
+        "collection_id": 8,
+        "data": null,
+        "revision": 2,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00",
+        "path": [
+          42,
+          44
+        ]
+      },
+      {
+        "id": 45,
+        "name": "B701",
+        "description": "B701",
+        "hubuum_class_id": 12,
+        "collection_id": 8,
+        "data": null,
+        "revision": 2,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00",
+        "path": [
+          42,
+          44,
+          45
+        ]
+      }
+    ],
+    "relations": []
+  },
+  "classes": [
+    {
+      "id": 10,
+      "name": "Contacts",
+      "description": "",
+      "collection": {
+        "id": 7,
+        "name": "Math",
+        "description": "",
+        "revision": 1,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00"
+      },
+      "json_schema": null,
+      "validate_schema": false,
+      "revision": 1,
+      "created_at": "2020-07-30T11:46:02+00:00",
+      "updated_at": "2026-09-16T03:05:32.190117+00:00"
+    },
+    {
+      "id": 11,
+      "name": "Jacks",
+      "description": "",
+      "collection": {
+        "id": 8,
+        "name": "Facilities",
+        "description": "",
+        "revision": 1,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00"
+      },
+      "json_schema": null,
+      "validate_schema": false,
+      "revision": 1,
+      "created_at": "2020-07-30T11:46:02+00:00",
+      "updated_at": "2026-09-16T03:05:32.190117+00:00"
+    },
+    {
+      "id": 12,
+      "name": "Rooms",
+      "description": "",
+      "collection": {
+        "id": 8,
+        "name": "Facilities",
+        "description": "",
+        "revision": 1,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2026-09-16T03:05:32.190117+00:00"
+      },
+      "json_schema": null,
+      "validate_schema": false,
+      "revision": 1,
+      "created_at": "2020-07-30T11:46:02+00:00",
+      "updated_at": "2026-09-16T03:05:32.190117+00:00"
+    }
+  ],
+  "collections": [
+    {
+      "id": 7,
+      "name": "Math",
+      "description": "",
+      "revision": 1,
+      "created_at": "2020-07-30T11:46:02+00:00",
+      "updated_at": "2026-09-16T03:05:32.190117+00:00"
+    },
+    {
+      "id": 8,
+      "name": "Facilities",
+      "description": "",
+      "revision": 1,
+      "created_at": "2020-07-30T11:46:02+00:00",
+      "updated_at": "2026-09-16T03:05:32.190117+00:00"
+    }
+  ],
+  "expected": {
+    "id": 42,
+    "name": "nommo.uio.no",
+    "description": "nommo.uio.no",
+    "data": {
+      "facts": {
+        "hardware": {
+          "memory_mb": 32768
+        },
+        "network": {
+          "addresses": [
+            "129.240.222.179",
+            "192.168.50.193"
+          ]
+        }
+      },
+      "nullable": null
+    },
+    "created_at": "2020-07-30T11:46:02+00:00",
+    "updated_at": "2026-09-16T03:05:32.190117+00:00",
+    "collection": "Math",
+    "class": "Hosts",
+    "related_objects": [
+      {
+        "id": 43,
+        "class": "Contacts",
+        "name": "Entry",
+        "collection": "Math",
+        "depth": 1,
+        "children": []
+      },
+      {
+        "id": 44,
+        "class": "Jacks",
+        "name": "BL14=521.A7-UD7056",
+        "collection": "Facilities",
+        "depth": 1,
+        "children": [
+          {
+            "id": 45,
+            "class": "Rooms",
+            "name": "B701",
+            "collection": "Facilities",
+            "depth": 2,
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

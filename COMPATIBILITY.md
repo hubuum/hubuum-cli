@@ -93,6 +93,14 @@ the server sends `done`, and verify truncated-stream failure and atomic redirect
 These checks do not imply that every OpenAPI operation has a CLI command or that
 other server versions are supported.
 
+The Unreleased read-path cleanup was checked on 2026-10-03 against the same pinned
+server and PostgreSQL images with `scripts/test-backup-restore.py`. It verified
+object detail text, full JSON (`--json`), and pipeline projections; object lists;
+class details; and object/class relation reads, including related classes in
+different collections. The run used isolated Podman storage under `/tmp` and a
+RAM-backed disposable database because the host's `/var` filesystem was full.
+The server target, client dependency, and API surface are unchanged.
+
 ## CLI v0.0.11: server v0.0.14 target
 
 The release target pins `hubuum_client` 0.10.1 and the immutable server image

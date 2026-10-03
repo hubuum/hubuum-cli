@@ -12,6 +12,8 @@ mod imports;
 mod object_aggregates;
 mod objects;
 mod principal_tokens;
+#[cfg(test)]
+mod read_resolution_tests;
 mod relations;
 mod remote_targets;
 mod schema;

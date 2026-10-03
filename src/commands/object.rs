@@ -481,15 +481,21 @@ fn display_json_value(value: &Value) -> String {
 mod tests {
     use std::collections::HashMap;
     use std::fs::write;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    use hubuum_client::ObjectDataPatchOperation;
+    use hubuum_client::{
+        blocking::Client, MockTransport, ObjectDataPatchOperation, Token, TransportResponse,
+    };
     use hubuum_filter::{
         apply_pipeline, OutputEnvelope, PipeStage, ProjectTerm, SortCast, SortDirection, SortKey,
         SortSpec,
     };
-    use serde_json::{json, Value};
+    use reqwest::StatusCode;
+    use serde_json::{from_str, from_value, json, Value};
     use serial_test::serial;
     use tempfile::tempdir;
+    use tokio::runtime::Runtime;
 
     use super::{
         all_computed_value_columns, bounded_auto_data_columns, data_column_display_value,
@@ -500,13 +506,14 @@ mod tests {
         ObjectInfo, ObjectList, ObjectListColumns,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
-    use crate::commands::command_options;
+    use crate::commands::{command_options, CliCommand};
     use crate::config::{init_config, AppConfig};
     use crate::domain::{
         ComputedFieldSet, ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord,
     };
     use crate::list_query::{parse_where_clause, PagedResult};
-    use crate::output::{append_line, reset_output, take_output};
+    use crate::output::{append_line, reset_output, set_pipeline, take_output};
+    use crate::services::AppServices;
     use crate::tokenizer::CommandTokenizer;
 
     #[test]
@@ -1173,6 +1180,85 @@ mod tests {
             .lines
             .iter()
             .any(|line| line.contains("Jacks/BL14=521.A7-UD7056 → Rooms/B701")));
+    }
+
+    #[test]
+    #[serial]
+    fn object_show_reuses_graph_without_changing_text_json_or_pipeline_output() {
+        init_config(AppConfig::default()).unwrap();
+        let fixture: Value =
+            from_str(include_str!("../../tests/fixtures/object-show.json")).unwrap();
+        let expected: ObjectShowRecord = from_value(fixture["expected"].clone()).unwrap();
+        reset_output().unwrap();
+        render_object_show_text(&expected).unwrap();
+        append_line("").unwrap();
+        render_object_data(expected.object.data.as_ref(), None).unwrap();
+        let expected_text = take_output().unwrap().lines;
+        let runtime = Runtime::new().unwrap();
+
+        for mode in ["text", "json", "pipeline"] {
+            let transport = MockTransport::default();
+            for response in [
+                &fixture["root_class"],
+                &fixture["graph"],
+                &fixture["classes"],
+            ] {
+                transport.push_response(TransportResponse::json(StatusCode::OK, response).unwrap());
+            }
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap()
+                .authenticate(Token::new("test-token"));
+            let services = AppServices::new(
+                Arc::new(client),
+                runtime.handle().clone(),
+                Duration::from_secs(60),
+            );
+            reset_output().unwrap();
+            if mode == "pipeline" {
+                set_pipeline(vec![PipeStage::Columns(
+                    [
+                        "name",
+                        "description",
+                        "class",
+                        "collection",
+                        "data",
+                        "created_at",
+                        "updated_at",
+                        "related_objects",
+                    ]
+                    .into_iter()
+                    .map(|name| ProjectTerm::keep(name).unwrap())
+                    .collect(),
+                )])
+                .unwrap();
+            }
+            let suffix = if mode == "json" { " --json" } else { "" };
+            let tokens = CommandTokenizer::new(
+                &format!("object show --class Hosts --name nommo.uio.no --data{suffix}"),
+                "show",
+                &command_options::<ObjectInfo>(),
+            )
+            .unwrap();
+            ObjectInfo::default().execute(&services, &tokens).unwrap();
+            let output = take_output().unwrap();
+            match mode {
+                "text" => assert_eq!(output.lines, expected_text),
+                "json" => assert_eq!(
+                    from_str::<Value>(&output.lines.join("\n")).unwrap(),
+                    fixture["expected"]
+                ),
+                _ => {
+                    let mut expected = fixture["expected"].clone();
+                    expected.as_object_mut().unwrap().remove("id");
+                    assert_eq!(output.semantic[0].value(), &expected);
+                }
+            }
+            assert_eq!(transport.requests().len(), 3);
+        }
+        reset_output().unwrap();
     }
 
     fn test_object(id: i32, data: Value) -> ResolvedObjectRecord {
