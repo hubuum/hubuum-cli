@@ -17,7 +17,7 @@ use crate::list_query::{
     PagedResult, SortDirectionArg, SortFieldSpec, ValidatedSortClause,
 };
 
-use super::{shared::find_entities_by_ids, HubuumGateway, RelationTraversalOptions};
+use super::{shared::object_from_path, HubuumGateway, RelationTraversalOptions};
 
 #[derive(Debug, Clone)]
 pub struct CreateObjectInput {
@@ -241,26 +241,17 @@ impl HubuumGateway {
         include_computed: bool,
     ) -> Result<ObjectShowRecord, AppError> {
         let class = self.client().classes().get_by_name(class_name)?;
-        let object = class.object_by_name(object_name)?;
-        let collection = self
+        let related_graph_request = self
             .client()
-            .collections()
-            .get(object.resource().collection_id)?;
-
-        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
-        let mut object_record =
-            ResolvedObjectRecord::new(object.resource(), &classmap, &collectionmap);
-        if include_computed {
-            let computed = self.client().computed_object(class.id(), object.id())?;
-            object_record = object_record.with_computed(serde_json::to_value(computed.computed)?);
-        }
-        let related_graph_request = object.related_graph().filter(
-            "depth",
-            FilterOperator::Lte { is_negated: false },
-            options.max_depth,
-        );
+            .class_by_name(class_name)
+            .objects()
+            .by_name(object_name)
+            .related_graph()
+            .filter(
+                "depth",
+                FilterOperator::Lte { is_negated: false },
+                options.max_depth,
+            );
         let related_graph_request = if options.include_self_class {
             related_graph_request
         } else {
@@ -271,28 +262,44 @@ impl HubuumGateway {
             )
         };
         let related_graph = related_graph_request.send()?;
-        let graph_class_map = self.class_map_from_ids(
+        // The bounded graph includes the root even when same-class descendants
+        // are filtered out. Keep a point-read fallback for rootless responses.
+        let object = match related_graph.objects.iter().find(|object| {
+            object.path.as_slice() == [object.id]
+                && object.hubuum_class_id == class.id()
+                && object.name == object_name
+        }) {
+            Some(object) => object_from_path(object)?,
+            None => class.object_by_name(object_name)?.resource().clone(),
+        };
+        let class_map = self.class_map_with_known(
             related_graph
                 .objects
                 .iter()
-                .map(|related_object| related_object.hubuum_class_id)
-                .collect::<Vec<_>>(),
+                .map(|related_object| related_object.hubuum_class_id),
+            [class.resource()],
         )?;
-        let graph_collection_map = self.collection_map_from_ids(
+        let collection_map = self.collection_map_with_classes(
             related_graph
                 .objects
                 .iter()
                 .map(|related_object| related_object.collection_id)
-                .collect::<Vec<_>>(),
+                .chain([object.collection_id]),
+            class_map.values(),
         )?;
+        let mut object_record = ResolvedObjectRecord::new(&object, &class_map, &collection_map);
+        if include_computed {
+            let computed = self.client().computed_object(class.id(), object.id)?;
+            object_record = object_record.with_computed(serde_json::to_value(computed.computed)?);
+        }
 
         Ok(ObjectShowRecord {
             object: object_record,
             related_objects: build_related_object_tree(
                 &related_graph.objects,
-                &graph_class_map,
-                &graph_collection_map,
-                object.id().into(),
+                &class_map,
+                &collection_map,
+                object.id.into(),
                 class.id().into(),
                 !options.include_self_class,
             ),
@@ -352,14 +359,14 @@ impl HubuumGateway {
                 .computed_objects(class.id())
                 .filters(filters)
                 .all()?;
-            let classmap =
-                find_entities_by_ids(&self.client().classes(), fetched.iter(), |object| {
-                    object.object.hubuum_class_id
-                })?;
-            let collectionmap =
-                find_entities_by_ids(&self.client().collections(), fetched.iter(), |object| {
-                    object.object.collection_id
-                })?;
+            let classmap = self.class_map_with_known(
+                fetched.iter().map(|object| object.object.hubuum_class_id),
+                [class.resource()],
+            )?;
+            let collectionmap = self.collection_map_with_classes(
+                fetched.iter().map(|object| object.object.collection_id),
+                classmap.values(),
+            )?;
             let mut items = fetched
                 .into_iter()
                 .map(|object| {
@@ -395,14 +402,16 @@ impl HubuumGateway {
                 return Ok(PagedResult::empty(page.next_cursor, page.total_count));
             }
 
-            let classmap =
-                find_entities_by_ids(&self.client().classes(), page.items.iter(), |object| {
-                    object.object.hubuum_class_id
-                })?;
-            let collectionmap =
-                find_entities_by_ids(&self.client().collections(), page.items.iter(), |object| {
-                    object.object.collection_id
-                })?;
+            let classmap = self.class_map_with_known(
+                page.items
+                    .iter()
+                    .map(|object| object.object.hubuum_class_id),
+                [class.resource()],
+            )?;
+            let collectionmap = self.collection_map_with_classes(
+                page.items.iter().map(|object| object.object.collection_id),
+                classmap.values(),
+            )?;
             let returned_count = page.items.len();
             let items = page
                 .items
@@ -431,14 +440,14 @@ impl HubuumGateway {
             return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
-        let classmap =
-            find_entities_by_ids(&self.client().classes(), page.items.iter(), |object| {
-                object.hubuum_class_id
-            })?;
-        let collectionmap =
-            find_entities_by_ids(&self.client().collections(), page.items.iter(), |object| {
-                object.collection_id
-            })?;
+        let classmap = self.class_map_with_known(
+            page.items.iter().map(|object| object.hubuum_class_id),
+            [class.resource()],
+        )?;
+        let collectionmap = self.collection_map_with_classes(
+            page.items.iter().map(|object| object.collection_id),
+            classmap.values(),
+        )?;
 
         Ok(page.map(|object| ResolvedObjectRecord::new(&object, &classmap, &collectionmap)))
     }
@@ -794,7 +803,7 @@ mod tests {
             transport.push_response(
                 TransportResponse::json(
                     StatusCode::OK,
-                    &json!([{
+                    &json!({"objects": [{
                         "id": 42,
                         "name": "srv-01",
                         "collection_id": 7,
@@ -803,18 +812,11 @@ mod tests {
                         "data": {},
                         "revision": 1,
                         "created_at": "2026-07-21T12:00:00Z",
-                        "updated_at": "2026-07-21T12:00:00Z"
-                    }]),
+                        "updated_at": "2026-07-21T12:00:00Z",
+                        "path": [42]
+                    }], "relations": []}),
                 )
-                .expect("object response should serialize"),
-            );
-            transport.push_response(
-                TransportResponse::json(StatusCode::OK, &collection)
-                    .expect("collection response should serialize"),
-            );
-            transport.push_response(
-                TransportResponse::json(StatusCode::OK, &json!({"objects": [], "relations": []}))
-                    .expect("graph response should serialize"),
+                .expect("graph response should serialize"),
             );
             let client = BlockingClient::builder_from_url("https://example.invalid")
                 .expect("base URL should parse")
@@ -837,6 +839,7 @@ mod tests {
                 .expect("object details should load");
 
             let requests = transport.requests();
+            assert_eq!(requests.len(), 2);
             let graph_request = requests
                 .iter()
                 .find(|request| request.url.path().ends_with("/related/graph"))

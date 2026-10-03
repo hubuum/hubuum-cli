@@ -116,9 +116,12 @@ def main():
 
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
+                command = list(command)
+                output_index = command.index("|") if "|" in command else len(command)
+                command[output_index:output_index] = ["--output", output]
                 result = subprocess.run(
                     [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
-                     "--protocol", "http", "--token-file", str(token_file), *approval_args, *command, "--output", output],
+                     "--protocol", "http", "--token-file", str(token_file), *approval_args, *command],
                     text=True, capture_output=True, env=env, timeout=180,
                 )
                 assert (result.returncode == 0) == success, (command, result.stdout, result.stderr)
@@ -141,6 +144,54 @@ def main():
             obj = api("PATCH", object_path, {"description": "recover an advanced revision"}, token)
             assert obj["revision"] > 1
             assert cli("admin", "config")
+
+            # Detail and relation reads reuse graph roots and embedded metadata.
+            # Keep the root and related class in different collections so the
+            # root collection still needs a lookup after related-class expansion.
+            related_name = prefix + "-related"
+            related_collection = api("POST", "/api/v1/collections", {
+                "name": prefix + "-related-collection", "description": "Related collection",
+                "group_id": groups[0]["id"],
+            }, token)
+            related_class = api("POST", "/api/v1/classes", {
+                "name": related_name, "description": "Related read fixture",
+                "collection_id": related_collection["id"], "json_schema": None, "validate_schema": False,
+            }, token)
+            related_object = api("POST", f'/api/v1/classes/{related_class["id"]}/', {
+                "name": "neighbor", "description": "Related object",
+                "collection_id": related_collection["id"], "hubuum_class_id": related_class["id"],
+                "data": None,
+            }, token)
+            cli("relation", "class", "create", "--class-a", prefix, "--class-b", related_name)
+            cli("relation", "object", "create", "--class-a", prefix, "--object-a", prefix,
+                "--class-b", related_name, "--object-b", "neighbor")
+            shown = cli("object", "show", "--class", prefix, "--name", prefix, "--data", "--json")
+            assert shown["id"] == obj["id"] and shown["data"] == obj["data"]
+            assert shown["description"] == obj["description"] and shown["collection"] == prefix
+            assert shown["class"] == prefix
+            assert shown["related_objects"] == [{
+                "id": related_object["id"], "class": related_name, "name": "neighbor",
+                "collection": related_collection["name"], "depth": 1, "children": [],
+            }], shown
+            text = cli("object", "show", "--class", prefix, "--name", prefix, "--data", output="text")
+            assert related_name + "/neighbor" in text and "nullable" in text and "42" in text
+            assert text.index("Relations") < text.index("nullable")
+            projected = cli("object", "show", "--class", prefix, "--name", prefix,
+                            "|", "P", "name", "data", "related_objects")
+            assert projected == {key: shown[key] for key in ["name", "data", "related_objects"]}
+            listed = cli("object", "list", "--class", prefix)
+            assert listed[0]["data"] == obj["data"] and listed[0]["collection"] == prefix
+            class_details = cli("class", "show", "--name", prefix)
+            assert class_details["class"]["collection"]["name"] == prefix
+            assert cli("relation", "class", "graph", "--root-class", prefix)
+            assert cli("relation", "class", "list", "--root-class", prefix)
+
+            related = cli("relation", "object", "list", "--root-class", prefix, "--root-object", prefix)
+            assert related[0]["collection"] == related_collection["name"] and related[0]["path"] == ["neighbor"]
+            graph = cli("relation", "object", "graph", "--root-class", prefix, "--root-object", prefix)
+            neighbor = next(item for item in graph["objects"] if item["id"] == related_object["id"])
+            assert neighbor["collection"] == related_collection["name"] and neighbor["path"] == ["neighbor"]
+            print("PASS: object detail text/JSON/pipeline, object lists, class details, and relation reads", flush=True)
 
             # Search files and the terminal predicate DSL must agree on the pinned API.
             query_file = directory / "search.json"
@@ -361,6 +412,9 @@ def main():
                 raise AssertionError("Second-generation restore resurrected a previously deleted object")
             print("PASS: second-generation restore preserves the prior deletion", flush=True)
     finally:
+        if sys.exc_info()[0] is not None:
+            logs = subprocess.run([args.runtime, "logs", db], text=True, capture_output=True)
+            sys.stderr.write(logs.stdout + logs.stderr)
         for name in [executor, server, db]:
             subprocess.run([args.runtime, "rm", "-f", "-v", name], capture_output=True)
         subprocess.run([args.runtime, "network", "rm", network], capture_output=True)

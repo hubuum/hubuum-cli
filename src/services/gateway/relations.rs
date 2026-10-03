@@ -20,7 +20,7 @@ use crate::list_query::{
 };
 
 use super::{
-    shared::{class_collection_id, fetch_entities_for_ids, find_entities_by_ids},
+    shared::{class_collection_id, fetch_entities_for_ids, find_entities_by_ids, object_from_path},
     HubuumGateway,
 };
 
@@ -187,7 +187,7 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
         let graph = class.related_graph().filters(filters).send()?;
 
-        let class_map = self.class_map_from_ids(
+        let class_map = self.class_map_with_known(
             graph
                 .classes
                 .iter()
@@ -195,16 +195,16 @@ impl HubuumGateway {
                 .chain(graph.relations.iter().flat_map(|relation| {
                     [relation.from_hubuum_class_id, relation.to_hubuum_class_id]
                 }))
-                .chain(once(class.id()))
-                .collect::<Vec<_>>(),
+                .chain(once(class.id())),
+            [class.resource()],
         )?;
-        let collection_map = self.collection_map_from_ids(
+        let collection_map = self.collection_map_with_classes(
             graph
                 .classes
                 .iter()
                 .map(|related_class| related_class.collection_id)
-                .chain(class_collection_id(class.resource()))
-                .collect::<Vec<_>>(),
+                .chain(class_collection_id(class.resource())),
+            class_map.values(),
         )?;
 
         Ok(ResolvedRelatedClassGraph {
@@ -378,12 +378,9 @@ impl HubuumGateway {
                 .map(|object| object.hubuum_class_id)
                 .collect::<Vec<_>>(),
         )?;
-        let collection_map = self.collection_map_from_ids(
-            graph
-                .objects
-                .iter()
-                .map(|object| object.collection_id)
-                .collect::<Vec<_>>(),
+        let collection_map = self.collection_map_with_classes(
+            graph.objects.iter().map(|object| object.collection_id),
+            class_map.values(),
         )?;
         let object_map = graph
             .objects
@@ -535,11 +532,9 @@ impl HubuumGateway {
                 .map(|object| object.hubuum_class_id)
                 .collect::<Vec<_>>(),
         )?;
-        let collection_map = self.collection_map_from_ids(
-            page.items
-                .iter()
-                .map(|object| object.collection_id)
-                .collect::<Vec<_>>(),
+        let collection_map = self.collection_map_with_classes(
+            page.items.iter().map(|object| object.collection_id),
+            class_map.values(),
         )?;
         let path_object_map = page
             .items
@@ -573,19 +568,19 @@ impl HubuumGateway {
             return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
-        let class_map = self.class_map_from_ids(
+        let class_map = self.class_map_with_known(
             page.items
                 .iter()
                 .flat_map(|class| class.path.iter().copied().chain(once(class.id)))
-                .chain(once(root_class.id))
-                .collect::<Vec<_>>(),
+                .chain(once(root_class.id)),
+            [root_class],
         )?;
-        let collection_map = self.collection_map_from_ids(
+        let collection_map = self.collection_map_with_classes(
             page.items
                 .iter()
                 .map(|class| class.collection_id)
-                .chain(class_collection_id(root_class))
-                .collect::<Vec<_>>(),
+                .chain(class_collection_id(root_class)),
+            class_map.values(),
         )?;
 
         Ok(page.map(|class| {
@@ -1138,10 +1133,6 @@ pub(crate) const RELATED_OBJECT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("depth", "depth"),
     SortFieldSpec::new("path", "path"),
 ];
-
-fn object_from_path(object: &ObjectWithPath) -> Result<Object, AppError> {
-    Ok(serde_json::from_value(serde_json::to_value(object)?)?)
-}
 
 fn validate_object_names(target: &RelationTarget) -> Result<(&str, &str), AppError> {
     match (target.object_a.as_deref(), target.object_b.as_deref()) {

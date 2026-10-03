@@ -79,13 +79,13 @@ impl HubuumGateway {
                 options.max_depth,
             )
             .send()?;
-        let collection_map = self.collection_map_from_ids(
+        let collection_map = self.collection_map_with_classes(
             related_graph
                 .classes
                 .iter()
                 .map(|related_class| related_class.collection_id)
-                .chain(class_collection_id(class.resource()))
-                .collect::<Vec<_>>(),
+                .chain(class_collection_id(class.resource())),
+            [class.resource()],
         )?;
 
         let mut resolved_class = class.resource().clone();
