@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
-This checklist targets the current Hubuum CLI command surface and Hubuum server
-v0.0.9 using `hubuum_client` 0.9.0. It intentionally uses the current
+This checklist covers CLI v0.0.13, which uses `hubuum_client` 0.13.0. That client
+library targets Hubuum server v0.0.17. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 

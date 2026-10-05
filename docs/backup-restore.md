@@ -1,6 +1,6 @@
 # Backup and restore
 
-CLI v0.0.13 uses `hubuum_client` 0.13.0 and targets Hubuum server 0.0.17.
+CLI v0.0.13 uses `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
@@ -18,7 +18,7 @@ When upgrading from before 0.0.15, existing enforced objects start pending;
 request schema revalidation. Review
 [schema evolution](schema-evolution.md) for policy and authorization migration.
 
-**Breaking backup output change:** this target creates format 7 backups,
+**Breaking backup output change:** server v0.0.17 creates format 7 backups,
 including notification configuration and terminal delivery history. Older servers
 cannot restore format 7. CLI v0.0.13 and server 0.0.17 still accept format 6 with
 legacy notification defaults; keep existing format 6 artifacts intact. Restores

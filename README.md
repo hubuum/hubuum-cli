@@ -62,11 +62,11 @@ not used. JSON output reports `status` (`up_to_date`, `update_available`, or
 
 ## Compatibility
 
-CLI and server releases are versioned independently. The declared targets and
-their client-library versions are recorded in the
-[compatibility matrix](COMPATIBILITY.md). CLI v0.0.13 targets Hubuum server
-v0.0.17 through `hubuum_client` v0.13.0. CLI v0.0.12 targeted server v0.0.16
-through `hubuum_client` v0.12.0.
+The CLI, client library, and server are versioned independently. CLI v0.0.13
+uses `hubuum_client` v0.13.0, which targets Hubuum server v0.0.17.
+CLI v0.0.12 used `hubuum_client` v0.12.0, which targets server v0.0.16.
+The [compatibility matrix](COMPATIBILITY.md) records each CLI release's client
+dependency, that client's server target, and pinned integration evidence.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
 the server now writes format 7 and still accepts format 6. Upgrading from
 v0.0.16 requires stopping all writers and taking a PostgreSQL snapshot before
@@ -74,8 +74,8 @@ migration; binary-only rollback is unsupported. Fresh
 [credential approvals](docs/credential-approvals.md) remain required for
 credential changes and restore confirmation.
 
-Use [chat webhook presets](docs/webhooks.md) to configure Slack, Mattermost,
-or Discord with a target and server-side URL secret alias.
+Use the [webhook setup guide](docs/webhooks.md) for generic JSON receivers or
+Slack, Mattermost, and Discord presets, including their equivalent full commands.
 
 ## Usage
 

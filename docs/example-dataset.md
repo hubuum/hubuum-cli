@@ -8,9 +8,9 @@ four classes and ten connected objects.
 
 Follow the server's [Atlas dataset guide](https://hubuum.github.io/hubuum/v0.0.17/getting-started/example-dataset/)
 to download and import the inventory into an evaluation server. The guide and
-downloads are pinned to server v0.0.17, matching this CLI release target. Keep
-the server as the canonical fixture source; do not copy a second fixture into
-this repository.
+downloads are pinned to server v0.0.17, the target of `hubuum_client` 0.13.0
+used by CLI v0.0.13. Keep the server as the canonical fixture source; do not copy
+a second fixture into this repository.
 
 The import aborts atomically on name collisions and contains no passwords,
 tokens, users, or group memberships. Its separate backup replaces all application
@@ -80,4 +80,4 @@ For exact data, expected relationships, and checksums, return to the server's
 [canonical dataset guide](https://hubuum.github.io/hubuum/v0.0.17/getting-started/example-dataset/).
 The server corpus tests verify import and restore, schemas, permissions,
 computed values, filters, and pagination. Each client retains its own compatibility
-and integration tests; the example does not change its supported server target.
+and integration tests; the example does not change the client library's server target.

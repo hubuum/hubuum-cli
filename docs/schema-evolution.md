@@ -1,6 +1,6 @@
 # Schema evolution and task cancellation
 
-The CLI targets Hubuum server v0.0.16 through `hubuum_client` 0.12.0.
+CLI v0.0.13 uses `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
 The schema lifecycle below was introduced in server v0.0.15.
 All schema policy writes use `class schema`. The old `--schema`/`-s` and
 `--validate`/`-v` flags on `class create` and `class modify` are removed.
@@ -147,7 +147,7 @@ restore-executor binaries. Revalidate existing enforced classes after migration.
 External authorization must grant `CancelTask`. Restart string-sorted pagination
 following the server upgrade. Review stored schemas against the server's stricter
 reference, complexity, data, and validation budgets before resuming writes.
-Server v0.0.15 introduced format 6; the current target writes format 7 and
+Server v0.0.15 introduced format 6; server v0.0.17 writes format 7 and
 still accepts format 6. See [backup migration](backup-restore.md).
 
 See the [server v0.0.15 release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.15)

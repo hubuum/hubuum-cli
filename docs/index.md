@@ -9,7 +9,7 @@ the REPL, or automate repeatable workflows with scripts and extensions.
 - [Search your inventory](search.md).
 - [Shape command output with pipelines](output-pipeline.md).
 - [Check server compatibility](compatibility.md).
-- [Set up Slack, Mattermost, or Discord webhooks](webhooks.md).
+- [Set up generic webhooks or Slack, Mattermost, and Discord presets](webhooks.md).
 
 ## Automate a workflow
 

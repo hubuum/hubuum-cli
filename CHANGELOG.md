@@ -2,18 +2,24 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Document compatibility through the pinned client library, generic webhook
+  setup, and equivalent full commands for the Slack, Mattermost, and Discord
+  presets. CLI help includes the generic webhook setup path.
+
 ## [0.0.13] - 2026-10-05
 
-| CLI | `hubuum_client` | Hubuum server target | Backup formats |
+| CLI | `hubuum_client` dependency | Client's Hubuum server target | Backup formats |
 | --- | --- | --- | --- |
 | 0.0.13 | 0.13.0 | 0.0.17 | Writes 7; reads 6 and 7 |
 | 0.0.12 | 0.12.0 | 0.0.16 | 6 |
 
 ### Changed
 
-- Target Hubuum server v0.0.17 through pinned `hubuum_client` 0.13.0 and an
-  immutable server image. The upstream contract grows from 220 operations and
-  330 schemas to 227 operations and 336 schemas. Client features remain
+- Pin `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17, and use its
+  immutable server image for CLI integration checks. The upstream contract grows
+  from 220 operations and 330 schemas to 227 operations and 336 schemas. Client features remain
   blocking-only and its MSRV remains Rust 1.88; no CLI MSRV is declared.
   Verification uses Rust 1.99. See [pinned integration evidence](COMPATIBILITY.md).
 - Refresh direct and transitive Rust dependencies, including Reedline 0.52.1,

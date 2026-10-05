@@ -11,7 +11,7 @@ nav = [
     { "Welcome" = "index.md" },
     { "Atlas example inventory" = "example-dataset.md" },
     { "Install and connect" = "getting-started.md" },
-    { "Server compatibility" = "compatibility.md" },
+    { "Client and server compatibility" = "compatibility.md" },
   ] },
   { "Use the CLI" = [
     { "Search" = "search.md" },
@@ -20,7 +20,7 @@ nav = [
     { "Task discovery" = "tasks.md" },
     { "Schema evolution" = "schema-evolution.md" },
     { "Credential approvals" = "credential-approvals.md" },
-    { "Chat webhooks" = "webhooks.md" },
+    { "Webhooks" = "webhooks.md" },
     { "Backup and restore" = "backup-restore.md" },
     { "Themes" = "themes.md" },
     { "Ansible facts" = "ansible-facts.md" },

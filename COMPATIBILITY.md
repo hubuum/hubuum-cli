@@ -1,55 +1,60 @@
-# Server compatibility
+# Client and server compatibility
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
-A CLI release targets the server release declared and reproducibly tested by its
-bundled `hubuum_client` version. This is a compatibility target, not a guarantee
-that every CLI command is available against other server versions.
+Each CLI release pins a `hubuum_client` version; that client library declares
+and reproducibly tests its Hubuum server target. CLI v0.0.13 uses
+`hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
+The CLI inherits this compatibility target from its client dependency and runs
+its own integration checks against the same pinned server. Command availability
+against other server versions is not guaranteed.
 
 ## Compatibility matrix
 
-| CLI version | `hubuum_client` | Hubuum server target | Status |
+| CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.13 | 0.13.0 | 0.0.17 | Current release target; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
-| 0.0.12 | 0.12.0 | 0.0.16 | Previous release target; structured search, credential approvals, task discovery, and backup format 6 |
-| 0.0.11 | 0.10.1 | 0.0.14 | Previous release target; backup format 5, queued restores, and restorable follow-up backups |
-| 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
-| 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
-| 0.0.8 | 0.8.0 | 0.0.8 | Previous declared target |
-| 0.0.5 | 0.7.2 | 0.0.5 | Previous declared target |
-| 0.0.4 | 0.7.1 | 0.0.4 | Previous declared target |
-| 0.0.3 | 0.6.1 | 0.0.3 | Previous declared target |
-| 0.0.2 | 0.5.1 | 0.0.2 | Previous declared target |
+| 0.0.13 | 0.13.0 | 0.0.17 | Current CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
+| 0.0.12 | 0.12.0 | 0.0.16 | Previous CLI release; structured search, credential approvals, task discovery, and backup format 6 |
+| 0.0.11 | 0.10.1 | 0.0.14 | Previous CLI release; backup format 5, queued restores, and restorable follow-up backups |
+| 0.0.10 | 0.9.1 | 0.0.9 | Previous CLI release |
+| 0.0.9 | 0.9.0 | 0.0.9 | Previous CLI release |
+| 0.0.8 | 0.8.0 | 0.0.8 | Previous CLI release |
+| 0.0.5 | 0.7.2 | 0.0.5 | Previous CLI release |
+| 0.0.4 | 0.7.1 | 0.0.4 | Previous CLI release |
+| 0.0.3 | 0.6.1 | 0.0.3 | Previous CLI release |
+| 0.0.2 | 0.5.1 | 0.0.2 | Previous CLI release |
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
-The v0.0.10 target is tested by `hubuum_client` v0.9.1 against the immutable
+CLI v0.0.10 uses `hubuum_client` v0.9.1, tested against the immutable
 Hubuum server v0.0.9 image
 `ghcr.io/hubuum/hubuum-server@sha256:1f12baf882b6d3df5b4b2dbdf26aad0793274e57f86a2c186b8e1e68632db5db`.
-The v0.0.9 target is tested by `hubuum_client` v0.9.0 against the same immutable
+CLI v0.0.9 uses `hubuum_client` v0.9.0, tested against the same immutable
 Hubuum server v0.0.9 image
 `ghcr.io/hubuum/hubuum-server@sha256:1f12baf882b6d3df5b4b2dbdf26aad0793274e57f86a2c186b8e1e68632db5db`.
-The v0.0.8 target is tested by `hubuum_client` against the immutable
+CLI v0.0.8 uses `hubuum_client` v0.8.0, tested against the immutable
 Hubuum server v0.0.8 image
 `ghcr.io/hubuum/hubuum-server@sha256:850bfd95a2802485f93c1700fbff5a33465cbc7855cbc94962982c1074fd96f6`.
-The v0.0.5 target is tested by `hubuum_client` against the immutable
+CLI v0.0.5 uses `hubuum_client` v0.7.2, tested against the immutable
 Hubuum server v0.0.5 image
 `ghcr.io/hubuum/hubuum-server@sha256:6f3e0f0debd418acd5cbc2b1399db9859a85ca1fa397525a5ef0e2f493a77c9b`.
-The v0.0.4 target is tested by `hubuum_client` against the immutable Hubuum
+CLI v0.0.4 uses `hubuum_client` v0.7.1, tested against the immutable Hubuum
 server v0.0.4 image
 `ghcr.io/hubuum/hubuum-server@sha256:60142d605f423b1dc58d9dfe709164b0d5ec93befd2d702f9bdca7ee0654a583`.
-The v0.0.3 target is tested by `hubuum_client` against the immutable
+CLI v0.0.3 uses `hubuum_client` v0.6.1, tested against the immutable
 server image
 `ghcr.io/hubuum/hubuum-server@sha256:f1f57a991f69005ee81f24e77533e61f75b5586949d98cccf1c40fc4329eb186`.
-The v0.0.2 target was tested by `hubuum_client` against the immutable server image
+CLI v0.0.2 uses `hubuum_client` v0.5.1, tested against the immutable server image
 `ghcr.io/hubuum/hubuum-server@sha256:8f543383b422124546c8d337fd557e1b182b1b6c7078d7870d3c5cd4f955ef1f`.
 The v0.0.1 row records the reproducible server snapshot inherited from
-`hubuum_client` v0.4.0; it predates the first stable CLI/server compatibility target.
+`hubuum_client` v0.4.0; that client did not declare a stable server target.
 
 Forward-compatibility checks against the server's `main` branch are useful early
-warnings, but they do not change a published CLI release's declared target.
+warnings, but they do not change the server target of a published client version.
 
-## CLI v0.0.13: server v0.0.17 target
+## CLI v0.0.13: client v0.13.0
 
-`Cargo.toml` pins `hubuum_client` 0.13.0 and the immutable multi-platform image
+CLI v0.0.13 pins `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
+`Cargo.toml` records that client's server version and the immutable multi-platform
+image used for CLI integration checks:
 `ghcr.io/hubuum/hubuum-server@sha256:cc0518167816bfddb38853b8b7217c4a347511318d51e1abca93ca418f31b302`.
 The server tag is `v0.0.17`, source commit
 `4a03d56b27f35af62175a80d09d36d0d41c4a663`. The client's reviewed OpenAPI
@@ -108,9 +113,10 @@ previous deletions. Follow-up staging after a history-free restore also passed.
 Local regression tests cover format 6 and 7 decoding and rejection of unsupported
 versions before row decoding.
 
-## CLI v0.0.12: server v0.0.16 target
+## CLI v0.0.12: client v0.12.0
 
-`Cargo.toml` pins client 0.12.0 and the immutable multi-platform server image
+CLI v0.0.12 pins `hubuum_client` 0.12.0, which targets Hubuum server v0.0.16.
+Its integration checks use the immutable multi-platform server image
 `ghcr.io/hubuum/hubuum-server@sha256:37b3299edd845a0c2aa7772d7d68565233ac8c1802bc44be3fb4bbc6dfa8778e`.
 The client's pinned OpenAPI contract has 220 operations and 330 schemas, up from
 204 operations at CLI v0.0.11. New client features include fresh credential
@@ -161,11 +167,12 @@ object detail text, full JSON (`--json`), and pipeline projections; object lists
 class details; and object/class relation reads, including related classes in
 different collections. The run used isolated Podman storage under `/tmp` and a
 RAM-backed disposable database because the host's `/var` filesystem was full.
-That earlier check did not change the server target, client dependency, or API surface.
+That earlier check did not change the client dependency, its server target, or API surface.
 
-## CLI v0.0.11: server v0.0.14 target
+## CLI v0.0.11: client v0.10.1
 
-The release target pins `hubuum_client` 0.10.1 and the immutable server image
+CLI v0.0.11 pins `hubuum_client` 0.10.1, which targets Hubuum server v0.0.14.
+Its integration checks pin the immutable server image
 `ghcr.io/hubuum/hubuum-server@sha256:6c1c8d7316a1f60a02e4505611a44e21030ba678b5b451f5b293a12f2bd87594`
 in `Cargo.toml`. The client pins the server's 204-operation OpenAPI contract;
 the previous v0.0.9 target had 202 operations. The added structured-search POST
