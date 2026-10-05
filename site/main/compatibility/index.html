@@ -1764,6 +1764,13 @@ pages. Subprocess tests require text and JSONL batches to reach stdout before
 the server sends <code>done</code>, and verify truncated-stream failure and atomic redirects.
 These checks do not imply that every OpenAPI operation has a CLI command or that
 other server versions are supported.</p>
+<p>The Unreleased read-path cleanup was checked on 2026-10-03 against the same pinned
+server and PostgreSQL images with <code>scripts/test-backup-restore.py</code>. It verified
+object detail text, full JSON (<code>--json</code>), and pipeline projections; object lists;
+class details; and object/class relation reads, including related classes in
+different collections. The run used isolated Podman storage under <code>/tmp</code> and a
+RAM-backed disposable database because the host's <code>/var</code> filesystem was full.
+The server target, client dependency, and API surface are unchanged.</p>
 <h2 id="cli-v0011-server-v0014-target">CLI v0.0.11: server v0.0.14 target<a class="headerlink" href="#cli-v0011-server-v0014-target" title="Permanent link">&para;</a></h2>
 <p>The release target pins <code>hubuum_client</code> 0.10.1 and the immutable server image
 <code>ghcr.io/hubuum/hubuum-server@sha256:6c1c8d7316a1f60a02e4505611a44e21030ba678b5b451f5b293a12f2bd87594</code>

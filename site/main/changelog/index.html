@@ -1879,9 +1879,17 @@
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Documentation uses the shared warm Hubuum theme from the ecosystem site's
+<li>
+<p>Reduce HTTP requests for <code>object show</code> by reusing the root object returned in
+  the relation graph and resolving collection names together. Object lists,
+  class details, search, and relation output also reuse available class and collection
+  metadata. Text, JSON, pipeline output, and computed fields retain their content.</p>
+</li>
+<li>
+<p>Documentation uses the shared warm Hubuum theme from the ecosystem site's
   unversioned stylesheet, including retained release editions. Future styling
-  updates no longer require changes or rebuilds in this repository.</li>
+  updates no longer require changes or rebuilds in this repository.</p>
+</li>
 </ul>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
