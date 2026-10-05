@@ -9,7 +9,8 @@ that every CLI command is available against other server versions.
 
 | CLI version | `hubuum_client` | Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.12 | 0.12.0 | 0.0.16 | Current release target; structured search, credential approvals, task discovery, and backup format 6 |
+| 0.0.13 | 0.13.0 | 0.0.17 | Current release target; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
+| 0.0.12 | 0.12.0 | 0.0.16 | Previous release target; structured search, credential approvals, task discovery, and backup format 6 |
 | 0.0.11 | 0.10.1 | 0.0.14 | Previous release target; backup format 5, queued restores, and restorable follow-up backups |
 | 0.0.10 | 0.9.1 | 0.0.9 | Previous declared target |
 | 0.0.9 | 0.9.0 | 0.0.9 | Previous declared target |
@@ -45,6 +46,63 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change a published CLI release's declared target.
+
+## CLI v0.0.13: server v0.0.17 target
+
+`Cargo.toml` pins `hubuum_client` 0.13.0 and the immutable multi-platform image
+`ghcr.io/hubuum/hubuum-server@sha256:cc0518167816bfddb38853b8b7217c4a347511318d51e1abca93ca418f31b302`.
+The server tag is `v0.0.17`, source commit
+`4a03d56b27f35af62175a80d09d36d0d41c4a663`. The client's reviewed OpenAPI
+contract grows from 220 operations and 330 schemas to 227 operations and 336
+schemas. The [client release evidence](https://github.com/hubuum/hubuum-client-rust/blob/v0.13.0/COMPATIBILITY.md#v0017-target)
+records all 87 reconciled wire-model mappings and its own pinned integration,
+feature, Rust 1.88, contract, and semver checks.
+
+The CLI continues to enable only the client's `blocking` feature. The client's
+MSRV is still Rust 1.88; no CLI MSRV is declared or implied by that requirement.
+This release is verified with Rust 1.99.0. Workspace public interfaces are
+unchanged; the JSONC parser update explicitly retains the existing syntax.
+
+[Chat webhook presets](docs/webhooks.md) generate ordinary webhook configuration
+for Slack, Mattermost, and Discord. Sink create/update exposes delivery policies;
+subscription filter JSON accepts task kinds. Delivery health retains nullable
+collection IDs for system subscriptions, and delivery records retain purpose and
+deferral metadata. System-subscription CRUD and notification preview/test have
+no dedicated CLI commands; use the server API. These limits mean that the CLI
+does not expose every operation in the upstream OpenAPI contract.
+
+**Breaking backup output:** new backups use format 7, which older servers cannot
+restore. Staging accepts formats 6 and 7; keep existing format 6 files intact.
+Restores reset transient sink scheduling while preserving notification
+configuration and terminal delivery history. See [backup migration](docs/backup-restore.md).
+
+**Breaking server upgrade:** stop all API, worker, and restore-executor writers,
+take a PostgreSQL snapshot, then apply migrations and start matching v0.0.17
+binaries. Binary-only rollback is unsupported. Recovery requires that snapshot
+and matching v0.0.16 binaries, losing subsequent writes. Optional Treetop
+installations must upgrade to protocol 0.1 and migrate their policy bundles.
+See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.17).
+
+The reproducible CLI check is
+`cargo build --locked && python3 scripts/test-backup-restore.py`.
+It passed on 2026-10-05 with Rust 1.99.0 on Linux x86_64 against the pinned
+server above and PostgreSQL 18 image
+`docker.io/library/postgres:18@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722`.
+The run used isolated Podman storage under `/tmp` and a RAM-backed disposable
+database because the host's `/var` filesystem was full. This verifies Linux
+amd64 from the multi-platform index, not every architecture.
+
+All three webhook presets were created through the CLI and rendered by the real
+server preview endpoint, including `[TEST]` messages, Discord length bounds and
+disabled mentions, and pacing updates/clearing. The test does not resolve real
+provider secrets or send messages to hosted Slack, Mattermost, or Discord.
+Object/relation reads, structured search and JSONL streams, credential approval
+rejection and success paths, task discovery, and schema evolution passed.
+All three format 7 restore cycles completed with approval, token invalidation,
+password reset, and preservation of revisions, timestamps, JSON nulls, and
+previous deletions. Follow-up staging after a history-free restore also passed.
+Local regression tests cover format 6 and 7 decoding and rejection of unsupported
+versions before row decoding.
 
 ## CLI v0.0.12: server v0.0.16 target
 
@@ -93,13 +151,13 @@ the server sends `done`, and verify truncated-stream failure and atomic redirect
 These checks do not imply that every OpenAPI operation has a CLI command or that
 other server versions are supported.
 
-The Unreleased read-path cleanup was checked on 2026-10-03 against the same pinned
+The read-path cleanup later included in v0.0.13 was initially checked on 2026-10-03 against the same pinned
 server and PostgreSQL images with `scripts/test-backup-restore.py`. It verified
 object detail text, full JSON (`--json`), and pipeline projections; object lists;
 class details; and object/class relation reads, including related classes in
 different collections. The run used isolated Podman storage under `/tmp` and a
 RAM-backed disposable database because the host's `/var` filesystem was full.
-The server target, client dependency, and API surface are unchanged.
+That earlier check did not change the server target, client dependency, or API surface.
 
 ## CLI v0.0.11: server v0.0.14 target
 

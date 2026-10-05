@@ -145,6 +145,38 @@ def main():
             assert obj["revision"] > 1
             assert cli("admin", "config")
 
+            # Provider presets remain ordinary webhooks. Preview through the
+            # real server renderer without resolving secrets or sending chat.
+            saved_events = api("GET", f'/api/v1/events?collection_id={collection["id"]}&entity_type=object&limit=1', token=token)
+            event_id = saved_events[0]["event_id"]
+            for target in ["slack", "mattermost", "discord"]:
+                sink_name = prefix + "-" + target
+                sink = cli("event", "sink", "create", "--name", sink_name,
+                           "--target", target, "--url-secret-ref", "unresolved_test_url",
+                           "--enabled", "false")
+                assert sink["kind"] == "webhook" and "target" not in sink
+                assert sink["delivery_policy"]["min_interval_ms"] == 1000
+                subscription = cli("event", "subscription", "create", "--collection", prefix,
+                                   "--sink", sink_name, "--name", sink_name,
+                                   "--entity-types", "object", "--actions", "created,updated",
+                                   "--enabled", "false")
+                preview = api("POST", f'/api/v1/event-sinks/{sink["id"]}/preview', {
+                    "subscription_id": subscription["id"], "event_id": event_id,
+                }, token)
+                assert preview["sink_kind"] == "webhook", preview
+                payload = preview["payload"]
+                message = payload["content" if target == "discord" else "text"]
+                assert "[TEST]" in message and "Hubuum:" in message, payload
+                if target == "discord":
+                    assert len(message) <= 1900 and payload["allowed_mentions"] == {"parse": []}
+                changed = cli("event", "sink", "update", "--sink", sink_name,
+                              "--delivery-policy", '{"min_interval_ms":2000}')
+                assert changed["delivery_policy"]["min_interval_ms"] == 2000
+                cleared = cli("event", "sink", "update", "--sink", sink_name,
+                              "--delivery-policy", '{}')
+                assert not cleared.get("delivery_policy") or cleared["delivery_policy"].get("min_interval_ms") is None
+            print("Webhook presets and server previews passed for Slack, Mattermost, and Discord", flush=True)
+
             # Detail and relation reads reuse graph roots and embedded metadata.
             # Keep the root and related class in different collections so the
             # root collection still needs a lookup after related-class expansion.
@@ -325,7 +357,7 @@ def main():
                 if not include_history:
                     backup_args += ["--include-history", "false"]
                 summary = cli(*backup_args)
-                assert summary["backup"]["backup_version"] == 6
+                assert summary["backup"]["backup_version"] == 7
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))

@@ -6,12 +6,11 @@ four classes and ten connected objects.
 
 ## Load the shared dataset
 
-Follow the server's [Atlas dataset guide](https://hubuum.github.io/hubuum/main/getting-started/example-dataset/)
-to download and import the inventory into an evaluation server. Atlas is initially
-available in the explicitly selected development edition. When a server release
-includes it, use that release's documentation and downloads. Pin a release or
-exact server commit for repeatable tests; do not copy a second fixture into this
-repository.
+Follow the server's [Atlas dataset guide](https://hubuum.github.io/hubuum/v0.0.17/getting-started/example-dataset/)
+to download and import the inventory into an evaluation server. The guide and
+downloads are pinned to server v0.0.17, matching this CLI release target. Keep
+the server as the canonical fixture source; do not copy a second fixture into
+this repository.
 
 The import aborts atomically on name collisions and contains no passwords,
 tokens, users, or group memberships. Its separate backup replaces all application
@@ -78,7 +77,7 @@ catalogue in its parent collection. Test these differences with non-admin
 accounts and an unscoped token; other memberships and token scopes affect access.
 
 For exact data, expected relationships, and checksums, return to the server's
-[canonical dataset guide](https://hubuum.github.io/hubuum/main/getting-started/example-dataset/).
+[canonical dataset guide](https://hubuum.github.io/hubuum/v0.0.17/getting-started/example-dataset/).
 The server corpus tests verify import and restore, schemas, permissions,
 computed values, filters, and pagination. Each client retains its own compatibility
 and integration tests; the example does not change its supported server target.

@@ -38,6 +38,9 @@ mod search;
 mod task_output;
 mod tasks;
 mod users;
+mod webhooks;
+
+pub(crate) use webhooks::{WebhookTarget, WebhookUrlSecret};
 
 pub use backups::{BackupArtifact, RestoreReceipt, RestoreRecord, RestoreWaitOptions};
 pub use classes::{ClassRecord, ClassShowRecord};

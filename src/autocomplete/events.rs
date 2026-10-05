@@ -4,6 +4,10 @@ pub fn event_sinks(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
     ctx.event_sinks(prefix)
 }
 
+pub fn webhook_targets(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(&["slack", "mattermost", "discord"], prefix)
+}
+
 pub fn users(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     ctx.users(prefix)
 }

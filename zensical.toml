@@ -20,6 +20,7 @@ nav = [
     { "Task discovery" = "tasks.md" },
     { "Schema evolution" = "schema-evolution.md" },
     { "Credential approvals" = "credential-approvals.md" },
+    { "Chat webhooks" = "webhooks.md" },
     { "Backup and restore" = "backup-restore.md" },
     { "Themes" = "themes.md" },
     { "Ansible facts" = "ansible-facts.md" },

@@ -2,7 +2,38 @@
 
 ## [Unreleased]
 
+## [0.0.13] - 2026-10-05
+
+| CLI | `hubuum_client` | Hubuum server target | Backup formats |
+| --- | --- | --- | --- |
+| 0.0.13 | 0.13.0 | 0.0.17 | Writes 7; reads 6 and 7 |
+| 0.0.12 | 0.12.0 | 0.0.16 | 6 |
+
 ### Changed
+
+- Target Hubuum server v0.0.17 through pinned `hubuum_client` 0.13.0 and an
+  immutable server image. The upstream contract grows from 220 operations and
+  330 schemas to 227 operations and 336 schemas. Client features remain
+  blocking-only and its MSRV remains Rust 1.88; no CLI MSRV is declared.
+  Verification uses Rust 1.99. See [pinned integration evidence](COMPATIBILITY.md).
+- Refresh direct and transitive Rust dependencies, including Reedline 0.52.1,
+  JSONC parser 0.34.0, Tokio 1.53.2, and TLS dependencies. Extension manifests
+  retain the same JSONC syntax. Update the pinned Rust toolchain action, shared
+  documentation workflow revision, Rust 1.99 builder, and PostgreSQL 18 fixture.
+  All other Action pins were checked against their current upstream releases.
+- **Breaking (backup output):** server v0.0.17 creates format 7 backups, which
+  older servers cannot restore. CLI restore staging now accepts both 6 and 7;
+  existing format 6 backups need no conversion. Keep older backups for recovery
+  on older servers. Restore resets transient sink scheduling while retaining
+  notification configuration and terminal delivery history.
+- **Breaking (server upgrade):** stop all API, worker, and restore-executor
+  writers and take a PostgreSQL snapshot before applying the notification
+  migration. Deploy matching v0.0.17 binaries together. Binary-only rollback
+  is unsupported; restore the snapshot with matching v0.0.16 binaries to recover,
+  losing later writes. Optional Treetop backends require protocol 0.1 and migrated
+  policy bundles. See [upgrade instructions](docs/backup-restore.md).
+- **Breaking (delivery health output):** system subscriptions have nullable
+  collection IDs. Structured consumers must accept `collection_id: null`.
 
 - Reduce HTTP requests for `object show` by reusing the root object returned in
   the relation graph and resolving collection names together. Object lists,
@@ -14,6 +45,16 @@
   updates no longer require changes or rebuilds in this repository.
 
 ### Added
+
+- Chat webhook setup with `event sink create --target slack|mattermost|discord`
+  and `--url-secret-ref`: normal webhook configuration with provider templates,
+  acknowledgements, retry/cooldown rules, and one-second pacing. REPL completion,
+  command help, and a [setup guide](docs/webhooks.md) cover secret storage and
+  Discord's required `wait=true` URL option. Discord messages disable mentions.
+- `--delivery-policy` JSON on sink creation and updates; `{}` clears configured
+  pacing. Subscription `--filter` accepts `task_kinds` through the updated client.
+  System-subscription CRUD and notification preview/test remain server API
+  operations without dedicated CLI commands.
 
 - A walkthrough using the shared Atlas example inventory, with classes, objects,
   relations, and permissions linked to the server-owned import and backup.
