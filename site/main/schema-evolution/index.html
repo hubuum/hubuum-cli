@@ -529,7 +529,7 @@
   <span class="md-ellipsis">
     
   
-  Server compatibility
+  Client and server compatibility
 
     
   </span>
@@ -858,6 +858,33 @@
     
   
   Credential approvals
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webhooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Webhooks
 
     
   </span>
@@ -1666,7 +1693,7 @@
 
 
 <h1 id="schema-evolution-and-task-cancellation">Schema evolution and task cancellation<a class="headerlink" href="#schema-evolution-and-task-cancellation" title="Permanent link">&para;</a></h1>
-<p>The CLI targets Hubuum server v0.0.16 through <code>hubuum_client</code> 0.12.0.
+<p>CLI v0.0.13 uses <code>hubuum_client</code> 0.13.0, which targets Hubuum server v0.0.17.
 The schema lifecycle below was introduced in server v0.0.15.
 All schema policy writes use <code>class schema</code>. The old <code>--schema</code>/<code>-s</code> and
 <code>--validate</code>/<code>-v</code> flags on <code>class create</code> and <code>class modify</code> are removed.
@@ -1783,7 +1810,8 @@ restore-executor binaries. Revalidate existing enforced classes after migration.
 External authorization must grant <code>CancelTask</code>. Restart string-sorted pagination
 following the server upgrade. Review stored schemas against the server's stricter
 reference, complexity, data, and validation budgets before resuming writes.
-Backups now use format 6; see <a href="../backup-restore/">backup migration</a>.</p>
+Server v0.0.15 introduced format 6; server v0.0.17 writes format 7 and
+still accepts format 6. See <a href="../backup-restore/">backup migration</a>.</p>
 <p>See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.15">server v0.0.15 release notes</a>
 and <a href="https://github.com/hubuum/hubuum/blob/v0.0.15/docs/json_schema_validation.md">schema validation limits</a>.</p>
 

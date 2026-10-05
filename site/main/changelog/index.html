@@ -529,7 +529,7 @@
   <span class="md-ellipsis">
     
   
-  Server compatibility
+  Client and server compatibility
 
     
   </span>
@@ -751,6 +751,33 @@
     
   
   Credential approvals
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webhooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Webhooks
 
     
   </span>
@@ -1465,6 +1492,34 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0013-2026-10-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.13] - 2026-10-05
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.13] - 2026-10-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#added" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1709,6 +1764,34 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0013-2026-10-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.13] - 2026-10-05
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.13] - 2026-10-05">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#added" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1879,6 +1962,62 @@
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Document compatibility through the pinned client library, generic webhook
+  setup, and equivalent full commands for the Slack, Mattermost, and Discord
+  presets. CLI help includes the generic webhook setup path.</li>
+</ul>
+<h2 id="0013-2026-10-05">[0.0.13] - 2026-10-05<a class="headerlink" href="#0013-2026-10-05" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>CLI</th>
+<th><code>hubuum_client</code> dependency</th>
+<th>Client's Hubuum server target</th>
+<th>Backup formats</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.0.13</td>
+<td>0.13.0</td>
+<td>0.0.17</td>
+<td>Writes 7; reads 6 and 7</td>
+</tr>
+<tr>
+<td>0.0.12</td>
+<td>0.12.0</td>
+<td>0.0.16</td>
+<td>6</td>
+</tr>
+</tbody>
+</table>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Pin <code>hubuum_client</code> 0.13.0, which targets Hubuum server v0.0.17, and use its
+  immutable server image for CLI integration checks. The upstream contract grows
+  from 220 operations and 330 schemas to 227 operations and 336 schemas. Client features remain
+  blocking-only and its MSRV remains Rust 1.88; no CLI MSRV is declared.
+  Verification uses Rust 1.99. See <a href="../compatibility/">pinned integration evidence</a>.</li>
+<li>Refresh direct and transitive Rust dependencies, including Reedline 0.52.1,
+  JSONC parser 0.34.0, Tokio 1.53.2, and TLS dependencies. Extension manifests
+  retain the same JSONC syntax. Update the pinned Rust toolchain action, shared
+  documentation workflow revision, Rust 1.99 builder, and PostgreSQL 18 fixture.
+  All other Action pins were checked against their current upstream releases.</li>
+<li><strong>Breaking (backup output):</strong> server v0.0.17 creates format 7 backups, which
+  older servers cannot restore. CLI restore staging now accepts both 6 and 7;
+  existing format 6 backups need no conversion. Keep older backups for recovery
+  on older servers. Restore resets transient sink scheduling while retaining
+  notification configuration and terminal delivery history.</li>
+<li><strong>Breaking (server upgrade):</strong> stop all API, worker, and restore-executor
+  writers and take a PostgreSQL snapshot before applying the notification
+  migration. Deploy matching v0.0.17 binaries together. Binary-only rollback
+  is unsupported; restore the snapshot with matching v0.0.16 binaries to recover,
+  losing later writes. Optional Treetop backends require protocol 0.1 and migrated
+  policy bundles. See <a href="../backup-restore/">upgrade instructions</a>.</li>
+<li>
+<p><strong>Breaking (delivery health output):</strong> system subscriptions have nullable
+  collection IDs. Structured consumers must accept <code>collection_id: null</code>.</p>
+</li>
 <li>
 <p>Reduce HTTP requests for <code>object show</code> by reusing the root object returned in
   the relation graph and resolving collection names together. Object lists,
@@ -1893,6 +2032,23 @@
 </ul>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
+<li>In-place binary updates with <code>self-update</code> and a metadata-only <code>--check</code>,
+  available in the CLI and REPL without Hubuum login. The new <code>hubuum-update</code>
+  workspace crate uses <code>self_update</code> 1.3 with Rustls, tar/ZIP extraction, and
+  mandatory published SHA-256 verification. Updates use the exact platform
+  archive from a strictly newer stable release; restart the CLI afterward.
+  See <a href="../getting-started/#updating-in-place">installation and platform details</a>.</li>
+<li>Chat webhook setup with <code>event sink create --target slack|mattermost|discord</code>
+  and <code>--url-secret-ref</code>: normal webhook configuration with provider templates,
+  acknowledgements, retry/cooldown rules, and one-second pacing. REPL completion,
+  command help, and a <a href="../webhooks/">setup guide</a> cover secret storage and
+  Discord's required <code>wait=true</code> URL option. Discord messages disable mentions.</li>
+<li>
+<p><code>--delivery-policy</code> JSON on sink creation and updates; <code>{}</code> clears configured
+  pacing. Subscription <code>--filter</code> accepts <code>task_kinds</code> through the updated client.
+  System-subscription CRUD and notification preview/test remain server API
+  operations without dedicated CLI commands.</p>
+</li>
 <li>
 <p>A walkthrough using the shared Atlas example inventory, with classes, objects,
   relations, and permissions linked to the server-owned import and backup.</p>
