@@ -9,6 +9,7 @@ use hubuum_client::{
     ObjectId, QueryFilter, RemoteTargetId, UpdateEventSink, UpdateEventSubscription, UserId,
 };
 use log::debug;
+use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
@@ -472,6 +473,130 @@ impl HubuumGateway {
             }
             other => Ok(other),
         }
+    }
+
+    pub fn collection_event_sinks(
+        &self,
+        collection: CollectionId,
+        query: &ListQuery,
+    ) -> Result<PagedResult<JsonRecord>, AppError> {
+        let validated = validate_filter_clauses(&query.filters, EVENT_SINK_FILTER_SPECS)?;
+        let sorts = validate_sort_clauses(&query.sorts, EVENT_SINK_SORT_SPECS)?;
+        let filters = validated
+            .iter()
+            .map(|clause| self.resolve_validated_filter(clause))
+            .collect::<Result<Vec<_>, _>>()?;
+        paged_to_json(fetch_query_results(
+            self.client()
+                .collection_event_sinks(collection)
+                .query()
+                .filters(filters),
+            query,
+            &sorts,
+        )?)
+    }
+
+    pub fn collection_event_sink_id_by_name(
+        &self,
+        collection: CollectionId,
+        name: &str,
+    ) -> Result<EventSinkId, AppError> {
+        Ok(self
+            .client()
+            .collection_event_sinks(collection)
+            .get_by_name(name)?
+            .id())
+    }
+
+    pub fn subscription_sink_id_by_name(
+        &self,
+        collection: CollectionId,
+        name: &str,
+    ) -> Result<EventSinkId, AppError> {
+        match self
+            .client()
+            .collection_event_sinks(collection)
+            .get_by_name(name)
+        {
+            Ok(sink) => Ok(sink.id()),
+            // Preserve administrator workflows on v0.0.17, which has no scoped
+            // discovery route. Never fall back after a permission denial.
+            Err(error) if error.is_status(StatusCode::NOT_FOUND) => {
+                self.event_sink_id_by_name(name)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn collection_event_sink_by_name(
+        &self,
+        collection: CollectionId,
+        name: &str,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client()
+                .collection_event_sinks(collection)
+                .get_by_name(name)?
+                .resource()
+                .clone(),
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn create_collection_event_sink(
+        &self,
+        collection: CollectionId,
+        input: NewEventSink,
+    ) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(
+            self.client()
+                .collection_event_sinks(collection)
+                .create_raw(input)?,
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn update_collection_event_sink(
+        &self,
+        collection: CollectionId,
+        name: &str,
+        input: UpdateEventSink,
+    ) -> Result<JsonRecord, AppError> {
+        let id = self.collection_event_sink_id_by_name(collection, name)?;
+        JsonRecord::from_serializable(
+            self.client()
+                .collection_event_sinks(collection)
+                .update_raw(id, input)?,
+        )
+        .map_err(AppError::from)
+    }
+
+    pub fn delete_collection_event_sink(
+        &self,
+        collection: CollectionId,
+        name: &str,
+    ) -> Result<(), AppError> {
+        let id = self.collection_event_sink_id_by_name(collection, name)?;
+        self.client()
+            .collection_event_sinks(collection)
+            .delete(id)?;
+        Ok(())
+    }
+
+    pub fn grant_event_sink(&self, name: &str, collection: CollectionId) -> Result<(), AppError> {
+        self.client()
+            .grant_event_sink(self.event_sink_id_by_name(name)?, collection)?;
+        Ok(())
+    }
+
+    pub fn revoke_event_sink(&self, name: &str, collection: CollectionId) -> Result<(), AppError> {
+        self.client()
+            .revoke_event_sink(self.event_sink_id_by_name(name)?, collection)?;
+        Ok(())
+    }
+
+    pub fn event_sink_collections(&self, name: &str) -> Result<JsonRecord, AppError> {
+        JsonRecord::from_serializable(serde_json::json!({"collections": self.client().event_sink_collections(self.event_sink_id_by_name(name)?)?})).map_err(AppError::from)
     }
 
     pub fn event_sinks(&self, query: &ListQuery) -> Result<PagedResult<JsonRecord>, AppError> {

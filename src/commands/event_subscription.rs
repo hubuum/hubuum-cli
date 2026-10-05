@@ -197,7 +197,7 @@ impl CliCommand for EventSubscriptionCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let collection_id = resolve_collection_id(services, query.collection)?;
-        let sink_id = resolve_sink_id(services, query.sink)?;
+        let sink_id = resolve_sink_id(services, collection_id, query.sink)?;
         let record = services.gateway().create_event_subscription(
             collection_id,
             NewEventSubscription {
@@ -268,7 +268,7 @@ impl CliCommand for EventSubscriptionUpdate {
             collection_id,
             required_str(query.subscription.as_deref(), "subscription")?,
             UpdateEventSubscription {
-                sink_id: resolve_optional_sink_id(services, query.sink)?,
+                sink_id: resolve_optional_sink_id(services, collection_id, query.sink)?,
                 name: query.name,
                 description: query.description,
                 entity_types: query.entity_types.map(|value| split_csv(&value)),
@@ -335,16 +335,26 @@ fn resolve_collection_id(
         .and_then(|name| services.gateway().collection_id_by_name(name))
 }
 
-fn resolve_sink_id(services: &AppServices, sink: Option<String>) -> Result<EventSinkId, AppError> {
-    resolve_optional_sink_id(services, sink)?
+fn resolve_sink_id(
+    services: &AppServices,
+    collection_id: CollectionId,
+    sink: Option<String>,
+) -> Result<EventSinkId, AppError> {
+    resolve_optional_sink_id(services, collection_id, sink)?
         .ok_or_else(|| AppError::MissingOptions(vec!["sink".to_string()]))
 }
 
 fn resolve_optional_sink_id(
     services: &AppServices,
+    collection_id: CollectionId,
     sink: Option<String>,
 ) -> Result<Option<EventSinkId>, AppError> {
     sink.as_deref()
-        .map(|name| services.gateway().event_sink_id_by_name(name).map(Some))
+        .map(|name| {
+            services
+                .gateway()
+                .subscription_sink_id_by_name(collection_id, name)
+                .map(Some)
+        })
         .unwrap_or(Ok(None))
 }

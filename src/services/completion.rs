@@ -105,6 +105,31 @@ impl CompletionContext {
         self.complete(prefix, CompletionKind::Collections)
     }
 
+    pub fn collection_event_sinks(&self, prefix: &str, collection: &str) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+        let gateway = self.services.gateway();
+        let result = gateway.collection_id_by_name(collection).and_then(|id| {
+            gateway.collection_event_sinks(id, &crate::list_query::ListQuery::default())
+        });
+        result
+            .map(|page| {
+                page.items
+                    .into_iter()
+                    .filter_map(|record| {
+                        record
+                            .value
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .filter(|name| name.starts_with(prefix))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub fn event_sinks(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::EventSinks)
     }

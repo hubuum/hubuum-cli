@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- Manage collection-owned webhooks with `event sink list|show|create|update|delete
+  --collection NAME`, including chat presets with `--destination-url file://PATH`.
+  Subscription sink lookup and completion use collection-scoped discovery.
+- Administrator commands `event sink grant`, `revoke`, and `collections` manage
+  direct collection grants for shared sinks through the Rust client.
+
+### Changed
+
+- Collection self-service requires the server collection-sink update after
+  `v0.0.17`, and both `ManageEventSubscription` and `ReadAudit`. Existing
+  administrator subscription workflows retain v0.0.17 support; only a missing
+  scoped discovery route permits the legacy lookup. Permission denials never
+  trigger that fallback. The CLI now depends on Rust client `0.14.0`; publish that
+  client before publishing this CLI update.
+
 ## [0.0.13] - 2026-10-05
 
 | CLI | `hubuum_client` dependency | Client's Hubuum server target | Backup formats |

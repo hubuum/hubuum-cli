@@ -1,3 +1,5 @@
+use std::fs::read_to_string;
+
 use cli_command_derive::CommandArgs;
 use hubuum_client::{EventDeliveryPolicy, EventSinkKind, NewEventSink, UpdateEventSink};
 use serde::{Deserialize, Serialize};
@@ -8,7 +10,7 @@ use super::{
     build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
     CliCommand, PageSelection,
 };
-use crate::autocomplete::{event_sink_kinds, event_sinks, webhook_targets};
+use crate::autocomplete::{collections, event_sink_kinds, event_sinks, webhook_targets};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::{WebhookTarget, WebhookUrlSecret};
 use crate::errors::{AppError, ReauthenticationRetry};
@@ -18,6 +20,9 @@ use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder
+        .add_command(&["event", "sink"], catalog_command("grant", EventSinkGrant::default(), docs("Allow a collection to use a global sink (administrator)")))
+        .add_command(&["event", "sink"], catalog_command("revoke", EventSinkRevoke::default(), docs("Revoke a collection's global sink grant (administrator)")))
+        .add_command(&["event", "sink"], catalog_command("collections", EventSinkCollections::default(), docs("List a global sink's direct grants (administrator)")))
         .add_command(
             &["event", "sink"],
             catalog_command("list", EventSinkList::default(), docs("List event sinks")),
@@ -60,6 +65,69 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         );
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct EventSinkGrant {
+    #[option(long = "name", help = "Global sink name", autocomplete = "event_sinks")]
+    pub name: String,
+    #[option(
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
+    )]
+    pub collection: String,
+}
+impl CliCommand for EventSinkGrant {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        services.gateway().grant_event_sink(
+            &query.name,
+            services
+                .gateway()
+                .collection_id_by_name(&query.collection)?,
+        )?;
+        append_json_message("event sink grant created")
+    }
+}
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct EventSinkRevoke {
+    #[option(long = "name", help = "Global sink name", autocomplete = "event_sinks")]
+    pub name: String,
+    #[option(
+        long = "collection",
+        help = "Collection name",
+        autocomplete = "collections"
+    )]
+    pub collection: String,
+}
+impl CliCommand for EventSinkRevoke {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        services.gateway().revoke_event_sink(
+            &query.name,
+            services
+                .gateway()
+                .collection_id_by_name(&query.collection)?,
+        )?;
+        append_json_message("event sink grant revoked")
+    }
+}
+#[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
+pub struct EventSinkCollections {
+    #[option(long = "name", help = "Global sink name", autocomplete = "event_sinks")]
+    pub name: String,
+}
+impl CliCommand for EventSinkCollections {
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        render_json_record(
+            tokens,
+            &services.gateway().event_sink_collections(&query.name)?,
+        )
+    }
+}
+
 fn docs(about: &'static str) -> CommandDocs {
     CommandDocs {
         about: Some(about),
@@ -69,6 +137,12 @@ fn docs(about: &'static str) -> CommandDocs {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkList {
+    #[option(
+        long = "collection",
+        help = "Collection name for permitted destinations and owned webhook management",
+        autocomplete = "collections"
+    )]
+    pub collection: Option<String>,
     #[option(long = "where", help = "Filter clause: 'field op value'", nargs = 3)]
     pub where_clauses: Vec<String>,
     #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
@@ -106,12 +180,26 @@ impl CliCommand for EventSinkList {
             [],
         )?
         .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
-        render_list_page(tokens, &services.gateway().event_sinks(&list_query)?)
+        let page = if let Some(collection) = query.collection {
+            services.gateway().collection_event_sinks(
+                services.gateway().collection_id_by_name(&collection)?,
+                &list_query,
+            )?
+        } else {
+            services.gateway().event_sinks(&list_query)?
+        };
+        render_list_page(tokens, &page)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkShow {
+    #[option(
+        long = "collection",
+        help = "Collection name for permitted destinations and owned webhook management",
+        autocomplete = "collections"
+    )]
+    pub collection: Option<String>,
     #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
     pub name: Option<String>,
 }
@@ -123,15 +211,27 @@ impl CliCommand for EventSinkShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);
-        let sink = services
-            .gateway()
-            .event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
+        let name = required_str(query.name.as_deref(), "name")?;
+        let sink = if let Some(collection) = query.collection {
+            services.gateway().collection_event_sink_by_name(
+                services.gateway().collection_id_by_name(&collection)?,
+                name,
+            )?
+        } else {
+            services.gateway().event_sink_by_name(name)?
+        };
         render_json_record(tokens, &sink)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkCreate {
+    #[option(
+        long = "collection",
+        help = "Collection name for permitted destinations and owned webhook management",
+        autocomplete = "collections"
+    )]
+    pub collection: Option<String>,
     #[option(long = "name", help = "Event sink name")]
     pub name: String,
     #[option(
@@ -151,6 +251,11 @@ pub struct EventSinkCreate {
         help = "Server secret alias for the full HTTPS webhook URL (Discord: include wait=true)"
     )]
     pub url_secret_ref: Option<String>,
+    #[option(
+        long = "destination-url",
+        help = "Fixed HTTPS URL for a webhook preset; supports file:// input"
+    )]
+    pub destination_url: Option<String>,
     #[option(long = "config", help = "Sink config JSON object", value_source = true)]
     pub config: Option<String>,
     #[option(
@@ -168,9 +273,19 @@ pub struct EventSinkCreate {
 impl CliCommand for EventSinkCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let sink = services
-            .gateway()
-            .create_event_sink(query.into_request()?)?;
+        let collection = query
+            .collection
+            .as_deref()
+            .map(|name| services.gateway().collection_id_by_name(name))
+            .transpose()?;
+        let input = query.into_request()?;
+        let sink = if let Some(collection) = collection {
+            services
+                .gateway()
+                .create_collection_event_sink(collection, input)?
+        } else {
+            services.gateway().create_event_sink(input)?
+        };
         render_json_record(tokens, &sink)
     }
 }
@@ -188,16 +303,31 @@ impl EventSinkCreate {
                     "--target cannot be combined with --config, --secret-ref, or a non-webhook --kind; use --url-secret-ref for the URL alias".to_string(),
                 ));
             }
-            let alias = WebhookUrlSecret::new(
-                required_str(self.url_secret_ref.as_deref(), "url-secret-ref")?.to_string(),
-            )?;
+            let config = match (self.url_secret_ref, self.destination_url) {
+                (Some(alias), None) => target.config(WebhookUrlSecret::new(alias)?),
+                (None, Some(url)) => {
+                    let url = if let Some(path) = url.strip_prefix("file://") {
+                        read_to_string(path).map_err(|_| {
+                            AppError::InvalidOption("Cannot read the destination URL file".into())
+                        })?
+                    } else {
+                        url
+                    };
+                    target.config_with_url(&url)?
+                }
+                _ => {
+                    return Err(AppError::InvalidOption(
+                        "Choose exactly one of --url-secret-ref or --destination-url".into(),
+                    ))
+                }
+            };
             (
                 EventSinkKind::Webhook,
-                Some(target.config(alias)),
+                Some(config),
                 Some(policy.unwrap_or(EventDeliveryPolicy::new(1000)?)),
             )
         } else {
-            if self.url_secret_ref.is_some() {
+            if self.url_secret_ref.is_some() || self.destination_url.is_some() {
                 return Err(AppError::InvalidOption("--url-secret-ref requires --target; custom webhook configurations can set config.url_secret_ref".to_string()));
             }
             (
@@ -206,6 +336,20 @@ impl EventSinkCreate {
                 policy,
             )
         };
+        if self.collection.is_some()
+            && (kind != EventSinkKind::Webhook
+                || self.secret_ref.is_some()
+                || config
+                    .as_ref()
+                    .and_then(|value| value.get("destination_url"))
+                    .is_none()
+                || config
+                    .as_ref()
+                    .and_then(|value| value.get("url_secret_ref"))
+                    .is_some())
+        {
+            return Err(AppError::InvalidOption("Collection webhooks require their own fixed destination_url and cannot use server secret aliases".into()));
+        }
         Ok(NewEventSink {
             name: self.name,
             kind,
@@ -219,6 +363,12 @@ impl EventSinkCreate {
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkUpdate {
+    #[option(
+        long = "collection",
+        help = "Collection name for permitted destinations and owned webhook management",
+        autocomplete = "collections"
+    )]
+    pub collection: Option<String>,
     #[option(long = "sink", help = "Event sink name", autocomplete = "event_sinks")]
     pub current_name: Option<String>,
     #[option(long = "name", help = "New name")]
@@ -259,27 +409,40 @@ impl CliCommand for EventSinkUpdate {
                     .to_string(),
             ));
         }
-        let sink = services.gateway().update_event_sink(
-            required_str(query.current_name.as_deref(), "name")?,
-            UpdateEventSink {
-                name: query.name,
-                kind: query
-                    .kind
-                    .as_deref()
-                    .map(parse_event_sink_kind)
-                    .transpose()?,
-                config: parse_json_object(query.config)?,
-                delivery_policy: parse_delivery_policy(query.delivery_policy)?,
-                enabled: query.enabled,
-                secret_ref: query.secret_ref,
-            },
-        )?;
+        let name = required_str(query.current_name.as_deref(), "name")?;
+        let input = UpdateEventSink {
+            name: query.name,
+            kind: query
+                .kind
+                .as_deref()
+                .map(parse_event_sink_kind)
+                .transpose()?,
+            config: parse_json_object(query.config)?,
+            delivery_policy: parse_delivery_policy(query.delivery_policy)?,
+            enabled: query.enabled,
+            secret_ref: query.secret_ref,
+        };
+        let sink = if let Some(collection) = query.collection {
+            services.gateway().update_collection_event_sink(
+                services.gateway().collection_id_by_name(&collection)?,
+                name,
+                input,
+            )?
+        } else {
+            services.gateway().update_event_sink(name, input)?
+        };
         render_json_record(tokens, &sink)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct EventSinkDelete {
+    #[option(
+        long = "collection",
+        help = "Collection name for permitted destinations and owned webhook management",
+        autocomplete = "collections"
+    )]
+    pub collection: Option<String>,
     #[option(long = "name", help = "Event sink name", autocomplete = "event_sinks")]
     pub name: Option<String>,
 }
@@ -288,9 +451,15 @@ impl CliCommand for EventSinkDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);
-        services
-            .gateway()
-            .delete_event_sink_by_name(required_str(query.name.as_deref(), "name")?)?;
+        let name = required_str(query.name.as_deref(), "name")?;
+        if let Some(collection) = query.collection {
+            services.gateway().delete_collection_event_sink(
+                services.gateway().collection_id_by_name(&collection)?,
+                name,
+            )?;
+        } else {
+            services.gateway().delete_event_sink_by_name(name)?;
+        }
         append_json_message("event sink deleted")
     }
 }
@@ -335,6 +504,26 @@ mod tests {
             url_secret_ref: Some("ops_webhook".to_string()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn collection_chat_preset_uses_a_fixed_url_without_a_server_secret() {
+        let tokens = CommandTokenizer::new(
+            "event sink create --collection inventory --name notifications --target slack --destination-url https://example.test/private",
+            "create", &EventSinkCreate::options(),
+        ).unwrap();
+        let command = EventSinkCreate::parse_tokens(&tokens).unwrap();
+        let input = command.into_request().unwrap();
+        let config = input.config.unwrap();
+        assert_eq!(config["destination_url"], "https://example.test/private");
+        assert!(config.get("url_secret_ref").is_none());
+    }
+
+    #[test]
+    fn collection_presets_reject_server_secret_aliases() {
+        let mut command = preset("slack");
+        command.collection = Some("inventory".into());
+        assert!(command.into_request().is_err());
     }
 
     #[test]
