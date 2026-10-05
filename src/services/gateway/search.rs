@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use hubuum_client::{
     client::sync::UnifiedSearchRequest, Class, Collection, Object, UnifiedSearchBatchResponse,
@@ -13,7 +13,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 
-use super::{shared::find_entities_by_ids, HubuumGateway};
+use super::HubuumGateway;
 
 const MAX_AUTO_SEARCH_PAGES: usize = 10_000;
 const MAX_AUTO_SEARCH_ITEMS: usize = 1_000_000;
@@ -305,38 +305,15 @@ impl HubuumGateway {
             return Ok(Vec::new());
         }
 
-        let mut class_map = classes
-            .iter()
-            .map(|class| (class.id.into(), class.clone()))
-            .collect::<HashMap<_, _>>();
-        let mut collection_map = collections
-            .iter()
-            .map(|collection| (collection.id.into(), collection.clone()))
-            .collect::<HashMap<_, _>>();
-
-        let missing_class_ids = objects
-            .iter()
-            .filter(|object| !class_map.contains_key(&object.hubuum_class_id.into()))
-            .count();
-        if missing_class_ids > 0 {
-            class_map.extend(find_entities_by_ids(
-                &self.client().classes(),
-                objects.iter(),
-                |object| object.hubuum_class_id,
-            )?);
-        }
-
-        let missing_collection_ids = objects
-            .iter()
-            .filter(|object| !collection_map.contains_key(&object.collection_id.into()))
-            .count();
-        if missing_collection_ids > 0 {
-            collection_map.extend(find_entities_by_ids(
-                &self.client().collections(),
-                objects.iter(),
-                |object| object.collection_id,
-            )?);
-        }
+        let class_map = self
+            .class_map_with_known(objects.iter().map(|object| object.hubuum_class_id), classes)?;
+        let collection_map = self.collection_map_with_known(
+            objects.iter().map(|object| object.collection_id),
+            class_map
+                .values()
+                .filter_map(|class| class.collection.as_ref())
+                .chain(collections),
+        )?;
 
         Ok(objects
             .iter()
@@ -379,12 +356,84 @@ mod tests {
         blocking::Client, MockTransport, Token, TransportResponse, UnifiedSearchKind,
     };
     use reqwest::StatusCode;
-    use serde_json::json;
+    use serde_json::{from_str, from_value, json, Value};
 
     use super::{
         HubuumGateway, SearchInput, SearchKind, SearchPaginationGuard, MAX_AUTO_SEARCH_ITEMS,
     };
     use crate::domain::SearchCursorSet;
+
+    #[test]
+    fn search_reuses_partial_metadata_and_fetches_only_missing_ids() {
+        let f: Value = from_str(include_str!("../../../tests/fixtures/object-show.json")).unwrap();
+        for custom_collection in [false, true] {
+            let mut objects = f["graph"]["objects"].as_array().unwrap()[..3].to_vec();
+            let mut extra_collection = f["collections"][1].clone();
+            if custom_collection {
+                objects[2]["collection_id"] = json!(99);
+                extra_collection["id"] = json!(99);
+                extra_collection["name"] = json!("Custom");
+            }
+            let transport = MockTransport::default();
+            transport.push_response(
+                TransportResponse::json(StatusCode::OK, &json!([f["classes"][0], f["classes"][1]]))
+                    .unwrap(),
+            );
+            if custom_collection {
+                transport.push_response(
+                    TransportResponse::json(StatusCode::OK, &json!([extra_collection])).unwrap(),
+                );
+            }
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap()
+                .authenticate(Token::new("test-token"));
+            let gateway = HubuumGateway::new(Arc::new(client));
+            let objects = objects
+                .into_iter()
+                .map(|object| from_value(object).unwrap())
+                .collect::<Vec<_>>();
+            let results = gateway
+                .resolve_search_objects(
+                    &objects,
+                    &[from_value(f["root_class"].clone()).unwrap()],
+                    &[from_value(f["collections"][0].clone()).unwrap()],
+                )
+                .unwrap();
+            assert_eq!(results[0].class, "Hosts");
+            assert_eq!(results[0].collection, "Math");
+            assert_eq!(results[0].data, Some(f["expected"]["data"].clone()));
+            assert_eq!(results[1].class, "Contacts");
+            assert_eq!(results[2].class, "Jacks");
+            assert_eq!(
+                results[2].collection,
+                if custom_collection {
+                    "Custom"
+                } else {
+                    "Facilities"
+                }
+            );
+            let requests = transport.requests();
+            assert_eq!(requests.len(), if custom_collection { 2 } else { 1 });
+            let ids = requests[0]
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "id__equals")
+                .unwrap()
+                .1;
+            let mut ids = ids.split(',').collect::<Vec<_>>();
+            ids.sort();
+            assert_eq!(ids, ["10", "11"]);
+            if custom_collection {
+                assert!(requests[1]
+                    .url
+                    .query_pairs()
+                    .any(|(key, value)| key == "id__equals" && value == "99"));
+            }
+        }
+    }
 
     #[test]
     fn search_kind_maps_to_client_search_kind() {

@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Reduce HTTP requests for `object show` by reusing the root object returned in
+  the relation graph and resolving collection names together. Object lists,
+  class details, search, and relation output also reuse available class and collection
+  metadata. Text, JSON, pipeline output, and computed fields retain their content.
+
 - Documentation uses the shared warm Hubuum theme from the ecosystem site's
   unversioned stylesheet, including retained release editions. Future styling
   updates no longer require changes or rebuilds in this repository.

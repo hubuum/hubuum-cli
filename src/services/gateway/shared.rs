@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use hubuum_client::{
     client::{sync::Handle as SyncHandle, sync::Resource, GetID},
     ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, CollectionId,
-    EntityTag, FilterOperator, Object, ObjectRelation, QueryFilter, ResourceId,
+    EntityTag, FilterOperator, Object, ObjectRelation, ObjectWithPath, QueryFilter, ResourceId,
 };
 
 use crate::errors::AppError;
@@ -19,6 +19,10 @@ pub(super) fn class_collection_id(class: &Class) -> Option<CollectionId> {
     class
         .collection_id
         .or_else(|| class.collection.as_ref().map(|collection| collection.id))
+}
+
+pub(super) fn object_from_path(object: &ObjectWithPath) -> Result<Object, AppError> {
+    Ok(serde_json::from_value(serde_json::to_value(object)?)?)
 }
 
 pub(super) fn required_entity_tag(
@@ -71,6 +75,24 @@ impl HubuumGateway {
         Id: Into<i32>,
     {
         fetch_entities_for_ids(&self.client().classes(), unique_ids(class_ids))
+    }
+
+    pub(super) fn class_map_with_known<'a, I, Id>(
+        &self,
+        class_ids: I,
+        known: impl IntoIterator<Item = &'a Class>,
+    ) -> Result<HashMap<i32, Class>, AppError>
+    where
+        I: IntoIterator<Item = Id>,
+        Id: Into<i32>,
+    {
+        let mut classes = self.class_map_from_classes(known);
+        let missing = unique_ids(class_ids)
+            .into_iter()
+            .filter(|id| !classes.contains_key(id));
+        let fetched = self.class_map_from_ids(missing)?;
+        classes.extend(fetched);
+        Ok(classes)
     }
 
     pub(super) fn class_map_from_relation_ids(
@@ -198,6 +220,44 @@ impl HubuumGateway {
         Id: Into<i32>,
     {
         fetch_entities_for_ids(&self.client().collections(), unique_ids(collection_ids))
+    }
+
+    pub(super) fn collection_map_with_classes<'a, I, Id>(
+        &self,
+        collection_ids: I,
+        classes: impl IntoIterator<Item = &'a Class>,
+    ) -> Result<HashMap<i32, Collection>, AppError>
+    where
+        I: IntoIterator<Item = Id>,
+        Id: Into<i32>,
+    {
+        self.collection_map_with_known(
+            collection_ids,
+            classes
+                .into_iter()
+                .filter_map(|class| class.collection.as_ref()),
+        )
+    }
+
+    pub(super) fn collection_map_with_known<'a, I, Id>(
+        &self,
+        collection_ids: I,
+        known: impl IntoIterator<Item = &'a Collection>,
+    ) -> Result<HashMap<i32, Collection>, AppError>
+    where
+        I: IntoIterator<Item = Id>,
+        Id: Into<i32>,
+    {
+        let mut collections = known
+            .into_iter()
+            .map(|collection| (i32::from(collection.id), collection.clone()))
+            .collect::<HashMap<_, _>>();
+        let missing = unique_ids(collection_ids)
+            .into_iter()
+            .filter(|id| !collections.contains_key(id));
+        let fetched = self.collection_map_from_ids(missing)?;
+        collections.extend(fetched);
+        Ok(collections)
     }
 
     pub(super) fn resolve_validated_filter(
