@@ -2,12 +2,6 @@
 
 ## [Unreleased]
 
-### Changed
-
-- Document compatibility through the pinned client library, generic webhook
-  setup, and equivalent full commands for the Slack, Mattermost, and Discord
-  presets. CLI help includes the generic webhook setup path.
-
 ## [0.0.13] - 2026-10-05
 
 | CLI | `hubuum_client` dependency | Client's Hubuum server target | Backup formats |
@@ -17,6 +11,9 @@
 
 ### Changed
 
+- Document compatibility through the pinned client library, generic webhook
+  setup, and equivalent full commands for the Slack, Mattermost, and Discord
+  presets. CLI help includes the generic webhook setup path.
 - Pin `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17, and use its
   immutable server image for CLI integration checks. The upstream contract grows
   from 220 operations and 330 schemas to 227 operations and 336 schemas. Client features remain
