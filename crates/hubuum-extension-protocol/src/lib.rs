@@ -20,6 +20,9 @@ const MANIFEST_PARSE_OPTIONS: ParseOptions = ParseOptions {
     allow_single_quoted_strings: false,
     allow_hexadecimal_numbers: false,
     allow_unary_plus_numbers: false,
+    allow_bare_decimal_point_numbers: false,
+    allow_extended_string_escapes: false,
+    allow_non_finite_numbers: false,
 };
 
 const RESERVED_PACK_NAMES: &[&str] = &[
@@ -1859,7 +1862,7 @@ fn validate_for_each_item_type(
                 .as_array()
                 .ok_or_else(|| invalid("literal must be an array".to_string()))?;
             for item in items {
-                validate_workflow_input_value(item, target).map_err(&invalid)?;
+                validate_workflow_input_value(item, target).map_err(invalid)?;
             }
             Ok(())
         }
@@ -2660,12 +2663,14 @@ fn workflow_value_contains_nul(value: &Value) -> bool {
 
 #[cfg(test)]
 mod workflow_language_tests {
+    use jsonc_parser::parse_to_serde_value;
     use semver::Version;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     use super::{
         CommandImplementation, ExtensionManifest, ExtensionPackKind, ExtensionResponse,
-        ProtocolError, SemanticOutput, SemanticOutputShape, WorkflowStep, PROTOCOL_V1,
+        ProtocolError, SemanticOutput, SemanticOutputShape, WorkflowStep, MANIFEST_PARSE_OPTIONS,
+        PROTOCOL_V1,
     };
 
     const EXECUTABLE: &str = r#"{
@@ -2815,6 +2820,19 @@ mod workflow_language_tests {
             .expect_err("unknown key")
             .to_string()
             .contains("unknown configuration key"));
+    }
+
+    #[test]
+    fn manifest_jsonc_does_not_enable_new_json5_syntax() {
+        for source in [
+            r#"{"value": .5}"#,
+            r#"{"value": 1.}"#,
+            r#"{"value": NaN}"#,
+            r#"{"value": Infinity}"#,
+            r#"{"value": "\x41"}"#,
+        ] {
+            assert!(parse_to_serde_value::<Value>(source, &MANIFEST_PARSE_OPTIONS).is_err());
+        }
     }
 
     #[test]

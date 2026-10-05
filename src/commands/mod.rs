@@ -38,6 +38,7 @@ mod object;
 mod relations;
 mod remote_target;
 mod search;
+pub(crate) mod self_update;
 mod service_account;
 mod task;
 mod task_submit;

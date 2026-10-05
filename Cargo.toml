@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2021"
 
 [workspace]
@@ -10,12 +10,13 @@ members = [
     "crates/hubuum-filter",
     "crates/hubuum-search",
     "crates/hubuum-theme",
+    "crates/hubuum-update",
 ]
 resolver = "2"
 
 [package.metadata.hubuum]
-server-version = "0.0.16"
-server-image = "ghcr.io/hubuum/hubuum-server@sha256:37b3299edd845a0c2aa7772d7d68565233ac8c1802bc44be3fb4bbc6dfa8778e"
+server-version = "0.0.17"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:cc0518167816bfddb38853b8b7217c4a347511318d51e1abca93ca418f31b302"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +27,7 @@ hubuum-filter = { path = "./crates/hubuum-filter" }
 hubuum-search = { path = "./crates/hubuum-search" }
 hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
+hubuum-update = { path = "./crates/hubuum-update" }
 thiserror = "2"
 tracing-subscriber = { version = "0", features = ["fmt", "env-filter"] }
 log = "0"
@@ -39,7 +41,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.12.0", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.13.0", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"
@@ -49,7 +51,7 @@ smooth-json = "0"
 serial_test = "4.0"
 strum = { version = "0.28", features = ["derive", "strum_macros"] }
 async-trait = "0.1"
-reedline = "0.51"
+reedline = "0.52"
 tokio = { version = "1", features = [
     "fs",
     "macros",

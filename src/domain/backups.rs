@@ -30,9 +30,9 @@ impl BackupArtifact {
     pub fn parse_document(json: &str) -> Result<BackupDocument, AppError> {
         let value: Value = from_str(json)?;
         let version = value.get("backup_version").and_then(Value::as_i64);
-        if version != Some(i64::from(CURRENT_BACKUP_VERSION)) {
+        if version != Some(6) && version != Some(i64::from(CURRENT_BACKUP_VERSION)) {
             return Err(AppError::InvalidOption(format!(
-                "Unsupported backup version {}; this client requires format {CURRENT_BACKUP_VERSION}. Restore older artifacts with a compatible older server, then upgrade and create a new backup. Editing the version field does not convert a backup.",
+                "Unsupported backup version {}; this client accepts formats 6 and {CURRENT_BACKUP_VERSION}. Restore older artifacts with a compatible older server, then upgrade and create a new backup. Editing the version field does not convert a backup.",
                 version.map_or_else(|| "(missing or invalid)".to_string(), |v| v.to_string())
             )));
         }
@@ -285,9 +285,37 @@ mod tests {
         let error = BackupArtifact::parse_document(r#"{"backup_version":4}"#)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("format 6"));
+        assert!(error.contains("formats 6 and 7"));
         assert!(error.contains("compatible older server"));
         assert!(error.contains("does not convert"));
+    }
+
+    #[test]
+    fn supported_backup_versions_preserve_notification_sections() {
+        for version in [6, 7] {
+            let mut value: Value =
+                from_str(include_str!("../../tests/fixtures/backup.json")).unwrap();
+            value["backup_version"] = json!(version);
+            value["state"]["sections"]["event_sinks"] = json!([{
+                "id": 1, "delivery_policy": {"min_interval_ms": 1000}
+            }]);
+            let document = BackupArtifact::parse_document(&value.to_string()).unwrap();
+            assert!(document.has_supported_version());
+            let saved = BackupArtifact::from_document(document)
+                .unwrap()
+                .json_pretty()
+                .unwrap();
+            let restored: Value = from_str(&saved).unwrap();
+            assert_eq!(restored["backup_version"], version);
+            assert_eq!(restored["state"], value["state"]);
+        }
+        for version in [json!(5), json!(8), json!(null), json!("7")] {
+            let error =
+                BackupArtifact::parse_document(&json!({"backup_version": version}).to_string())
+                    .unwrap_err()
+                    .to_string();
+            assert!(error.contains("Unsupported backup version"));
+        }
     }
 
     #[test]

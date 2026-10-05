@@ -132,6 +132,15 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --workspace --release"
 
+      - name: Test native executable replacement
+        if: ${{ matrix.platform.skip_tests }}
+        uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1.0.8
+        with:
+          command: test
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--locked --release -p hubuum-update"
+
   backup-restore:
     needs: changes
     name: Pinned backup and restore integration
@@ -143,7 +152,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - name: Cache cargo and target directories
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -311,7 +320,7 @@ jobs:
 
       - name: Install stable Rust toolchain
         if: matrix.platform.kind == 'native'
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: ${{ matrix.platform.target }}
 

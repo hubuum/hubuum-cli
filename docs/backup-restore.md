@@ -1,23 +1,30 @@
 # Backup and restore
 
-CLI v0.0.12 uses `hubuum_client` 0.12.0 and targets Hubuum server 0.0.16.
+CLI v0.0.13 uses `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-Drain old workers and upgrade the server, `hubuum-admin`, template worker, and
-separately supervised `hubuum-admin --restore-executor` together to 0.0.16.
-Run `hubuum-admin --migrate` in a quiet window before starting upgraded processes.
+**Breaking server upgrade requirement:** upgrading from 0.0.16 requires a
+maintenance window. Stop all writers, including API, worker, and restore-executor
+processes, then take a PostgreSQL snapshot. Apply the webhook-notification
+migration with `hubuum-admin --migrate` before starting matching 0.0.17 binaries.
+Binary-only rollback is unsupported: recovery requires the snapshot and matching
+0.0.16 binaries, losing writes made after the snapshot. Optional Treetop
+installations must also upgrade to protocol 0.1 and compatible policy bundles.
+See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.17).
+
 When upgrading from before 0.0.15, existing enforced objects start pending;
 request schema revalidation. Review
 [schema evolution](schema-evolution.md) for policy and authorization migration.
 
-This target uses backup format 6, including schema revisions, state, evidence,
-and history. Restore format 5 artifacts with the matching older server, then
-migrate and take a new backup. Changing `backup_version` does not convert it.
-Keep a verified backup from your previous server version before upgrading.
-Server 0.0.16 keeps format 6; existing 0.0.15 format 6 backups remain accepted,
-including those without task discovery metadata.
+**Breaking backup output change:** server v0.0.17 creates format 7 backups,
+including notification configuration and terminal delivery history. Older servers
+cannot restore format 7. CLI v0.0.13 and server 0.0.17 still accept format 6 with
+legacy notification defaults; keep existing format 6 artifacts intact. Restores
+reset transient sink scheduling. Restore format 5 artifacts with the matching
+older server, then migrate and take a new backup. Changing `backup_version`
+does not convert it. Keep a verified backup from the previous server version.
 
 ## Create a backup
 
@@ -35,7 +42,7 @@ hubuum-cli backup show 123
 hubuum-cli backup download 123 --file hubuum-backup.json
 ```
 
-Format 6 excludes password hashes, bearer tokens, and token scopes. Its manifest
+Formats 6 and 7 exclude password hashes, bearer tokens, and token scopes. The manifest
 lists excluded data. Privileged integration configuration remains sensitive;
 protect the backup accordingly. Saved JSON retains the server's creation instant,
 including its UTC offset and fractional seconds, so it can be staged again.
@@ -71,7 +78,7 @@ returns `confirmed`, meaning the restore is queued. `--wait` polls until
 `succeeded`, `failed`, or `expired`; only `succeeded` exits successfully.
 Without `--wait`, confirmation returns immediately after acceptance.
 
-Server 0.0.16 requires fresh approval from an unscoped human user before
+Server 0.0.17 retains the requirement for fresh approval from an unscoped human user before
 confirmation. `--yes` still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place `--approval-password-file FILE` before `restore`
@@ -107,7 +114,7 @@ hubuum-admin --reset-password admin
 Substitute a restored local administrator's name when needed. Log in with the
 reset password and issue fresh tokens, including replacements for service
 accounts and any CLI `--token-file`. Old passwords and tokens are absent from
-format 6 backups. Recheck integration configuration before resuming automation.
+format 6 and 7 backups. Recheck integration configuration before resuming automation.
 
 ## File handling
 
@@ -122,7 +129,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.16 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+Server 0.0.17 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -139,7 +146,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.16.
+successful staging and a complete second-generation restore on 0.0.17.
 
 ## Reproduce the integration check
 
@@ -151,7 +158,8 @@ python3 scripts/test-backup-restore.py
 Python 3.9+ and Docker or Podman are required. Use `--runtime docker` or
 `--runtime podman` to select the runtime. The script creates its own disposable
 database, pins the server and PostgreSQL images, applies migrations, and starts
-the restore executor. It first checks structured search, streaming JSONL, fresh
+the restore executor. It first checks chat webhook presets, real server previews and pacing updates,
+structured search, streaming JSONL, fresh
 credential approvals, task discovery, and schema evolution. It exercises backups
 with and without history, both
 confirmation modes, receipt-only status after token invalidation, and recovery

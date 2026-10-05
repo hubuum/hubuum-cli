@@ -145,6 +145,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);
     commands::version::register_commands(&mut builder);
+    commands::self_update::register_commands(&mut builder);
     extensions.compile_workflows(|manifest, config| {
         WorkflowProgram::compile(manifest, config, |path| builder.command(path))
     });

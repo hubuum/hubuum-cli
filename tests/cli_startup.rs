@@ -38,6 +38,39 @@ fn help_and_version_do_not_require_login() {
 }
 
 #[test]
+fn self_update_help_and_invalid_options_do_not_require_server_login() {
+    let directory = tempdir().unwrap();
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .args([
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            "1",
+            "self-update",
+            "--help",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("SHA-256"))
+        .stdout(contains("--check"));
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .args([
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            "1",
+            "self-update",
+            "--unknown",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("unknown"))
+        .stdout(contains("ServerUnreachable").not());
+}
+
+#[test]
 fn direct_help_and_config_paths_do_not_require_login() {
     cargo_bin_cmd!("hubuum-cli")
         .arg("help")

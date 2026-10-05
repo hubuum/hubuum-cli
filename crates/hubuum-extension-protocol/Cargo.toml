@@ -6,7 +6,7 @@ description = "Manifest and process protocol types for Hubuum CLI extension pack
 license = "MIT"
 
 [dependencies]
-jsonc-parser = { version = "0.33.1", features = ["serde"] }
+jsonc-parser = { version = "0.34", features = ["serde"] }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

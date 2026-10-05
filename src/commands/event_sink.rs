@@ -1,5 +1,5 @@
 use cli_command_derive::CommandArgs;
-use hubuum_client::{EventSinkKind, NewEventSink, UpdateEventSink};
+use hubuum_client::{EventDeliveryPolicy, EventSinkKind, NewEventSink, UpdateEventSink};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, from_value, Value};
 
@@ -8,8 +8,9 @@ use super::{
     build_list_query, name_or_first_pos, render_json_record, render_list_page, required_str,
     CliCommand, PageSelection,
 };
-use crate::autocomplete::{event_sink_kinds, event_sinks};
+use crate::autocomplete::{event_sink_kinds, event_sinks, webhook_targets};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
+use crate::domain::{WebhookTarget, WebhookUrlSecret};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json_message;
 use crate::services::AppServices;
@@ -34,7 +35,11 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             catalog_command(
                 "create",
                 EventSinkCreate::default(),
-                docs("Create an event sink"),
+                CommandDocs {
+                    about: Some("Create an event sink"),
+                    long_about: Some("Use --kind webhook --config for any HTTPS JSON POST receiver. Set config.url_secret_ref to a server secret alias, or set routing.url on subscriptions for a public destination. Generic webhooks send the event envelope, accept any HTTP 2xx, retry other statuses, and have no configured pacing unless you supply body_template, response rules, or --delivery-policy. Choose --target slack, mattermost, or discord for a preset and pass the URL alias with --url-secret-ref. Presets configure JSON-safe messages, provider acknowledgements, HTTP 429 cooldowns, and one-second pacing. Discord URLs stored on the server must include wait=true. Configure delivery workers and create an event subscription to select events; sink creation sends no message. See docs/webhooks.md for generic setup and equivalent full preset commands."),
+                    examples: Some("event sink create --name inventory-hook --kind webhook --config '{\"url_secret_ref\":\"inventory_webhook\"}'\nevent sink create --name inventory-hook --kind webhook --config file://inventory-webhook.json --delivery-policy '{\"min_interval_ms\":1000}'\nevent sink create --name ops-slack --target slack --url-secret-ref ops_slack_webhook\nevent sink create --name ops-mattermost --target mattermost --url-secret-ref ops_mattermost_webhook\nevent sink create --name ops-discord --target discord --url-secret-ref ops_discord_webhook"),
+                },
             ),
         )
         .add_command(
@@ -134,9 +139,26 @@ pub struct EventSinkCreate {
         help = "webhook, amqp, valkey_stream, or email",
         autocomplete = "event_sink_kinds"
     )]
-    pub kind: String,
+    pub kind: Option<String>,
+    #[option(
+        long = "target",
+        help = "Webhook preset: slack, mattermost, or discord",
+        autocomplete = "webhook_targets"
+    )]
+    pub target: Option<String>,
+    #[option(
+        long = "url-secret-ref",
+        help = "Server secret alias for the full HTTPS webhook URL (Discord: include wait=true)"
+    )]
+    pub url_secret_ref: Option<String>,
     #[option(long = "config", help = "Sink config JSON object", value_source = true)]
     pub config: Option<String>,
+    #[option(
+        long = "delivery-policy",
+        help = "Delivery policy JSON, e.g. {\"min_interval_ms\":1000}",
+        value_source = true
+    )]
+    pub delivery_policy: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,
     #[option(long = "enabled", help = "Enabled flag", flag = true)]
@@ -146,14 +168,52 @@ pub struct EventSinkCreate {
 impl CliCommand for EventSinkCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let sink = services.gateway().create_event_sink(NewEventSink {
-            name: query.name,
-            kind: parse_event_sink_kind(&query.kind)?,
-            config: parse_json_object(query.config)?,
-            enabled: query.enabled.or(Some(true)),
-            secret_ref: query.secret_ref,
-        })?;
+        let sink = services
+            .gateway()
+            .create_event_sink(query.into_request()?)?;
         render_json_record(tokens, &sink)
+    }
+}
+
+impl EventSinkCreate {
+    fn into_request(self) -> Result<NewEventSink, AppError> {
+        let policy = parse_delivery_policy(self.delivery_policy)?;
+        let (kind, config, delivery_policy) = if let Some(target) = self.target {
+            let target = WebhookTarget::parse(&target)?;
+            if self.config.is_some()
+                || self.secret_ref.is_some()
+                || self.kind.as_deref().is_some_and(|kind| kind != "webhook")
+            {
+                return Err(AppError::InvalidOption(
+                    "--target cannot be combined with --config, --secret-ref, or a non-webhook --kind; use --url-secret-ref for the URL alias".to_string(),
+                ));
+            }
+            let alias = WebhookUrlSecret::new(
+                required_str(self.url_secret_ref.as_deref(), "url-secret-ref")?.to_string(),
+            )?;
+            (
+                EventSinkKind::Webhook,
+                Some(target.config(alias)),
+                Some(policy.unwrap_or(EventDeliveryPolicy::new(1000)?)),
+            )
+        } else {
+            if self.url_secret_ref.is_some() {
+                return Err(AppError::InvalidOption("--url-secret-ref requires --target; custom webhook configurations can set config.url_secret_ref".to_string()));
+            }
+            (
+                parse_event_sink_kind(required_str(self.kind.as_deref(), "kind or target")?)?,
+                parse_json_object(self.config)?,
+                policy,
+            )
+        };
+        Ok(NewEventSink {
+            name: self.name,
+            kind,
+            config,
+            delivery_policy,
+            enabled: self.enabled.or(Some(true)),
+            secret_ref: self.secret_ref,
+        })
     }
 }
 
@@ -171,6 +231,12 @@ pub struct EventSinkUpdate {
         value_source = true
     )]
     pub config: Option<String>,
+    #[option(
+        long = "delivery-policy",
+        help = "Replacement delivery policy JSON; {} clears pacing",
+        value_source = true
+    )]
+    pub delivery_policy: Option<String>,
     #[option(long = "secret-ref", help = "Secret reference")]
     pub secret_ref: Option<String>,
     #[option(
@@ -203,6 +269,7 @@ impl CliCommand for EventSinkUpdate {
                     .map(parse_event_sink_kind)
                     .transpose()?,
                 config: parse_json_object(query.config)?,
+                delivery_policy: parse_delivery_policy(query.delivery_policy)?,
                 enabled: query.enabled,
                 secret_ref: query.secret_ref,
             },
@@ -244,4 +311,119 @@ pub(super) fn parse_json_object(input: Option<String>) -> Result<Option<Value>, 
 
 pub(super) fn parse_event_sink_kind(value: &str) -> Result<EventSinkKind, AppError> {
     from_value(Value::String(value.to_string())).map_err(AppError::from)
+}
+
+fn parse_delivery_policy(input: Option<String>) -> Result<Option<EventDeliveryPolicy>, AppError> {
+    parse_json_object(input)?
+        .map(from_value)
+        .transpose()
+        .map_err(AppError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, to_value};
+
+    use super::{parse_delivery_policy, EventSinkCreate};
+    use crate::commands::CommandArgs;
+    use crate::tokenizer::CommandTokenizer;
+
+    fn preset(target: &str) -> EventSinkCreate {
+        EventSinkCreate {
+            name: "ops".to_string(),
+            target: Some(target.to_string()),
+            url_secret_ref: Some("ops_webhook".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn presets_serialize_as_normal_webhooks_with_provider_acknowledgements() {
+        for target in ["slack", "mattermost", "discord"] {
+            let request = to_value(preset(target).into_request().unwrap()).unwrap();
+            assert_eq!(request["kind"], "webhook");
+            assert!(request.get("target").is_none());
+            assert!(request.get("secret_ref").is_none());
+            assert_eq!(request["config"]["url_secret_ref"], "ops_webhook");
+            assert_eq!(request["delivery_policy"], json!({"min_interval_ms": 1000}));
+            let response = &request["config"]["response"];
+            assert_eq!(response["success_statuses"], json!([200]));
+            assert_eq!(response["rate_limit"], true);
+            assert_eq!(response["retry_statuses"], json!([408, 500, 502, 503, 504]));
+            if target == "discord" {
+                assert!(response.get("body").is_none());
+                assert!(request["config"]["body_template"]
+                    .as_str()
+                    .unwrap()
+                    .contains("allowed_mentions"));
+            } else {
+                assert_eq!(
+                    response["body"],
+                    json!({"kind":"text_equals", "value":"ok"})
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn presets_reject_ambiguous_or_incomplete_inputs() {
+        let mut custom_config = preset("slack");
+        custom_config.config = Some("{}".to_string());
+        let mut bearer = preset("slack");
+        bearer.secret_ref = Some("bearer".to_string());
+        let mut kind = preset("slack");
+        kind.kind = Some("email".to_string());
+        let mut no_alias = preset("slack");
+        no_alias.url_secret_ref = None;
+        let mut no_target = preset("slack");
+        no_target.target = None;
+        for request in [
+            custom_config,
+            bearer,
+            kind,
+            no_alias,
+            no_target,
+            preset("unknown"),
+        ] {
+            assert!(request.into_request().is_err());
+        }
+    }
+
+    #[test]
+    fn ordinary_sink_requests_and_explicit_pacing_remain_available() {
+        let tokens = CommandTokenizer::new(
+            "event sink create --name ops --kind webhook --config '{\"custom\":true}'",
+            "create",
+            &EventSinkCreate::options(),
+        )
+        .unwrap();
+        let request = EventSinkCreate::parse_tokens(&tokens)
+            .unwrap()
+            .into_request()
+            .unwrap();
+        assert_eq!(request.config, Some(json!({"custom":true})));
+        assert!(request.delivery_policy.is_none());
+        let tokens = CommandTokenizer::new("event sink create --name ops --target discord --url-secret-ref ops_webhook --delivery-policy '{\"min_interval_ms\":2000}'", "create", &EventSinkCreate::options()).unwrap();
+        let request = EventSinkCreate::parse_tokens(&tokens)
+            .unwrap()
+            .into_request()
+            .unwrap();
+        assert_eq!(
+            request.delivery_policy.unwrap().min_interval_ms(),
+            Some(2000)
+        );
+        assert!(parse_delivery_policy(Some("{}".to_string()))
+            .unwrap()
+            .unwrap()
+            .min_interval_ms()
+            .is_none());
+        for value in [
+            "[]",
+            "null",
+            r#"{"min_interval_ms":0}"#,
+            r#"{"min_interval_ms":86400001}"#,
+        ] {
+            assert!(parse_delivery_policy(Some(value.to_string())).is_err());
+        }
+    }
 }
