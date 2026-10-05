@@ -108,6 +108,9 @@ impl Fixture {
                     }
                     Err(error) => panic!("accept: {error}"),
                 };
+                // Windows inherits the listener's nonblocking mode. Once a
+                // connection is accepted, wait for request bytes with a timeout.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
