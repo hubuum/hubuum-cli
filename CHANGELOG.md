@@ -46,6 +46,12 @@
 
 ### Added
 
+- In-place binary updates with `self-update` and a metadata-only `--check`,
+  available in the CLI and REPL without Hubuum login. The new `hubuum-update`
+  workspace crate uses `self_update` 1.3 with Rustls, tar/ZIP extraction, and
+  mandatory published SHA-256 verification. Updates use the exact platform
+  archive from a strictly newer stable release; restart the CLI afterward.
+  See [installation and platform details](README.md#updating-in-place).
 - Chat webhook setup with `event sink create --target slack|mattermost|discord`
   and `--url-secret-ref`: normal webhook configuration with provider templates,
   acknowledgements, retry/cooldown rules, and one-second pacing. REPL completion,

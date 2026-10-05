@@ -132,6 +132,15 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --workspace --release"
 
+      - name: Test native executable replacement
+        if: ${{ matrix.platform.skip_tests }}
+        uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1.0.8
+        with:
+          command: test
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--locked --release -p hubuum-update"
+
   backup-restore:
     needs: changes
     name: Pinned backup and restore integration

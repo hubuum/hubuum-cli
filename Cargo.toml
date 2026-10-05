@@ -10,6 +10,7 @@ members = [
     "crates/hubuum-filter",
     "crates/hubuum-search",
     "crates/hubuum-theme",
+    "crates/hubuum-update",
 ]
 resolver = "2"
 
@@ -26,6 +27,7 @@ hubuum-filter = { path = "./crates/hubuum-filter" }
 hubuum-search = { path = "./crates/hubuum-search" }
 hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
+hubuum-update = { path = "./crates/hubuum-update" }
 thiserror = "2"
 tracing-subscriber = { version = "0", features = ["fmt", "env-filter"] }
 log = "0"

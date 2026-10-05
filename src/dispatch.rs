@@ -14,6 +14,7 @@ use crate::commands::auth::render_auth_providers;
 use crate::commands::backup::{render_restore_status, render_restore_wait};
 use crate::commands::config::{render_config_paths, render_config_show};
 use crate::commands::metrics::render_metrics;
+use crate::commands::self_update::render_self_update;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
 use crate::commands::version::render_version;
 use crate::commands::{render_format, table_headers};
@@ -220,6 +221,7 @@ pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
         || command_path_is(parts, &["restore", "status"])
         || command_path_is(parts, &["restore", "wait"])
         || command_path_is(parts, &["version"])
+        || command_path_is(parts, &["self-update"])
 }
 
 pub async fn execute_offline_line(
@@ -349,6 +351,16 @@ async fn execute_offline_line_inner(
         })
         .await
         .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+    } else if command_path_is(&parts, &["self-update"]) {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
+        set_pipeline(pipeline)?;
+        set_pipeline_suffix(pipeline_suffix)?;
+        spawn_blocking(move || render_self_update(&tokens))
+            .await
+            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
     } else if command_path_is(&parts, &["version"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -872,6 +884,8 @@ mod tests {
         ));
         assert!(can_execute_offline(&catalog, "version"));
         assert!(can_execute_offline(&catalog, "version --server"));
+        assert!(can_execute_offline(&catalog, "self-update"));
+        assert!(can_execute_offline(&catalog, "self-update --check"));
         assert!(can_execute_offline(&catalog, "extension doctor"));
         assert!(can_execute_offline(&catalog, "extension unknown command"));
         assert!(!can_execute_offline(&catalog, "theme use hubuum-dark"));

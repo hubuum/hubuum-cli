@@ -31,6 +31,35 @@ hubuum-cli version --output json
 The same `version` commands are available in the REPL. The server version comes from
 the server's unauthenticated OpenAPI metadata.
 
+### Updating in place
+
+Starting with v0.0.13, check for or install the latest stable GitHub release:
+
+```sh
+hubuum-cli self-update --check
+hubuum-cli self-update
+hubuum-cli self-update --check --output json
+```
+
+These commands also work in the REPL and require no Hubuum login. `--check`
+reads release metadata without downloading an archive or changing the executable.
+Installation verifies the archive against its published SHA-256 file before
+replacing the running executable on disk. Restart the CLI or REPL afterward;
+the current process continues running its original version.
+
+The installation directory must be writable. For a package-managed installation,
+use its package manager. Supported targets match the four release platforms above;
+Linux GNU builds receive the corresponding static musl binary. Other targets
+must use their original installation method. The updater uses the
+[`self_update` crate](https://docs.rs/self_update/1.3.0/self_update/).
+
+Only strictly newer stable versions are installed. Prereleases and `main-latest`
+are never destinations; a rolling build waits for a stable release with a higher
+version, ignoring its build metadata. GitHub requests optionally use `GH_TOKEN`
+or `GITHUB_TOKEN` (in that order) for API rate limits. Hubuum credentials are
+not used. JSON output reports `status` (`up_to_date`, `update_available`, or
+`updated`), both versions, the executable path, target, and `restart_required`.
+
 ## Compatibility
 
 CLI and server releases are versioned independently. The declared targets and

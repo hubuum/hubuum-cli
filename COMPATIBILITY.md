@@ -60,8 +60,12 @@ feature, Rust 1.88, contract, and semver checks.
 
 The CLI continues to enable only the client's `blocking` feature. The client's
 MSRV is still Rust 1.88; no CLI MSRV is declared or implied by that requirement.
-This release is verified with Rust 1.99.0. Workspace public interfaces are
-unchanged; the JSONC parser update explicitly retains the existing syntax.
+This release is verified with Rust 1.99.0. Existing workspace public interfaces
+are unchanged; the JSONC parser update explicitly retains the existing syntax.
+The new `hubuum-update` crate adds a small typed update interface backed by
+`self_update` 1.3 (upstream MSRV 1.88), with GitHub, Rustls, tar/ZIP, and checksum
+features. It updates official CLI binaries independently of the server. See
+[self-update behavior and supported platforms](README.md#updating-in-place).
 
 [Chat webhook presets](docs/webhooks.md) generate ordinary webhook configuration
 for Slack, Mattermost, and Discord. Sink create/update exposes delivery policies;
