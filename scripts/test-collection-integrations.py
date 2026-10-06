@@ -19,7 +19,10 @@ import uuid
 def main():
     base = os.environ["HUBUUM_E2E_BASE_URL"].rstrip("/")
     password = os.environ["HUBUUM_E2E_ADMIN_PASSWORD"]
-    binary = Path(__file__).resolve().parent.parent / "target/debug/hubuum-cli"
+    binary = Path(os.environ.get(
+        "HUBUUM_E2E_CLI_BINARY",
+        Path(__file__).resolve().parent.parent / "target/debug/hubuum-cli",
+    ))
     prefix = "cli-integrations-" + uuid.uuid4().hex[:12]
 
     def api(method, path, data=None, token=None, approval=None):

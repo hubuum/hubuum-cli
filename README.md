@@ -5,11 +5,15 @@
 This CLI interface for [Hubuum](https://github.com/hubuum/hubuum) is still in
 pre-release state and under heavy development.
 
+The latest release is [v0.0.14](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.14),
+released October 6, 2026. It adds collection-owned webhook setup and targets
+Hubuum server v0.0.18 through Rust client 0.14.1.
+
 ## Release binaries
 
 Successful pushes to `main` publish rolling binaries in the
 [`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
-Version tags such as `v0.0.13` publish immutable, versioned GitHub releases.
+Version tags such as `v0.0.14` publish immutable, versioned GitHub releases.
 
 Each release provides four small, stripped archives and matching SHA-256 files:
 
@@ -19,7 +23,7 @@ Each release provides four small, stripped archives and matching SHA-256 files:
   Windows system DLLs remain platform dependencies.
 
 Rolling builds identify their source commit using SemVer build metadata, for example
-`v0.0.13+main.g0123456789ab`. Tagged releases use the clean package version. Show the
+`v0.0.14+main.g0123456789ab`. Tagged releases use the clean package version. Show the
 current build identity without logging in, or also query the configured server:
 
 ```sh
@@ -62,14 +66,14 @@ not used. JSON output reports `status` (`up_to_date`, `update_available`, or
 
 ## Compatibility
 
-The CLI, client library, and server are versioned independently. CLI v0.0.13
-uses `hubuum_client` v0.13.0, which targets Hubuum server v0.0.17.
+The CLI, client library, and server are versioned independently. CLI v0.0.14
+uses `hubuum_client` v0.14.1, which targets Hubuum server v0.0.18.
 CLI v0.0.12 used `hubuum_client` v0.12.0, which targets server v0.0.16.
 The [compatibility matrix](COMPATIBILITY.md) records each CLI release's client
 dependency, that client's server target, and pinned integration evidence.
 See the [backup and restore guide](docs/backup-restore.md) before upgrading:
-the server now writes format 7 and still accepts format 6. Upgrading from
-v0.0.16 requires stopping all writers and taking a PostgreSQL snapshot before
+the server now writes format 8 and still accepts formats 6 and 7. Upgrading from
+v0.0.17 requires stopping all writers and taking a PostgreSQL snapshot before
 migration; binary-only rollback is unsupported. Fresh
 [credential approvals](docs/credential-approvals.md) remain required for
 credential changes and restore confirmation.

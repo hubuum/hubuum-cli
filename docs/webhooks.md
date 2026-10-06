@@ -1,6 +1,6 @@
 # Webhook setup
 
-CLI v0.0.13 uses `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
+CLI v0.0.14 uses `hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
 Use `--kind webhook --config` for any receiver that accepts HTTPS JSON POSTs.
 The `--target slack|mattermost|discord` presets are shortcuts for this same
 generic sink. They generate the configuration and delivery policy described
@@ -16,7 +16,7 @@ the affected processes.
 Receivers need HTTPS with trusted certificates. Private destinations, including
 self-hosted receivers and Mattermost installations, require the server's
 outbound private-target setting. Redirects are refused. See the server's
-[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.17/webhook_notifications/)
+[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/)
 for worker settings, secret sources, and network requirements.
 
 ## Store the URL on the server
@@ -48,6 +48,8 @@ The CLI cannot inspect or change a URL stored on the server.
 
 Choose either the original event envelope or a custom JSON payload. Both use an
 ordinary `webhook` sink and need a subscription before normal events are sent.
+An administrator must grant each shared sink to the collection before creating
+the subscription. Grants are direct and do not inherit to child collections.
 
 ### Send the original event envelope
 
@@ -56,6 +58,7 @@ secret-source mapping above, then create a sink:
 
 ```sh
 hubuum-cli event sink create --name inventory-hook --kind webhook --config '{"url_secret_ref":"inventory_webhook"}'
+hubuum-cli event sink grant --name inventory-hook --collection Inventory
 hubuum-cli event subscription create --collection Inventory --sink inventory-hook --name object-changes --entity-types object --actions created,updated
 ```
 
@@ -70,6 +73,7 @@ routing and omit the URL secret from the sink:
 
 ```sh
 hubuum-cli event sink create --name public-events --kind webhook --config '{}'
+hubuum-cli event sink grant --name public-events --collection Inventory
 hubuum-cli event subscription create --collection Inventory --sink public-events --name public-object-changes --entity-types object --actions created,updated --routing '{"url":"https://receiver.example.org/hubuum/events"}'
 ```
 
@@ -97,6 +101,7 @@ Create the sink and subscription, with one-second pacing:
 
 ```sh
 hubuum-cli event sink create --name inventory-hook --kind webhook --config file://inventory-webhook.json --delivery-policy '{"min_interval_ms":1000}'
+hubuum-cli event sink grant --name inventory-hook --collection Inventory
 hubuum-cli event subscription create --collection Inventory --sink inventory-hook --name object-changes --entity-types object --actions created,updated
 ```
 
@@ -114,7 +119,7 @@ A failed acknowledgement is permanent. In this example, only the listed
 transient statuses retry; other HTTP failures are permanent, while HTTP 429
 defers delivery using `Retry-After` without spending a failure attempt. Missing
 or invalid `Retry-After` uses a 60-second cooldown. Transport failures still
-retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.17/events/#configurable-webhook-notifications)
+retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.18/events/#configurable-webhook-notifications)
 for response rules, custom headers, timeouts, and payload limits.
 
 Delivery is at least once, so a lost acknowledgement can cause duplicates.
@@ -153,9 +158,11 @@ hubuum-cli event sink create --name ops-chat --target discord --url-secret-ref o
 
 The same commands work in the REPL without `hubuum-cli`. Tab completes target
 names; `help event sink create` explains the setup. Sink creation alone sends
-no message. Select events with a subscription in a collection you manage:
+no message. Grant the shared sink to the collection as an administrator, then
+select events with a subscription in a collection you manage:
 
 ```sh
+hubuum-cli event sink grant --name ops-chat --collection Inventory
 hubuum-cli event subscription create --collection Inventory --sink ops-chat --name object-changes --entity-types object --actions created,updated
 hubuum-cli event sink show ops-chat
 ```
@@ -266,7 +273,7 @@ and `response` if you want to keep their behavior. Omitting the template restore
 the original event envelope; omitting the response rules restores generic HTTP
 handling. Updating only `--config` leaves the separate delivery policy unchanged.
 
-Use the server's [preview and test steps](https://hubuum.github.io/hubuum/v0.0.17/webhook_notifications/#preview-test-and-check-delivery)
+Use the server's [preview and test steps](https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/#preview-test-and-check-delivery)
 before enabling production notifications. Preview renders a saved event without
 looking up secrets or sending a message; test queues a real delivery. Preset
 templates and the custom example above display `[TEST]`; an unmodified event
@@ -283,8 +290,8 @@ or verify your channel permissions and credentials.
 
 ## Collection-owned destinations
 
-With the server collection-integration update after `v0.0.17` and Rust client
-`0.14.0`, a collection manager can configure a destination and subscription:
+With Hubuum server `v0.0.18` and Rust client
+`0.14.1`, a collection manager can configure a destination and subscription:
 
 ```text
 event sink create --collection Inventory --name alerts --target slack --destination-url-file slack-webhook-url.txt
@@ -307,14 +314,16 @@ An administrator can grant a global sink with
 `event sink revoke --name shared --collection Inventory`. Grants do not inherit.
 Delivery diagnostics and retries remain administrator operations.
 
-During coordinated development, validate against the sibling client changes with
-Cargo's command-line override (do not commit a machine-specific path):
+The required integration command runs the delegated workflow on its own disposable
+server, followed by administrator, backup, and restore checks:
 
-```bash
-cargo test --workspace --config 'patch.crates-io.hubuum_client.path="../hubuum-client-rust"'
+```sh
+cargo build --locked
+python3 scripts/test-backup-restore.py
 ```
 
-Run `python3 scripts/test-collection-integrations.py` with
-`HUBUUM_E2E_BASE_URL` and `HUBUUM_E2E_ADMIN_PASSWORD` pointing to a disposable
-updated server to verify the actual CLI as a delegated collection manager.
-The script creates and removes its own user, group, and collection fixtures.
+For a focused check against an existing disposable server, run
+`python3 scripts/test-collection-integrations.py` with `HUBUUM_E2E_BASE_URL` and
+`HUBUUM_E2E_ADMIN_PASSWORD`. Set `HUBUUM_E2E_CLI_BINARY` when the executable is
+outside `target/debug`. The script creates and removes its own user, group, and
+collection fixtures.

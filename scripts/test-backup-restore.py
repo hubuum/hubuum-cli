@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the CLI against a pinned, disposable server; requires Python 3.9+."""
+"""Exercise the CLI against a pinned, disposable server; requires Python 3.11+."""
 
 import argparse
 import json
@@ -97,6 +97,13 @@ def main():
 
         # The stack is constructed here and never accepts an external server URL.
         token, password = eventually(reset_and_login)
+        api_version = api("GET", "/api-doc/openapi.json")["info"]["version"]
+        assert api_version == version, (api_version, version)
+        delegated_env = dict(os.environ, HUBUUM_E2E_BASE_URL=base,
+                             HUBUUM_E2E_ADMIN_PASSWORD=password,
+                             HUBUUM_E2E_CLI_BINARY=binary)
+        print(run(sys.executable, str(ROOT / "scripts/test-collection-integrations.py"),
+                  env=delegated_env), end="", flush=True)
         print("Starting restore executor and CLI checks", flush=True)
         container("run", "-d", "--name", executor, "--network", network, "-e", db_env,
                   "--entrypoint", "hubuum-admin", image, "--restore-executor")
@@ -156,6 +163,7 @@ def main():
                            "--enabled", "false")
                 assert sink["kind"] == "webhook" and "target" not in sink
                 assert sink["delivery_policy"]["min_interval_ms"] == 1000
+                cli("event", "sink", "grant", "--name", sink_name, "--collection", prefix)
                 subscription = cli("event", "subscription", "create", "--collection", prefix,
                                    "--sink", sink_name, "--name", sink_name,
                                    "--entity-types", "object", "--actions", "created,updated",
@@ -357,7 +365,7 @@ def main():
                 if not include_history:
                     backup_args += ["--include-history", "false"]
                 summary = cli(*backup_args)
-                assert summary["backup"]["backup_version"] == 7
+                assert summary["backup"]["backup_version"] == 8
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))
