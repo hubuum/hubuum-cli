@@ -597,6 +597,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0014-client-v0141" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.14: client v0.14.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0013-client-v0130" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1609,6 +1620,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0014-client-v0141" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.14: client v0.14.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0013-client-v0130" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1673,8 +1695,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.13 uses
-<code>hubuum_client</code> 0.13.0, which targets Hubuum server v0.0.17.
+and reproducibly tests its Hubuum server target. CLI v0.0.14 uses
+<code>hubuum_client</code> 0.14.1, which targets Hubuum server v0.0.18.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -1690,10 +1712,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>0.0.14</td>
+<td>0.14.1</td>
+<td>0.0.18</td>
+<td>Current target; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8</td>
+</tr>
+<tr>
 <td>0.0.13</td>
 <td>0.13.0</td>
 <td>0.0.17</td>
-<td>Current CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7</td>
+<td>Previous CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7</td>
 </tr>
 <tr>
 <td>0.0.12</td>
@@ -1781,6 +1809,35 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0014-client-v0141">CLI v0.0.14: client v0.14.1<a class="headerlink" href="#cli-v0014-client-v0141" title="Permanent link">&para;</a></h2>
+<p>CLI v0.0.14 pins the published <code>hubuum_client</code> 0.14.1, which targets Hubuum
+server v0.0.18. The client reconciles all 235 operations and 338 schemas, with
+88 wire-model mappings. CLI integrations use the same immutable released server
+image recorded in <code>Cargo.toml</code>. The client enables only its <code>blocking</code> feature
+and retains Rust 1.88 as its MSRV; the CLI declares no MSRV and is verified with
+Rust 1.99. The Rust client's public API remains compatible with 0.14.0.</p>
+<p>Verification on 2026-10-06 used the published crates.io client and released server
+image <code>ghcr.io/hubuum/hubuum-server@sha256:5b54248f19171200dfa497174d385a48f90666a415cb31732797043d5e182fc4</code>,
+from server commit <code>35fcf6696d4d564e2d89534db0c5194c14129d9f</code>. All 743 workspace
+tests and the complete disposable-server suite passed, including delegated
+collection setup, shared chat presets, credential approvals, schema workflows,
+and full restore/recovery with and without history plus a second-generation restore.</p>
+<p>Collection managers can create, update, and delete fixed-destination webhooks and
+subscribe to their collection's events. These operations require both
+<code>ManageEventSubscription</code> and <code>ReadAudit</code>. Global sinks require direct collection
+grants; administrators can grant, list, and revoke them through the CLI. The
+required pinned integration run covers the delegated lifecycle, administrator
+chat presets, credential approvals, and full backup/restore recovery.</p>
+<p><strong>Breaking (preset arguments):</strong> pass chat-provider destination URLs through
+<code>--destination-url-file PATH</code>; literal destination URL arguments are no longer
+accepted. Store those files with restrictive permissions. See
+<a href="../webhooks/#collection-owned-destinations">collection-owned webhooks</a>.</p>
+<p><strong>Breaking (server target and backup output):</strong> upgrade the server before using
+collection self-service. Stop every writer and take a PostgreSQL snapshot before
+the collection-sink migration, then deploy matching v0.0.18 binaries. Recovery
+requires that snapshot and matching v0.0.17 binaries. New backups use format 8;
+restore input accepts 6, 7, and 8. Older servers cannot restore format 8. See
+<a href="../backup-restore/">upgrade and recovery instructions</a>.</p>
 <h2 id="cli-v0013-client-v0130">CLI v0.0.13: client v0.13.0<a class="headerlink" href="#cli-v0013-client-v0130" title="Permanent link">&para;</a></h2>
 <p>CLI v0.0.13 pins <code>hubuum_client</code> 0.13.0, which targets Hubuum server v0.0.17.
 <code>Cargo.toml</code> records that client's server version and the immutable multi-platform

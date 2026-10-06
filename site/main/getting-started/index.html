@@ -1730,10 +1730,13 @@
 <p><a href="https://hubuum.github.io/hubuum-cli/">Documentation</a> · <a href="https://hubuum.github.io/">Hubuum ecosystem</a></p>
 <p>This CLI interface for <a href="https://github.com/hubuum/hubuum">Hubuum</a> is still in
 pre-release state and under heavy development.</p>
+<p>The latest release is <a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.14">v0.0.14</a>,
+released October 6, 2026. It adds collection-owned webhook setup and targets
+Hubuum server v0.0.18 through Rust client 0.14.1.</p>
 <h2 id="release-binaries">Release binaries<a class="headerlink" href="#release-binaries" title="Permanent link">&para;</a></h2>
 <p>Successful pushes to <code>main</code> publish rolling binaries in the
 <a href="https://github.com/hubuum/hubuum-cli/releases/tag/main-latest"><code>main-latest</code> release</a>.
-Version tags such as <code>v0.0.13</code> publish immutable, versioned GitHub releases.</p>
+Version tags such as <code>v0.0.14</code> publish immutable, versioned GitHub releases.</p>
 <p>Each release provides four small, stripped archives and matching SHA-256 files:</p>
 <ul>
 <li>Linux x86_64 and ARM64 binaries are statically linked with musl.</li>
@@ -1742,7 +1745,7 @@ Version tags such as <code>v0.0.13</code> publish immutable, versioned GitHub re
   Windows system DLLs remain platform dependencies.</li>
 </ul>
 <p>Rolling builds identify their source commit using SemVer build metadata, for example
-<code>v0.0.13+main.g0123456789ab</code>. Tagged releases use the clean package version. Show the
+<code>v0.0.14+main.g0123456789ab</code>. Tagged releases use the clean package version. Show the
 current build identity without logging in, or also query the configured server:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>version
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>version<span class="w"> </span>--server
@@ -1773,14 +1776,14 @@ or <code>GITHUB_TOKEN</code> (in that order) for API rate limits. Hubuum credent
 not used. JSON output reports <code>status</code> (<code>up_to_date</code>, <code>update_available</code>, or
 <code>updated</code>), both versions, the executable path, target, and <code>restart_required</code>.</p>
 <h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
-<p>The CLI, client library, and server are versioned independently. CLI v0.0.13
-uses <code>hubuum_client</code> v0.13.0, which targets Hubuum server v0.0.17.
+<p>The CLI, client library, and server are versioned independently. CLI v0.0.14
+uses <code>hubuum_client</code> v0.14.1, which targets Hubuum server v0.0.18.
 CLI v0.0.12 used <code>hubuum_client</code> v0.12.0, which targets server v0.0.16.
 The <a href="../compatibility/">compatibility matrix</a> records each CLI release's client
 dependency, that client's server target, and pinned integration evidence.
 See the <a href="../backup-restore/">backup and restore guide</a> before upgrading:
-the server now writes format 7 and still accepts format 6. Upgrading from
-v0.0.16 requires stopping all writers and taking a PostgreSQL snapshot before
+the server now writes format 8 and still accepts formats 6 and 7. Upgrading from
+v0.0.17 requires stopping all writers and taking a PostgreSQL snapshot before
 migration; binary-only rollback is unsupported. Fresh
 <a href="../credential-approvals/">credential approvals</a> remain required for
 credential changes and restore confirmation.</p>

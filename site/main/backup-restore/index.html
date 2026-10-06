@@ -1737,27 +1737,29 @@
 
 
 <h1 id="backup-and-restore">Backup and restore<a class="headerlink" href="#backup-and-restore" title="Permanent link">&para;</a></h1>
-<p>CLI v0.0.13 uses <code>hubuum_client</code> 0.13.0, which targets Hubuum server v0.0.17.
+<p>CLI v0.0.14 uses <code>hubuum_client</code> 0.14.1, which targets Hubuum server v0.0.18.
 Backups and restore staging/confirmation require administrator access.</p>
 <h2 id="prepare-the-server">Prepare the server<a class="headerlink" href="#prepare-the-server" title="Permanent link">&para;</a></h2>
-<p><strong>Breaking server upgrade requirement:</strong> upgrading from 0.0.16 requires a
+<p><strong>Breaking server upgrade requirement:</strong> upgrading from 0.0.17 requires a
 maintenance window. Stop all writers, including API, worker, and restore-executor
-processes, then take a PostgreSQL snapshot. Apply the webhook-notification
-migration with <code>hubuum-admin --migrate</code> before starting matching 0.0.17 binaries.
+processes, then take a PostgreSQL snapshot. Apply the collection-event-sinks
+migration with <code>hubuum-admin --migrate</code> before starting matching 0.0.18 binaries.
 Binary-only rollback is unsupported: recovery requires the snapshot and matching
-0.0.16 binaries, losing writes made after the snapshot. Optional Treetop
-installations must also upgrade to protocol 0.1 and compatible policy bundles.
-See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.17">server release notes</a>.</p>
+0.0.17 binaries, losing writes made after the snapshot. When upgrading from before
+0.0.17, also apply its notification migration;
+optional Treetop installations require protocol 0.1 and compatible policy bundles.
+See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.18">server release notes</a>.</p>
 <p>When upgrading from before 0.0.15, existing enforced objects start pending;
 request schema revalidation. Review
 <a href="../schema-evolution/">schema evolution</a> for policy and authorization migration.</p>
-<p><strong>Breaking backup output change:</strong> server v0.0.17 creates format 7 backups,
-including notification configuration and terminal delivery history. Older servers
-cannot restore format 7. CLI v0.0.13 and server 0.0.17 still accept format 6 with
-legacy notification defaults; keep existing format 6 artifacts intact. Restores
-reset transient sink scheduling. Restore format 5 artifacts with the matching
-older server, then migrate and take a new backup. Changing <code>backup_version</code>
-does not convert it. Keep a verified backup from the previous server version.</p>
+<p><strong>Breaking backup output change:</strong> server v0.0.18 creates format 8 backups,
+including collection sink ownership and direct grants. Older servers cannot
+restore format 8. CLI v0.0.14 and server 0.0.18 still accept formats 6 and 7 with
+legacy grant backfill; keep those artifacts intact. Restores reset transient sink
+scheduling while preserving notification configuration and terminal delivery
+history. Restore format 5 artifacts with the matching older server, then migrate
+and take a new backup. Changing <code>backup_version</code> does not convert it. Keep a
+verified backup from the previous server version.</p>
 <h2 id="create-a-backup">Create a backup<a class="headerlink" href="#create-a-backup" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>state-only.json<span class="w"> </span>--include-history<span class="w"> </span><span class="nb">false</span>
@@ -1794,7 +1796,7 @@ The CLI never displays the capability in normal output or semantic pipelines.</p
 returns <code>confirmed</code>, meaning the restore is queued. <code>--wait</code> polls until
 <code>succeeded</code>, <code>failed</code>, or <code>expired</code>; only <code>succeeded</code> exits successfully.
 Without <code>--wait</code>, confirmation returns immediately after acceptance.</p>
-<p>Server 0.0.17 retains the requirement for fresh approval from an unscoped human user before
+<p>Server 0.0.18 retains the requirement for fresh approval from an unscoped human user before
 confirmation. <code>--yes</code> still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place <code>--approval-password-file FILE</code> before <code>restore</code>
@@ -1831,7 +1833,7 @@ existing destination intact. If installation fails after the content is written,
 the error gives the private temporary file path for recovery.</p>
 <p>On other platforms, use a destination directory with suitable access controls.</p>
 <h2 id="history-free-restores-and-older-artifacts">History-free restores and older artifacts<a class="headerlink" href="#history-free-restores-and-older-artifacts" title="Permanent link">&para;</a></h2>
-<p>Server 0.0.17 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+<p>Server 0.0.18 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with <code>--include-history false</code>. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -1846,7 +1848,7 @@ an artifact that fails staging. Do not edit revision or history fields to bypass
 validation.</p>
 <p>The earlier 0.0.13 error, <code>Full backup live revisions disagree with
 'collection_history'</code>, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.17.</p>
+successful staging and a complete second-generation restore on 0.0.18.</p>
 <h2 id="reproduce-the-integration-check">Reproduce the integration check<a class="headerlink" href="#reproduce-the-integration-check" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--locked
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>python3<span class="w"> </span>scripts/test-backup-restore.py
