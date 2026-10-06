@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.13"
+version = "0.0.14"
 edition = "2021"
 
 [workspace]
@@ -15,8 +15,8 @@ members = [
 resolver = "2"
 
 [package.metadata.hubuum]
-server-version = "0.0.17"
-server-image = "ghcr.io/hubuum/hubuum-server@sha256:cc0518167816bfddb38853b8b7217c4a347511318d51e1abca93ca418f31b302"
+server-version = "0.0.18"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:5b54248f19171200dfa497174d385a48f90666a415cb31732797043d5e182fc4"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -41,7 +41,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.14.0", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.14.1", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"

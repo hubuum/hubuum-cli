@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.14] - 2026-10-06
+
 ### Added
 
 - Manage collection-owned webhooks with `event sink list|show|create|update|delete
@@ -13,20 +15,27 @@
 ### Fixed
 
 - Collection destination filters and sorts match the server's searchable metadata.
-- Chat presets read credential-bearing URLs with `--destination-url-file PATH`;
+- **Breaking (preset arguments):** chat presets read credential-bearing URLs with `--destination-url-file PATH`;
   literal destination URLs are no longer accepted as preset arguments. Tokenizer
   trace logs record token counts rather than argument contents.
 
 ### Changed
 
-- Recognize backup format 8 from the updated server while retaining formats 6
-  and 7. Format 8 requires the matching server for restore.
+- Refresh compatible Rust dependencies, including Hyper 1.12, h2 0.4.20,
+  Jiff 0.2.38, and Zeroize 1.9.1.
+- **Breaking (backup output):** Hubuum v0.0.18 writes format 8; restore accepts
+  formats 6, 7, and 8. Older servers cannot restore format 8. Keep older artifacts
+  for recovery and upgrade all server processes before taking new backups.
+- **Breaking (server target):** target Hubuum v0.0.18 through the exact published
+  `hubuum_client` 0.14.1 dependency. Stop all writers and take a PostgreSQL
+  snapshot before the collection-sink migration. Start matching v0.0.18 binaries;
+  rollback requires that snapshot and v0.0.17 binaries. See
+  [upgrade instructions](docs/backup-restore.md).
 
-- Collection self-service requires the server collection-sink update after
-  `v0.0.17`, and both `ManageEventSubscription` and `ReadAudit`. Existing
+- Collection self-service requires the server `v0.0.18`, and both `ManageEventSubscription` and `ReadAudit`. Existing
   administrator subscription workflows retain v0.0.17 support; only a missing
   scoped discovery route permits the legacy lookup. Permission denials never
-  trigger that fallback. The CLI now depends on Rust client `0.14.0`; publish that
+  trigger that fallback. The CLI now depends on Rust client `0.14.1`; publish that
   client before publishing this CLI update.
 
 ## [0.0.13] - 2026-10-05

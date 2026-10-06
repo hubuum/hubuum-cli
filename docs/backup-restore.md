@@ -1,30 +1,32 @@
 # Backup and restore
 
-CLI v0.0.13 uses `hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
+CLI v0.0.14 uses `hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-**Breaking server upgrade requirement:** upgrading from 0.0.16 requires a
+**Breaking server upgrade requirement:** upgrading from 0.0.17 requires a
 maintenance window. Stop all writers, including API, worker, and restore-executor
-processes, then take a PostgreSQL snapshot. Apply the webhook-notification
-migration with `hubuum-admin --migrate` before starting matching 0.0.17 binaries.
+processes, then take a PostgreSQL snapshot. Apply the collection-event-sinks
+migration with `hubuum-admin --migrate` before starting matching 0.0.18 binaries.
 Binary-only rollback is unsupported: recovery requires the snapshot and matching
-0.0.16 binaries, losing writes made after the snapshot. Optional Treetop
-installations must also upgrade to protocol 0.1 and compatible policy bundles.
-See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.17).
+0.0.17 binaries, losing writes made after the snapshot. When upgrading from before
+0.0.17, also apply its notification migration;
+optional Treetop installations require protocol 0.1 and compatible policy bundles.
+See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.18).
 
 When upgrading from before 0.0.15, existing enforced objects start pending;
 request schema revalidation. Review
 [schema evolution](schema-evolution.md) for policy and authorization migration.
 
-**Breaking backup output change:** server v0.0.17 creates format 7 backups,
-including notification configuration and terminal delivery history. Older servers
-cannot restore format 7. CLI v0.0.13 and server 0.0.17 still accept format 6 with
-legacy notification defaults; keep existing format 6 artifacts intact. Restores
-reset transient sink scheduling. Restore format 5 artifacts with the matching
-older server, then migrate and take a new backup. Changing `backup_version`
-does not convert it. Keep a verified backup from the previous server version.
+**Breaking backup output change:** server v0.0.18 creates format 8 backups,
+including collection sink ownership and direct grants. Older servers cannot
+restore format 8. CLI v0.0.14 and server 0.0.18 still accept formats 6 and 7 with
+legacy grant backfill; keep those artifacts intact. Restores reset transient sink
+scheduling while preserving notification configuration and terminal delivery
+history. Restore format 5 artifacts with the matching older server, then migrate
+and take a new backup. Changing `backup_version` does not convert it. Keep a
+verified backup from the previous server version.
 
 ## Create a backup
 
@@ -78,7 +80,7 @@ returns `confirmed`, meaning the restore is queued. `--wait` polls until
 `succeeded`, `failed`, or `expired`; only `succeeded` exits successfully.
 Without `--wait`, confirmation returns immediately after acceptance.
 
-Server 0.0.17 retains the requirement for fresh approval from an unscoped human user before
+Server 0.0.18 retains the requirement for fresh approval from an unscoped human user before
 confirmation. `--yes` still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place `--approval-password-file FILE` before `restore`
@@ -129,7 +131,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.17 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+Server 0.0.18 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -146,7 +148,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.17.
+successful staging and a complete second-generation restore on 0.0.18.
 
 ## Reproduce the integration check
 

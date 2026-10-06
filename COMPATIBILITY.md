@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.13 uses
-`hubuum_client` 0.13.0, which targets Hubuum server v0.0.17.
+and reproducibly tests its Hubuum server target. CLI v0.0.14 uses
+`hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.13 | 0.13.0 | 0.0.17 | Current CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
+| 0.0.14 | 0.14.1 | 0.0.18 | Current target; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
+| 0.0.13 | 0.13.0 | 0.0.17 | Previous CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
 | 0.0.12 | 0.12.0 | 0.0.16 | Previous CLI release; structured search, credential approvals, task discovery, and backup format 6 |
 | 0.0.11 | 0.10.1 | 0.0.14 | Previous CLI release; backup format 5, queued restores, and restorable follow-up backups |
 | 0.0.10 | 0.9.1 | 0.0.9 | Previous CLI release |
@@ -49,6 +50,41 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.14: client v0.14.1
+
+CLI v0.0.14 pins the published `hubuum_client` 0.14.1, which targets Hubuum
+server v0.0.18. The client reconciles all 235 operations and 338 schemas, with
+88 wire-model mappings. CLI integrations use the same immutable released server
+image recorded in `Cargo.toml`. The client enables only its `blocking` feature
+and retains Rust 1.88 as its MSRV; the CLI declares no MSRV and is verified with
+Rust 1.99. The Rust client's public API remains compatible with 0.14.0.
+
+Verification on 2026-10-06 used the published crates.io client and released server
+image `ghcr.io/hubuum/hubuum-server@sha256:5b54248f19171200dfa497174d385a48f90666a415cb31732797043d5e182fc4`,
+from server commit `35fcf6696d4d564e2d89534db0c5194c14129d9f`. All 743 workspace
+tests and the complete disposable-server suite passed, including delegated
+collection setup, shared chat presets, credential approvals, schema workflows,
+and full restore/recovery with and without history plus a second-generation restore.
+
+Collection managers can create, update, and delete fixed-destination webhooks and
+subscribe to their collection's events. These operations require both
+`ManageEventSubscription` and `ReadAudit`. Global sinks require direct collection
+grants; administrators can grant, list, and revoke them through the CLI. The
+required pinned integration run covers the delegated lifecycle, administrator
+chat presets, credential approvals, and full backup/restore recovery.
+
+**Breaking (preset arguments):** pass chat-provider destination URLs through
+`--destination-url-file PATH`; literal destination URL arguments are no longer
+accepted. Store those files with restrictive permissions. See
+[collection-owned webhooks](docs/webhooks.md#collection-owned-destinations).
+
+**Breaking (server target and backup output):** upgrade the server before using
+collection self-service. Stop every writer and take a PostgreSQL snapshot before
+the collection-sink migration, then deploy matching v0.0.18 binaries. Recovery
+requires that snapshot and matching v0.0.17 binaries. New backups use format 8;
+restore input accepts 6, 7, and 8. Older servers cannot restore format 8. See
+[upgrade and recovery instructions](docs/backup-restore.md).
 
 ## CLI v0.0.13: client v0.13.0
 
