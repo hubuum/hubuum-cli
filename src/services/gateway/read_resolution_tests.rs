@@ -220,3 +220,82 @@ fn related_object_output_reuses_embedded_collections_and_keeps_paths() {
     assert_eq!(page.items[2].path, ["BL14=521.A7-UD7056", "B701"]);
     assert_eq!(transport.requests().len(), 4);
 }
+
+#[test]
+fn delegated_sink_lookup_uses_only_the_collection_discovery_endpoint() {
+    let sink = json!({"id": 5, "name": "notifications", "kind": "webhook", "enabled": true, "collection_id": 7, "revision": 1, "routing": "fixed"});
+    let (gateway, transport) = gateway([json!([sink])]);
+    assert_eq!(
+        gateway
+            .collection_event_sink_id_by_name(7.into(), "notifications")
+            .unwrap(),
+        5
+    );
+    let requests = transport.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url.path(), "/api/v1/collections/7/event-sinks");
+}
+
+#[test]
+fn subscription_sink_lookup_does_not_fall_back_on_permission_denial() {
+    let (gateway, transport) = gateway([]);
+    transport.push_response(TransportResponse::empty(StatusCode::FORBIDDEN));
+    assert!(gateway
+        .subscription_sink_id_by_name(7.into(), "notifications")
+        .is_err());
+    assert_eq!(transport.requests().len(), 1);
+}
+
+#[test]
+fn subscription_sink_lookup_preserves_legacy_admin_workflows() {
+    let (gateway, transport) = gateway([]);
+    transport.push_response(TransportResponse::empty(StatusCode::NOT_FOUND));
+    transport.push_response(
+        TransportResponse::json(
+            StatusCode::OK,
+            &json!([{
+                "id":5,"name":"notifications","kind":"webhook","config":{},"enabled":false,
+                "created_at":"2026-10-05T00:00:00Z","updated_at":"2026-10-05T00:00:00Z","revision":1
+            }]),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        gateway
+            .subscription_sink_id_by_name(7.into(), "notifications")
+            .unwrap(),
+        5
+    );
+    assert_eq!(transport.requests()[1].url.path(), "/api/v1/event-sinks");
+}
+
+#[test]
+fn scoped_sink_discovery_rejects_unsupported_queries_before_sending() {
+    use crate::list_query::{FilterClause, SortClause, SortDirectionArg};
+    use hubuum_client::FilterOperator;
+    for field in ["enabled", "updated_at"] {
+        for sort in [false, true] {
+            let (gateway, transport) = gateway([]);
+            let query = if sort {
+                ListQuery {
+                    sorts: vec![SortClause {
+                        field: field.into(),
+                        direction: SortDirectionArg::Asc,
+                    }],
+                    ..Default::default()
+                }
+            } else {
+                ListQuery {
+                    filters: vec![FilterClause {
+                        field: field.into(),
+                        operator: FilterOperator::Equals { is_negated: false },
+                        value: "true".into(),
+                    }],
+                    ..Default::default()
+                }
+            };
+            assert!(gateway.collection_event_sinks(7.into(), &query).is_err());
+            assert!(transport.requests().is_empty());
+        }
+    }
+}

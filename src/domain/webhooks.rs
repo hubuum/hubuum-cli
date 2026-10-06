@@ -1,3 +1,4 @@
+use reqwest::Url;
 use serde_json::{json, Value};
 
 use crate::errors::AppError;
@@ -22,6 +23,30 @@ impl WebhookTarget {
     }
 
     pub(crate) fn config(self, url_secret: WebhookUrlSecret) -> Value {
+        let mut config = self.base_config();
+        config["url_secret_ref"] = Value::String(url_secret.as_str().to_string());
+        config
+    }
+
+    pub(crate) fn config_with_url(self, url: &str) -> Result<Value, AppError> {
+        let url = url.trim();
+        let valid = Url::parse(url).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+        });
+        if !valid {
+            return Err(AppError::InvalidOption(
+                "Destination must be an HTTPS URL without embedded credentials".into(),
+            ));
+        }
+        let mut config = self.base_config();
+        config["destination_url"] = Value::String(url.to_string());
+        Ok(config)
+    }
+
+    fn base_config(self) -> Value {
         let mut response = json!({
             "success_statuses": [200],
             "rate_limit": true,
@@ -37,7 +62,6 @@ impl WebhookTarget {
             }
         };
         json!({
-            "url_secret_ref": url_secret.as_str(),
             "body_template": template,
             "response": response,
         })

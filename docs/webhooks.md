@@ -280,3 +280,41 @@ Queuing is not delivery.
 The pinned CLI integration test creates each preset and checks real server
 previews and pacing round trips. It does not send messages to hosted providers
 or verify your channel permissions and credentials.
+
+## Collection-owned destinations
+
+With the server collection-integration update after `v0.0.17` and Rust client
+`0.14.0`, a collection manager can configure a destination and subscription:
+
+```text
+event sink create --collection Inventory --name alerts --target slack --destination-url-file slack-webhook-url.txt
+event sink list --collection Inventory
+event subscription create --collection Inventory --sink alerts --name changes --entity-types object --actions updated
+```
+
+The URL file contains the complete HTTPS webhook URL. Keep it private. Presets
+require file input so the URL does not enter process arguments or REPL history. For a custom
+message, pass `--kind webhook --config file://webhook.json` with a fixed
+`destination_url` in the configuration. Creation and editing require
+`ManageEventSubscription` and `ReadAudit`; listing and deletion require management.
+Saved URLs are omitted from collection results. Supply replacement configuration
+to rotate a URL, and remove subscriptions before deleting their destination.
+Destinations belong to the collection and survive the creator losing access.
+
+An administrator can grant a global sink with
+`event sink grant --name shared --collection Inventory`, inspect grants with
+`event sink collections --name shared`, or revoke with
+`event sink revoke --name shared --collection Inventory`. Grants do not inherit.
+Delivery diagnostics and retries remain administrator operations.
+
+During coordinated development, validate against the sibling client changes with
+Cargo's command-line override (do not commit a machine-specific path):
+
+```bash
+cargo test --workspace --config 'patch.crates-io.hubuum_client.path="../hubuum-client-rust"'
+```
+
+Run `python3 scripts/test-collection-integrations.py` with
+`HUBUUM_E2E_BASE_URL` and `HUBUUM_E2E_ADMIN_PASSWORD` pointing to a disposable
+updated server to verify the actual CLI as a delegated collection manager.
+The script creates and removes its own user, group, and collection fixtures.

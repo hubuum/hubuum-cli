@@ -93,7 +93,7 @@ impl CommandTokenizer {
             positionals: Vec::new(),
         };
 
-        trace!("Tokenizer generated: {tokens:?}");
+        trace!("Tokenizer generated {} tokens", tokens.len());
 
         let mut idx = 0;
         let mut options_ended = false;

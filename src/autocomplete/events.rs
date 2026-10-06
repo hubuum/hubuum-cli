@@ -1,7 +1,18 @@
 use crate::services::{AuditActorKind, AuditResourceKind, CompletionContext};
 
-pub fn event_sinks(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
-    ctx.event_sinks(prefix)
+pub fn event_sinks(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
+    if parts.get(1).is_some_and(|part| part == "sink")
+        && parts
+            .get(2)
+            .is_some_and(|part| matches!(part.as_str(), "grant" | "revoke" | "collections"))
+    {
+        return ctx.event_sinks(prefix);
+    }
+    if let Some(collection) = option_value(parts, "--collection") {
+        ctx.collection_event_sinks(prefix, &collection)
+    } else {
+        ctx.event_sinks(prefix)
+    }
 }
 
 pub fn webhook_targets(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
