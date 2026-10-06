@@ -252,10 +252,10 @@ pub struct EventSinkCreate {
     )]
     pub url_secret_ref: Option<String>,
     #[option(
-        long = "destination-url",
-        help = "Fixed HTTPS URL for a webhook preset; supports file:// input"
+        long = "destination-url-file",
+        help = "Read the fixed HTTPS webhook URL from a private file"
     )]
-    pub destination_url: Option<String>,
+    pub destination_url_file: Option<String>,
     #[option(long = "config", help = "Sink config JSON object", value_source = true)]
     pub config: Option<String>,
     #[option(
@@ -303,21 +303,17 @@ impl EventSinkCreate {
                     "--target cannot be combined with --config, --secret-ref, or a non-webhook --kind; use --url-secret-ref for the URL alias".to_string(),
                 ));
             }
-            let config = match (self.url_secret_ref, self.destination_url) {
+            let config = match (self.url_secret_ref, self.destination_url_file) {
                 (Some(alias), None) => target.config(WebhookUrlSecret::new(alias)?),
                 (None, Some(url)) => {
-                    let url = if let Some(path) = url.strip_prefix("file://") {
-                        read_to_string(path).map_err(|_| {
-                            AppError::InvalidOption("Cannot read the destination URL file".into())
-                        })?
-                    } else {
-                        url
-                    };
+                    let url = read_to_string(url).map_err(|_| {
+                        AppError::InvalidOption("Cannot read the destination URL file".into())
+                    })?;
                     target.config_with_url(&url)?
                 }
                 _ => {
                     return Err(AppError::InvalidOption(
-                        "Choose exactly one of --url-secret-ref or --destination-url".into(),
+                        "Choose exactly one of --url-secret-ref or --destination-url-file".into(),
                     ))
                 }
             };
@@ -327,7 +323,7 @@ impl EventSinkCreate {
                 Some(policy.unwrap_or(EventDeliveryPolicy::new(1000)?)),
             )
         } else {
-            if self.url_secret_ref.is_some() || self.destination_url.is_some() {
+            if self.url_secret_ref.is_some() || self.destination_url_file.is_some() {
                 return Err(AppError::InvalidOption("--url-secret-ref requires --target; custom webhook configurations can set config.url_secret_ref".to_string()));
             }
             (
@@ -508,15 +504,29 @@ mod tests {
 
     #[test]
     fn collection_chat_preset_uses_a_fixed_url_without_a_server_secret() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("webhook-url");
+        std::fs::write(&path, "https://example.test/private\n").unwrap();
         let tokens = CommandTokenizer::new(
-            "event sink create --collection inventory --name notifications --target slack --destination-url https://example.test/private",
+            &format!("event sink create --collection inventory --name notifications --target slack --destination-url-file {}", path.display()),
             "create", &EventSinkCreate::options(),
         ).unwrap();
+        assert!(!format!("{tokens:?}").contains("https://example.test/private"));
         let command = EventSinkCreate::parse_tokens(&tokens).unwrap();
         let input = command.into_request().unwrap();
         let config = input.config.unwrap();
         assert_eq!(config["destination_url"], "https://example.test/private");
         assert!(config.get("url_secret_ref").is_none());
+    }
+
+    #[test]
+    fn preset_url_input_requires_a_file_and_errors_do_not_echo_credentials() {
+        let mut command = preset("slack");
+        command.url_secret_ref = None;
+        command.destination_url_file = Some("https://example.test/private-token".into());
+        let error = command.into_request().unwrap_err().to_string();
+        assert!(error.contains("Cannot read the destination URL file"));
+        assert!(!error.contains("private-token"));
     }
 
     #[test]

@@ -268,3 +268,34 @@ fn subscription_sink_lookup_preserves_legacy_admin_workflows() {
     );
     assert_eq!(transport.requests()[1].url.path(), "/api/v1/event-sinks");
 }
+
+#[test]
+fn scoped_sink_discovery_rejects_unsupported_queries_before_sending() {
+    use crate::list_query::{FilterClause, SortClause, SortDirectionArg};
+    use hubuum_client::FilterOperator;
+    for field in ["enabled", "updated_at"] {
+        for sort in [false, true] {
+            let (gateway, transport) = gateway([]);
+            let query = if sort {
+                ListQuery {
+                    sorts: vec![SortClause {
+                        field: field.into(),
+                        direction: SortDirectionArg::Asc,
+                    }],
+                    ..Default::default()
+                }
+            } else {
+                ListQuery {
+                    filters: vec![FilterClause {
+                        field: field.into(),
+                        operator: FilterOperator::Equals { is_negated: false },
+                        value: "true".into(),
+                    }],
+                    ..Default::default()
+                }
+            };
+            assert!(gateway.collection_event_sinks(7.into(), &query).is_err());
+            assert!(transport.requests().is_empty());
+        }
+    }
+}

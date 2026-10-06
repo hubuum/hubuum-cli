@@ -287,12 +287,13 @@ With the server collection-integration update after `v0.0.17` and Rust client
 `0.14.0`, a collection manager can configure a destination and subscription:
 
 ```text
-event sink create --collection Inventory --name alerts --target slack --destination-url file://slack-webhook-url.txt
+event sink create --collection Inventory --name alerts --target slack --destination-url-file slack-webhook-url.txt
 event sink list --collection Inventory
 event subscription create --collection Inventory --sink alerts --name changes --entity-types object --actions updated
 ```
 
-The URL file contains the complete HTTPS webhook URL. Keep it private. For a custom
+The URL file contains the complete HTTPS webhook URL. Keep it private. Presets
+require file input so the URL does not enter process arguments or REPL history. For a custom
 message, pass `--kind webhook --config file://webhook.json` with a fixed
 `destination_url` in the configuration. Creation and editing require
 `ManageEventSubscription` and `ReadAudit`; listing and deletion require management.

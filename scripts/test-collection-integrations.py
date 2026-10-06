@@ -85,7 +85,7 @@ def main():
                 return json.loads(result.stdout)
 
             sink = cli("event", "sink", "create", "--collection", prefix, "--name", prefix,
-                       "--target", "slack", "--destination-url", f"file://{destination_file}",
+                       "--target", "slack", "--destination-url-file", str(destination_file),
                        "--enabled", "false")
             assert sink["collection_id"] == collection["id"] and sink["routing"] == "fixed"
             assert "private-hook" not in json.dumps(sink)

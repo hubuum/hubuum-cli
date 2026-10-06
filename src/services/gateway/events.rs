@@ -480,8 +480,9 @@ impl HubuumGateway {
         collection: CollectionId,
         query: &ListQuery,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
-        let validated = validate_filter_clauses(&query.filters, EVENT_SINK_FILTER_SPECS)?;
-        let sorts = validate_sort_clauses(&query.sorts, EVENT_SINK_SORT_SPECS)?;
+        let validated =
+            validate_filter_clauses(&query.filters, COLLECTION_EVENT_SINK_FILTER_SPECS)?;
+        let sorts = validate_sort_clauses(&query.sorts, COLLECTION_EVENT_SINK_SORT_SPECS)?;
         let filters = validated
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
@@ -911,6 +912,46 @@ fn paged_to_json<T: Serialize>(page: PagedResult<T>) -> Result<PagedResult<JsonR
         total_count: page.total_count,
     })
 }
+
+const COLLECTION_EVENT_SINK_FILTER_SPECS: &[FilterFieldSpec] = &[
+    FilterFieldSpec::new(
+        "id",
+        "id",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+    FilterFieldSpec::new(
+        "name",
+        "name",
+        FilterOperatorProfile::String,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "kind",
+        "kind",
+        FilterOperatorProfile::EqualityOnly,
+        FilterValueProfile::String,
+    ),
+    FilterFieldSpec::new(
+        "created_at",
+        "created_at",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::DateTime,
+    ),
+    FilterFieldSpec::new(
+        "revision",
+        "revision",
+        FilterOperatorProfile::NumericOrDate,
+        FilterValueProfile::Integer,
+    ),
+];
+const COLLECTION_EVENT_SINK_SORT_SPECS: &[SortFieldSpec] = &[
+    SortFieldSpec::new("id", "id"),
+    SortFieldSpec::new("name", "name"),
+    SortFieldSpec::new("kind", "kind"),
+    SortFieldSpec::new("created_at", "created_at"),
+    SortFieldSpec::new("revision", "revision"),
+];
 
 pub(crate) const EVENT_SINK_FILTER_SPECS: &[FilterFieldSpec] = &[
     FilterFieldSpec::new(

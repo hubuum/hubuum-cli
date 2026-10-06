@@ -5,12 +5,22 @@
 ### Added
 
 - Manage collection-owned webhooks with `event sink list|show|create|update|delete
-  --collection NAME`, including chat presets with `--destination-url file://PATH`.
+  --collection NAME`, including chat presets with `--destination-url-file PATH`.
   Subscription sink lookup and completion use collection-scoped discovery.
 - Administrator commands `event sink grant`, `revoke`, and `collections` manage
   direct collection grants for shared sinks through the Rust client.
 
+### Fixed
+
+- Collection destination filters and sorts match the server's searchable metadata.
+- Chat presets read credential-bearing URLs with `--destination-url-file PATH`;
+  literal destination URLs are no longer accepted as preset arguments. Tokenizer
+  trace logs record token counts rather than argument contents.
+
 ### Changed
+
+- Recognize backup format 8 from the updated server while retaining formats 6
+  and 7. Format 8 requires the matching server for restore.
 
 - Collection self-service requires the server collection-sink update after
   `v0.0.17`, and both `ManageEventSubscription` and `ReadAudit`. Existing
