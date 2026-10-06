@@ -1478,6 +1478,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="[Unreleased]">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Added
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fixed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1493,7 +1532,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1504,7 +1543,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1515,7 +1554,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Fixed
@@ -1733,6 +1772,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="[Unreleased]">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Added
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fixed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1748,7 +1826,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1759,7 +1837,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1770,7 +1848,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Fixed
@@ -1926,6 +2004,36 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Manage collection-owned webhooks with <code>event sink list|show|create|update|delete
+  --collection NAME</code>, including chat presets with <code>--destination-url-file PATH</code>.
+  Subscription sink lookup and completion use collection-scoped discovery.</li>
+<li>Administrator commands <code>event sink grant</code>, <code>revoke</code>, and <code>collections</code> manage
+  direct collection grants for shared sinks through the Rust client.</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Collection destination filters and sorts match the server's searchable metadata.</li>
+<li>Chat presets read credential-bearing URLs with <code>--destination-url-file PATH</code>;
+  literal destination URLs are no longer accepted as preset arguments. Tokenizer
+  trace logs record token counts rather than argument contents.</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p>Recognize backup format 8 from the updated server while retaining formats 6
+  and 7. Format 8 requires the matching server for restore.</p>
+</li>
+<li>
+<p>Collection self-service requires the server collection-sink update after
+  <code>v0.0.17</code>, and both <code>ManageEventSubscription</code> and <code>ReadAudit</code>. Existing
+  administrator subscription workflows retain v0.0.17 support; only a missing
+  scoped discovery route permits the legacy lookup. Permission denials never
+  trigger that fallback. The CLI now depends on Rust client <code>0.14.0</code>; publish that
+  client before publishing this CLI update.</p>
+</li>
+</ul>
 <h2 id="0013-2026-10-05">[0.0.13] - 2026-10-05<a class="headerlink" href="#0013-2026-10-05" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1951,7 +2059,7 @@
 </tr>
 </tbody>
 </table>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Document compatibility through the pinned client library, generic webhook
   setup, and equivalent full commands for the Slack, Mattermost, and Discord
@@ -1993,7 +2101,7 @@
   updates no longer require changes or rebuilds in this repository.</p>
 </li>
 </ul>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>In-place binary updates with <code>self-update</code> and a metadata-only <code>--check</code>,
   available in the CLI and REPL without Hubuum login. The new <code>hubuum-update</code>
@@ -2022,7 +2130,7 @@
   immutable release snapshots, and an explicit development edition.</p>
 </li>
 </ul>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Documentation tables keep long environment-variable names readable, use wider
   reference layouts, and scroll within the table on small screens. Shared style
