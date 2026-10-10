@@ -1,56 +1,54 @@
 # Maintain this documentation
 
-The public site is <https://hubuum.github.io/hubuum-cli/>. It shares its theme,
-version archive, link checks, and publishing workflows with the other Hubuum
-projects through [hubuum/.github](https://github.com/hubuum/.github).
-`zensical.toml` owns this project's navigation and source-file imports.
+Edit prose in `docs/` and imported documents at their original repository paths.
+`zensical.toml` owns navigation and source-file imports. Add each new page to
+navigation once and preserve existing URLs and section anchors when moving text.
 
 ## Build and preview
 
-Use Python 3.11 or newer, Bash, Git, and Docker:
+Use Python 3.11+, Bash, Git, and a running Docker engine:
 
 ```sh
+bash scripts/docs.sh check
 bash scripts/docs.sh build
 bash scripts/docs.sh serve
 ```
 
-The launcher fetches the exact shared-tooling commit in `.github/docs-tools.env`.
-The preview is served on `http://127.0.0.1:8000/`. Rebuild after editing source
-files. Generated files and caches stay in `target/`. Imported root documents are
-copied only into the build directory; edit their original repository files.
+The preview opens at `http://127.0.0.1:8000/`; rebuild after editing. Generated
+files stay under `target/`. Build a released edition with
+`bash scripts/docs.sh build vX.Y.Z`. The normal build uses the working tree.
 
 ## Release documentation
 
-The site root opens the latest stable release. Release paths are `/vX.Y.Z/`;
-`/main/` is explicitly selected development documentation. Every release edition
-uses its tagged prose. Publishing a new release or updating development keeps older
-editions intact, and a moved release tag is rejected.
+Follow the shared [publishing and release-verification policy](https://github.com/hubuum/.github/blob/main/docs-tooling/README.md#ci-and-publishing).
+It covers edition URLs, immutable release archives, manual backfills, deployment
+recovery, and checking the public site before a release is complete.
 
-To add an older published release, run **Actions → Documentation → Run workflow**
-on `main` and enter its stable `vX.Y.Z` tag. Backfilling does not change the latest
-release default. Each Hubuum project versions its documentation independently.
-
-PRs run strict builds and retain a downloadable `documentation-site` artifact.
-Main/release workflows publish through GitHub Actions Pages. The `gh-pages`
-branch retains generated snapshots independently of artifact expiry; never
-force-push or delete it. The shared setup script enables Pages once per repo.
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="shared-examples"></span>
 
 ## Make changes
 
-Add every `docs/**/*.md` page to navigation exactly once. Use relative Markdown
-links within the library; links to repository files are rewritten for the site
-and pinned to the selected release. Keep examples and compatibility records
-with the project that owns them. Shared branding and ecosystem navigation are
-maintained centrally; update the pinned tooling SHA and reusable-workflow SHAs
-together to adopt a reviewed shared change.
+Follow the shared [content and tooling policy](https://github.com/hubuum/.github/blob/main/docs-tooling/README.md#content-policy).
+Keep interface-specific examples here and link to a matching server edition for
+shared concepts and the [Atlas dataset](example-dataset.md). Update the tooling
+SHA in `.github/docs-tools.env` and both reusable-workflow pins together when
+adopting shared build changes.
 
-Shared stylesheet fixes apply to retained release editions without re-rendering
-their content. Released HTML, downloads, scripts, and source revisions stay
-unchanged; only the shared presentation CSS is refreshed.
+## Documentation-only CI
 
-## Shared examples
+Pull requests and pushes containing only prose or documentation-site inputs run
+Markdown lint and documentation validation without the application test/build
+matrix. Unknown files, source changes, executable examples, and declared
+test/build inputs retain application CI. Mixed changes run both kinds of checks.
 
-Use the [Atlas inventory](example-dataset.md) for walkthroughs and screenshots.
-Keep the server repository as the source of the downloadable import and backup.
-Pin a matching server edition or commit for repeatable tests, resolve IDs at
-runtime, and identify tutorial additions separately from the baseline dataset.
+`scripts/ci-policy.py` owns the allowlist and exceptions. Update its regression
+tests whenever a document becomes a build, test, or packaging input; direct
+literal Rust includes are checked automatically. Run the policy tests with
+`python3 scripts/test-ci-policy.py`.
+
+The `Lint` check is the aggregate CI gate: classification failures,
+failed checks, and unexpectedly skipped required jobs fail it. Keep that check
+required in branch protection. Add the `ci:full` pull-request label or dispatch
+the CI workflow manually to request complete validation. Release validation
+and separately scheduled checks retain their existing coverage.

@@ -120,3 +120,35 @@ redirect the result. The same validation keeps command filters such as
 - New command output should use shared semantic emitters rather than
   `append_line` for normal result data.
 - Do not add behavior that depends on parsing table glyph output.
+
+## Table controls
+
+Table rendering can be tuned per run or with config keys:
+
+```sh
+hubuum-cli --table-style plain object list --limit 5
+hubuum-cli --table-style dense --table-bands auto object list --limit 5
+hubuum-cli --table-width full --table-wrap 40 object list --class Hosts
+hubuum-cli --empty-result silent object list --class Hosts --limit 0
+hubuum-cli object list --class Hosts --table-headers full
+hubuum-cli object list --class Hosts --table-headers none
+```
+
+Grouped headers are the default for text tables. Dotted paths are displayed on
+multiple header lines so path names do not determine individual column widths;
+unambiguous class aliases take precedence. Use `--table-headers full` for the
+original flat paths, or `--table-headers none` to suppress table headers.
+Machine-oriented formats retain their semantic column names. Persist the mode
+with `hubuum-cli config set --key output.table_headers --value none`.
+
+Related config keys are `output.table_style`, `output.table_headers`,
+`output.table_width`, `output.table_wrap`, `output.table_bands`, and
+`output.empty_result`.
+
+Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.
+
+```sh
+hubuum-cli object create --name item-1 --class Device --collection main --description "imported" --data file://payload.json
+hubuum-cli class create --name Device --collection main --description "devices"
+hubuum-cli class schema stage --class Device --schema https://example.com/schema.json --validate true
+```

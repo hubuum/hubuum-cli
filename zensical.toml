@@ -14,6 +14,11 @@ nav = [
     { "Client and server compatibility" = "compatibility.md" },
   ] },
   { "Use the CLI" = [
+    { "Connect and authenticate" = "authentication.md" },
+    { "Commands and scripts" = "commands.md" },
+    { "Object workflows" = "object-workflows.md" },
+    { "Pagination" = "pagination.md" },
+    { "Install and update binaries" = "updates.md" },
     { "Search" = "search.md" },
     { "Output pipelines" = "output-pipeline.md" },
     { "Query and script language" = "DSL.md" },
@@ -41,6 +46,7 @@ nav = [
     { "Wrappers" = "examples/hubuum-wrappers.md" },
   ] },
   { "Contributing" = [
+    { "Compatibility evidence" = "compatibility-evidence.md" },
     { "Manual test plan" = "manual-test.md" },
     { "Pipeline design RFC" = "rfcs/0001-native-pipeline-dsl.md" },
     { "Release notes" = "changelog.md" },

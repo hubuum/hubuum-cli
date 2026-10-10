@@ -6,7 +6,8 @@ pack contains only `hubuum-extension.jsonc`; at runtime it relies on nothing but
 
 ## 1. Generate a starter pack
 
-From the repository root, create the read-only starter:
+Use an authenticated CLI and a class you can read. The examples below use
+Atlas’s `Server` class. Create the starter in a writable working directory:
 
 ```sh
 hubuum-cli extension init ./my-inventory --template read-only
@@ -27,14 +28,15 @@ Portable templates are the default because they add no runtime dependency.
 
 ## 2. Read the whole manifest
 
-Here is a complete minimal pack. JSONC permits comments and trailing commas,
-but keys and strings still use JSON double quotes.
+Replace `my-inventory/hubuum-extension.jsonc` with this complete minimal pack.
+JSONC permits comments and trailing commas, but keys and strings still use JSON
+double quotes.
 
 <!-- extension-manifest-example-start -->
 
 ```jsonc
 {
-  "$schema": "../schemas/hubuum-extension.schema.json",
+  "$schema": "https://raw.githubusercontent.com/hubuum/hubuum-cli/v0.0.14/schemas/hubuum-extension.schema.json",
   "schema_version": 1,
   "kind": "portable",
   "name": "my-inventory",
@@ -43,7 +45,7 @@ but keys and strings still use JSON double quotes.
   "config": {
     "objects_class": {
       "type": "string",
-      "default": "Hosts",
+      "default": "Server",
       "help": "Class included in the inventory"
     }
   },
@@ -130,7 +132,7 @@ this pack's default class in the normal CLI configuration:
 
 ```toml
 [extensions.config.my-inventory]
-objects_class = "Jacks"
+objects_class = "Server"
 ```
 
 Only this namespaced table is exposed to the pack, and only keys declared by
@@ -179,10 +181,19 @@ Then add the exactly matching command option:
 }
 ```
 
-Validate again. The command now reads:
+Increase the manifest version from `0.1.0` to `0.1.1`, validate the edited
+source, and upgrade the installed copy before trying the new argument:
 
 ```sh
-hubuum-cli extension my-inventory snapshot Hosts
+hubuum-cli extension validate ./my-inventory
+hubuum-cli extension upgrade ./my-inventory
+```
+
+Installation copies the pack into the CLI's user directory; editing the source
+directory does not update that copy. The command now reads:
+
+```sh
+hubuum-cli extension my-inventory snapshot Server
 ```
 
 The workflow input and command option must match by declaration key, type,

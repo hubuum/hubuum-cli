@@ -6,28 +6,14 @@ four classes and ten connected objects.
 
 ## Load the shared dataset
 
-Follow the server's [Atlas dataset guide](https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/)
-to download and import the inventory into an evaluation server. The guide and
-downloads are pinned to server v0.0.18, the target of `hubuum_client` 0.14.1
-used by CLI v0.0.14. Keep the server as the canonical fixture source; do not copy
-a second fixture into this repository.
+Use the [server v0.0.18 Atlas guide](https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/)
+to load the inventory into an evaluation server and grant your account access.
+This matches this release's server target. The server guide owns the downloads,
+model, permissions, and expected data. Import adds the dataset atomically;
+**restoring its backup replaces all application data**.
 
-The import aborts atomically on name collisions and contains no passwords,
-tokens, users, or group memberships. Its separate backup replaces all application
-data and is intended for resetting a disposable demo installation. The server
-guide owns the loading, restore, compatibility, and checksum instructions.
-
-| Class | Objects to explore | Schema and authority |
-| --- | --- | --- |
-| Service | Atlas, Beacon | Enforced schema; maintained in Hubuum |
-| Server | web-01, web-02, worker-01 | Enforced schema; reference inventory data |
-| Location | Oslo, Bergen | Schema-free; reference facilities data |
-| Context | Research notes, Migration checklist, Capacity observation | Schema-free; locally maintained notes and an upstream observation |
-
-A class defines a resource type and its schema policy. Its objects hold the
-individual JSON records. Source ownership is independent of schema policy:
-`data.source` is example metadata, not automatic synchronization or write
-protection.
+Use the case-sensitive names `Service`, `Server`, `Location`, and `Context`.
+Resolve numeric IDs from responses; they vary between installations.
 
 ## Find classes, then their objects
 
@@ -65,19 +51,9 @@ using the same model.
 
 ## Relations and access
 
-Atlas runs on web-01 and web-02; their locations are Oslo and Bergen. Atlas
-also links to Research notes and Migration checklist. Class relations define
-which resource types connect; object relations connect these specific instances.
-
-The example creates empty atlas-readers and atlas-operators groups. A principal
-assigned only to atlas-readers can read all ten objects without changing them.
-A principal assigned only to atlas-operators can read and maintain the five
-Server/Location objects in atlas-demo-operations, but cannot read the service
-catalogue in its parent collection. Test these differences with non-admin
-accounts and an unscoped token; other memberships and token scopes affect access.
-
-For exact data, expected relationships, and checksums, return to the server's
-[canonical dataset guide](https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/).
-The server corpus tests verify import and restore, schemas, permissions,
-computed values, filters, and pagination. Each client retains its own compatibility
-and integration tests; the example does not change the client library's server target.
+Use a non-admin account in `atlas-readers` to read the full inventory, or one
+in `atlas-operators` to maintain Server/Location objects in the operations child.
+Other memberships and token scopes affect the result. See the canonical
+[relationships](https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/#relations-connect-the-instances)
+and [permission checks](https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/#explore-collection-permissions)
+for expected results and cleanup.
