@@ -1,5 +1,8 @@
 # Portable workflow recipes
 
+Examples outside the Atlas walkthrough use illustrative resources. Substitute
+your own class names and resolved IDs; Atlas does not create Hosts, Rooms, or Jacks.
+
 These patterns assume a portable pack, so they execute in-process and depend
 only on `hubuum-cli`. Copy the complete, compile-checked versions from
 [`examples/hubuum-recipes`](../examples/hubuum-recipes/README.md).

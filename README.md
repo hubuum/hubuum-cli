@@ -1,639 +1,78 @@
-# A CLI for Hubuum
+# Hubuum CLI
+
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="a-cli-for-hubuum"></span>
+
+Run commands, explore interactively, or automate Hubuum from a terminal.
+CLI **v0.0.14** (2026-10-06) uses Rust client **0.14.1** and targets server
+**v0.0.18**. Hubuum is under active development before 1.0.
 
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
 
-This CLI interface for [Hubuum](https://github.com/hubuum/hubuum) is still in
-pre-release state and under heavy development.
-
-The latest release is [v0.0.14](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.14),
-released October 6, 2026. It adds collection-owned webhook setup and targets
-Hubuum server v0.0.18 through Rust client 0.14.1.
-
 ## Release binaries
 
-Successful pushes to `main` publish rolling binaries in the
-[`main-latest` release](https://github.com/hubuum/hubuum-cli/releases/tag/main-latest).
-Version tags such as `v0.0.14` publish immutable, versioned GitHub releases.
-
-Each release provides four small, stripped archives and matching SHA-256 files:
-
-- Linux x86_64 and ARM64 binaries are statically linked with musl.
-- The Apple Silicon macOS binary depends only on Apple-provided system libraries.
-- The Windows x86_64 binary uses the MSVC ABI with a statically linked C runtime;
-  Windows system DLLs remain platform dependencies.
-
-Rolling builds identify their source commit using SemVer build metadata, for example
-`v0.0.14+main.g0123456789ab`. Tagged releases use the clean package version. Show the
-current build identity without logging in, or also query the configured server:
+Download and extract the archive for your platform from
+[release v0.0.14](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.14).
+Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
+on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
+x86_64 binaries are available. See [binary details](docs/updates.md).
 
 ```sh
 hubuum-cli version
-hubuum-cli version --server
-hubuum-cli version --output json
 ```
-
-The same `version` commands are available in the REPL. The server version comes from
-the server's unauthenticated OpenAPI metadata.
 
 ### Updating in place
 
-Starting with v0.0.13, check for or install the latest stable GitHub release:
-
-```sh
-hubuum-cli self-update --check
-hubuum-cli self-update
-hubuum-cli self-update --check --output json
-```
-
-These commands also work in the REPL and require no Hubuum login. `--check`
-reads release metadata without downloading an archive or changing the executable.
-Installation verifies the archive against its published SHA-256 file before
-replacing the running executable on disk. Restart the CLI or REPL afterward;
-the current process continues running its original version.
-
-The installation directory must be writable. For a package-managed installation,
-use its package manager. Supported targets match the four release platforms above;
-Linux GNU builds receive the corresponding static musl binary. Other targets
-must use their original installation method. The updater uses the
-[`self_update` crate](https://docs.rs/self_update/1.3.0/self_update/).
-
-Only strictly newer stable versions are installed. Prereleases and `main-latest`
-are never destinations; a rolling build waits for a stable release with a higher
-version, ignoring its build metadata. GitHub requests optionally use `GH_TOKEN`
-or `GITHUB_TOKEN` (in that order) for API rate limits. Hubuum credentials are
-not used. JSON output reports `status` (`up_to_date`, `update_available`, or
-`updated`), both versions, the executable path, target, and `restart_required`.
+Use `hubuum-cli self-update --check` to inspect the latest stable release.
+See [update and restart instructions](docs/updates.md#updating-in-place) before
+installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-The CLI, client library, and server are versioned independently. CLI v0.0.14
-uses `hubuum_client` v0.14.1, which targets Hubuum server v0.0.18.
-CLI v0.0.12 used `hubuum_client` v0.12.0, which targets server v0.0.16.
-The [compatibility matrix](COMPATIBILITY.md) records each CLI release's client
-dependency, that client's server target, and pinned integration evidence.
-See the [backup and restore guide](docs/backup-restore.md) before upgrading:
-the server now writes format 8 and still accepts formats 6 and 7. Upgrading from
-v0.0.17 requires stopping all writers and taking a PostgreSQL snapshot before
-migration; binary-only rollback is unsupported. Fresh
-[credential approvals](docs/credential-approvals.md) remain required for
-credential changes and restore confirmation.
-
-Use the [webhook setup guide](docs/webhooks.md) for generic JSON receivers or
-Slack, Mattermost, and Discord presets, including their equivalent full commands.
+Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
+For server upgrades, follow the server's release instructions; for CLI recovery
+commands, see [backup and restore](docs/backup-restore.md).
 
 ## Usage
 
-Start the interactive REPL:
+You need a server URL and a human account with permission to read its data.
+Connect to a TLS-enabled server; the CLI prompts for the password:
 
 ```sh
-hubuum-cli
+hubuum-cli --hostname hubuum.example.com --protocol https --port 443 \
+  --username alice collection list
 ```
 
-Run one command and exit:
+For a local HTTP evaluation server, use `--hostname 127.0.0.1 --protocol http
+--port 8080`. Global options go before the command. See
+[authentication](docs/authentication.md) for provider scopes, token files, and
+session recovery.
+
+After loading [Atlas](docs/example-dataset.md) and granting your account read
+access, list its three Server objects:
 
 ```sh
-hubuum-cli object list --limit 5
-hubuum-cli collection list
-hubuum-cli export list
-hubuum-cli config paths
-hubuum-cli help --tree
+hubuum-cli --hostname hubuum.example.com --protocol https --port 443 \
+  --username alice object list --class Server
 ```
 
-In a POSIX shell, quote or escape application-level pipe and redirect operators
-so the shell passes them to Hubuum CLI as standalone arguments:
-
-```sh
-hubuum-cli config show \| F output \| L 5
-hubuum-cli help \> help.txt
-hubuum-cli config show \> each:/tmp/hubuum-config-{n}.txt
-```
-
-Operators do not need escaping inside the REPL or a Hubuum CLI script file.
-
-Run commands from a script file:
-
-```sh
-hubuum-cli script commands.hubuum
-```
-
-Personal command aliases bind one root-level word to a complete command line,
-including pipe stages and redirects. They are stored in the active user config
-and participate in preference export/import. Built-in commands and scopes take
-precedence over aliases.
-
-```sh
-hubuum-cli alias set --name hosts \
-  --description 'List known hosts' \
-  --command 'object list --class Hosts | P Name'
-hubuum-cli hosts
-hubuum-cli alias list
-hubuum-cli alias show --name hosts
-hubuum-cli alias unset --name hosts
-```
-
-`alias list`, root help, and `config show` use the optional description so long
-command pipelines do not overwhelm summary output. `alias show` retains the
-complete command. Described aliases use this compatible expanded TOML form;
-existing `name = "command"` aliases remain valid:
-
-```toml
-[aliases.hosts]
-command = "object list --class Hosts | P Name"
-description = "List known hosts"
-```
-
-Larger site workflows can be installed as extension packs. They
-live under the reserved `extension <pack> ...` namespace and join the normal
-help tree, validation, completion, semantic output, pipeline, and redirect
-machinery:
-
-```sh
-hubuum-cli extension init ./my-pack --template minimal
-hubuum-cli extension contract object list
-hubuum-cli extension validate examples/hubuum-placement
-hubuum-cli extension explain examples/hubuum-placement
-hubuum-cli extension install examples/hubuum-placement
-hubuum-cli extension list
-hubuum-cli extension placement host placement server-01
-hubuum-cli extension placement room jacks R-301
-hubuum-cli extension doctor
-```
-
-Portable workflow packs are the preferred extension kind. They run reusable,
-typed JSONC workflows in-process, require no runtime dependency other than
-`hubuum-cli`, and support bounded JQ expressions, conditions, assertions,
-same-pack calls, and bounded iteration. Executable packs remain available for
-work that cannot be expressed through built-in commands and JQ. They use a
-small versioned JSON process protocol, may add runtime dependencies, and are
-trusted rather than sandboxed. Start with the
-[ten-minute extension tutorial](docs/extension-tutorial.md), then use the
-[extension overview](docs/extensions.md),
-[JSONC reference](docs/extension-reference.md), and
-[portable recipes](docs/extension-recipes.md) for the complete model.
-The [placement example](examples/hubuum-placement/README.md) combines Host,
-Jack, and Room operations in one dependency-free portable workflow pack.
-The [Jacks example](examples/hubuum-jacks/README.md) is a smaller introduction
-to typed inputs and explicit step dependencies.
-The [recipes example](examples/hubuum-recipes/README.md) is a compile-checked
-catalog of every tagged workflow step and binding form.
-
-Long aliases can be loaded from a one-command script file. This example finds
-hosts whose kernel is older than the newest numeric kernel version observed in
-the same OS major version:
-
-```sh
-hubuum-cli script examples/aliases/outdated-kernels.hubuum
-hubuum-cli alias set --name outdated-kernels \
-  --description 'Show hosts with kernels older than the newest observed for their OS release' \
-  --command file://examples/aliases/outdated-kernels.hubuum
-hubuum-cli outdated-kernels
-```
-
-The example converts each kernel into an array of numeric components, so
-`553.16` becomes `[553, 16]` rather than `55316`. The example uses `--all` so
-`object list` fetches the complete matching set before the local pipe runs.
-
-`help`, `help --tree`, `version`, `config show`, and `config paths` run from the local
-command catalog and configuration files without logging in. `version --server`,
-`auth providers`, and `metrics` make unauthenticated requests. Other API-backed
-commands authenticate before execution.
-
-If an API-backed command receives `401 Unauthorized` in the interactive REPL,
-Hubuum CLI reports that the session expired or the token was revoked, then
-immediately renews the session. It rereads `--token-file` credentials, uses a
-configured password without prompting, or prompts for the password when needed.
-Read-only commands are retried once after a successful login. Commands that may
-have changed server state are not replayed; the error identifies the first
-failed HTTP method and path so the current state can be reviewed safely. One-shot
-commands and scripts never start this interactive recovery flow.
-
-Global configuration flags go before the command:
-
-```sh
-hubuum-cli --hostname api.example.com --username alice object list --limit 5
-```
-
-Before requesting an interactive password, Hubuum CLI checks the server's
-unauthenticated health endpoint. When `server.port` has not been configured, it
-tries port 443 first and then port 8080. A port supplied by a config file, the
-environment, or `--port` is authoritative and is the only port tried.
-
-Discover identity providers before login, then select one for scoped credentials:
-
-```sh
-hubuum-cli --hostname api.example.com auth providers
-hubuum-cli --hostname api.example.com --identity-scope corp-directory --username alice object list
-hubuum-cli config set --key server.identity_scope --value corp-directory
-```
-
-For non-interactive automation, read a service-account bearer token from an
-owner-only file. The token is not placed in the process arguments or copied into
-the CLI token cache:
-
-```sh
-chmod 600 /run/secrets/hubuum.token
-hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token object list --class Hosts
-```
-
-Atomically patch an object's raw data through exact class and object names. The
-patch can be inline, loaded from `@FILE`, or loaded through the existing
-`file://FILE` value-source form:
-
-```sh
-hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token \
-  object data patch --class Hosts --name srv-01 \
-  --patch @facts-patch.json --create --description "Managed by Ansible"
-```
-
-With `--create`, Hubuum CLI initializes a missing object by applying the patch to
-an empty JSON object. A concurrent create conflict causes one exact-name PATCH
-retry. In this example, RFC 6902 `add` at `/facts` creates or completely replaces
-that member without changing other object data. The path and its contents are
-chosen by the consumer. See the
-[Ansible fact publication guide](docs/ansible-facts.md) for the accepted JSON
-Patch format, create-if-missing behavior, and service-account permissions.
-
-Administrators can inspect the server's redacted effective process configuration:
-
-```sh
-hubuum-cli admin config
-hubuum-cli admin config --output json
-```
-
-Fetch Prometheus exposition text without logging in. The default route is `/metrics`;
-use the path reported by `admin config` when the server has configured another route:
-
-```sh
-hubuum-cli metrics
-hubuum-cli metrics --path /internal/metrics
-```
-
-Computed fields can be managed as shared class definitions or personal
-definitions. Paths are JSON Pointers into object `data`:
-
-```sh
-hubuum-cli computed shared create --class Hosts --key average_load --label "Average load" --operation average --path /load/one --path /load/five --result-type number
-hubuum-cli computed shared list --class Hosts
-hubuum-cli computed personal list --class Hosts
-hubuum-cli object show --class Hosts host-1 --computed S:average_load
-hubuum-cli object list --class Hosts --computed all --output json
-```
-
-In the REPL, data-field completion merges the selected class's JSON Schema with
-a sample of up to 100 objects, using the same depth-six traversal as
-`class fields`. This supplies escaped JSON Pointers for computed `--path`
-options and dotted paths for aggregate dimensions, measures, and filters.
-Inspected fields are cached for `cache.time` seconds (one hour by default) and
-the cache can be bypassed with `cache.disable`.
-
-`class fields --name <class>` is also the field inventory for downstream
-selectors. Alongside sampled `data.*` paths, it lists enabled shared and
-personal computed fields as `S:<key>` and `P:<key>`. The `Source` column
-distinguishes the three kinds; counts, types, and examples are observed from the
-same object sample, so a computed definition with no sampled value still
-appears with an empty observation. The former `object fields --class <class>`
-spelling remains available as a deprecated compatibility alias and prints an
-exact replacement command when invoked.
-
-Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
-`--computed S:<key>` and `--computed P:<key>` options to select individual
-shared or personal fields, or `--computed all` to select every field:
-
-```sh
-hubuum-cli object list --class Hosts --computed S:average_load --computed P:preferred_name
-hubuum-cli object show --class Hosts host-1 --computed all
-```
-
-Per-class defaults apply to both object list and show commands:
-
-```toml
-[output.object_class_computed_fields]
-Hosts = ["S:average_load", "P:preferred_name"]
-Switches = ["all"]
-```
-
-They can also be changed from the CLI; the key and value both support dynamic
-completion:
-
-```sh
-hubuum-cli config set --key output.object_class_computed_fields.Hosts --value S:average_load,P:preferred_name
-hubuum-cli config unset --key output.object_class_computed_fields.Hosts
-```
-
-An explicit `--computed` selection replaces the class default for that command.
-Use `--computed none` to suppress configured defaults temporarily.
-
-Object-list text output renders selected values as compact scoped columns.
-Selected JSON output retains scope metadata such as revisions while excluding
-unselected values; `--computed all` retains the complete computed envelope.
-Computed columns can also be sorted with the same scoped names:
-
-```sh
-hubuum-cli object list --class Hosts --sort S:average_load desc --limit 10
-hubuum-cli object list --class Hosts --sort P:preferred_name asc
-```
-
-The CLI fetches all matching objects for computed sorting, sorts them locally,
-and then applies `--limit`. Computed sorting cannot
-be combined with `--cursor`. A computed sort fetches its key internally but does
-not display it unless the same field is selected with `--computed`.
-
-Related objects can be selected by target class name without specifying any
-intermediate classes:
-
-```sh
-hubuum-cli relation object list --root-class Person --root-object Alice \
-  --where class equals Hosts --max-depth 10 --all
-```
-
-This includes paths such as Person → Room → Host and other connecting paths,
-subject to server limits and permissions. The default maximum depth is 2;
-`--all` follows pagination, while `--max-depth` bounds traversal distance.
-Related class and object queries also accept `--where collection equals Inventory`.
-Class and collection filter values support name completion.
-
-Object-list text and pipeline output automatically promotes dotted data fields
-referenced by `--where` into explicit columns. This makes the matching value
-visible without separately repeating the path in `--data-columns`:
-
-```sh
-hubuum-cli object list --class Hosts \
-  --where json_data.facts.operating_system.major_version lt 8
-hubuum-cli object list --class Hosts \
-  --where data.environment equals production \
-  --include-where-results false
-```
-
-The second form keeps the normal configured or automatic data-column layout.
-Raw JSON output already contains these values in the nested `data` object and
-is not flattened.
-
-Run permission-scoped aggregation on the server with `object aggregate`.
-`--group-by` accepts scalar object fields, dotted `data` paths, and computed
-selectors. Numeric measures use `operation:field`; repeat dimensions up to three
-times and measures up to four times:
-
-```sh
-hubuum-cli object aggregate --class Hosts --group-by data.os_version
-hubuum-cli object aggregate --class Hosts \
-  --group-by data.region \
-  --aggregate sum:data.cpu.cores \
-  --aggregate average:S:load \
-  --sort object_count desc \
-  --limit 25 --include-total
-hubuum-cli object aggregate --class Hosts \
-  --aggregate average:data.cpu.cores \
-  --where data.environment equals production
-```
-
-Every aggregate row includes `object_count`. Measures support `sum`, `average`
-(`avg` is accepted as an input alias), `min`, and `max` over numeric `data.path`,
-`S:key`, or `P:key` values. Filters run before aggregation and accept the same
-object fields and dotted data paths as `object list`, plus up to two computed
-selectors.
-Text output exposes flattened dimension and measure columns; JSON preserves the
-server's dimension and measure states, contributing counts, and skipped counts.
-Cursor pagination and generated next-page commands operate on aggregate rows.
-
-The `G` and `A` pipe stages are still useful for ad hoc local transformations,
-but they only process rows already returned by the preceding command. Use
-`object aggregate` when the result must cover the complete server-side matching
-set.
-
-Class-specific display aliases provide short local names for raw object-data
-paths. Selectors are tried in order and the first present value is displayed:
-
-```toml
-[output.object_list_class_aliases.Hosts]
-os_version = ["data.os.macos.version", "data.os.redhat.version"]
-primary_ipv4 = ["data.network.interfaces[*].ipv4"]
-```
-
-The aliases can be included in `output.object_list_class_columns.Hosts` or
-requested with `--data-columns`. An unambiguous alias is also used as the text
-table header when its raw selector is included automatically, such as by an
-object-list `--where` clause. Configure aliases from the CLI with the alias as
-the final key component and its selectors as a comma-separated value:
-
-```sh
-hubuum-cli config set \
-  --key output.object_list_class_aliases.Hosts.IPv4 \
-  --value data.facts.network.default_ipv4.address
-```
-
-The former
-`output.object_list_class_meta` name remains accepted for existing config files
-and config commands, but new writes use `object_list_class_aliases`.
-
-Administrators can create full-system backups and perform the server's two-step restore
-flow. Format 5 excludes password hashes and bearer tokens, but contains privileged
-integration configuration. Backup and receipt files are saved atomically with
-owner-only permissions on Unix; existing files require `--force` before replacement:
-
-```sh
-hubuum-cli backup create --file hubuum-backup.json
-hubuum-cli backup submit
-hubuum-cli backup show 123
-hubuum-cli backup download 123 --file hubuum-backup.json
-
-hubuum-cli restore stage --file hubuum-backup.json --receipt restore-receipt.json
-hubuum-cli restore status --receipt restore-receipt.json
-hubuum-cli restore confirm --receipt restore-receipt.json --yes --wait
-hubuum-cli restore wait --receipt restore-receipt.json --timeout 600
-```
-
-Confirmation queues replacement of all Hubuum data. Use `--wait` or `restore wait`
-to verify completion; status and wait use the receipt without logging in, even
-after existing bearer tokens are invalidated. After success, reset a local
-administrator password with `hubuum-admin --reset-password admin` and issue fresh
-tokens. Keep the receipt until recovery is complete. See the
-[backup and restore guide](docs/backup-restore.md) for server setup, backup-version
-compatibility, larger backups, and recovery instructions.
-
-For paginated commands, `--limit` requests a page size. The CLI currently
-truncates values above 250 to the supported maximum with a
-warning. Generated next-page commands retain that effective value. Paginated
-commands also accept `--include-total` when an exact count is useful. Exact counts
-can require additional server work, so they remain opt-in:
-
-```sh
-hubuum-cli object list --class Hosts --limit 25 --include-total
-hubuum-cli task list --include-total --output json
-```
-
-Use `--all` to follow every remaining server cursor and buffer the complete
-result before output pipelines run. `--limit` remains the page size when it is
-combined with `--all`, and `--cursor <token> --all` starts from that cursor. The
-CLI and client enforce automatic-pagination safety limits and reject repeated cursors.
-Because complete results are held in memory, use `--all` deliberately for large
-datasets:
-
-```sh
-hubuum-cli object list --class Hosts --all \| count
-hubuum-cli audit list --cursor eyJpZCI6MTAwfQ --all --output json
-```
-
-If a pipeline is applied to a page that has more results without `--all`, the
-CLI warns that the transformation only covered the current page.
-
-Colored output defaults to terminal-aware `auto` mode and can be controlled per run or via `output.color`:
-
-```sh
-hubuum-cli --color never help
-hubuum-cli --color always config paths
-```
-
-The current command vocabulary follows the Hubuum API:
-
-- `collection` replaces the older namespace terminology.
-- `export` replaces the older report terminology.
-- `task list --kind export` filters export tasks.
-- `task list --kind backup` filters backup tasks.
-- `search --limit-per-kind` limits each result family independently.
-
-Structured search runs predicates on the server and completes them with Tab in the
-REPL. Quote the predicate, using double quotes for strings inside single quotes:
-
-```sh
-hubuum-cli search --target object --class Hosts --where 'data.cpu.cores >= 8 AND name ~ "^srv-"' --sort name asc
-hubuum-cli search --query-file search.json --include-total --all --output json
-hubuum-cli search server --stream --output jsonl
-```
-
-See [search and its terminal DSL](docs/search.md) for fields, pagination, relation
-queries, and streaming behavior, and [task discovery](docs/tasks.md) for finding
-background work by retained targets and options.
-
-Output pipes now support small in-process transformations in both the REPL and one-shot command mode.
-The old shorthand still works:
-
-```text
-# before
-object list --class Hosts | contact
-
-# after
-object list --class Hosts | grep contact | head 5
-object list --class Hosts | reject retired | sort line desc | count
-```
-
-There are short aliases for the common DSL-shaped operations:
-
-```text
-object list --class Hosts | F contact | L 5 | C
-object list --class Hosts | P name id | S !name
-```
-
-For shared table/detail output, pipes run against semantic JSON before rendering, so projection and field sorting affect every output format:
-
-```text
-config show | F output | P key value | S key
-config show | VALUE key | C
-config show | JQ 'map({key, value})' | L 5
-object list --json --class Hosts | P Name os_version data.network.interfaces[*].ipv4
-object list --class Hosts --computed S:average_load --computed P:note | F S:average_load>=1 | P Name S:average_load P:note | S S:average_load desc AS num
-object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
-```
-
-Computed `S:<key>` and `P:<key>` fields are ordinary semantic selectors for
-projection, filtering, sorting, grouping, aggregation, value extraction, and
-redirection once selected with `--computed`. Their JSON number, boolean, object,
-and array types are preserved through the pipe engine; computed errors remain
-visible as `ERROR: ...` strings.
-Top-level `--sort S:<key>` sorts the full matching set before `--limit`, while a
-pipe sort operates on the rows returned by the object command.
-
-See [docs/output-pipeline.md](docs/output-pipeline.md) for the semantic output pipeline direction.
-See [docs/DSL.md](docs/DSL.md) for the full pipe DSL with Hubuum object examples.
-See [docs/themes.md](docs/themes.md) for color themes, custom theme files, and palette licensing.
-See [docs/manual-test.md](docs/manual-test.md) for a current manual smoke-test checklist.
-
-Rendered output can be redirected to a file from the REPL, one-shot commands,
-or scripts. These examples use REPL/script syntax:
-
-```text
-config show --output json > config.json
-object list --class Hosts | P Name os_version > hosts.txt
-object list --output jsonl --class Hosts | P Name data.network.interfaces[*].ipv4 >> hosts.jsonl
-object list --json --class Hosts | P Name os_version > each:hosts/{Name}.json
-object list --class Hosts | VALUE Name > each:names/{value}.txt
-```
-
-Use `>` to create or truncate the target file and `>>` to append. Operators
-must be standalone, whitespace-delimited tokens. Redirect paths support
-quoting, `~/...` expansion, and REPL file path completion. Parent directories
-must already exist.
-
-Use `each:<template>` to write one file per semantic row or value after pipe
-stages have run; placeholders such as `{Name}`, `{data.owner}`, `{value}`, and
-`{n}` can be used in the filename. A trailing redirect is accepted only when
-the preceding command is valid. Compact pipeline comparisons such as
-`F age>3` are therefore distinct from redirects, while command filters such as
-`--where age > 3` continue to work normally.
-
-Redirect files honor `output.color`: `auto` and `never` remove ANSI styling
-from files, while `always` preserves it.
-
-Machine-oriented output can be selected per command:
-
-```sh
-hubuum-cli config show --output json
-hubuum-cli config show --output jsonl
-hubuum-cli config show --output csv
-hubuum-cli config show --output tsv
-```
-
-Table rendering can be tuned per run or with config keys:
-
-```sh
-hubuum-cli --table-style plain object list --limit 5
-hubuum-cli --table-style dense --table-bands auto object list --limit 5
-hubuum-cli --table-width full --table-wrap 40 object list --class Hosts
-hubuum-cli --empty-result silent object list --class Hosts --limit 0
-hubuum-cli object list --class Hosts --table-headers full
-hubuum-cli object list --class Hosts --table-headers none
-```
-
-Grouped headers are the default for text tables. Dotted paths are displayed on
-multiple header lines so path names do not determine individual column widths;
-unambiguous class aliases take precedence. Use `--table-headers full` for the
-original flat paths, or `--table-headers none` to suppress table headers.
-Machine-oriented formats retain their semantic column names. Persist the mode
-with `hubuum-cli config set --key output.table_headers --value none`.
-
-Related config keys are `output.table_style`, `output.table_headers`,
-`output.table_width`, `output.table_wrap`, `output.table_bands`, and
-`output.empty_result`.
-
-Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.
-
-```sh
-hubuum-cli object create --name item-1 --class Device --collection main --description "imported" --data file://payload.json
-hubuum-cli class create --name Device --collection main --description "devices"
-hubuum-cli class schema stage --class Device --schema https://example.com/schema.json --validate true
-```
+Expect web-01, web-02, and worker-01. To keep a session open, omit the command
+and use the interactive REPL. `help --tree` lists available commands.
+
+| Next task | Guide |
+| --- | --- |
+| Run scripts and define aliases | [Commands and scripts](docs/commands.md) |
+| Search inventory | [Search](docs/search.md) |
+| Patch data or use computed fields | [Object workflows](docs/object-workflows.md) |
+| Page through results | [Pagination](docs/pagination.md) |
+| Transform or save output | [Output pipelines](docs/output-pipeline.md) |
+| Add site-specific commands | [Extension tutorial](docs/extension-tutorial.md) |
+| Change colors | [Themes](docs/themes.md) |
 
 ## Schema evolution and cancellation
 
-All schema policy changes use `class schema`, including initial schema setup.
-The former `class create` and `class modify` schema/validation flags are removed.
-Stage a policy, inspect its impact, then explicitly activate the exact revision.
-See [schema evolution and task cancellation](docs/schema-evolution.md) for the
-workflow, compliance pages, repair reports, import activation, and upgrade notes.
+See [schema evolution](docs/schema-evolution.md) and [task discovery](docs/tasks.md).
 
 ## Documentation-only CI
 
-Pull requests and pushes containing only prose or documentation-site inputs run
-Markdown lint and documentation validation without the application test/build
-matrix. Unknown files, source changes, executable examples, and declared
-test/build inputs retain application CI. Mixed changes run both kinds of checks.
-
-`scripts/ci-policy.py` owns the allowlist and exceptions. Update its regression
-tests whenever a document becomes a build, test, or packaging input; direct
-literal Rust includes are checked automatically. Run the policy tests with
-`python3 scripts/test-ci-policy.py`.
-
-The `Lint` check is the aggregate CI gate: classification failures,
-failed checks, and unexpectedly skipped required jobs fail it. Keep that check
-required in branch protection. Add the `ci:full` pull-request label or dispatch
-the CI workflow manually to request complete validation. Release validation
-and separately scheduled checks retain their existing coverage.
+See [documentation maintenance](docs/documentation.md#documentation-only-ci).

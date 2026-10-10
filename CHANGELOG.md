@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Shortened installation guidance, pinned the shared Atlas walkthrough, and fixed the extension tutorial’s upgrade step.
+
 ## [0.0.14] - 2026-10-06
 
 ### Added

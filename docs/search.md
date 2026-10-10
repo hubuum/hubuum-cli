@@ -1,5 +1,8 @@
 # Search
 
+Examples outside the Atlas walkthrough use illustrative resources. Substitute
+your own class names and resolved IDs; Atlas does not create Hosts, Rooms, or Jacks.
+
 For a small inventory shared across Hubuum interfaces, use the
 [Atlas example walkthrough](example-dataset.md).
 
