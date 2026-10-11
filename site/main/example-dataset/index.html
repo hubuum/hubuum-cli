@@ -255,7 +255,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../search/" class="md-tabs__link">
+        <a href="../authentication/" class="md-tabs__link">
           
   
   Use the CLI
@@ -321,7 +321,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../manual-test/" class="md-tabs__link">
+        <a href="../compatibility-evidence/" class="md-tabs__link">
           
   
   Contributing
@@ -685,6 +685,141 @@
 
             </label>
             <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Connect and authenticate
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Commands and scripts
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../object-workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Object workflows
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pagination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pagination
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install and update binaries
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
               
                 
                   
@@ -1437,6 +1572,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../compatibility-evidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Compatibility evidence
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../manual-test/" class="md-nav__link">
         
   
@@ -1653,50 +1815,13 @@
 interfaces. Atlas demonstrates <strong>classes, objects, relations, and access</strong> with
 four classes and ten connected objects.</p>
 <h2 id="load-the-shared-dataset">Load the shared dataset<a class="headerlink" href="#load-the-shared-dataset" title="Permanent link">&para;</a></h2>
-<p>Follow the server's <a href="https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/">Atlas dataset guide</a>
-to download and import the inventory into an evaluation server. The guide and
-downloads are pinned to server v0.0.18, the target of <code>hubuum_client</code> 0.14.1
-used by CLI v0.0.14. Keep the server as the canonical fixture source; do not copy
-a second fixture into this repository.</p>
-<p>The import aborts atomically on name collisions and contains no passwords,
-tokens, users, or group memberships. Its separate backup replaces all application
-data and is intended for resetting a disposable demo installation. The server
-guide owns the loading, restore, compatibility, and checksum instructions.</p>
-<table>
-<thead>
-<tr>
-<th>Class</th>
-<th>Objects to explore</th>
-<th>Schema and authority</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Service</td>
-<td>Atlas, Beacon</td>
-<td>Enforced schema; maintained in Hubuum</td>
-</tr>
-<tr>
-<td>Server</td>
-<td>web-01, web-02, worker-01</td>
-<td>Enforced schema; reference inventory data</td>
-</tr>
-<tr>
-<td>Location</td>
-<td>Oslo, Bergen</td>
-<td>Schema-free; reference facilities data</td>
-</tr>
-<tr>
-<td>Context</td>
-<td>Research notes, Migration checklist, Capacity observation</td>
-<td>Schema-free; locally maintained notes and an upstream observation</td>
-</tr>
-</tbody>
-</table>
-<p>A class defines a resource type and its schema policy. Its objects hold the
-individual JSON records. Source ownership is independent of schema policy:
-<code>data.source</code> is example metadata, not automatic synchronization or write
-protection.</p>
+<p>Use the <a href="https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/">server v0.0.18 Atlas guide</a>
+to load the inventory into an evaluation server and grant your account access.
+This matches this release's server target. The server guide owns the downloads,
+model, permissions, and expected data. Import adds the dataset atomically;
+<strong>restoring its backup replaces all application data</strong>.</p>
+<p>Use the case-sensitive names <code>Service</code>, <code>Server</code>, <code>Location</code>, and <code>Context</code>.
+Resolve numeric IDs from responses; they vary between installations.</p>
 <h2 id="find-classes-then-their-objects">Find classes, then their objects<a class="headerlink" href="#find-classes-then-their-objects" title="Permanent link">&para;</a></h2>
 <p>After <a href="../getting-started/">connecting the CLI</a>, find the Service class and
 list the Server objects:</p>
@@ -1718,20 +1843,12 @@ storage 5, in fictional cost units. Continue with <a href="../search/">search</a
 <a href="../output-pipeline/">output pipelines</a>, and <a href="../schema-evolution/">schema evolution</a>
 using the same model.</p>
 <h2 id="relations-and-access">Relations and access<a class="headerlink" href="#relations-and-access" title="Permanent link">&para;</a></h2>
-<p>Atlas runs on web-01 and web-02; their locations are Oslo and Bergen. Atlas
-also links to Research notes and Migration checklist. Class relations define
-which resource types connect; object relations connect these specific instances.</p>
-<p>The example creates empty atlas-readers and atlas-operators groups. A principal
-assigned only to atlas-readers can read all ten objects without changing them.
-A principal assigned only to atlas-operators can read and maintain the five
-Server/Location objects in atlas-demo-operations, but cannot read the service
-catalogue in its parent collection. Test these differences with non-admin
-accounts and an unscoped token; other memberships and token scopes affect access.</p>
-<p>For exact data, expected relationships, and checksums, return to the server's
-<a href="https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/">canonical dataset guide</a>.
-The server corpus tests verify import and restore, schemas, permissions,
-computed values, filters, and pagination. Each client retains its own compatibility
-and integration tests; the example does not change the client library's server target.</p>
+<p>Use a non-admin account in <code>atlas-readers</code> to read the full inventory, or one
+in <code>atlas-operators</code> to maintain Server/Location objects in the operations child.
+Other memberships and token scopes affect the result. See the canonical
+<a href="https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/#relations-connect-the-instances">relationships</a>
+and <a href="https://hubuum.github.io/hubuum/v0.0.18/getting-started/example-dataset/#explore-collection-permissions">permission checks</a>
+for expected results and cleanup.</p>
 
 
 

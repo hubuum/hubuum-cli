@@ -13,6 +13,21 @@
         <loc>https://hubuum.github.io/hubuum-cli/main/compatibility/</loc>
       </url>
       <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/authentication/</loc>
+      </url>
+      <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/commands/</loc>
+      </url>
+      <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/object-workflows/</loc>
+      </url>
+      <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/pagination/</loc>
+      </url>
+      <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/updates/</loc>
+      </url>
+      <url>
         <loc>https://hubuum.github.io/hubuum-cli/main/search/</loc>
       </url>
       <url>
@@ -74,6 +89,9 @@
       </url>
       <url>
         <loc>https://hubuum.github.io/hubuum-cli/main/examples/hubuum-wrappers/</loc>
+      </url>
+      <url>
+        <loc>https://hubuum.github.io/hubuum-cli/main/compatibility-evidence/</loc>
       </url>
       <url>
         <loc>https://hubuum.github.io/hubuum-cli/main/manual-test/</loc>
