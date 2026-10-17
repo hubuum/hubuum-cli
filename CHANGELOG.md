@@ -12,6 +12,8 @@
 ### Changed
 
 - Shortened installation guidance, pinned the shared Atlas walkthrough, and fixed the extension tutorial’s upgrade step.
+- Update the TOML dependency from 1.1.6 to 1.1.8, including fixes for key
+  serialization and duplicate-key detection when deserializing tables.
 
 ### Fixed
 
