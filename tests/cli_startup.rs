@@ -114,6 +114,35 @@ fn direct_help_and_config_paths_do_not_require_login() {
 }
 
 #[test]
+fn jsonpath_help_is_discoverable_without_login() {
+    cargo_bin_cmd!("hubuum-cli")
+        .arg("help")
+        .assert()
+        .success()
+        .stdout(contains("help jsonpath"));
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "object", "show"])
+        .assert()
+        .success()
+        .stdout(contains("help jsonpath"))
+        .stdout(contains("JSONPath starts with '$'").not());
+
+    cargo_bin_cmd!("hubuum-cli")
+        .args(["help", "jsonpath"])
+        .assert()
+        .success()
+        .stdout(contains("JSONPath starts with '$'"))
+        .stdout(contains("--path '$.facts'"))
+        .stdout(contains("--path '$.facts.network.interfaces[0].name'"))
+        .stdout(contains("--path '$.facts.network.interfaces[*].name'"))
+        .stdout(contains(
+            "'.facts' and 'facts' become '$.facts', with a warning",
+        ))
+        .stdout(contains("--path only filters the text data display"));
+}
+
+#[test]
 fn personal_aliases_expand_before_offline_detection_and_pipelines() {
     let directory = tempdir().expect("temporary directory");
     let config = directory.path().join("config.toml");

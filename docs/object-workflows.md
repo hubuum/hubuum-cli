@@ -21,6 +21,25 @@ chosen by the consumer. See the
 [Ansible fact publication guide](ansible-facts.md) for the accepted JSON
 Patch format, create-if-missing behavior, and service-account permissions.
 
+Use `object show --path` to select data with JSONPath. The path starts at the
+object's data: `$` is its root, `.field` selects a member, `[0]` selects the first
+array element, and `[*]` selects every array element. Quote the expression so your
+shell preserves `$` and `*`. If the root is missing, the CLI tries adding `$` or
+`$.` and warns when that produces a valid path: `.facts` and `facts` become `$.facts`.
+
+```sh
+hubuum-cli object show --class Hosts --name host-1 --path '$.facts'
+hubuum-cli object show --class Hosts --name host-1 --path '$.facts.operating_system'
+hubuum-cli object show --class Hosts --name host-1 --path '$.facts.network.interfaces[0].name'
+hubuum-cli object show --class Hosts --name host-1 --path '$.facts.network.interfaces[*].name'
+hubuum-cli help jsonpath
+```
+
+`--path` implies `--data` and keeps the usual flattened key/value rows, with full
+field paths. It only filters the text data display; `--json` or `--output json`
+returns the full object as JSON. Run `help jsonpath` in the REPL for the same
+JSONPath guidance and examples.
+
 Administrators can inspect the server's redacted effective process configuration:
 
 ```sh

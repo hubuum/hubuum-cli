@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::read_to_string;
 use std::iter::once;
 
@@ -15,8 +15,8 @@ use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, want_json,
-    CliCommand, PageSelection,
+    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, CliCommand,
+    PageSelection,
 };
 use crate::autocomplete::{
     bool, classes, collections, computed_fields, object_aggregate_dimensions,
@@ -159,6 +159,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 ObjectInfo::default(),
                 CommandDocs {
                     about: Some("Show object details"),
+                    long_about: Some(
+                        "Show object details and relations. Use --data for flattened key/value rows or --path to select data (implies --data). See 'help jsonpath' for syntax and examples.",
+                    ),
                     ..CommandDocs::default()
                 },
             ),
@@ -309,14 +312,14 @@ pub struct ObjectInfo {
     #[option(
         short = "d",
         long = "data",
-        help = "Show flattned data (key=value) for the object",
+        help = "Show flattened data (key=value) for the object",
         flag = "true"
     )]
     pub data: Option<bool>,
     #[option(
         short = "p",
         long = "path",
-        help = "Path to display within the data, implies -d"
+        help = "JSONPath to select data for flattened display, implies -d"
     )]
     pub jsonpath: Option<String>,
     #[option(
@@ -372,7 +375,7 @@ impl CliCommand for ObjectInfo {
             return Ok(());
         }
 
-        if want_json(tokens) {
+        if desired_format(tokens)? == OutputFormat::Json {
             append_line(to_string_pretty(
                 &computed_selection.project_object_show(&object),
             )?)?;
@@ -413,53 +416,61 @@ fn render_object_data(json_data: Option<&Value>, jsonpath: Option<&str>) -> Resu
         return Ok(());
     };
 
-    if let Some(jsonpath_expr) = jsonpath {
-        let results: Vec<_> = json_data
-            .query_with_path(jsonpath_expr)
-            .map_err(|e| AppError::JsonPathError(e.to_string()))?;
+    let selected_data = if let Some(jsonpath_expr) = jsonpath {
+        let mut result = json_data.query_with_path(jsonpath_expr);
+        let trimmed = jsonpath_expr.trim();
+        if result.is_err() && !trimmed.starts_with('$') {
+            let root = if trimmed.starts_with(['.', '[']) {
+                "$"
+            } else {
+                "$."
+            };
+            let corrected = format!("{root}{trimmed}");
+            if let Ok(matches) = json_data.query_with_path(&corrected) {
+                add_warning(format!(
+                    "Interpreting JSONPath {jsonpath_expr:?} as {corrected:?} (added missing root)."
+                ))?;
+                result = Ok(matches);
+            }
+        }
+        let results = result.map_err(|error| {
+                AppError::JsonPathError(format!(
+                    "{error}\n\nJSONPath must start with '$', the root of the object's data. Quote the expression in your shell.\nExamples:\n  --path '$.facts'\n  --path '$.facts.operating_system'\n  --path '$.facts.network.interfaces[*].name'\nSee 'help jsonpath' in the REPL, or 'hubuum-cli help jsonpath', for syntax and examples."
+                ))
+            })?;
         if results.is_empty() {
             add_warning("JSONPath did not match any data")?;
             return Ok(());
         }
 
-        let mut key_values = HashMap::new();
-        for result in results {
-            let pretty_path = prettify_slice_path(&result.path);
-            let value = display_json_value(result.val);
-            key_values.insert(pretty_path, value);
-        }
-
-        let padding = key_values
-            .keys()
-            .map(|k| k.len())
-            .max()
-            .map_or(14, |len| len.max(14));
-
-        for (key, value) in key_values {
-            append_key_value(key, value, padding)?;
-        }
-        return Ok(());
-    }
-
-    let flattener = Flattener {
-        ..Default::default()
+        results
+            .into_iter()
+            .map(|result| (prettify_slice_path(&result.path), result.val))
+            .collect()
+    } else {
+        vec![(String::new(), json_data)]
     };
 
-    let v = flattener.flatten(json_data);
-
-    if let Value::Object(map) = v {
-        let sorted_map: BTreeMap<_, _> = map.into_iter().collect();
-        let padding = sorted_map
-            .keys()
-            .map(|k| k.len())
-            .max()
-            .map_or(15, |len| len.max(15));
-
-        for (key, value) in sorted_map {
-            append_key_value(key, display_json_value(&value), padding)?;
+    let flattener = Flattener::default();
+    let mut key_values = BTreeMap::new();
+    for (prefix, data) in selected_data {
+        let flattened = if prefix.is_empty() {
+            flattener.flatten(data)
+        } else {
+            flattener.flatten(&Value::Object(Map::from_iter([(prefix, data.clone())])))
+        };
+        if let Value::Object(map) = flattened {
+            key_values.extend(map);
         }
-    } else {
-        add_warning("JSON is not an object")?;
+    }
+
+    let padding = key_values
+        .keys()
+        .map(|key| key.len())
+        .max()
+        .map_or(15, |len| len.max(15));
+    for (key, value) in key_values {
+        append_key_value(key, display_json_value(&value), padding)?;
     }
 
     Ok(())
@@ -519,6 +530,135 @@ mod tests {
     #[test]
     fn display_json_value_unquotes_strings() {
         assert_eq!(display_json_value(&json!("Entry")), "Entry");
+    }
+
+    #[test]
+    #[serial]
+    fn object_data_paths_keep_flattened_text_for_objects_arrays_and_scalars() {
+        let data = json!({
+            "facts": {
+                "os": {"name": "Fedora", "major": 43},
+                "interfaces": [{"name": "eno1"}, {"name": "eno2"}],
+                "nullable": null
+            },
+            "other": "not selected"
+        });
+        for (path, expected) in [
+            (
+                "$.facts",
+                vec![
+                    ("facts.interfaces.name", r#"["eno1","eno2"]"#),
+                    ("facts.nullable", "null"),
+                    ("facts.os.major", "43"),
+                    ("facts.os.name", "Fedora"),
+                ],
+            ),
+            (
+                "$.facts.interfaces",
+                vec![("facts.interfaces.name", r#"["eno1","eno2"]"#)],
+            ),
+            (
+                "$.facts.interfaces[*]",
+                vec![
+                    ("facts.interfaces[0].name", "eno1"),
+                    ("facts.interfaces[1].name", "eno2"),
+                ],
+            ),
+            (
+                "$.facts.interfaces[0].name",
+                vec![("facts.interfaces[0].name", "eno1")],
+            ),
+            (
+                "$.facts.interfaces[*].name",
+                vec![
+                    ("facts.interfaces[0].name", "eno1"),
+                    ("facts.interfaces[1].name", "eno2"),
+                ],
+            ),
+            ("$.facts.os.name", vec![("facts.os.name", "Fedora")]),
+            ("$.facts.nullable", vec![("facts.nullable", "null")]),
+        ] {
+            reset_output().unwrap();
+            render_object_data(Some(&data), Some(path)).unwrap();
+            let output = take_output().unwrap();
+            let rows: Vec<_> = output
+                .lines
+                .iter()
+                .map(|line| {
+                    let (key, value) = line.split_once(" : ").expect("key/value row");
+                    (key.trim_end(), value)
+                })
+                .collect();
+            assert_eq!(rows, expected, "path: {path}");
+            assert!(output.warnings.is_empty());
+        }
+
+        reset_output().unwrap();
+        render_object_data(Some(&data), None).unwrap();
+        let unfiltered = take_output().unwrap().lines;
+        reset_output().unwrap();
+        render_object_data(Some(&data), Some("$")).unwrap();
+        assert_eq!(take_output().unwrap().lines, unfiltered);
+        reset_output().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn object_data_paths_add_missing_roots_with_a_warning() {
+        let data = json!({"facts": {"os": "Fedora"}});
+        for (path, corrected) in [
+            (".facts", "$.facts"),
+            ("facts", "$.facts"),
+            ("facts.os", "$.facts.os"),
+            ("['facts']", "$['facts']"),
+            ("..os", "$..os"),
+        ] {
+            reset_output().unwrap();
+            render_object_data(Some(&data), Some(corrected)).unwrap();
+            let expected = take_output().unwrap().lines;
+            reset_output().unwrap();
+            render_object_data(Some(&data), Some(path)).unwrap();
+            let output = take_output().unwrap();
+            assert_eq!(output.lines, expected, "path: {path}");
+            assert_eq!(
+                output.warnings,
+                vec![format!(
+                    "Interpreting JSONPath {path:?} as {corrected:?} (added missing root)."
+                )]
+            );
+        }
+        reset_output().unwrap();
+        render_object_data(Some(&data), Some(".missing")).unwrap();
+        let output = take_output().unwrap();
+        assert!(output.lines.is_empty());
+        assert_eq!(output.warnings.len(), 2);
+        assert!(output.warnings[0].contains("added missing root"));
+        assert_eq!(output.warnings[1], "JSONPath did not match any data");
+        reset_output().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn object_data_paths_explain_invalid_syntax_and_warn_on_missing_data() {
+        let data = json!({"facts": {"os": "Fedora"}});
+        for path in ["$.facts[", ".facts[", "facts[", "$facts", ""] {
+            reset_output().unwrap();
+            let error = render_object_data(Some(&data), Some(path))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("JSONPath must start with '$'"));
+            assert!(error.contains("--path '$.facts'"));
+            assert!(error.contains("--path '$.facts.operating_system'"));
+            assert!(error.contains("--path '$.facts.network.interfaces[*].name'"));
+            assert!(error.contains("hubuum-cli help jsonpath"));
+            assert!(take_output().unwrap().warnings.is_empty());
+        }
+        reset_output().unwrap();
+        render_object_data(Some(&data), Some("$.missing")).unwrap();
+        let output = take_output().unwrap();
+        assert!(output.lines.is_empty());
+        assert_eq!(output.warnings, vec!["JSONPath did not match any data"]);
+        reset_output().unwrap();
     }
 
     #[test]
@@ -1196,7 +1336,14 @@ mod tests {
         let expected_text = take_output().unwrap().lines;
         let runtime = Runtime::new().unwrap();
 
-        for mode in ["text", "json", "pipeline"] {
+        for (mode, suffix) in [
+            ("text", "--data"),
+            ("text-path", "--path '$.facts'"),
+            ("json", "--data --json"),
+            ("json", "--data --path '$.facts' --json"),
+            ("json", "--path '$.facts' --output json"),
+            ("pipeline", "--data"),
+        ] {
             let transport = MockTransport::default();
             for response in [
                 &fixture["root_class"],
@@ -1235,9 +1382,8 @@ mod tests {
                 )])
                 .unwrap();
             }
-            let suffix = if mode == "json" { " --json" } else { "" };
             let tokens = CommandTokenizer::new(
-                &format!("object show --class Hosts --name nommo.uio.no --data{suffix}"),
+                &format!("object show --class Hosts --name nommo.uio.no {suffix}"),
                 "show",
                 &command_options::<ObjectInfo>(),
             )
@@ -1246,6 +1392,14 @@ mod tests {
             let output = take_output().unwrap();
             match mode {
                 "text" => assert_eq!(output.lines, expected_text),
+                "text-path" => assert_eq!(
+                    output.lines,
+                    expected_text
+                        .iter()
+                        .filter(|line| !line.starts_with("nullable"))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                ),
                 "json" => assert_eq!(
                     from_str::<Value>(&output.lines.join("\n")).unwrap(),
                     fixture["expected"]
@@ -1326,6 +1480,7 @@ impl CliCommand for ObjectDelete {
 fn prettify_slice_path(path: &str) -> String {
     path.trim_start_matches('$')
         .replace("']['", ".")
+        .replace("]['", "].")
         .replace("['", "")
         .replace("']", "")
 }

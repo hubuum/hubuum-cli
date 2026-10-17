@@ -615,6 +615,13 @@ impl CommandCatalog {
         lines.push(String::new());
         lines.extend(render_shell_help_lines());
 
+        lines.push(String::new());
+        lines.push(paint(ThemeRole::Heading, "JSONPath:"));
+        lines.push(format!(
+            "  Use {} for object data selection syntax and examples.",
+            paint_command("help jsonpath")
+        ));
+
         lines.join("\n")
     }
 
@@ -737,6 +744,44 @@ impl CommandCatalog {
 
     pub fn render_shell_topic_help(&self, topic: Option<&str>) -> Result<String, AppError> {
         render_shell_topic_help(topic)
+    }
+
+    pub fn render_jsonpath_help(&self) -> String {
+        let title = paint(ThemeRole::Heading, "JSONPath");
+        let body = colorize_help_commands(
+            r#"Use object show --path to select part of an object's data.
+JSONPath starts with '$', the root of the data, not the whole object.
+
+Syntax:
+  $        All data
+  .field   An object member; chain members with dots
+  [0]      The first array element (indexes start at zero)
+  [*]      Every array element
+
+Examples:
+  object show --class Hosts --name host-1 --path '$.facts' - All facts
+  object show --class Hosts --name host-1 --path '$.facts.operating_system' - Operating system fields
+  object show --class Hosts --name host-1 --path '$.facts.network.interfaces[0].name' - First interface name
+  object show --class Hosts --name host-1 --path '$.facts.network.interfaces[*].name' - Every interface name
+
+Quoting:
+  Quote the expression in your shell to protect '$' and '*'.
+  Prefer --path '$.facts'. If the root is missing, the CLI tries adding '$' or '$.'.
+  For example, '.facts' and 'facts' become '$.facts', with a warning.
+  Correction is only applied if the resulting expression is valid JSONPath.
+
+Output:
+  --path implies --data and keeps sorted, flattened key/value rows with full paths.
+  Selected objects and arrays use the same display as ordinary --data output.
+  --path only filters the text data display.
+  --json (or --output json) returns the full object as JSON.
+  A valid path with no matches produces a warning.
+
+Related help:
+  help object show
+  help pipe selectors - Selectors for pipeline stages"#,
+        );
+        format!("{title}\n\n{body}")
     }
 }
 
@@ -984,6 +1029,7 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     line!(paint_command("  help pipe <topic>"));
     line!(paint_command("  help shell"));
     line!(paint_command("  help shell <topic>"));
+    line!(paint_command("  help jsonpath"));
     line!("");
     line!(paint(ThemeRole::Heading, "Topics:"));
     line!(format!(
