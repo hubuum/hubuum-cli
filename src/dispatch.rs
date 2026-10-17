@@ -472,6 +472,8 @@ fn render_help_from_catalog(
         append_line(catalog.render_pipe_topic_help(parts.get(1).map(String::as_str))?)?;
     } else if parts.first().map(String::as_str) == Some("shell") {
         append_line(catalog.render_shell_topic_help(parts.get(1).map(String::as_str))?)?;
+    } else if parts.len() == 1 && parts[0] == "jsonpath" {
+        append_line(catalog.render_jsonpath_help())?;
     } else if let Ok(resolved) = catalog.resolve_command(&scope, parts) {
         append_line(catalog.render_command_help(&resolved.command_path)?)?;
     } else if let Some(_nested_scope) = catalog.resolve_scope(&scope, parts) {

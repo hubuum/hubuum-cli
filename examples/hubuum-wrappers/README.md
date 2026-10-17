@@ -1,6 +1,6 @@
 # Hubuum CLI wrappers
 
-These example programs provide convenient Host inventory and placement
+These example programs provide convenient Host and Room inventory and placement
 workflows without becoming built-in Hubuum commands. They are both standalone
 Bash wrappers and the `host` pilot for the
 [executable extension protocol](../../docs/extension-reference.md#executable-packs). Every server
@@ -129,6 +129,30 @@ standard detail display omits the object ID.
 
 `--json` emits the resolved Host (including its ID) plus placement data and takes
 precedence over `--verbose`. Use it for scripts that need structured fields.
+
+## `hubuum-room`
+
+List a Room's Jacks and the Hosts connected to each Jack, in the style of
+`miami_room`:
+
+```sh
+hubuum-room R-301
+hubuum-room --id r-301
+hubuum-room --json R-301
+hubuum-room 701  # Finds B701
+```
+
+A Room name or numeric object ID is required. Names are matched
+case-insensitively; ambiguous identifiers fail. An initial `B` is optional:
+if the identifier matches no Room name or object ID, lookup retries with `B`
+prepended (`701` finds `B701`, and `001` finds `B001`). Text output shows the Room's
+`data.comment`, each Jack's name and `data.comment`, and each Host's IPv4
+address, FQDN, and processor summary from `data.facts`. Missing FQDNs fall back
+to the hostname, then the Host object name; missing addresses also use the object
+name. Empty Jacks are included.
+`--json` emits `{room, jacks: [{jack, hosts}]}` with complete objects.
+This standalone wrapper uses the same common file and class configuration as
+`hubuum-host`; copy `hubuum-room` beside it when updating an existing installation.
 
 ## `hubuum-move`
 

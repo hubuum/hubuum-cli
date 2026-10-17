@@ -119,6 +119,7 @@ elif [[ ${1:-} == object && ${2:-} == list ]]; then
     done
     printf '%s\t%s\n' "$class_name" "$name_filter" \
         >>"$FAKE_STATE_DIR/object-list-queries"
+    [[ ${FAKE_FAIL_OBJECT_LIST:-} != "$class_name" ]] || exit 87
     case $class_name in
         Hosts)
             command cat <<'JSON' | jq --arg name_filter "$name_filter" '
@@ -136,7 +137,7 @@ elif [[ ${1:-} == object && ${2:-} == list ]]; then
     "data": {
       "facts": {
         "identity": {"hostname": "primary", "fqdn": "primary.example.org"},
-        "hardware": {"serial_number": "SERIAL-1"},
+        "hardware": {"serial_number": "SERIAL-1", "processor": {"summary": "Example CPU"}},
         "network": {
           "default_ipv4": {"address": "192.0.2.1"},
           "interfaces": [{"mac_address": "00:11:22:33:44:55"}]
@@ -150,13 +151,18 @@ elif [[ ${1:-} == object && ${2:-} == list ]]; then
     "description": "Other",
     "collection": "inventory",
     "class": "Hosts",
-    "data": {"facts": {"identity": {"hostname": "other", "fqdn": "other.example.org"}}}
-  }
+    "data": {"facts": {"identity": {"hostname": "other", "fqdn": ""}}}
+  },
+  {"id": 3, "name": "bare.example.org", "class": "Hosts", "data": null}
 ]
 JSON
             ;;
-        Jacks) printf '%s\n' '[{"id":10,"name":"J-1"},{"id":11,"name":"J-2"}]' ;;
-        Rooms) printf '%s\n' '[{"id":20,"name":"R-1"},{"id":21,"name":"R-2"}]' ;;
+        Jacks)
+            printf '%s\n' '{"items":[{"id":10,"name":"J-1","data":{"comment":"By the door"}},{"id":11,"name":"J-2"},{"id":12,"name":"J-empty"}]}'
+            ;;
+        Rooms)
+            printf '%s\n' '[{"id":20,"name":"R-1","data":{"comment":"Machine room"}},{"id":21,"name":"R-2"},{"id":22,"name":"R-empty"},{"id":23,"name":"R-duplicate"},{"id":24,"name":"r-duplicate"},{"id":25,"name":"B701"},{"id":26,"name":"B001"},{"id":27,"name":"B20"},{"id":28,"name":"702"},{"id":29,"name":"B702"}]'
+            ;;
         *) exit 92 ;;
     esac
 elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == list ]]; then
@@ -173,6 +179,7 @@ elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == list ]]; then
             *) exit 93 ;;
         esac
     done
+    [[ ${FAKE_FAIL_RELATION_ROOT:-} != "$root_object" ]] || exit 88
     jq -Rn \
         --arg root_class "$root_class" \
         --arg root_object "$root_object" \
@@ -182,6 +189,7 @@ elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == list ]]; then
         }]
         + [
             {class_a: "Jacks", object_a: "J-1", class_b: "Rooms", object_b: "R-1"},
+            {class_a: "Jacks", object_a: "J-empty", class_b: "Rooms", object_b: "R-1"},
             {class_a: "Jacks", object_a: "J-2", class_b: "Rooms", object_b: "R-2"}
           ])
         | map(
@@ -309,6 +317,81 @@ FAKE_FAIL_SHOW=1 "$WRAPPER_DIR/hubuum-host" --verbose --json primary \
     >"$TEST_TMP/output"
 jq -e '.host.name == "primary.example.org" and .placement[0].rooms == ["R-1"]' \
     "$TEST_TMP/output" >/dev/null
+
+printf 'primary.example.org\tJ-1\nother.example.org\tJ-1\n' >"$TEST_TMP/edges"
+"$WRAPPER_DIR/hubuum-room" r-1 >"$TEST_TMP/output"
+output_text=$(<"$TEST_TMP/output")
+expected=$(printf 'R-1 (Machine room)\n\nJacks:\n  J-1 - By the door\n    %-16s %-25s %s\n    %-16s %-25s %s\n  J-empty' \
+    other.example.org other '' 192.0.2.1 primary.example.org 'Example CPU')
+[[ $output_text == "$expected" ]]
+
+"$WRAPPER_DIR/hubuum-room" --id 20 --json >"$TEST_TMP/output"
+jq -e '
+    .room.name == "R-1" and .room.data.comment == "Machine room"
+    and [.jacks[].jack.name] == ["J-1", "J-empty"]
+    and [.jacks[0].hosts[].name] == ["other.example.org", "primary.example.org"]
+    and .jacks[0].hosts[1].data.facts.hardware.processor.summary == "Example CPU"
+    and .jacks[1].hosts == []
+' "$TEST_TMP/output" >/dev/null
+
+# Hosts with no facts still appear under their Jack, using their object name.
+printf 'bare.example.org\tJ-1\n' >"$TEST_TMP/edges"
+"$WRAPPER_DIR/hubuum-room" R-1 >"$TEST_TMP/output"
+output_text=$(<"$TEST_TMP/output")
+[[ $output_text == *"$(printf '%-16s %-25s %s' bare.example.org bare.example.org '')"* ]]
+
+"$WRAPPER_DIR/hubuum-room" -- R-empty >"$TEST_TMP/output"
+output_text=$(<"$TEST_TMP/output")
+[[ $output_text == $'R-empty\n\nJacks:' ]]
+"$WRAPPER_DIR/hubuum-room" --json R-empty >"$TEST_TMP/output"
+jq -e '.room.name == "R-empty" and .jacks == []' "$TEST_TMP/output" >/dev/null
+
+for identifier in 701 B701 b701; do
+    "$WRAPPER_DIR/hubuum-room" "$identifier" >"$TEST_TMP/output" 2>"$TEST_TMP/error"
+    output_text=$(<"$TEST_TMP/output")
+    [[ $output_text == $'B701\n\nJacks:' && ! -s $TEST_TMP/error ]]
+done
+"$WRAPPER_DIR/hubuum-room" --id 001 --json >"$TEST_TMP/output"
+jq -e '.room.name == "B001"' "$TEST_TMP/output" >/dev/null
+# Exact numeric names and object IDs take precedence over the B-prefixed name.
+"$WRAPPER_DIR/hubuum-room" --json 702 >"$TEST_TMP/output"
+jq -e '.room.name == "702"' "$TEST_TMP/output" >/dev/null
+
+for help_option in --help -h --man; do
+    HUBUUM_CLI_BIN=$TEST_TMP/missing-hubuum-cli \
+        "$WRAPPER_DIR/hubuum-room" "$help_option" >"$TEST_TMP/output"
+    output_text=$(<"$TEST_TMP/output")
+    [[ $output_text == 'Usage: hubuum-room '* ]]
+done
+
+assert_room_error() {
+    local status=$1
+    shift
+    if "$WRAPPER_DIR/hubuum-room" "$@" >"$TEST_TMP/output" 2>"$TEST_TMP/error"; then
+        printf '%s\n' "expected hubuum-room to fail" >&2
+        exit 1
+    else
+        [[ $? -eq $status ]]
+    fi
+    [[ ! -s $TEST_TMP/output ]]
+}
+
+assert_room_error 2
+assert_room_error 2 ''
+assert_room_error 2 --id
+assert_room_error 2 --id --json
+assert_room_error 2 R-1 R-2
+assert_room_error 2 R-1 -- R-2
+assert_room_error 2 --id R-1 R-2
+assert_room_error 2 --invalid
+assert_room_error 3 missing-room
+assert_room_error 4 R-DUPLICATE
+FAKE_FAIL_OBJECT_LIST=Rooms assert_room_error 1 R-1
+FAKE_FAIL_OBJECT_LIST=Jacks assert_room_error 1 R-1
+FAKE_FAIL_RELATION_LIST=1 assert_room_error 88 R-1
+FAKE_FAIL_RELATION_ROOT=J-1 assert_room_error 88 R-1
+printf 'primary.example.org\tJ-1\n' >"$TEST_TMP/edges"
+FAKE_FAIL_OBJECT_LIST=Hosts assert_room_error 1 R-1
 
 "$WRAPPER_DIR/hubuum-move" primary J-2 --target-type jack --dry-run \
     >"$TEST_TMP/output"

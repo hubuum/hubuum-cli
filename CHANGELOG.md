@@ -2,9 +2,30 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the standalone `hubuum-room` wrapper, which lists Room and Jack comments
+  and connected Hosts' IP addresses, names, and CPUs in the style of `miami_room`.
+  It accepts a Room name or object ID and supports structured output with `--json`.
+  Room names may omit an initial `B` when no name or ID matches directly.
+
 ### Changed
 
 - Shortened installation guidance, pinned the shared Atlas walkthrough, and fixed the extension tutorial’s upgrade step.
+
+### Fixed
+
+- Keep `object show --data --path` output as sorted, flattened key/value rows,
+  including nested fields under the selected path, instead of embedding JSON
+  objects in the text output. Keep distinct values when flattened keys collide
+  and preserve selected values with no flattened fields. Explicit `--json`
+  output remains available.
+- Add `help jsonpath` with syntax, shell quoting, and examples for nested fields
+  and arrays. Object command help links to this topic; invalid paths now include
+  examples and the help reference alongside the parser error.
+- Correct missing JSONPath roots when adding `$` or `$.` produces a valid path,
+  with a warning showing the original and corrected expression.
+- Honor `object show --output json` consistently with `--json`.
 
 ## [0.0.14] - 2026-10-06
 
