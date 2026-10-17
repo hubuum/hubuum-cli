@@ -10,7 +10,9 @@
 
 - Keep `object show --data --path` output as sorted, flattened key/value rows,
   including nested fields under the selected path, instead of embedding JSON
-  objects in the text output. Explicit `--json` output remains available.
+  objects in the text output. Keep distinct values when flattened keys collide
+  and preserve selected values with no flattened fields. Explicit `--json`
+  output remains available.
 - Add `help jsonpath` with syntax, shell quoting, and examples for nested fields
   and arrays. Object command help links to this topic; invalid paths now include
   examples and the help reference alongside the parser error.

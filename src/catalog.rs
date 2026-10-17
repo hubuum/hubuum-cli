@@ -773,6 +773,8 @@ Quoting:
 Output:
   --path implies --data and keeps sorted, flattened key/value rows with full paths.
   Selected objects and arrays use the same display as ordinary --data output.
+  Different values sharing a flattened key keep separate rows.
+  Selected values with no flattened fields are displayed as-is.
   --path only filters the text data display.
   --json (or --output json) returns the full object as JSON.
   A valid path with no matches produces a warning.

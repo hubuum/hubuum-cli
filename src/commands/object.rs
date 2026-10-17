@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::fs::read_to_string;
 use std::iter::once;
 
@@ -452,21 +452,30 @@ fn render_object_data(json_data: Option<&Value>, jsonpath: Option<&str>) -> Resu
     };
 
     let flattener = Flattener::default();
-    let mut key_values = BTreeMap::new();
+    let mut key_values = Vec::new();
     for (prefix, data) in selected_data {
         let flattened = if prefix.is_empty() {
             flattener.flatten(data)
         } else {
-            flattener.flatten(&Value::Object(Map::from_iter([(prefix, data.clone())])))
+            flattener.flatten(&Value::Object(Map::from_iter([(
+                prefix.clone(),
+                data.clone(),
+            )])))
         };
         if let Value::Object(map) = flattened {
-            key_values.extend(map);
+            if map.is_empty() && jsonpath.is_some() {
+                key_values.push((prefix, data.clone()));
+            } else {
+                key_values.extend(map);
+            }
         }
     }
 
+    key_values.sort_by_cached_key(|(key, value)| (key.clone(), value.to_string()));
+    key_values.dedup();
     let padding = key_values
-        .keys()
-        .map(|key| key.len())
+        .iter()
+        .map(|(key, _)| key.len())
         .max()
         .map_or(15, |len| len.max(15));
     for (key, value) in key_values {
@@ -599,6 +608,60 @@ mod tests {
         reset_output().unwrap();
         render_object_data(Some(&data), Some("$")).unwrap();
         assert_eq!(take_output().unwrap().lines, unfiltered);
+        reset_output().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn object_data_paths_preserve_colliding_values_across_matches() {
+        for (data, expected) in [
+            (
+                json!({"facts": {"os": {"name": "Fedora"}, "os.name": "Ubuntu"}}),
+                vec!["facts.os.name   : Fedora", "facts.os.name   : Ubuntu"],
+            ),
+            (
+                json!({"facts": {"os": {"name": 1}, "os.name": "1"}}),
+                vec!["facts.os.name   : 1", "facts.os.name   : 1"],
+            ),
+        ] {
+            for path in [
+                "$.facts.*",
+                "$.facts['os.name','os']",
+                "$.facts['os','os.name','os']",
+            ] {
+                reset_output().unwrap();
+                render_object_data(Some(&data), Some(path)).unwrap();
+                let output = take_output().unwrap();
+                assert_eq!(output.lines, expected, "path: {path}");
+                assert!(output.warnings.is_empty());
+            }
+        }
+        reset_output().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn object_data_paths_keep_matches_without_flattened_fields_visible() {
+        for data in [json!({}), json!([{}, {}]), json!({"nested": {}})] {
+            for (document, path, key) in [
+                (json!({"facts": data}), "$.facts", "facts"),
+                (data.clone(), "$", ""),
+            ] {
+                reset_output().unwrap();
+                render_object_data(Some(&document), Some(path)).unwrap();
+                let output = take_output().unwrap();
+                assert_eq!(output.lines, vec![format!("{key:<15} : {data}")]);
+                assert!(output.warnings.is_empty());
+            }
+        }
+        reset_output().unwrap();
+        render_object_data(Some(&json!({"facts": [{}, {}]})), Some("$.facts[*]")).unwrap();
+        let output = take_output().unwrap();
+        assert_eq!(
+            output.lines,
+            vec!["facts[0]        : {}", "facts[1]        : {}"]
+        );
+        assert!(output.warnings.is_empty());
         reset_output().unwrap();
     }
 

@@ -40,6 +40,10 @@ field paths. It only filters the text data display; `--json` or `--output json`
 returns the full object as JSON. Run `help jsonpath` in the REPL for the same
 JSONPath guidance and examples.
 
+Different selected values that flatten to the same key keep separate rows.
+Selections with no flattened fields, such as empty objects or arrays containing
+only empty objects, remain visible as their original values.
+
 Administrators can inspect the server's redacted effective process configuration:
 
 ```sh
