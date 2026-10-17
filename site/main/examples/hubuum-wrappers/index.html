@@ -1498,6 +1498,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#hubuum-room" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>hubuum-room</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hubuum-move" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1815,6 +1826,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#hubuum-room" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>hubuum-room</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hubuum-move" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1877,7 +1899,7 @@
 
 
 <h1 id="hubuum-cli-wrappers">Hubuum CLI wrappers<a class="headerlink" href="#hubuum-cli-wrappers" title="Permanent link">&para;</a></h1>
-<p>These example programs provide convenient Host inventory and placement
+<p>These example programs provide convenient Host and Room inventory and placement
 workflows without becoming built-in Hubuum commands. They are both standalone
 Bash wrappers and the <code>host</code> pilot for the
 <a href="../../extension-reference/#executable-packs">executable extension protocol</a>. Every server
@@ -1977,17 +1999,36 @@ relation tree includes other related classes as well as Jacks and Rooms; the
 standard detail display omits the object ID.</p>
 <p><code>--json</code> emits the resolved Host (including its ID) plus placement data and takes
 precedence over <code>--verbose</code>. Use it for scripts that need structured fields.</p>
+<h2 id="hubuum-room"><code>hubuum-room</code><a class="headerlink" href="#hubuum-room" title="Permanent link">&para;</a></h2>
+<p>List a Room's Jacks and the Hosts connected to each Jack, in the style of
+<code>miami_room</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-room<span class="w"> </span>R-301
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-room<span class="w"> </span>--id<span class="w"> </span>r-301
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hubuum-room<span class="w"> </span>--json<span class="w"> </span>R-301
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>hubuum-room<span class="w"> </span><span class="m">701</span><span class="w">  </span><span class="c1"># Finds B701</span>
+</code></pre></div>
+<p>A Room name or numeric object ID is required. Names are matched
+case-insensitively; ambiguous identifiers fail. An initial <code>B</code> is optional:
+if the identifier matches no Room name or object ID, lookup retries with <code>B</code>
+prepended (<code>701</code> finds <code>B701</code>, and <code>001</code> finds <code>B001</code>). Text output shows the Room's
+<code>data.comment</code>, each Jack's name and <code>data.comment</code>, and each Host's IPv4
+address, FQDN, and processor summary from <code>data.facts</code>. Missing FQDNs fall back
+to the hostname, then the Host object name; missing addresses also use the object
+name. Empty Jacks are included.
+<code>--json</code> emits <code>{room, jacks: [{jack, hosts}]}</code> with complete objects.
+This standalone wrapper uses the same common file and class configuration as
+<code>hubuum-host</code>; copy <code>hubuum-room</code> beside it when updating an existing installation.</p>
 <h2 id="hubuum-move"><code>hubuum-move</code><a class="headerlink" href="#hubuum-move" title="Permanent link">&para;</a></h2>
 <p>A destination may be a Jack, Room, or Host. A Room with multiple Jacks prompts
 for a choice; automation must select one with <code>--jack</code>. A Host destination uses
 that Host's sole Jack. Use <code>--target-type</code> when the same name exists in more
 than one class.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>J-42
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-move<span class="w"> </span>--from<span class="w"> </span>server-01<span class="w"> </span>--to<span class="w"> </span>R-301<span class="w"> </span>--jack<span class="w"> </span>J-42
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>server-02<span class="w"> </span>--target-type<span class="w"> </span>host<span class="w"> </span>--mode<span class="w"> </span>switch
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>none
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>J-42<span class="w"> </span>--dry-run
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>host<span class="w"> </span>move<span class="w"> </span>server-01<span class="w"> </span>J-42<span class="w"> </span>--dry-run
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>J-42
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-move<span class="w"> </span>--from<span class="w"> </span>server-01<span class="w"> </span>--to<span class="w"> </span>R-301<span class="w"> </span>--jack<span class="w"> </span>J-42
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>server-02<span class="w"> </span>--target-type<span class="w"> </span>host<span class="w"> </span>--mode<span class="w"> </span>switch
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>none
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>hubuum-move<span class="w"> </span>server-01<span class="w"> </span>J-42<span class="w"> </span>--dry-run
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>host<span class="w"> </span>move<span class="w"> </span>server-01<span class="w"> </span>J-42<span class="w"> </span>--dry-run
 </code></pre></div>
 <p>Moving removes the source Host's other Jack relations. When a target Jack is
 occupied, <code>add</code> keeps its current occupants and <code>switch</code> exchanges Jacks with
@@ -2001,11 +2042,11 @@ command in reverse order and reports whether rollback was complete.</p>
 <h2 id="hubuum-host-new"><code>hubuum-host-new</code><a class="headerlink" href="#hubuum-host-new" title="Permanent link">&para;</a></h2>
 <p>Create a Host with the supplied identity, serial, DNS addresses, source, schema
 version, and collection timestamp under <code>data.facts</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-host-new<span class="w"> </span>server-01.example.org<span class="w"> </span>SERIAL123<span class="w">  </span><span class="c1"># Infer a unique collection</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>server-01.example.org<span class="w"> </span>SERIAL123
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--to<span class="w"> </span>R-301<span class="w"> </span>--jack<span class="w"> </span>J-42<span class="w"> </span>server-01
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--no-dns<span class="w"> </span>--ipv4<span class="w"> </span><span class="m">192</span>.0.2.10<span class="w"> </span>server-01
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>host<span class="w"> </span>create<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--no-dns<span class="w"> </span>server-01
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hubuum-host-new<span class="w"> </span>server-01.example.org<span class="w"> </span>SERIAL123<span class="w">  </span><span class="c1"># Infer a unique collection</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>server-01.example.org<span class="w"> </span>SERIAL123
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--to<span class="w"> </span>R-301<span class="w"> </span>--jack<span class="w"> </span>J-42<span class="w"> </span>server-01
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>hubuum-host-new<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--no-dns<span class="w"> </span>--ipv4<span class="w"> </span><span class="m">192</span>.0.2.10<span class="w"> </span>server-01
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>host<span class="w"> </span>create<span class="w"> </span>--collection<span class="w"> </span>inventory<span class="w"> </span>--no-dns<span class="w"> </span>server-01
 </code></pre></div>
 <p>The object name defaults to the canonical FQDN and can be overridden with
 <code>--name</code>. DNS failure stops creation unless <code>--no-dns</code> is explicitly selected.
@@ -2014,7 +2055,7 @@ never overwritten. Creation and placement are separate server operations; if
 placement fails, the newly created Host is retained and reported as unplaced.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p>Run the focused tests without contacting a Hubuum server:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>examples/hubuum-wrappers/tests/test_wrappers.sh
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>examples/hubuum-wrappers/tests/test_wrappers.sh
 </code></pre></div>
 
 
