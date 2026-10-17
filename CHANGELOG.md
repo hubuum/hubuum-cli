@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add the standalone `hubuum-room` wrapper, which lists Room and Jack comments
+  and connected Hosts' IP addresses, names, and CPUs in the style of `miami_room`.
+  It accepts a Room name or object ID and supports structured output with `--json`.
+  Room names may omit an initial `B` when no name or ID matches directly.
+
 ### Changed
 
 - Shortened installation guidance, pinned the shared Atlas walkthrough, and fixed the extension tutorial’s upgrade step.

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source-path=SCRIPTDIR
+source "$SCRIPT_DIR/hubuum-common.sh"
+
+usage() {
+    command cat <<'EOF'
+Usage: hubuum-room [--id IDENTIFIER] [--json] [IDENTIFIER]
+
+Show a Hubuum Room, its Jacks, and the Hosts connected to each Jack.
+The identifier is a Room name (case-insensitive) or object ID and is required.
+An initial B is optional: 701 finds B701 if no Room name or object ID matches 701.
+Like miami_room, text output includes comments and each Host's IP, name, and CPU.
+Use --json for the complete Room, Jack, and Host objects.
+EOF
+}
+
+identifier=
+json_output=0
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --id)
+            [[ $# -ge 2 && -n $2 && $2 != -* ]] || {
+                printf '%s\n' "hubuum-room: --id requires a value" >&2
+                exit 2
+            }
+            [[ -z $identifier ]] || {
+                printf '%s\n' "hubuum-room: expected exactly one identifier" >&2
+                exit 2
+            }
+            identifier=$2
+            shift 2
+            ;;
+        --json)
+            json_output=1
+            shift
+            ;;
+        --help|-h|--man)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            [[ -z $identifier && $# -eq 1 ]] || {
+                printf '%s\n' "hubuum-room: expected exactly one identifier" >&2
+                exit 2
+            }
+            identifier=$1
+            shift
+            ;;
+        -*)
+            printf 'hubuum-room: unknown option: %s\n' "$1" >&2
+            exit 2
+            ;;
+        *)
+            [[ -z $identifier && -n $1 ]] || {
+                printf '%s\n' "hubuum-room: expected exactly one identifier" >&2
+                exit 2
+            }
+            identifier=$1
+            shift
+            ;;
+    esac
+done
+
+[[ -n $identifier ]] || { usage >&2; exit 2; }
+
+hubuum_init
+if room_json=$(hubuum_resolve_object "$HUBUUM_ROOMS_CLASS" "$identifier" \
+    2>"$HUBUUM_WRAPPER_TMP/resolve-error"); then
+    :
+else
+    status=$?
+    if [[ $status -eq 3 && $identifier != [Bb]* ]]; then
+        room_json=$(hubuum_resolve_object "$HUBUUM_ROOMS_CLASS" "B$identifier")
+    else
+        command cat "$HUBUUM_WRAPPER_TMP/resolve-error" >&2
+        exit "$status"
+    fi
+fi
+room_name=$(jq -r '.name' <<<"$room_json")
+jack_names=$(hubuum_related_names "$HUBUUM_ROOMS_CLASS" "$room_name" "$HUBUUM_JACKS_CLASS")
+jacks_json='[]'
+while IFS= read -r jack_name; do
+    jack_json=$(hubuum_resolve_object "$HUBUUM_JACKS_CLASS" "$jack_name")
+    host_names=$(hubuum_related_names "$HUBUUM_JACKS_CLASS" "$jack_name" "$HUBUUM_HOSTS_CLASS")
+    hosts_json='[]'
+    while IFS= read -r host_name; do
+        host_json=$(hubuum_resolve_host "$host_name")
+        hosts_json=$(jq -c --argjson host "$host_json" '. + [$host]' <<<"$hosts_json")
+    done < <(jq -r '.[]' <<<"$host_names")
+    jacks_json=$(jq -c --argjson jack "$jack_json" --argjson hosts "$hosts_json" \
+        '. + [{jack: $jack, hosts: $hosts}]' <<<"$jacks_json")
+done < <(jq -r '.[]' <<<"$jack_names")
+
+if [[ $json_output -eq 1 ]]; then
+    jq -n --argjson room "$room_json" --argjson jacks "$jacks_json" \
+        '{room: $room, jacks: $jacks}'
+    exit 0
+fi
+
+comment=$(jq -r '.data.comment // ""' <<<"$room_json")
+printf '%s' "$room_name"
+[[ -z $comment ]] || printf ' (%s)' "$comment"
+printf '\n\nJacks:\n'
+while IFS= read -r placement; do
+    jq -r '.jack | "  " + .name +
+        (if (.data.comment // "") == "" then "" else " - " + .data.comment end)' \
+        <<<"$placement"
+    while IFS=$'\t' read -r address name processor; do
+        printf '    %-16s %-25s %s\n' "$address" "$name" "$processor"
+    done < <(jq -r '
+        def present: select(. != null and . != "");
+        .hosts[] | [
+            ((.data.facts.network.default_ipv4.address | present) // .name),
+            ((.data.facts.identity.fqdn | present)
+                // (.data.facts.identity.hostname | present) // .name),
+            (.data.facts.hardware.processor.summary // "")
+        ] | @tsv
+    ' <<<"$placement")
+done < <(jq -c '.[]' <<<"$jacks_json")
