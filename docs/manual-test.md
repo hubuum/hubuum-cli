@@ -607,3 +607,17 @@ removed, continue with the remaining cleanup commands.
 - Reject numeric audit IDs, malformed UUIDs, and nonpositive subscription IDs.
 - Compare class/object audit output with and without `--include-relations`,
   including after deleting a relation. Reject that flag for other resource kinds.
+
+## Query-usage declarations
+
+- Create a numeric declaration, list it, and replace its operations using the
+  returned `--expected-revision`. Confirm the revision advances.
+- Retry replacement and deletion with the old revision. Both must fail without
+  overwriting the reviewed declaration; refresh and review before retrying.
+- Analyze with a hypothetical `--proposed file://patterns.json` array and confirm
+  analysis leaves the declarations unchanged. Check disabled observations and
+  insufficient evidence remain distinct from complete analysis with no suggestions.
+- Check JSON output preserves resource ownership, optional native scan counts,
+  adapter progress, errors, and limitations when the server supplies them.
+- Delete with the current revision. Backup and restore a retained declaration and
+  confirm its pattern, revision, and attribution survive format 9 restoration.

@@ -1590,8 +1590,9 @@ mod tests {
             plain
                 .matches("create, delete, fields, list, modify, show")
                 .count(),
-            2
+            1
         );
+        assert!(plain.contains("query-usage"));
         assert!(plain.contains("event"));
         assert!(plain.contains("delivery, sink, subscription"));
         assert!(!plain.contains("event-subscription"));
@@ -1985,6 +1986,8 @@ mod tests {
             "bg output --id",
             "bg show --id",
             "bg watch --task",
+            "class query-usage delete --id",
+            "class query-usage replace --id",
             "class schema cancel --task",
             "class schema generate-report --task",
             "class schema report --task",

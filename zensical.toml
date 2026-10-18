@@ -23,6 +23,7 @@ nav = [
     { "Output pipelines" = "output-pipeline.md" },
     { "Query and script language" = "DSL.md" },
     { "Task discovery" = "tasks.md" },
+    { "Query usage" = "query-usage.md" },
     { "Schema evolution" = "schema-evolution.md" },
     { "Credential approvals" = "credential-approvals.md" },
     { "Webhooks" = "webhooks.md" },

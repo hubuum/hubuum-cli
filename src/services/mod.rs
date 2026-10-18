@@ -25,7 +25,7 @@ pub use gateway::{
     HistoryInput, HistoryScope, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
     NewTokenInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
     ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
-    RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTarget,
+    QueryUsageCommand, RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTarget,
     RelationTraversalOptions, RemoteAuthConfigInput, RenewTokenInput, RestoreMonitor,
     RunBackupInput, RunExportInput, SchemaOperation, SearchInput, SearchKind,
     SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,

@@ -430,11 +430,41 @@ def main():
                   "revalidation, and idempotent cancellation", flush=True)
 
             usage_path = f'/api/v1/classes/{cls["id"]}/query-usage'
-            declaration = api("POST", usage_path, {"pattern": {
-                "path": "value", "value_type": "numeric", "operations": ["equals", "gte"]
-            }}, token)
-            declarations = api("GET", usage_path, token=token)
+            declaration = cli("class", "query-usage", "create", prefix, "--path", "value",
+                              "--type", "numeric", "--operations", "equals")
+            initial_revision = declaration["revision"]
+            declaration = cli("class", "query-usage", "replace", prefix, "--id", str(declaration["id"]),
+                              "--expected-revision", str(initial_revision), "--path", "value",
+                              "--type", "numeric", "--operations", "equals,gte")
+            assert declaration["revision"] > initial_revision
+            for verb in ["replace", "delete"]:
+                command = ["class", "query-usage", verb, prefix, "--id", str(declaration["id"]),
+                           "--expected-revision", str(initial_revision)]
+                if verb == "replace":
+                    command += ["--path", "value", "--type", "numeric", "--operations", "equals"]
+                assert "--expected-revision" in cli(*command, success=False)
+            declarations = cli("class", "query-usage", "list", prefix)
+            api_declarations = api("GET", usage_path, token=token)
+            comparable = json.loads(json.dumps(api_declarations))
+            for item in comparable:
+                for field in ["created_at", "updated_at"]:
+                    item[field] = item[field].replace("Z", "+00:00")
+            assert declarations == comparable, (declarations, comparable)
             assert any(item["id"] == declaration["id"] for item in declarations)
+            proposed = directory / "query-usage-patterns.json"
+            proposed.write_text(json.dumps([{"path":"serial","value_type":"string","operations":["equals"]}]))
+            report = cli("class", "query-usage", "analyze", prefix, "--proposed", "file://" + str(proposed))
+            assert report["status"] == "insufficient_evidence", report
+            assert report["observations"]["settings"]["enabled"] is False
+            summary = cli("class", "query-usage", "analyze", prefix, output="text")
+            assert "insufficient evidence" in summary and "Observations: disabled" in summary
+            assert cli("class", "query-usage", "list", prefix) == declarations
+            invalid = cli("class", "query-usage", "create", prefix, "--path", "a..b", "--type", "string", "--operations", "equals", success=False)
+            assert "path" in invalid.lower()
+            extra = cli("class", "query-usage", "create", prefix, "--path", "serial", "--type", "string", "--operations", "equals")
+            cli("class", "query-usage", "delete", prefix, "--id", str(extra["id"]), "--expected-revision", str(extra["revision"]))
+            assert cli("class", "query-usage", "list", prefix) == declarations
+            print("PASS: query-usage CRUD, stale-revision rejection, bounded proposed analysis, text/JSON output, and unchanged declarations after analysis", flush=True)
 
             def restore_cycle(label, expected_object, *, include_history=True, wait_on_confirm=True):
                 nonlocal token, password
@@ -454,7 +484,8 @@ def main():
                 assert "password_hash" not in json.dumps(document["state"]["sections"].get("principals", []))
                 assert document["state"]["sections"]["query_usage_declarations"]
                 api("DELETE", object_path, token=token)
-                api("DELETE", f'{usage_path}/{declaration["id"]}?expected_revision={declaration["revision"]}', token=token)
+                cli("class", "query-usage", "delete", prefix, "--id", str(declaration["id"]),
+                    "--expected-revision", str(declaration["revision"]))
                 tasks = cli("task", "list", "--kind", "backup", "--status", "succeeded",
                             "--where", "backup_include_history", "equals", str(include_history).lower(), "--all")
                 assert tasks and all(task["details"]["backup"]["retained"]["include_history"] == include_history for task in tasks)
@@ -486,7 +517,7 @@ def main():
                 token, password = eventually(reset_and_login)
                 token_file.write_text(token)
                 approval_file.write_text(password)
-                assert api("GET", usage_path, token=token) == declarations
+                assert api("GET", usage_path, token=token) == api_declarations
                 recovered = api("GET", object_path, token=token)
                 for field in ["id", "revision", "created_at", "updated_at", "description", "data"]:
                     assert recovered[field] == expected_object[field], (field, recovered, expected_object)
