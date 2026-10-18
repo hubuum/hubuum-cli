@@ -453,7 +453,7 @@ mod tests {
     use std::any::TypeId;
     use std::fs::write;
 
-    use super::CommandTokenizer;
+    use super::{normalize_file_uri_path, CommandTokenizer};
     use crate::commands::CliOption;
     use crate::errors::AppError;
     use tempfile::tempdir;
@@ -836,13 +836,13 @@ mod tests {
             "//server/share/file",
             "/é:/payload",
         ] {
-            assert_eq!(super::normalize_file_uri_path(path), path);
+            assert_eq!(normalize_file_uri_path(path), path);
         }
         let expected = if cfg!(windows) {
             "C:/payload"
         } else {
             "/C:/payload"
         };
-        assert_eq!(super::normalize_file_uri_path("/C:/payload"), expected);
+        assert_eq!(normalize_file_uri_path("/C:/payload"), expected);
     }
 }
