@@ -378,7 +378,7 @@ impl CommandTokenizer {
                 .trim_end()
                 .to_string()
         } else if let Some(stripped) = value.strip_prefix("file://") {
-            read_to_string(stripped)
+            read_to_string(normalize_file_uri_path(stripped))
                 .map_err(AppError::IoError)?
                 .trim_end()
                 .to_string()
@@ -437,12 +437,23 @@ fn token_key(token: &str) -> String {
         .to_string()
 }
 
+fn normalize_file_uri_path(stripped: &str) -> &str {
+    if cfg!(windows) {
+        let bytes = stripped.as_bytes();
+        if bytes.len() > 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':'
+        {
+            return &stripped[1..];
+        }
+    }
+    stripped
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
     use std::fs::write;
 
-    use super::CommandTokenizer;
+    use super::{normalize_file_uri_path, CommandTokenizer};
     use crate::commands::CliOption;
     use crate::errors::AppError;
     use tempfile::tempdir;
@@ -728,7 +739,10 @@ mod tests {
         let options = vec![value_source_opt("data", None, Some("--data"))];
 
         let tokens = CommandTokenizer::new(
-            &format!("object create --data file://{}", path.display()),
+            &format!(
+                "object create --data 'file://{}'",
+                path.to_string_lossy().replace('\\', "/")
+            ),
             "create",
             &options,
         )
@@ -755,5 +769,80 @@ mod tests {
             tokens.get_options().get("data"),
             Some(&"file:///definitely/not/read.json".to_string())
         );
+    }
+
+    #[test]
+    fn parses_inline_value_for_non_flag_option() {
+        let options = vec![opt("name", Some("-n"), Some("--name"), false)];
+
+        let tokens = CommandTokenizer::new("object list --name=item-1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(
+            tokens.get_options().get("name"),
+            Some(&"item-1".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_inline_value_for_flag_option_for_validation() {
+        let options = vec![opt("json", Some("-j"), Some("--json"), true)];
+
+        let tokens = CommandTokenizer::new("object list --json=true", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("json"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn accepts_negative_number_as_option_value() {
+        let options = vec![opt("offset", Some("-o"), Some("--offset"), false)];
+
+        let tokens = CommandTokenizer::new("object list --offset -1", "list", &options)
+            .expect("tokenization should succeed");
+
+        assert_eq!(tokens.get_options().get("offset"), Some(&"-1".to_string()));
+    }
+
+    #[test]
+    fn value_sources_accept_triple_slash_file_uris() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("payload with spaces.json");
+        write(&path, "payload\n").unwrap();
+        let path = path.to_string_lossy().replace('\\', "/");
+        let uri = if cfg!(windows) {
+            format!("file:///{path}")
+        } else {
+            format!("file://{path}")
+        };
+        let tokens = CommandTokenizer::new(
+            &format!("object create --data '{uri}'"),
+            "create",
+            &[value_source_opt("data", None, Some("--data"))],
+        )
+        .unwrap();
+        assert_eq!(tokens.get_options()["data"], "payload");
+    }
+
+    #[test]
+    fn file_uri_normalization_preserves_non_drive_paths() {
+        for path in [
+            "",
+            "/",
+            "/C",
+            "/C:",
+            "/tmp/payload",
+            "relative.json",
+            "//server/share/file",
+            "/é:/payload",
+        ] {
+            assert_eq!(normalize_file_uri_path(path), path);
+        }
+        let expected = if cfg!(windows) {
+            "C:/payload"
+        } else {
+            "/C:/payload"
+        };
+        assert_eq!(normalize_file_uri_path("/C:/payload"), expected);
     }
 }

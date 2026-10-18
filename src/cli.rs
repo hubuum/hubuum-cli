@@ -822,4 +822,81 @@ mod tests {
             StartupMode::Command("alias set --name quick-help --command 'help | C'".to_string())
         );
     }
+
+    #[test]
+    fn cli_rejects_invalid_port_type() {
+        let result = build_cli().try_get_matches_from(["hubuum-cli", "--port", "not-a-number"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_updates_typed_values() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--port",
+                "4321",
+                "--ssl-validation",
+                "false",
+                "--cache-time",
+                "99",
+                "--cache-size",
+                "42",
+                "--cache-disable",
+                "true",
+                "--completion-api-disable",
+                "true",
+                "--background-poll-interval",
+                "17",
+            ])
+            .expect("valid CLI args should parse");
+
+        let mut cfg = AppConfig::default();
+        update_config_from_cli(&mut cfg, &matches);
+
+        assert_eq!(cfg.server.port, 4321);
+        assert!(!cfg.server.ssl_validation);
+        assert_eq!(cfg.cache.time, 99);
+        assert_eq!(cfg.cache.size, 42);
+        assert!(cfg.cache.disable);
+        assert!(cfg.completion.disable_api_related);
+        assert_eq!(cfg.background.poll_interval_seconds, 17);
+    }
+
+    #[test]
+    fn cli_accepts_boolish_one_zero_values() {
+        let matches = build_cli()
+            .try_get_matches_from([
+                "hubuum-cli",
+                "--ssl-validation",
+                "0",
+                "--cache-disable",
+                "1",
+            ])
+            .expect("boolish values should parse");
+
+        let mut cfg = AppConfig::default();
+        update_config_from_cli(&mut cfg, &matches);
+
+        assert!(!cfg.server.ssl_validation);
+        assert!(cfg.cache.disable);
+    }
+
+    #[test]
+    fn cli_rejects_invalid_inputs() {
+        for args in [
+            vec!["hubuum-cli", "--port", "65536"],
+            vec!["hubuum-cli", "--ssl-validation", "not-bool"],
+            vec!["hubuum-cli", "--protocol", "ftp"],
+            vec![
+                "hubuum-cli",
+                "--command",
+                "class list",
+                "--source",
+                "commands.txt",
+            ],
+        ] {
+            assert!(build_cli().try_get_matches_from(&args).is_err(), "{args:?}");
+        }
+    }
 }

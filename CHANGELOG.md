@@ -32,6 +32,9 @@
 
 ### Fixed
 
+- Fixed explicit `file:///C:/...` value sources on Windows, including paths with
+  spaces. File and URL loading remains restricted to options that opt into value sources.
+
 - Check self-update installation directory access before downloading, including
   when the existing executable is writable but its directory is not. Errors give
   the target path and package-manager or administrator guidance. Availability

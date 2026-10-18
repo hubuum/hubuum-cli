@@ -1058,4 +1058,33 @@ mod tests {
             Some(&RedirectTarget::File(PathBuf::from("import-result.json")))
         );
     }
+
+    #[test]
+    #[serial]
+    fn process_filter_supports_inversion() {
+        reset_output().expect("buffer should reset");
+        let (line, _, _) = process_filter("list | !alpha").expect("filter should parse");
+        assert_eq!(line, "list");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture filtered output");
+        assert_eq!(snapshot.lines, vec!["beta".to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn process_filter_clears_previous_filter_on_plain_line() {
+        reset_output().expect("buffer should reset");
+        process_filter("list | alpha").expect("filter should parse");
+        process_filter("list").expect("plain line should clear filter");
+        append_line("alpha").expect("line should append");
+        append_line("beta").expect("line should append");
+
+        let snapshot = take_output().expect("snapshot should capture output");
+        assert_eq!(
+            snapshot.lines,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+    }
 }

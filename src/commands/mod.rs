@@ -617,7 +617,8 @@ mod tests {
 
     use super::{
         command_options, normalize_server_page_size, option_or_pos, render_issued_token,
-        required_option_or_pos, table_headers, validate_unknown_options, CliOption, CommandArgs,
+        required_option_or_pos, table_headers, validate_command_args, validate_unknown_options,
+        CliOption, CommandArgs,
     };
     use crate::domain::IssuedTokenRecord;
     use crate::errors::AppError;
@@ -754,5 +755,42 @@ mod tests {
         let err = option_or_pos::<i64>(None, &tokens, 0, "id").expect_err("invalid id should fail");
 
         assert!(err.to_string().contains("id has invalid value 'nope'"));
+    }
+
+    #[derive(Default, cli_command_derive::CommandArgs)]
+    struct ValidationArgs {
+        #[option(short = "n", long = "name", help = "Name", required = true)]
+        name: String,
+        #[option(short = "v", long = "verbose", help = "Verbose", flag = true)]
+        verbose: bool,
+    }
+
+    #[test]
+    fn command_validation_rejects_duplicates_populated_flags_and_missing_options() {
+        for (line, expected) in [
+            ("dummy -n first --name second", "duplicate"),
+            ("dummy --name first --verbose=true", "flag"),
+            ("dummy", "missing"),
+        ] {
+            let tokens =
+                CommandTokenizer::new(line, "dummy", &command_options::<ValidationArgs>()).unwrap();
+            let error = validate_command_args::<ValidationArgs>(&tokens).unwrap_err();
+            match expected {
+                "duplicate" => assert!(matches!(error, AppError::DuplicateOptions(_))),
+                "flag" => assert!(matches!(error, AppError::PopulatedFlagOptions(_))),
+                "missing" => assert!(matches!(error, AppError::MissingOptions(_))),
+                _ => unreachable!(),
+            }
+        }
+        let tokens = CommandTokenizer::new(
+            "dummy -n first -v",
+            "dummy",
+            &command_options::<ValidationArgs>(),
+        )
+        .unwrap();
+        validate_command_args::<ValidationArgs>(&tokens).unwrap();
+        let args = ValidationArgs::parse_tokens(&tokens).unwrap();
+        assert_eq!(args.name, "first");
+        assert!(args.verbose);
     }
 }

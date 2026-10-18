@@ -594,3 +594,114 @@ mod tests {
         assert!(error.to_string().contains("is empty"));
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod authentication_cache_tests {
+    use std::env::{remove_var, set_var, var_os};
+    use std::ffi::OsString;
+    use std::sync::Arc;
+
+    use hubuum_client::{blocking::Client, MockTransport, TransportResponse};
+    use reqwest::{header::AUTHORIZATION, Method, StatusCode};
+    use serde_json::{from_slice, json, Value};
+    use serial_test::serial;
+    use tempfile::tempdir;
+
+    use super::{authenticate, CachedToken};
+    use crate::files::{get_token_from_tokenfile, write_token_to_tokenfile};
+    use crate::models::TokenEntry;
+
+    // dirs uses XDG_DATA_HOME on Linux. Restore it even if an assertion fails.
+    struct DataDirectory(Option<OsString>);
+
+    impl Drop for DataDirectory {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(value) => set_var("XDG_DATA_HOME", value),
+                None => remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn authentication_reuses_valid_tokens_and_replaces_missing_or_invalid_tokens() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        for (cached, valid, policy) in [
+            (true, true, CachedToken::Allow),
+            (true, false, CachedToken::Allow),
+            (false, false, CachedToken::Allow),
+            (true, true, CachedToken::Skip),
+        ] {
+            let directory = tempdir().unwrap();
+            set_var("XDG_DATA_HOME", directory.path());
+            if cached {
+                write_token_to_tokenfile(TokenEntry {
+                    hostname: "example.invalid".into(),
+                    identity_scope: Some("corp".into()),
+                    username: "alice".into(),
+                    token: "cached-token".into(),
+                })
+                .unwrap();
+            }
+            let transport = MockTransport::default();
+            let validate = cached && matches!(policy, CachedToken::Allow);
+            if validate {
+                transport.push_response(TransportResponse::empty(if valid {
+                    StatusCode::OK
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }));
+            }
+            let reuse = validate && valid;
+            if !reuse {
+                transport.push_response(
+                    TransportResponse::json(StatusCode::OK, &json!({"token":"fresh-token"}))
+                        .unwrap(),
+                );
+            }
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap();
+            let client = authenticate(
+                client,
+                "example.invalid",
+                Some("corp"),
+                "alice",
+                Some("password".into()),
+                None,
+                policy,
+            )
+            .unwrap();
+            let expected = if reuse { "cached-token" } else { "fresh-token" };
+            assert_eq!(client.token(), expected);
+            assert_eq!(
+                get_token_from_tokenfile("example.invalid", Some("corp"), "alice")
+                    .unwrap()
+                    .as_deref(),
+                Some(expected)
+            );
+            assert!(get_token_from_tokenfile("example.invalid", None, "alice")
+                .unwrap()
+                .is_none());
+            let requests = transport.requests();
+            assert_eq!(requests.len(), usize::from(validate) + usize::from(!reuse));
+            if validate {
+                assert_eq!(requests[0].method, Method::GET);
+                assert_eq!(requests[0].url.path(), "/api/v0/auth/validate");
+                assert_eq!(requests[0].headers[AUTHORIZATION], "Bearer cached-token");
+            }
+            if !reuse {
+                let request = requests.last().unwrap();
+                assert_eq!(request.method, Method::POST);
+                assert_eq!(request.url.path(), "/api/v0/auth/login");
+                assert_eq!(
+                    from_slice::<Value>(request.body()).unwrap(),
+                    json!({"identity_scope":"corp", "name":"alice", "password":"password"})
+                );
+            }
+        }
+    }
+}
