@@ -2299,11 +2299,17 @@
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Check self-update installation directory access before downloading, including
+<li>
+<p>Fixed explicit <code>file:///C:/...</code> value sources on Windows, including paths with
+  spaces. File and URL loading remains restricted to options that opt into value sources.</p>
+</li>
+<li>
+<p>Check self-update installation directory access before downloading, including
   when the existing executable is writable but its directory is not. Errors give
   the target path and package-manager or administrator guidance. Availability
   checks still work without a writable installation directory. The updater now
-  uses the existing <code>tempfile</code> dependency at runtime for this access probe.</li>
+  uses the existing <code>tempfile</code> dependency at runtime for this access probe.</p>
+</li>
 <li>Keep <code>object show --data --path</code> output as sorted, flattened key/value rows,
   including nested fields under the selected path, instead of embedding JSON
   objects in the text output. Keep distinct values when flattened keys collide
