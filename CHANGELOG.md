@@ -8,7 +8,8 @@
   newer stable releases when the interactive shell starts, without installing
   them. Add `self_update.enabled` (default `true`) so managed installations can
   disable all update checks and self-update installation. Both settings support
-  TOML configuration, environment variables, and the `config` commands.
+  TOML configuration, environment variables, and the `config` commands. These
+  local settings can be changed without connecting to a Hubuum server.
 - Add the standalone `hubuum-room` wrapper, which lists Room and Jack comments
   and connected Hosts' IP addresses, names, and CPUs in the style of `miami_room`.
   It accepts a Room name or object ID and supports structured output with `--json`.

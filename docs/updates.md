@@ -89,7 +89,8 @@ precedence applies: user configuration, environment variables, and an explicit
 `--config` file can override system defaults. These are local settings and are
 not exported to or imported from server-stored user preferences.
 
-Both keys support `config show`, `config set`, and `config unset`, for example:
+Both keys support `config show`, `config set`, and `config unset` without a Hubuum
+server connection, even when automatic server preference storage is enabled:
 
 ```sh
 hubuum-cli config set --key self_update.check_on_startup --value true

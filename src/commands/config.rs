@@ -233,25 +233,48 @@ pub struct ConfigSet {
 
 impl CliCommand for ConfigSet {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
-        let path = set_persisted_value(&query.key, &query.value)?;
-        reload_runtime_config()?;
+        render_config_set(tokens, Some(services))
+    }
+}
+
+pub(crate) fn is_self_update_config_key(key: &str) -> bool {
+    matches!(key, "self_update.enabled" | "self_update.check_on_startup")
+}
+
+fn require_config_services(key: &str, services: Option<&AppServices>) -> Result<(), AppError> {
+    if services.is_none() && !is_self_update_config_key(key) {
+        return Err(AppError::CommandExecutionError(
+            "Only self-update settings can be changed without a server session.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn render_config_set(
+    tokens: &CommandTokenizer,
+    services: Option<&AppServices>,
+) -> Result<(), AppError> {
+    let query = ConfigSet::parse_tokens(tokens)?;
+    require_config_services(&query.key, services)?;
+    let path = set_persisted_value(&query.key, &query.value)?;
+    reload_runtime_config()?;
+    if let Some(services) = services {
         services.invalidate_completion();
         if is_user_preference_key(&query.key) {
             services.sync_user_preferences_if_enabled()?;
         }
-        let message = PersistMessage {
-            key: query.key,
-            path: path.display().to_string(),
-            note: "Saved and reloaded for this CLI session.".to_string(),
-        };
-        let text = format!(
-            "Saved '{}' to {} and reloaded the current session.",
-            message.key, message.path
-        );
-        render_persist_message(&message, text)?;
-        Ok(())
     }
+    let message = PersistMessage {
+        key: query.key,
+        path: path.display().to_string(),
+        note: "Saved and reloaded for this CLI session.".to_string(),
+    };
+    let text = format!(
+        "Saved '{}' to {} and reloaded the current session.",
+        message.key, message.path
+    );
+    render_persist_message(&message, text)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]
@@ -267,25 +290,35 @@ pub struct ConfigUnset {
 
 impl CliCommand for ConfigUnset {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
-        let query = Self::parse_tokens(tokens)?;
-        let path = unset_persisted_value(&query.key)?;
-        reload_runtime_config()?;
+        render_config_unset(tokens, Some(services))
+    }
+}
+
+pub(crate) fn render_config_unset(
+    tokens: &CommandTokenizer,
+    services: Option<&AppServices>,
+) -> Result<(), AppError> {
+    let query = ConfigUnset::parse_tokens(tokens)?;
+    require_config_services(&query.key, services)?;
+    let path = unset_persisted_value(&query.key)?;
+    reload_runtime_config()?;
+    if let Some(services) = services {
         services.invalidate_completion();
         if is_user_preference_key(&query.key) {
             services.sync_user_preferences_if_enabled()?;
         }
-        let message = PersistMessage {
-            key: query.key,
-            path: path.display().to_string(),
-            note: "Removed and reloaded for this CLI session.".to_string(),
-        };
-        let text = format!(
-            "Removed '{}' from {} and reloaded the current session.",
-            message.key, message.path
-        );
-        render_persist_message(&message, text)?;
-        Ok(())
     }
+    let message = PersistMessage {
+        key: query.key,
+        path: path.display().to_string(),
+        note: "Removed and reloaded for this CLI session.".to_string(),
+    };
+    let text = format!(
+        "Removed '{}' from {} and reloaded the current session.",
+        message.key, message.path
+    );
+    render_persist_message(&message, text)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]

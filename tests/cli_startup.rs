@@ -104,7 +104,7 @@ fn disabled_self_update_rejects_check_and_install_without_login() {
 fn self_update_configuration_can_be_persisted_and_unset() {
     let directory = tempdir().unwrap();
     let config = directory.path().join("config.toml");
-    write(&config, "").unwrap();
+    write(&config, "[settings]\nstore_on_server = true\n").unwrap();
     for (key, value) in [
         ("self_update.enabled", "false"),
         ("self_update.check_on_startup", "true"),
@@ -112,12 +112,14 @@ fn self_update_configuration_can_be_persisted_and_unset() {
         cargo_bin_cmd!("hubuum-cli")
             .arg("--config")
             .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
             .args(["config", "set", "--key", key, "--value", value])
             .assert()
             .success();
         cargo_bin_cmd!("hubuum-cli")
             .arg("--config")
             .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
             .args(["config", "show", "--key", key, "--output", "json"])
             .assert()
             .success()
@@ -134,6 +136,7 @@ fn self_update_configuration_can_be_persisted_and_unset() {
         cargo_bin_cmd!("hubuum-cli")
             .arg("--config")
             .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
             .args(["config", "unset", "--key", key])
             .assert()
             .success();
