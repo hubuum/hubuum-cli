@@ -46,7 +46,7 @@ The installation directory must be writable. For a package-managed installation,
 use its package manager. Supported targets match the four release platforms above;
 Linux GNU builds receive the corresponding static musl binary. Other targets
 must use their original installation method. The updater uses the
-[`self_update` crate](https://docs.rs/self_update/1.3.0/self_update/).
+[`self_update` crate](https://docs.rs/self_update/1.3.1/self_update/).
 
 Only strictly newer stable versions are installed. Prereleases and `main-latest`
 are never destinations; a rolling build waits for a stable release with a higher
