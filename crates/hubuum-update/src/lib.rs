@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use self_update::backends::github::{Update, UpdateBuilder};
-use self_update::Release;
+use self_update::{Error as SelfUpdateError, Release};
 use semver::Version;
 use thiserror::Error;
 
@@ -20,6 +20,8 @@ pub enum UpdateError {
     UnsupportedTarget(String),
     #[error("Unable to locate the running executable: {0}")]
     Executable(String),
+    #[error("Cannot write to self-update install path '{}'. Use your package manager for managed installations, or ask your administrator to update this executable.", path.display())]
+    InstallPathNotWritable { path: PathBuf },
     #[error("Self-update failed: {0}")]
     Update(String),
     #[error("The latest release is not a stable version: {0}")]
@@ -116,6 +118,7 @@ pub struct Updater {
     current_version: Version,
     target: String,
     platform: Platform,
+    timeout: Duration,
 }
 
 impl Updater {
@@ -127,7 +130,14 @@ impl Updater {
             current_version,
             target: target.to_string(),
             platform: Platform::from_target(target)?,
+            timeout: Duration::from_secs(120),
         })
+    }
+
+    /// Limit each HTTP request, for example for an optional startup check.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     pub fn run(&self, mode: UpdateMode) -> Result<UpdateOutcome, UpdateError> {
@@ -147,7 +157,7 @@ impl Updater {
             .bin_name(self.platform.binary_name())
             .bin_path_in_archive(self.platform.binary_name())
             .bin_install_path(executable)
-            .timeout(Duration::from_secs(120))
+            .timeout(self.timeout)
             .check_install_path_writable(true)
             .show_output(false)
             .no_confirm(true);
@@ -226,8 +236,13 @@ fn require_asset(release: &Release, name: &str) -> Result<(), UpdateError> {
     }
 }
 
-fn updater_error(error: self_update::Error) -> UpdateError {
-    UpdateError::Update(error.to_string())
+fn updater_error(error: SelfUpdateError) -> UpdateError {
+    match error {
+        SelfUpdateError::InstallPathNotWritable { path, .. } => {
+            UpdateError::InstallPathNotWritable { path }
+        }
+        error => UpdateError::Update(error.to_string()),
+    }
 }
 
 #[cfg(test)]

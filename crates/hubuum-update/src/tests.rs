@@ -16,6 +16,8 @@ use tar::{Builder, Header};
 use tempfile::tempdir;
 use zip::{write::SimpleFileOptions, ZipWriter};
 
+#[cfg(unix)]
+use super::UpdateError;
 use super::{Platform, UpdateMode, UpdateStatus, Updater, Version};
 
 const PAYLOAD: &[u8] = b"verified replacement executable";
@@ -228,6 +230,57 @@ fn checking_a_new_release_fetches_only_metadata() {
     assert_eq!(result.release_version(), "0.0.14");
     assert_eq!(read(executable).unwrap(), b"old");
     assert_eq!(fixture.requests(), [LATEST]);
+}
+
+#[cfg(unix)]
+#[test]
+fn unwritable_install_directory_fails_before_download_and_preserves_binary() {
+    use std::fs::{set_permissions, Permissions};
+    use std::os::unix::fs::PermissionsExt;
+
+    let updater = Updater::new("0.0.13", native_target()).unwrap();
+    let fixture = Fixture::new(updater.platform, "0.0.14", Fault::None);
+    let dir = tempdir().unwrap();
+    let executable = dir.path().join("installed");
+    write(&executable, b"old").unwrap();
+    set_permissions(dir.path(), Permissions::from_mode(0o555)).unwrap();
+    // Privileged users can still write here, so cannot exercise a denied update.
+    if write(dir.path().join("probe"), b"").is_ok() {
+        set_permissions(dir.path(), Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let checked = updater.run_at(UpdateMode::Check, &fixture.url, executable.clone());
+    let installed = updater.run_at(UpdateMode::Install, &fixture.url, executable.clone());
+    set_permissions(dir.path(), Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(checked.unwrap().status(), UpdateStatus::Available);
+    let error = installed.unwrap_err();
+    assert!(matches!(&error, UpdateError::InstallPathNotWritable { path } if path == &executable));
+    assert!(error
+        .to_string()
+        .contains(&executable.display().to_string()));
+    assert!(error.to_string().contains("package manager"));
+    assert!(error.to_string().contains("administrator"));
+    assert_eq!(read(&executable).unwrap(), b"old");
+    assert!(!fixture
+        .requests()
+        .iter()
+        .any(|path| path == "/archive" || path == "/checksum"));
+}
+
+#[test]
+fn request_timeout_bounds_a_stalled_release_check() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let updater = Updater::new("0.0.13", native_target())
+        .unwrap()
+        .with_timeout(Duration::from_millis(100));
+    let dir = tempdir().unwrap();
+    let started = Instant::now();
+    assert!(updater
+        .run_at(UpdateMode::Check, &url, dir.path().join("unused"))
+        .is_err());
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]

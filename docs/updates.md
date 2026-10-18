@@ -42,8 +42,11 @@ Installation verifies the archive against its published SHA-256 file before
 replacing the running executable on disk. Restart the CLI or REPL afterward;
 the current process continues running its original version.
 
-The installation directory must be writable. For a package-managed installation,
-use its package manager. Supported targets match the four release platforms above;
+The updater probes the installation directory for write access before downloading
+the archive. Permission errors identify the target path and suggest using the
+package manager or contacting an administrator. `--check` needs no write access.
+For a package-managed installation, use its package manager.
+Supported targets match the four release platforms above;
 Linux GNU builds receive the corresponding static musl binary. Other targets
 must use their original installation method. The updater uses the
 [`self_update` crate](https://docs.rs/self_update/1.3.1/self_update/).
@@ -54,3 +57,44 @@ version, ignoring its build metadata. GitHub requests optionally use `GH_TOKEN`
 or `GITHUB_TOKEN` (in that order) for API rate limits. Hubuum credentials are
 not used. JSON output reports `status` (`up_to_date`, `update_available`, or
 `updated`), both versions, the executable path, target, and `restart_required`.
+
+### Startup checks and managed installations
+
+Self-update is enabled by default; automatic checks are off. These settings can
+be placed in the CLI's TOML configuration:
+
+```toml
+[self_update]
+enabled = true
+check_on_startup = false
+```
+
+Set `check_on_startup = true` to check once when the interactive shell starts.
+The check reads GitHub release metadata and prints a notice only when a newer
+stable release is available. It never downloads or installs an update. Requests
+use a three-second timeout; unavailable networks and other check failures do not
+interrupt startup or print warnings. Debug logging records failures. One-shot
+commands, scripts, help, and version output do not perform startup checks.
+
+Administrators packaging the CLI can set `enabled = false` in the system config
+to suppress startup checks and reject both `self-update` and `self-update --check`
+before any network access. The error directs users to their package manager or
+administrator. This setting takes precedence over `check_on_startup`.
+
+Use `hubuum-cli config paths` to locate the system and user config files. The
+system path is `/etc/hubuum_cli/config.toml` on Linux,
+`/Library/Application Support/hubuum_cli/config.toml` on macOS, and
+`C:\ProgramData\hubuum_cli\config.toml` on Windows. Normal configuration
+precedence applies: user configuration, environment variables, and an explicit
+`--config` file can override system defaults. These are local settings and are
+not exported to or imported from server-stored user preferences.
+
+Both keys support `config show`, `config set`, and `config unset`, for example:
+
+```sh
+hubuum-cli config set --key self_update.check_on_startup --value true
+hubuum-cli config set --key self_update.enabled --value false
+```
+
+The corresponding environment variables are `HUBUUM_CLI__SELF_UPDATE__ENABLED`
+and `HUBUUM_CLI__SELF_UPDATE__CHECK_ON_STARTUP`, accepting `true` or `false`.

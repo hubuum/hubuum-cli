@@ -4,6 +4,11 @@
 
 ### Added
 
+- Add `self_update.check_on_startup` (default `false`) to optionally announce
+  newer stable releases when the interactive shell starts, without installing
+  them. Add `self_update.enabled` (default `true`) so managed installations can
+  disable all update checks and self-update installation. Both settings support
+  TOML configuration, environment variables, and the `config` commands.
 - Add the standalone `hubuum-room` wrapper, which lists Room and Jack comments
   and connected Hosts' IP addresses, names, and CPUs in the style of `miami_room`.
   It accepts a Room name or object ID and supports structured output with `--json`.
@@ -23,6 +28,9 @@
 
 ### Fixed
 
+- Explain self-update permission failures with the target path and package-manager
+  or administrator guidance. Write-access checks happen before archive downloads;
+  availability checks still work without a writable installation directory.
 - Keep `object show --data --path` output as sorted, flattened key/value rows,
   including nested fields under the selected path, instead of embedding JSON
   objects in the text output. Keep distinct values when flattened keys collide
