@@ -28,9 +28,11 @@
 
 ### Fixed
 
-- Explain self-update permission failures with the target path and package-manager
-  or administrator guidance. Write-access checks happen before archive downloads;
-  availability checks still work without a writable installation directory.
+- Check self-update installation directory access before downloading, including
+  when the existing executable is writable but its directory is not. Errors give
+  the target path and package-manager or administrator guidance. Availability
+  checks still work without a writable installation directory. The updater now
+  uses the existing `tempfile` dependency at runtime for this access probe.
 - Keep `object show --data --path` output as sorted, flattened key/value rows,
   including nested fields under the selected path, instead of embedding JSON
   objects in the text output. Keep distinct values when flattened keys collide
