@@ -17,7 +17,9 @@ use crate::list_query::{
     PagedResult, SortDirectionArg, SortFieldSpec, ValidatedSortClause,
 };
 
-use super::{shared::object_from_path, HubuumGateway, RelationTraversalOptions};
+use super::{
+    apply_related_graph_limit, shared::object_from_path, HubuumGateway, RelationTraversalOptions,
+};
 
 #[derive(Debug, Clone)]
 pub struct CreateObjectInput {
@@ -250,9 +252,11 @@ impl HubuumGateway {
             .filter(
                 "depth",
                 FilterOperator::Lte { is_negated: false },
-                options.max_depth,
+                options.max_depth(),
             );
-        let related_graph_request = if options.include_self_class {
+        let related_graph_request =
+            apply_related_graph_limit(related_graph_request, options.graph_limit());
+        let related_graph_request = if options.include_self_class() {
             related_graph_request
         } else {
             related_graph_request.filter(
@@ -301,7 +305,7 @@ impl HubuumGateway {
                 &collection_map,
                 object.id.into(),
                 class.id().into(),
-                !options.include_self_class,
+                !options.include_self_class(),
             ),
         })
     }
@@ -763,6 +767,7 @@ mod tests {
 
     use crate::domain::{ObjectDataMutationOutcome, ResolvedObjectRecord};
     use crate::list_query::{resolve_filter_field_spec, ListQuery, SortClause, SortDirectionArg};
+    use crate::services::RelatedGraphLimit;
 
     use super::{
         initial_data_from_patch, sort_objects_locally, validate_object_sort_clauses, HubuumGateway,
@@ -771,8 +776,11 @@ mod tests {
     };
 
     #[test]
-    fn object_show_excludes_same_class_objects_in_the_graph_request() {
-        for (include_self_class, expected_class_filter) in [(false, Some("9")), (true, None)] {
+    fn object_show_applies_related_graph_request_options() {
+        for (include_self_class, limit, expected_class_filter, expected_limit) in [
+            (false, Some(175), Some("9"), Some("175")),
+            (true, None, None, None),
+        ] {
             let transport = MockTransport::default();
             let collection = json!({
                 "id": 7,
@@ -830,10 +838,12 @@ mod tests {
                 .object_show_details(
                     "Hosts",
                     "srv-01",
-                    &RelationTraversalOptions {
-                        include_self_class,
-                        max_depth: 2,
-                    },
+                    &RelationTraversalOptions::new(include_self_class, 2).with_graph_limit(
+                        limit
+                            .map(RelatedGraphLimit::new)
+                            .transpose()
+                            .expect("positive graph limit should be valid"),
+                    ),
                     false,
                 )
                 .expect("object details should load");
@@ -847,7 +857,12 @@ mod tests {
             let class_filter = graph_request.url.query_pairs().find_map(|(key, value)| {
                 (key == "class_id__not_equals").then(|| value.into_owned())
             });
+            let graph_limit = graph_request
+                .url
+                .query_pairs()
+                .find_map(|(key, value)| (key == "limit").then(|| value.into_owned()));
             assert_eq!(class_filter.as_deref(), expected_class_filter);
+            assert_eq!(graph_limit.as_deref(), expected_limit);
         }
     }
 

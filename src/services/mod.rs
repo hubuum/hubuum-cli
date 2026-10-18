@@ -24,11 +24,12 @@ pub use gateway::{
     CreateServiceAccountInput, CreateUserInput, GroupUpdateInput, HistoryInput, HistoryScope,
     HubuumGateway, InvokeRemoteTargetInput, ListTasksInput, NewTokenInput,
     ObjectAggregateDimensionInput, ObjectAggregateInput, ObjectAggregateMeasureInput,
-    ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput, RelatedObjectOptions,
-    RelationRoot, RelationTarget, RelationTraversalOptions, RemoteAuthConfigInput, RenewTokenInput,
-    RestoreMonitor, RunBackupInput, RunExportInput, SchemaOperation, SearchInput, SearchKind,
-    SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,
-    UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
+    ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput, RelatedGraphLimit,
+    RelatedObjectOptions, RelationRoot, RelationTarget, RelationTraversalOptions,
+    RemoteAuthConfigInput, RenewTokenInput, RestoreMonitor, RunBackupInput, RunExportInput,
+    SchemaOperation, SearchInput, SearchKind, SourceTokenRevocation, SubmitImportInput,
+    TaskLookupInput, TokenStateFilter, UpdateExportTemplateInput, UpdateRemoteTargetInput,
+    UserFilter, UserUpdateInput,
 };
 pub(crate) use gateway::{CredentialApprovalSource, TaskDiscovery};
 

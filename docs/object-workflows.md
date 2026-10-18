@@ -44,6 +44,20 @@ Different selected values that flatten to the same key keep separate rows.
 Selections with no flattened fields, such as empty objects or arrays containing
 only empty objects, remain visible as their original values.
 
+Related graphs support a positive `--limit` on `class show`, `object show`,
+`relation class graph`, and `relation object graph`:
+
+```sh
+hubuum-cli object show --class Hosts host-1 --max-depth 2 --limit 1000
+hubuum-cli relation class graph --root-class Hosts --limit 1000
+```
+
+This is a server-side graph size guard for related entries, excluding the root.
+A graph that exceeds the limit returns an
+error instead of partial results; it is not a page size or output truncation.
+Omitting `--limit` keeps the server's default. Zero is rejected by the CLI.
+Use `--max-depth` to narrow traversal when a graph is too large.
+
 Administrators can inspect the server's redacted effective process configuration:
 
 ```sh
