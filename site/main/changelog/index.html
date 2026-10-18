@@ -2268,6 +2268,12 @@
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Add <code>self_update.check_on_startup</code> (default <code>false</code>) to optionally announce
+  newer stable releases when the interactive shell starts, without installing
+  them. Add <code>self_update.enabled</code> (default <code>true</code>) so managed installations can
+  disable all update checks and self-update installation. Both settings support
+  TOML configuration, environment variables, and the <code>config</code> commands. These
+  local settings can be changed without connecting to a Hubuum server.</li>
 <li>Add the standalone <code>hubuum-room</code> wrapper, which lists Room and Jack comments
   and connected Hosts' IP addresses, names, and CPUs in the style of <code>miami_room</code>.
   It accepts a Room name or object ID and supports structured output with <code>--json</code>.
@@ -2287,6 +2293,11 @@
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Check self-update installation directory access before downloading, including
+  when the existing executable is writable but its directory is not. Errors give
+  the target path and package-manager or administrator guidance. Availability
+  checks still work without a writable installation directory. The updater now
+  uses the existing <code>tempfile</code> dependency at runtime for this access probe.</li>
 <li>Keep <code>object show --data --path</code> output as sorted, flattened key/value rows,
   including nested fields under the selected path, instead of embedding JSON
   objects in the text output. Keep distinct values when flattened keys collide

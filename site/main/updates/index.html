@@ -802,6 +802,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#startup-checks-and-managed-installations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Startup checks and managed installations
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1766,6 +1777,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#startup-checks-and-managed-installations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Startup checks and managed installations
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1832,8 +1854,11 @@ reads release metadata without downloading an archive or changing the executable
 Installation verifies the archive against its published SHA-256 file before
 replacing the running executable on disk. Restart the CLI or REPL afterward;
 the current process continues running its original version.</p>
-<p>The installation directory must be writable. For a package-managed installation,
-use its package manager. Supported targets match the four release platforms above;
+<p>The updater probes the installation directory for write access before downloading
+the archive. Permission errors identify the target path and suggest using the
+package manager or contacting an administrator. <code>--check</code> needs no write access.
+For a package-managed installation, use its package manager.
+Supported targets match the four release platforms above;
 Linux GNU builds receive the corresponding static musl binary. Other targets
 must use their original installation method. The updater uses the
 <a href="https://docs.rs/self_update/1.3.1/self_update/"><code>self_update</code> crate</a>.</p>
@@ -1843,6 +1868,37 @@ version, ignoring its build metadata. GitHub requests optionally use <code>GH_TO
 or <code>GITHUB_TOKEN</code> (in that order) for API rate limits. Hubuum credentials are
 not used. JSON output reports <code>status</code> (<code>up_to_date</code>, <code>update_available</code>, or
 <code>updated</code>), both versions, the executable path, target, and <code>restart_required</code>.</p>
+<h3 id="startup-checks-and-managed-installations">Startup checks and managed installations<a class="headerlink" href="#startup-checks-and-managed-installations" title="Permanent link">&para;</a></h3>
+<p>Self-update is enabled by default; automatic checks are off. These settings can
+be placed in the CLI's TOML configuration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[self_update]</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">check_on_startup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+</code></pre></div>
+<p>Set <code>check_on_startup = true</code> to check once when the interactive shell starts.
+The check reads GitHub release metadata and prints a notice only when a newer
+stable release is available. It never downloads or installs an update. Requests
+use a three-second timeout; unavailable networks and other check failures do not
+interrupt startup or print warnings. Debug logging records failures. One-shot
+commands, scripts, help, and version output do not perform startup checks.</p>
+<p>Administrators packaging the CLI can set <code>enabled = false</code> in the system config
+to suppress startup checks and reject both <code>self-update</code> and <code>self-update --check</code>
+before any network access. The error directs users to their package manager or
+administrator. This setting takes precedence over <code>check_on_startup</code>.</p>
+<p>Use <code>hubuum-cli config paths</code> to locate the system and user config files. The
+system path is <code>/etc/hubuum_cli/config.toml</code> on Linux,
+<code>/Library/Application Support/hubuum_cli/config.toml</code> on macOS, and
+<code>C:\ProgramData\hubuum_cli\config.toml</code> on Windows. Normal configuration
+precedence applies: user configuration, environment variables, and an explicit
+<code>--config</code> file can override system defaults. These are local settings and are
+not exported to or imported from server-stored user preferences.</p>
+<p>Both keys support <code>config show</code>, <code>config set</code>, and <code>config unset</code> without a Hubuum
+server connection, even when automatic server preference storage is enabled:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>self_update.check_on_startup<span class="w"> </span>--value<span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>self_update.enabled<span class="w"> </span>--value<span class="w"> </span><span class="nb">false</span>
+</code></pre></div>
+<p>The corresponding environment variables are <code>HUBUUM_CLI__SELF_UPDATE__ENABLED</code>
+and <code>HUBUUM_CLI__SELF_UPDATE__CHECK_ON_STARTUP</code>, accepting <code>true</code> or <code>false</code>.</p>
 
 
 
