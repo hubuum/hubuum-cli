@@ -232,6 +232,34 @@ def main():
             neighbor = next(item for item in graph["objects"] if item["id"] == related_object["id"])
             assert neighbor["collection"] == related_collection["name"] and neighbor["path"] == ["neighbor"]
             print("PASS: object detail text/JSON/pipeline, object lists, class details, and relation reads", flush=True)
+            # Graph limits are server-side guards, not list pagination or truncation.
+            # The root is excluded from the related-entry count, so two neighbors
+            # are needed to exercise a limit of one for both graph types.
+            second_name = prefix + "-second"
+            second_class = api("POST", "/api/v1/classes", {
+                "name": second_name, "description": "Graph limit fixture",
+                "collection_id": related_collection["id"], "json_schema": None, "validate_schema": False,
+            }, token)
+            api("POST", f'/api/v1/classes/{second_class["id"]}/', {
+                "name": "second-neighbor", "description": "Graph limit fixture",
+                "collection_id": related_collection["id"], "hubuum_class_id": second_class["id"], "data": None,
+            }, token)
+            cli("relation", "class", "create", "--class-a", prefix, "--class-b", second_name)
+            cli("relation", "object", "create", "--class-a", prefix, "--object-a", prefix,
+                "--class-b", second_name, "--object-b", "second-neighbor")
+            for command in [
+                ("class", "show", "--name", prefix),
+                ("object", "show", "--class", prefix, "--name", prefix),
+                ("relation", "class", "graph", "--root-class", prefix),
+                ("relation", "object", "graph", "--root-class", prefix, "--root-object", prefix),
+            ]:
+                assert cli(*command, "--limit", "100") == cli(*command)
+                invalid = cli(*command, "--limit", "0", success=False)
+                assert "greater than zero" in invalid, invalid
+                exceeded = cli(*command, "--limit", "1", success=False)
+                assert "limit" in exceeded.lower(), exceeded
+            print("PASS: all four graph limits preserve results and reject zero/oversized graphs", flush=True)
+
 
             # Search files and the terminal predicate DSL must agree on the pinned API.
             query_file = directory / "search.json"

@@ -6,7 +6,9 @@ use serde_json::{from_str, from_value, json, to_value, Value};
 
 use crate::list_query::{list_query_from_raw, ListQuery};
 
-use super::{HubuumGateway, RelatedObjectOptions, RelationRoot, RelationTraversalOptions};
+use super::{
+    HubuumGateway, RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTraversalOptions,
+};
 
 fn fixture() -> Value {
     from_str(include_str!("../../../tests/fixtures/object-show.json")).unwrap()
@@ -27,43 +29,59 @@ fn gateway(responses: impl IntoIterator<Item = Value>) -> (HubuumGateway, MockTr
 }
 
 fn traversal() -> RelationTraversalOptions {
-    RelationTraversalOptions {
-        include_self_class: false,
-        max_depth: 2,
-    }
+    RelationTraversalOptions::new(false, 2)
 }
 
 #[test]
 fn object_show_preserves_all_fields_with_three_data_requests() {
-    let f = fixture();
-    let (gateway, transport) = gateway([
-        f["root_class"].clone(),
-        f["graph"].clone(),
-        f["classes"].clone(),
-    ]);
-    let details = gateway
-        .object_show_details("Hosts", "nommo.uio.no", &traversal(), false)
-        .unwrap();
-    assert_eq!(to_value(details).unwrap(), f["expected"]);
-    let requests = transport.requests();
-    assert_eq!(requests.len(), 3);
-    assert_eq!(
-        requests[1].url.path(),
-        "/api/v1/classes/by-name/Hosts/objects/by-name/nommo.uio.no/related/graph"
-    );
-    assert!(requests[1]
-        .url
-        .query_pairs()
-        .any(|(key, value)| key == "depth__lte" && value == "2"));
-    let ids = requests[2]
-        .url
-        .query_pairs()
-        .find(|(key, _)| key == "id__equals")
-        .unwrap()
-        .1;
-    let mut ids = ids.split(',').collect::<Vec<_>>();
-    ids.sort();
-    assert_eq!(ids, ["10", "11", "12"]);
+    for limit in [None, Some(RelatedGraphLimit::new(250).unwrap())] {
+        let f = fixture();
+        let (gateway, transport) = gateway([
+            f["root_class"].clone(),
+            f["graph"].clone(),
+            f["classes"].clone(),
+        ]);
+        let details = gateway
+            .object_show_details(
+                "Hosts",
+                "nommo.uio.no",
+                &traversal().with_graph_limit(limit),
+                false,
+            )
+            .unwrap();
+        assert_eq!(to_value(details).unwrap(), f["expected"]);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests[1].url.path(),
+            "/api/v1/classes/by-name/Hosts/objects/by-name/nommo.uio.no/related/graph"
+        );
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "depth__lte" && value == "2"));
+        let ids = requests[2]
+            .url
+            .query_pairs()
+            .find(|(key, _)| key == "id__equals")
+            .unwrap()
+            .1;
+        let mut ids = ids.split(',').collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, ["10", "11", "12"]);
+        let limits = requests[1]
+            .url
+            .query_pairs()
+            .filter(|(key, _)| key.starts_with("limit"))
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            limits,
+            limit
+                .map(|limit| vec![("limit".to_string(), limit.get().to_string())])
+                .unwrap_or_default()
+        );
+    }
 }
 
 #[test]
@@ -155,17 +173,34 @@ fn object_lists_reuse_the_class_for_plain_computed_and_sorted_output() {
 
 #[test]
 fn class_show_reuses_its_embedded_collection() {
-    let f = fixture();
-    let mut class = f["root_class"].clone();
-    class["collection"] = f["collections"][0].clone();
-    let (gateway, transport) = gateway([
-        class.clone(),
-        json!([]),
-        json!({"classes": [], "relations": []}),
-    ]);
-    let details = gateway.class_show_details("Hosts", &traversal()).unwrap();
-    assert_eq!(details.class.0, from_value::<Class>(class).unwrap());
-    assert_eq!(transport.requests().len(), 3);
+    for limit in [None, Some(RelatedGraphLimit::new(250).unwrap())] {
+        let f = fixture();
+        let mut class = f["root_class"].clone();
+        class["collection"] = f["collections"][0].clone();
+        let (gateway, transport) = gateway([
+            class.clone(),
+            json!([]),
+            json!({"classes": [], "relations": []}),
+        ]);
+        let details = gateway
+            .class_show_details("Hosts", &traversal().with_graph_limit(limit))
+            .unwrap();
+        assert_eq!(details.class.0, from_value::<Class>(class).unwrap());
+        assert_eq!(transport.requests().len(), 3);
+        let requests = transport.requests();
+        let limits = requests[2]
+            .url
+            .query_pairs()
+            .filter(|(key, _)| key.starts_with("limit"))
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            limits,
+            limit
+                .map(|limit| vec![("limit".to_string(), limit.get().to_string())])
+                .unwrap_or_default()
+        );
+    }
 }
 
 #[test]
