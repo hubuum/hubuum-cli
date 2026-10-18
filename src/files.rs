@@ -163,6 +163,15 @@ pub fn get_token_from_tokenfile(
     username: &str,
 ) -> Result<Option<String>, AppError> {
     let token_file_path = get_token_file()?;
+    get_token_from_file(&token_file_path, hostname, identity_scope, username)
+}
+
+fn get_token_from_file(
+    token_file_path: &Path,
+    hostname: &str,
+    identity_scope: Option<&str>,
+    username: &str,
+) -> Result<Option<String>, AppError> {
     let token_file_content = read_to_string(token_file_path)?;
     let token_entries: Vec<TokenEntry> = from_str(&token_file_content)?;
 
@@ -179,7 +188,11 @@ pub fn get_token_from_tokenfile(
 
 pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError> {
     let token_file_path = get_token_file()?;
-    let token_file_content = read_to_string(&token_file_path)?;
+    write_token_to_file(&token_file_path, token_entry)
+}
+
+fn write_token_to_file(token_file_path: &Path, token_entry: TokenEntry) -> Result<(), AppError> {
+    let token_file_content = read_to_string(token_file_path)?;
     let mut token_entries: Vec<TokenEntry> = from_str(&token_file_content)?;
 
     token_entries.retain(|entry| {
@@ -206,7 +219,9 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{ensure_file_exists_at, DataFile};
+    use super::{ensure_file_exists_at, get_token_from_file, write_token_to_file, DataFile};
+    use crate::{errors::AppError, models::TokenEntry};
+    use serde_json::from_str;
 
     #[test]
     fn token_file_starts_with_an_empty_json_array() {
@@ -271,5 +286,76 @@ mod tests {
                 & 0o777;
             assert_eq!(file_mode, 0o600);
         }
+    }
+
+    #[test]
+    fn token_replacement_is_isolated_by_host_scope_and_username() {
+        let directory = tempdir().unwrap();
+        let path = ensure_file_exists_at(directory.path(), DataFile::Token).unwrap();
+        let identities = [
+            ("a", None, "alice"),
+            ("b", None, "alice"),
+            ("a", Some("corp"), "alice"),
+            ("a", None, "bob"),
+        ];
+        for (host, scope, user) in identities {
+            write_token_to_file(
+                &path,
+                TokenEntry {
+                    hostname: host.into(),
+                    identity_scope: scope.map(str::to_string),
+                    username: user.into(),
+                    token: "old".into(),
+                },
+            )
+            .unwrap();
+        }
+        write_token_to_file(
+            &path,
+            TokenEntry {
+                hostname: "a".into(),
+                identity_scope: None,
+                username: "alice".into(),
+                token: "new".into(),
+            },
+        )
+        .unwrap();
+        for (index, (host, scope, user)) in identities.into_iter().enumerate() {
+            assert_eq!(
+                get_token_from_file(&path, host, scope, user)
+                    .unwrap()
+                    .as_deref(),
+                Some(if index == 0 { "new" } else { "old" })
+            );
+        }
+        assert!(get_token_from_file(&path, "missing", None, "alice")
+            .unwrap()
+            .is_none());
+        let entries: Vec<TokenEntry> = from_str(&read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(entries.len(), 4);
+    }
+
+    #[test]
+    fn malformed_token_cache_is_reported_and_preserved() {
+        let directory = tempdir().unwrap();
+        let path = ensure_file_exists_at(directory.path(), DataFile::Token).unwrap();
+        write(&path, "{ invalid JSON").unwrap();
+        assert!(matches!(
+            get_token_from_file(&path, "a", None, "alice"),
+            Err(AppError::ParseJsonError(_))
+        ));
+        assert!(matches!(
+            write_token_to_file(
+                &path,
+                TokenEntry {
+                    hostname: "a".into(),
+                    identity_scope: None,
+                    username: "alice".into(),
+                    token: "new".into()
+                }
+            ),
+            Err(AppError::ParseJsonError(_))
+        ));
+        assert_eq!(read_to_string(path).unwrap(), "{ invalid JSON");
     }
 }

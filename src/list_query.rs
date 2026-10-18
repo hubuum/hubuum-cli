@@ -1584,4 +1584,81 @@ mod tests {
             .iter()
             .any(|warning| warning.contains("use --all for all matching results")));
     }
+
+    #[test]
+    #[serial]
+    fn text_output_omits_pagination_footer_without_limit_or_next_cursor() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        init_config(AppConfig::default()).expect("config should update");
+        reset_output().expect("output should reset");
+        let tokens =
+            CommandTokenizer::new("class list", "list", &[]).expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }],
+            next_cursor: None,
+            returned_count: 1,
+            total_count: None,
+        };
+
+        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+            .expect("text output should render");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert!(snapshot
+            .lines
+            .iter()
+            .all(|line| !line.contains("Returned ")));
+        assert!(snapshot.next_page_command.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn text_output_uses_enter_hint_when_config_enables_it() {
+        CONFIG_INIT.call_once(|| {
+            let _ = init_config(AppConfig::default());
+        });
+        let mut config = AppConfig::default();
+        config.repl.enter_fetches_next_page = true;
+        init_config(config).expect("config should update");
+
+        reset_output().expect("output should reset");
+        let tokens = CommandTokenizer::new("class list --limit 1", "list", &[])
+            .expect("tokenization should succeed");
+        let paged = PagedResult {
+            items: vec![DummyRow { id: 1 }],
+            next_cursor: Some("abc123".to_string()),
+            returned_count: 1,
+            total_count: None,
+        };
+
+        super::render_paged_result(&tokens, &paged, OutputFormat::Text)
+            .expect("text output should render");
+
+        let snapshot = take_output().expect("snapshot should be captured");
+        assert!(snapshot
+            .lines
+            .iter()
+            .any(|line| line.contains("Press Enter for the next page")));
+    }
+
+    #[test]
+    fn next_cursor_command_replaces_existing_cursor() {
+        for (raw, next, expected) in [
+            (
+                "class list --limit 1 --cursor old",
+                "next token",
+                "class list --limit 1 --cursor 'next token'",
+            ),
+            (
+                "class list --cursor=old --limit 1",
+                "abc123",
+                "class list --limit 1 --cursor abc123",
+            ),
+        ] {
+            let tokens = CommandTokenizer::new(raw, "list", &[]).unwrap();
+            assert_eq!(super::next_cursor_command(&tokens, next).unwrap(), expected);
+        }
+    }
 }

@@ -1170,10 +1170,10 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        append_line, apply_table_layout_at_terminal_width, apply_table_style, column_headers,
-        render_dense_rows_with_band, render_dense_theme_preview, reset_output, set_pipeline,
-        set_render_format, set_semantic_output, take_output, DenseLayout, OutputSnapshot,
-        RenderFormat,
+        add_error, add_warning, append_line, apply_table_layout_at_terminal_width,
+        apply_table_style, column_headers, render_dense_rows_with_band, render_dense_theme_preview,
+        reset_output, set_pipeline, set_render_format, set_semantic_output, take_output,
+        DenseLayout, OutputSnapshot, RenderFormat,
     };
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap};
@@ -1995,5 +1995,35 @@ mod tests {
 
         assert!(rendered.contains("alpha"));
         assert!(!rendered.contains("null"));
+    }
+    #[test]
+    #[serial]
+    fn filtered_output_keeps_warnings_and_errors() {
+        init_config(AppConfig::default()).unwrap();
+        reset_output().unwrap();
+        add_warning("warn").unwrap();
+        add_error("err").unwrap();
+        append_line("alpha").unwrap();
+        set_pipeline(vec![PipeStage::Grep("^z".to_string())]).unwrap();
+        let snapshot = take_output().unwrap();
+        assert!(snapshot.lines.is_empty());
+        assert_eq!(snapshot.warnings, ["warn"]);
+        assert_eq!(snapshot.errors, ["err"]);
+        assert!(take_output().unwrap().is_empty());
+    }
+    #[test]
+    #[serial]
+    fn rendered_output_orders_diagnostics_before_payload() {
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Never;
+        init_config(config).unwrap();
+        assert_eq!(OutputSnapshot::default().render(), "");
+        let snapshot = OutputSnapshot {
+            warnings: vec!["warn".into()],
+            errors: vec!["err".into()],
+            lines: vec!["payload".into()],
+            ..OutputSnapshot::default()
+        };
+        assert_eq!(snapshot.render(), "Warning: warn\nError: err\npayload\n");
     }
 }
