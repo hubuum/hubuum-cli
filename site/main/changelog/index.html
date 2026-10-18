@@ -2274,10 +2274,16 @@
   disable all update checks and self-update installation. Both settings support
   TOML configuration, environment variables, and the <code>config</code> commands. These
   local settings can be changed without connecting to a Hubuum server.</li>
-<li>Add the standalone <code>hubuum-room</code> wrapper, which lists Room and Jack comments
+<li>
+<p>Add a positive <code>--limit</code> override to class/object show and relation graph
+  commands. Omit it to retain the server's configured graph size limit.</p>
+</li>
+<li>
+<p>Add the standalone <code>hubuum-room</code> wrapper, which lists Room and Jack comments
   and connected Hosts' IP addresses, names, and CPUs in the style of <code>miami_room</code>.
   It accepts a Room name or object ID and supports structured output with <code>--json</code>.
-  Room names may omit an initial <code>B</code> when no name or ID matches directly.</li>
+  Room names may omit an initial <code>B</code> when no name or ID matches directly.</p>
+</li>
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
