@@ -1,12 +1,14 @@
 //! Install verified, stable releases of the Hubuum CLI without server credentials.
 
 use std::env::current_exe;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use self_update::backends::github::{Update, UpdateBuilder};
-use self_update::Release;
+use self_update::{Error as SelfUpdateError, Release};
 use semver::Version;
+use tempfile::Builder as TempFileBuilder;
 use thiserror::Error;
 
 const API_URL: &str = "https://api.github.com";
@@ -116,6 +118,7 @@ pub struct Updater {
     current_version: Version,
     target: String,
     platform: Platform,
+    timeout: Duration,
 }
 
 impl Updater {
@@ -127,7 +130,14 @@ impl Updater {
             current_version,
             target: target.to_string(),
             platform: Platform::from_target(target)?,
+            timeout: Duration::from_secs(120),
         })
+    }
+
+    /// Limit each HTTP request, for example for an optional startup check.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     pub fn run(&self, mode: UpdateMode) -> Result<UpdateOutcome, UpdateError> {
@@ -147,7 +157,7 @@ impl Updater {
             .bin_name(self.platform.binary_name())
             .bin_path_in_archive(self.platform.binary_name())
             .bin_install_path(executable)
-            .timeout(Duration::from_secs(120))
+            .timeout(self.timeout)
             .check_install_path_writable(true)
             .show_output(false)
             .no_confirm(true);
@@ -193,6 +203,10 @@ impl Updater {
         require_asset(release, &checksum_name)?;
         outcome.status = UpdateStatus::Available;
         if mode == UpdateMode::Install {
+            // Replacement needs directory create/rename access even if the
+            // existing executable itself is writable. The upstream file probe
+            // does not cover this case (and a running Linux binary is busy).
+            check_install_directory(&outcome.executable)?;
             // Pin the selected version and exact archive; never let substring
             // matching choose a checksum, another platform, or a rolling asset.
             builder
@@ -215,6 +229,33 @@ impl Updater {
     }
 }
 
+fn check_install_directory(executable: &Path) -> Result<(), UpdateError> {
+    let parent = executable
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    TempFileBuilder::new()
+        .prefix(".hubuum-cli-update-")
+        .tempfile_in(parent)
+        .map(drop)
+        .map_err(|error| match error.kind() {
+            ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+                install_path_error(executable)
+            }
+            _ => UpdateError::Update(format!(
+                "Cannot prepare an update next to '{}': {error}",
+                executable.display()
+            )),
+        })
+}
+
+fn install_path_error(path: &Path) -> UpdateError {
+    UpdateError::Update(format!(
+        "Cannot write to install path '{}'. Use your package manager for managed installations, or ask your administrator to update this executable.",
+        path.display()
+    ))
+}
+
 fn require_asset(release: &Release, name: &str) -> Result<(), UpdateError> {
     if release.assets().iter().any(|asset| asset.name() == name) {
         Ok(())
@@ -226,8 +267,11 @@ fn require_asset(release: &Release, name: &str) -> Result<(), UpdateError> {
     }
 }
 
-fn updater_error(error: self_update::Error) -> UpdateError {
-    UpdateError::Update(error.to_string())
+fn updater_error(error: SelfUpdateError) -> UpdateError {
+    match error {
+        SelfUpdateError::InstallPathNotWritable { path, .. } => install_path_error(&path),
+        error => UpdateError::Update(error.to_string()),
+    }
 }
 
 #[cfg(test)]

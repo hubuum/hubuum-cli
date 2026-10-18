@@ -71,6 +71,107 @@ fn self_update_help_and_invalid_options_do_not_require_server_login() {
 }
 
 #[test]
+fn disabled_self_update_rejects_check_and_install_without_login() {
+    let directory = tempdir().unwrap();
+    let config = directory.path().join("config.toml");
+    write(
+        &config,
+        "[self_update]\nenabled = false\ncheck_on_startup = true\n",
+    )
+    .unwrap();
+    for options in [vec!["self-update"], vec!["self-update", "--check"]] {
+        cargo_bin_cmd!("hubuum-cli")
+            .arg("--config")
+            .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
+            .args(options)
+            .assert()
+            .failure()
+            .stdout(contains("self_update.enabled=false"))
+            .stdout(contains("package manager"))
+            .stdout(contains("ServerUnreachable").not());
+    }
+    cargo_bin_cmd!("hubuum-cli")
+        .arg("--config")
+        .arg(&config)
+        .args(["self-update", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("self_update.check_on_startup"));
+}
+
+#[test]
+fn self_update_configuration_can_be_persisted_and_unset() {
+    let directory = tempdir().unwrap();
+    let config = directory.path().join("config.toml");
+    write(&config, "[settings]\nstore_on_server = true\n").unwrap();
+    for (key, value) in [
+        ("self_update.enabled", "false"),
+        ("self_update.check_on_startup", "true"),
+    ] {
+        cargo_bin_cmd!("hubuum-cli")
+            .arg("--config")
+            .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
+            .args(["config", "set", "--key", key, "--value", value])
+            .assert()
+            .success();
+        cargo_bin_cmd!("hubuum-cli")
+            .arg("--config")
+            .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
+            .args(["config", "show", "--key", key, "--output", "json"])
+            .assert()
+            .success()
+            .stdout(contains(key))
+            .stdout(contains(value));
+    }
+    let persisted: toml::Value = toml::from_str(&read_to_string(&config).unwrap()).unwrap();
+    assert_eq!(persisted["self_update"]["enabled"].as_bool(), Some(false));
+    assert_eq!(
+        persisted["self_update"]["check_on_startup"].as_bool(),
+        Some(true)
+    );
+    for key in ["self_update.enabled", "self_update.check_on_startup"] {
+        cargo_bin_cmd!("hubuum-cli")
+            .arg("--config")
+            .arg(&config)
+            .args(["--hostname", "127.0.0.1", "--port", "1"])
+            .args(["config", "unset", "--key", key])
+            .assert()
+            .success();
+    }
+    let persisted: toml::Value = toml::from_str(&read_to_string(&config).unwrap()).unwrap();
+    assert!(persisted
+        .get("self_update")
+        .is_none_or(|section| section.as_table().unwrap().is_empty()));
+}
+
+#[test]
+fn self_update_environment_settings_work_and_one_shot_output_stays_clean() {
+    let directory = tempdir().unwrap();
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .env("HUBUUM_CLI__SELF_UPDATE__ENABLED", "false")
+        .args(["self-update", "--check"])
+        .assert()
+        .failure()
+        .stdout(contains("self_update.enabled=false"));
+    let output = cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .env("HUBUUM_CLI__SELF_UPDATE__ENABLED", "true")
+        .env("HUBUUM_CLI__SELF_UPDATE__CHECK_ON_STARTUP", "true")
+        .args(["version", "--output", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let _: serde_json::Value =
+        serde_json::from_slice(&output).expect("only JSON, without an update notice");
+}
+
+#[test]
 fn direct_help_and_config_paths_do_not_require_login() {
     cargo_bin_cmd!("hubuum-cli")
         .arg("help")

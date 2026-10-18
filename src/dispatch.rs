@@ -12,7 +12,10 @@ use crate::catalog::{
 };
 use crate::commands::auth::render_auth_providers;
 use crate::commands::backup::{render_restore_status, render_restore_wait};
-use crate::commands::config::{render_config_paths, render_config_show};
+use crate::commands::config::{
+    is_self_update_config_key, render_config_paths, render_config_set, render_config_show,
+    render_config_unset, ConfigSet, ConfigUnset,
+};
 use crate::commands::metrics::render_metrics;
 use crate::commands::self_update::render_self_update;
 use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
@@ -201,10 +204,33 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
             });
     scope_help_path(catalog, &[], &parts).is_some()
         || is_offline_builtin_command(&parts)
+        || can_mutate_self_update_config(catalog, &line, &parts)
         || extension_offline
         || catalog
             .resolve_command(&[], &parts)
             .is_ok_and(|resolved| !resolved.command.handler.requires_authentication())
+}
+
+fn can_mutate_self_update_config(catalog: &CommandCatalog, line: &str, parts: &[String]) -> bool {
+    if !command_path_is(parts, &["config", "set"]) && !command_path_is(parts, &["config", "unset"])
+    {
+        return false;
+    }
+    let Ok((line, _)) = split_pipeline(line) else {
+        return false;
+    };
+    let Ok(resolved) = catalog.resolve_command(&[], parts) else {
+        return false;
+    };
+    let Ok(tokens) = tokenizer_for_resolved(&line, &resolved) else {
+        return false;
+    };
+    let key = if command_path_is(parts, &["config", "set"]) {
+        ConfigSet::parse_tokens(&tokens).map(|query| query.key)
+    } else {
+        ConfigUnset::parse_tokens(&tokens).map(|query| query.key)
+    };
+    key.is_ok_and(|key| is_self_update_config_key(&key))
 }
 
 pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
@@ -300,6 +326,18 @@ async fn execute_offline_line_inner(
         set_render_format(render_format(&tokens)?)?;
         set_table_headers(table_headers(&tokens)?)?;
         render_config_paths(&tokens)?;
+    } else if command_path_is(&parts, &["config", "set"])
+        || command_path_is(&parts, &["config", "unset"])
+    {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
+        if command_path_is(&parts, &["config", "set"]) {
+            render_config_set(&tokens, None)?;
+        } else {
+            render_config_unset(&tokens, None)?;
+        }
     } else if command_path_is(&parts, &["theme", "list"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -888,6 +926,15 @@ mod tests {
         assert!(can_execute_offline(&catalog, "version --server"));
         assert!(can_execute_offline(&catalog, "self-update"));
         assert!(can_execute_offline(&catalog, "self-update --check"));
+        for command in [
+            "config set --key self_update.enabled --value false",
+            "config set -k self_update.check_on_startup -v true",
+            "config unset --key=self_update.enabled",
+            "config unset -k self_update.check_on_startup",
+            "config set --key self_update.enabled --value false | select key",
+        ] {
+            assert!(can_execute_offline(&catalog, command), "{command}");
+        }
         assert!(can_execute_offline(&catalog, "extension doctor"));
         assert!(can_execute_offline(&catalog, "extension unknown command"));
         assert!(!can_execute_offline(&catalog, "theme use hubuum-dark"));
@@ -896,6 +943,10 @@ mod tests {
             "config set --key server.hostname --value localhost"
         ));
         assert!(!can_execute_offline(&catalog, "object list --limit 5"));
+        assert!(!can_execute_offline(
+            &catalog,
+            "config set --key output.theme --value self_update.enabled"
+        ));
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ use crate::autocomplete::{
 };
 use crate::background::BackgroundManager;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
+use crate::commands::self_update::startup_notice;
 use crate::config::get_config;
 use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, render_error};
 use crate::errors::{AppError, ReauthenticationRetry};
@@ -93,6 +94,9 @@ fn run_thread(
 
     let catalog = app.catalog.snapshot();
     let _ = print_rendered(&format!("{}\n", catalog.render_scope_help(&[])));
+    if let Some(notice) = startup_notice(&app.config.self_update) {
+        let _ = print_rendered(&format!("{notice}\n"));
+    }
 
     loop {
         let prompt = ReplPrompt {

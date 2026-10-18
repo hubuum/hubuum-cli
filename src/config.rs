@@ -142,6 +142,8 @@ pub struct AppConfig {
     pub cache: CacheConfig,
     #[serde(default)]
     pub settings: SettingsConfig,
+    #[serde(default)]
+    pub self_update: SelfUpdateConfig,
     pub completion: CompletionConfig,
     pub background: BackgroundConfig,
     pub repl: ReplConfig,
@@ -185,6 +187,32 @@ fn default_user_extension_roots() -> Vec<PathBuf> {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SettingsConfig {
     pub store_on_server: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct SelfUpdateConfig {
+    enabled: bool,
+    check_on_startup: bool,
+}
+
+impl Default for SelfUpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Defaults::SELF_UPDATE_ENABLED,
+            check_on_startup: Defaults::SELF_UPDATE_CHECK_ON_STARTUP,
+        }
+    }
+}
+
+impl SelfUpdateConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn check_on_startup(&self) -> bool {
+        self.check_on_startup
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -398,6 +426,20 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         key: "settings.store_on_server",
         cli_arg: None,
         env_var: "HUBUUM_CLI__SETTINGS__STORE_ON_SERVER",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "self_update.enabled",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__SELF_UPDATE__ENABLED",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "self_update.check_on_startup",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__SELF_UPDATE__CHECK_ON_STARTUP",
         value_kind: ConfigValueKind::Bool,
         sensitive: false,
     },
@@ -663,6 +705,7 @@ impl Default for AppConfig {
                 disable: Defaults::CACHE_DISABLE,
             },
             settings: SettingsConfig::default(),
+            self_update: SelfUpdateConfig::default(),
             completion: CompletionConfig {
                 disable_api_related: Defaults::COMPLETION_DISABLE_API_RELATED,
             },
@@ -1151,6 +1194,11 @@ pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, Config
         .set_default("cache.size", Defaults::CACHE_SIZE)?
         .set_default("cache.disable", Defaults::CACHE_DISABLE)?
         .set_default("settings.store_on_server", false)?
+        .set_default("self_update.enabled", Defaults::SELF_UPDATE_ENABLED)?
+        .set_default(
+            "self_update.check_on_startup",
+            Defaults::SELF_UPDATE_CHECK_ON_STARTUP,
+        )?
         .set_default(
             "completion.disable_api_related",
             Defaults::COMPLETION_DISABLE_API_RELATED,
@@ -1364,6 +1412,10 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "cache.size" => ConfigValueRef::I32(config.cache.size),
         "cache.disable" => ConfigValueRef::Bool(config.cache.disable),
         "settings.store_on_server" => ConfigValueRef::Bool(config.settings.store_on_server),
+        "self_update.enabled" => ConfigValueRef::Bool(config.self_update.enabled()),
+        "self_update.check_on_startup" => {
+            ConfigValueRef::Bool(config.self_update.check_on_startup())
+        }
         "completion.disable_api_related" => {
             ConfigValueRef::Bool(config.completion.disable_api_related)
         }
@@ -2904,6 +2956,10 @@ time = 123
 [settings]
 store_on_server = true
 
+[self_update]
+enabled = false
+check_on_startup = true
+
 [output]
 theme = "old-theme"
 theme_file = "/machine/specific/themes.toml"
@@ -2921,6 +2977,15 @@ theme_file = "/machine/specific/themes.toml"
         let preferences = UserPreferences::from_config(&config);
 
         merge_user_preferences(&mut root, &preferences).expect("preferences should merge");
+
+        assert_eq!(
+            toml_get(&root, "self_update.enabled").and_then(TomlValue::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            toml_get(&root, "self_update.check_on_startup").and_then(TomlValue::as_bool),
+            Some(true)
+        );
 
         assert_eq!(
             toml_get(&root, "server.hostname").and_then(TomlValue::as_str),
