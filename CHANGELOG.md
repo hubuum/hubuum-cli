@@ -20,6 +20,17 @@
 
 ### Changed
 
+- **Breaking (server target):** pin `hubuum_client` 0.15.0 and target the released
+  Hubuum server v0.0.19 image. Upgrade matching server processes, replace blank
+  principal names before upgrading, and retain a pre-upgrade snapshot and matching
+  binaries for rollback. Direct server connections require HTTP/1.1. The client
+  retains its blocking feature and Rust 1.88 MSRV; the CLI declares no MSRV.
+  The upstream contract grows from 235 to 240 operations.
+- **Breaking (backup output):** new server backups use format 9 and preserve
+  query-usage declarations. Upgrade the restore server before using new backups.
+  Restore staging continues accepting formats 6, 7, and 8 alongside format 9;
+  older artifacts need no conversion.
+
 - Shortened installation guidance, pinned the shared Atlas walkthrough, and fixed the extension tutorial’s upgrade step.
 - Update the TOML dependency from 1.1.6 to 1.1.8, including fixes for key
   serialization and duplicate-key detection when deserializing tables.
@@ -27,8 +38,7 @@
   Serde JSON 1.0.154, Tokio 1.53.3, SHA-2 0.11.1, Syn 3.0.9, and ZIP 9.0.5
   for updater tests. Refresh pinned GitHub Actions, shared documentation tooling,
   Markdown lint, the Rust 1.99.1 Alpine builder, and the PostgreSQL 18 fixture.
-  The pinned Hubuum client 0.14.1 and server target v0.0.18 remain unchanged;
-  no configuration or command migration is required.
+  The client/server upgrade and its migration requirements are described above.
 
 ### Fixed
 
