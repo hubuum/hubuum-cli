@@ -321,7 +321,21 @@ def main():
             events = [json.loads(line) for line in streamed.splitlines()]
             assert events[0]["event"] == "started" and events[-1]["event"] == "done"
             assert any(event["event"] == "batch" for event in events)
-            print("PASS: structured query files, terminal predicates, and streaming JSONL", flush=True)
+            for output in ["json", "jsonl"]:
+                streamed = cli("search", "--query-file", str(query_file), "--stream", output=output)
+                events = streamed if output == "json" else [json.loads(line) for line in streamed.splitlines()]
+                assert events[0]["event"] == "started" and events[-1]["event"] == "done"
+                assert events[-1]["data"]["total"] == 1
+                assert [event["data"] for event in events if event["event"] == "result"] == found["results"]
+            projected = cli("search", "--target", "object", "--class", prefix,
+                            "--where", "data.value >= 40", "--stream", "|", "P", "name")
+            assert projected == [{"name": prefix}], projected
+            empty = cli("search", "--target", "object", "--class", prefix,
+                        "--where", 'name == "absent"', "--stream", "|", "P", "name")
+            assert empty == [], empty
+            conflict = cli("search", "--target", "object", "--stream", "--all", success=False)
+            assert "--all" in conflict and "--stream" in conflict
+            print("PASS: typed structured query files, terminal predicates, streaming JSON/JSONL and resource pipelines", flush=True)
 
             # The server must reject bearer-only credential changes; the CLI then
             # requests exactly bound approval from the acting human's password.

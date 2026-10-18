@@ -621,3 +621,14 @@ removed, continue with the remaining cleanup commands.
   adapter progress, errors, and limitations when the server supplies them.
 - Delete with the current revision. Backup and restore a retained declaration and
   confirm its pattern, revision, and attribution survive format 9 restoration.
+
+## Structured search streaming
+
+- Compare a structured query file and terminal predicate across JSON responses,
+  streaming JSON/JSONL, text, and a local projection pipeline.
+- Verify text and JSONL show the first resource while the server is still sending
+  results; JSON remains one complete event array.
+- Continue a streamed page with `next`; retain its predicate and local pipeline.
+- Check a missing `done` or terminal server error fails without replay. A failing
+  redirected stream must leave the original destination intact.
+- Reject `--all --stream` for both plain and structured searches.

@@ -25,6 +25,7 @@ mod service_accounts;
 mod settings;
 mod shared;
 mod structured_search;
+pub(crate) use structured_search::{result_row, StructuredSearchStreamEvent};
 mod task_discovery;
 mod tasks;
 pub(crate) use task_discovery::TaskDiscovery;

@@ -727,18 +727,42 @@ mod tests {
                 "search --query-file {}",
                 shell_escape(query_file.to_str().unwrap())
             ),
-        ] {
+        ]
+        .into_iter()
+        .flat_map(|source| [source.clone(), format!("{source} --stream")])
+        {
             let session = SharedSession::new();
             let initial =
                 format!("{source} --limit 2 --cursor='initial cursor' --output json {suffix}");
             for (page, next) in [(1, Some("page 2")), (2, Some("page 3")), (3, None)] {
-                transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+                let response = json!({
                     "version": 1, "kind": "object", "next": next,
                     "results": [
-                        {"kind": "object", "resource": {"id": page, "name": format!("srv-{page}"), "description": "hidden"}},
-                        {"kind": "object", "resource": {"id": page + 10, "name": "skip", "description": "filtered"}},
+                        {"kind": "object", "resource": {"id": page, "name": format!("srv-{page}"), "description": "hidden", "hubuum_class_id":1,"collection_id":1,"data":null,"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","revision":1}},
+                        {"kind": "object", "resource": {"id": page + 10, "name": "skip", "description": "filtered", "hubuum_class_id":1,"collection_id":1,"data":null,"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","revision":1}},
                     ],
-                })).unwrap());
+                });
+                if source.contains("--stream") {
+                    let mut body =
+                        "event: started\ndata: {\"version\":1,\"kind\":\"object\"}\n\n".to_string();
+                    for result in response["results"].as_array().unwrap() {
+                        body.push_str(&format!("event: result\ndata: {result}\n\n"));
+                    }
+                    body.push_str(&format!(
+                        "event: done\ndata: {}\n\n",
+                        json!({"version":1,"kind":"object","next":next,"page_limit":2})
+                    ));
+                    let mut stream = TransportResponse::empty(StatusCode::OK);
+                    stream.headers.insert(
+                        reqwest::header::CONTENT_TYPE,
+                        reqwest::header::HeaderValue::from_static("text/event-stream"),
+                    );
+                    stream.body = body.into_bytes();
+                    transport.push_response(stream);
+                } else {
+                    transport
+                        .push_response(TransportResponse::json(StatusCode::OK, &response).unwrap());
+                }
                 let line = if page == 1 { initial.as_str() } else { "next" };
                 let outcome = runtime
                     .block_on(execute_line(app.clone(), &session, line))
@@ -773,7 +797,7 @@ mod tests {
                 assert_eq!(body["target"]["class"]["name"], "Test Hosts");
             }
         }
-        assert_eq!(transport.requests().len(), 6);
+        assert_eq!(transport.requests().len(), 12);
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub use completion::CompletionContext;
 use completion::CompletionStore;
 pub(crate) use gateway::filter_specs_for_command_path;
 pub(crate) use gateway::sort_specs_for_command_path;
+pub(crate) use gateway::{result_row, StructuredSearchStreamEvent};
 pub use gateway::{
     AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, BackupInput, ClassUpdateInput,
     CloneTokenInput, CloneTokenOutcome, CollectionUpdateInput, ComputedDefinitionInput,

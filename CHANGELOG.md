@@ -21,6 +21,11 @@
   suggestions, native resource ownership and adapter progress without adopting
   suggestions or preparing indexes. See [query usage](docs/query-usage.md).
 
+- Stream structured searches with `search --target ... --stream` or
+  `search --query-file ... --stream`. Text results and JSONL event envelopes
+  arrive incrementally; JSON, pipelines, and redirects retain complete output.
+  Truncated streams and terminal errors fail without replaying partial results.
+
 - Add `self_update.check_on_startup` (default `false`) to optionally announce
   newer stable releases when the interactive shell starts, without installing
   them. Add `self_update.enabled` (default `true`) so managed installations can
@@ -36,6 +41,11 @@
   Room names may omit an initial `B` when no name or ID matches directly.
 
 ### Changed
+
+- Use the client's typed structured-search requests, responses, and SSE decoder.
+  Structured resource timestamps now use the client's equivalent UTC `+00:00`
+  representation. Terminal predicates, cursor continuation, and local resource
+  pipelines remain supported.
 
 - **Breaking (server target):** pin `hubuum_client` 0.15.0 and target the released
   Hubuum server v0.0.19 image. Upgrade matching server processes, replace blank

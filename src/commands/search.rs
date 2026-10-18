@@ -26,7 +26,9 @@ use crate::output::{
     add_warning, append_line, append_pipeline_suffix, flush_stream_output, has_pipeline,
     set_next_page_command, set_semantic_output, RenderFormat,
 };
-use crate::services::{AppServices, SearchInput, SearchKind};
+use crate::services::{
+    result_row, AppServices, SearchInput, SearchKind, StructuredSearchStreamEvent,
+};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -38,7 +40,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
             CommandDocs {
                 about: Some("Search resources by text or a structured predicate"),
                 long_about: Some(
-                    "Search across collections, classes, and objects with a plain-text query, or choose --target and a quoted --where predicate for structured server-side search. The REPL completes fields, operators, and boolean expressions inside --where quotes. Use --query-file for the full version 1 JSON search language, including relations. Structured search supports --sort, --limit, --cursor, --include-total, and --all. Plain-text --stream displays text batches or JSONL events as they arrive; JSON output, pipelines, and file redirects are buffered.",
+                    "Search across collections, classes, and objects with a plain-text query, or choose --target and a quoted --where predicate for structured server-side search. The REPL completes fields, operators, and boolean expressions inside --where quotes. Use --query-file for the full version 1 JSON search language, including relations. Structured search supports --sort, --limit, --cursor, --include-total, and --all. --stream displays text results or JSONL events as they arrive; JSON output, pipelines, and file redirects are buffered.",
                 ),
                 examples: Some(
                     r#"server
@@ -233,13 +235,12 @@ impl SearchCommand {
             || self.cursor_objects.is_some()
             || self.search_class_schema.is_some()
             || self.search_object_data.is_some()
-            || self.stream.unwrap_or(false)
         {
             return Err(AppError::InvalidOption(
-                "Structured search cannot be combined with plain-text search options or --stream"
-                    .into(),
+                "Structured search cannot be combined with plain-text search options".into(),
             ));
         }
+        validate_search_mode(self.all.unwrap_or(false), self.stream.unwrap_or(false))?;
         let request = self.structured_request()?;
         let mut page = PageOptions::new();
         if let Some(limit) = self.limit {
@@ -254,47 +255,57 @@ impl SearchCommand {
         let request = request
             .with_page(page)
             .map_err(|error| AppError::InvalidOption(error.to_string()))?;
-        let response = services
-            .gateway()
-            .structured_search(request, self.all.unwrap_or(false))?;
-        if let Some(next) = response.next() {
-            let next_command =
-                rebuild_with_replaced_options(tokens, &["--cursor"], [("--cursor", Some(next))]);
-            set_next_page_command(append_pipeline_suffix(next_command)?)?;
-            if has_pipeline()? {
-                add_warning(PARTIAL_PIPELINE_WARNING)?;
+        let kind = request.kind();
+        let format = render_format(tokens)?;
+        let pipeline = has_pipeline()?;
+        if self.stream.unwrap_or(false) {
+            let json = matches!(desired_format(tokens)?, OutputFormat::Json) && !pipeline;
+            let mut events = Vec::new();
+            let mut rendered_resource = false;
+            let done = services
+                .gateway()
+                .structured_search_stream(request, |event| {
+                    if json {
+                        events.push(event);
+                    } else if format == RenderFormat::Jsonl && !pipeline {
+                        append_json(&event)?;
+                        flush_stream_output()?;
+                    } else if let StructuredSearchStreamEvent::Result(result) = &event {
+                        rendered_resource = true;
+                        render_structured_rows(kind, vec![result_row(result)?])?;
+                        flush_stream_output()?;
+                    }
+                    Ok(())
+                })?;
+            if json {
+                append_json(&events)?;
+            } else if !rendered_resource && (pipeline || format != RenderFormat::Jsonl) {
+                render_structured_rows(kind, Vec::new())?;
             }
-        }
-        if matches!(desired_format(tokens)?, OutputFormat::Json) {
-            return append_json(&response);
-        }
-        let columns: &[&str] = match response.kind() {
-            ResourceKind::AuditEvent => &["id", "occurred_at", "action", "summary"],
-            ResourceKind::User => &["id", "name", "identity_scope", "email"],
-            ResourceKind::Group => &["id", "groupname", "description"],
-            ResourceKind::Object => &[
-                "id",
-                "name",
-                "description",
-                "hubuum_class_id",
-                "collection_id",
-            ],
-            _ => &["id", "name", "description"],
-        };
-        set_semantic_output(OutputEnvelope::rows(
-            response.rows(),
-            columns.iter().map(|c| c.to_string()).collect(),
-        ))?;
-        if matches!(render_format(tokens)?, RenderFormat::Text) && !has_pipeline()? {
-            if let Some(total) = response.total() {
-                append_line(format!(
-                    "Total matching {} results: {total}",
-                    response.kind().as_str()
-                ))?;
+            structured_page_state(
+                tokens,
+                kind,
+                done.next.as_deref(),
+                done.total,
+                format == RenderFormat::Text && !pipeline,
+            )?;
+        } else {
+            let response = services
+                .gateway()
+                .structured_search(request, self.all.unwrap_or(false))?;
+            let kind = response.kind()?;
+            if matches!(desired_format(tokens)?, OutputFormat::Json) {
+                append_json(&response)?;
+            } else {
+                render_structured_rows(kind, response.rows()?)?;
             }
-            if response.next().is_some() {
-                append_line("More results available; use next or --all.")?;
-            }
+            structured_page_state(
+                tokens,
+                kind,
+                response.next(),
+                response.total(),
+                format == RenderFormat::Text && !pipeline,
+            )?;
         }
         Ok(())
     }
@@ -371,6 +382,52 @@ fn render_search_response(
     ))?;
 
     apply_next_page_state(tokens, &response.next, true, true)
+}
+
+fn render_structured_rows(kind: ResourceKind, rows: Vec<Value>) -> Result<(), AppError> {
+    let columns: &[&str] = match kind {
+        ResourceKind::AuditEvent => &["id", "occurred_at", "action", "summary"],
+        ResourceKind::User => &["id", "name", "identity_scope", "email"],
+        ResourceKind::Group => &["id", "groupname", "description"],
+        ResourceKind::Object => &[
+            "id",
+            "name",
+            "description",
+            "hubuum_class_id",
+            "collection_id",
+        ],
+        _ => &["id", "name", "description"],
+    };
+    set_semantic_output(OutputEnvelope::rows(
+        rows,
+        columns.iter().map(|column| column.to_string()).collect(),
+    ))
+}
+
+fn structured_page_state(
+    tokens: &CommandTokenizer,
+    kind: ResourceKind,
+    next: Option<&str>,
+    total: Option<i64>,
+    text: bool,
+) -> Result<(), AppError> {
+    if let Some(next) = next {
+        let command =
+            rebuild_with_replaced_options(tokens, &["--cursor"], [("--cursor", Some(next))]);
+        set_next_page_command(append_pipeline_suffix(command)?)?;
+        if has_pipeline()? {
+            add_warning(PARTIAL_PIPELINE_WARNING)?;
+        }
+    }
+    if text {
+        if let Some(total) = total {
+            append_line(format!("Total matching {} results: {total}", kind.as_str()))?;
+        }
+        if next.is_some() {
+            append_line("More results available; use next or --all.")?;
+        }
+    }
+    Ok(())
 }
 
 fn render_search_event(event: &SearchStreamEvent, text: bool) -> Result<(), AppError> {
@@ -566,7 +623,7 @@ mod tests {
             runtime.handle().clone(),
             Duration::from_secs(60),
         );
-        let group = json!({"id": 7, "groupname": "staff", "description": "operators", "identity_scope": "local"});
+        let group = json!({"id": 7, "groupname": "staff", "description": "operators", "identity_scope": "local", "managed_by":"local", "external_key":null,"last_sync_attempted_at":null,"last_sync_success_at":null, "created_at":"2026-10-19T00:00:00+00:00", "updated_at":"2026-10-19T00:00:00+00:00", "revision":1});
         for (name, format) in [
             ("text", RenderFormat::Text),
             ("csv", RenderFormat::Csv),
