@@ -110,6 +110,7 @@ impl CliCommand for AuditList {
         let query = Self::parse_tokens(tokens)?;
         let input = AuditListInput {
             action: query.action,
+            include_relations: false,
             actor_kind: query.actor_kind,
             actor_user_id: query
                 .actor_user
@@ -163,6 +164,12 @@ impl CliCommand for AuditShow {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct AuditResource {
     #[option(
+        long = "include-relations",
+        help = "Include direct relation activity for a class or object, including deleted relations",
+        flag = true
+    )]
+    pub include_relations: bool,
+    #[option(
         long = "resource",
         help = "Resource: collection,class,object,user,group,template,remote-target",
         autocomplete = "audit_resources"
@@ -213,6 +220,16 @@ impl CliCommand for AuditResource {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let resource = required_option(query.resource, "resource")?;
+        if query.include_relations
+            && !matches!(
+                resource,
+                AuditResourceKind::Class | AuditResourceKind::Object
+            )
+        {
+            return Err(AppError::InvalidOption(
+                "--include-relations requires --resource class or object".into(),
+            ));
+        }
         let scope = services.gateway().audit_scope_by_name(
             resource,
             query.name.as_deref(),
@@ -222,6 +239,7 @@ impl CliCommand for AuditResource {
             scope,
             AuditListInput {
                 action: query.action,
+                include_relations: query.include_relations,
                 collection_id: query
                     .collection
                     .as_deref()

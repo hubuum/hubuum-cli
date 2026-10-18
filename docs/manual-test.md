@@ -594,3 +594,16 @@ collection delete cli-smoke
 
 If a cleanup step fails because a resource was not created or was already
 removed, continue with the remaining cleanup commands.
+
+## Server v0.0.19 notifications and audit
+
+- Create, list, show, update, and delete a disabled system subscription with
+  `--system`; reject combining it with `--collection` or omitting both.
+- Set and clear authentication subject filters, including `subject_is_admin: false`.
+- Complete system subscription names in the REPL. Collection completion remains
+  scoped and respects the API-completion setting.
+- Preview a saved event UUID; inspect the payload without creating a delivery.
+  On a disposable server, test it and inspect the returned delivery ID.
+- Reject numeric audit IDs, malformed UUIDs, and nonpositive subscription IDs.
+- Compare class/object audit output with and without `--include-relations`,
+  including after deleting a relation. Reject that flag for other resource kinds.

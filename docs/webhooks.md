@@ -273,20 +273,68 @@ and `response` if you want to keep their behavior. Omitting the template restore
 the original event envelope; omitting the response rules restores generic HTTP
 handling. Updating only `--config` leaves the separate delivery policy unchanged.
 
-Use the server's [preview and test steps](https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/#preview-test-and-check-delivery)
-before enabling production notifications. Preview renders a saved event without
-looking up secrets or sending a message; test queues a real delivery. Preset
-templates and the custom example above display `[TEST]`; an unmodified event
-envelope has no automatically inserted message label. Tests bypass subscription
-filters and enabled flags while respecting scope checks and pacing.
-These endpoints and system-subscription CRUD currently require the server API;
-this release has no dedicated CLI commands for them. Verify the delivery reaches
-`succeeded` and the receiver processed it or the message appears in your channel.
-Queuing is not delivery.
+## Preview and test notifications
 
-The pinned CLI integration test creates each preset and checks real server
-previews and pacing round trips. It does not send messages to hosted providers
-or verify your channel permissions and credentials.
+Administrators can render a saved event and explicitly queue a real test:
+
+```sh
+hubuum-cli audit list --output json
+hubuum-cli event subscription show --collection Inventory --name inventory-changes
+hubuum-cli event sink preview --name ops-slack --subscription-id 7 --event 11111111-1111-4111-8111-111111111111
+hubuum-cli event sink test --name ops-slack --subscription-id 7 --event 11111111-1111-4111-8111-111111111111
+hubuum-cli event delivery show 123
+```
+
+Substitute the subscription's numeric `id` and the audit event's `event_id` UUID;
+the numeric audit row `id` is a different identifier. Preview renders without
+looking up secrets or sending a message. Test queues a real delivery, even when
+the sink or subscription is disabled or the event does not match its filters.
+Both operations require administrator access and retain server scope checks.
+Rendered payloads can contain sensitive event data. Preset templates display
+`[TEST]`; a generic event envelope has no automatically inserted message label.
+
+Test returns the delivery record. Inspect its ID with `event delivery show` and
+verify it reaches `succeeded` and appears at the receiver. Delivery workers,
+credentials, and pacing still apply. After an ambiguous submission failure,
+inspect `event delivery list` before issuing another test; mutations are not
+replayed automatically.
+
+## System subscriptions and login alerts
+
+Use exactly one of `--system` or `--collection` with every subscription command.
+System subscriptions require administrator access and use global sink lookup.
+For successful administrator logins:
+
+```sh
+hubuum-cli event subscription create --system --name admin-logins --sink ops-slack --entity-types authentication --actions succeeded --filter '{"subject_identity_scopes":["local"],"subject_is_admin":true}'
+hubuum-cli event subscription list --system
+hubuum-cli event subscription show --system --name admin-logins
+hubuum-cli event subscription update --system --subscription admin-logins --enabled false
+hubuum-cli event subscription delete --system --name admin-logins
+```
+
+Filters also accept `subject_principal_ids`. They select the immutable subject
+captured when the authentication event occurred, independently of the event's
+actor. Audit JSON retains that subject under `metadata.subject`. `--filter {}`
+clears subject filters. System list returns the complete list and accepts
+`--all` and `--include-total`; server filtering, sorting, limits, and cursors are
+unsupported. Use local output pipelines to filter or sort it. REPL completion
+includes system subscription names and the `authentication` event type.
+
+To inspect relationship activity involving a resource, including deleted relations:
+
+```sh
+hubuum-cli audit resource --resource object --class Hosts --name host-01 --include-relations --all
+hubuum-cli audit resource --resource class --name Hosts --include-relations
+```
+
+Without `--include-relations`, audit results retain their entity-only behavior.
+The option requires a class or object; the server still applies audit permissions
+and snapshot redaction.
+
+The pinned integration suite checks all three chat previews, system subscription
+CRUD, login filters, queued test delivery, and relation-inclusive audit. It does
+not send messages to hosted providers or verify your channel credentials.
 
 ## Collection-owned destinations
 

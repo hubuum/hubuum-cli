@@ -136,6 +136,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::relations::register_commands(&mut builder);
     commands::remote_target::register_commands(&mut builder);
     commands::event_sink::register_commands(&mut builder);
+    commands::event_notification::register_commands(&mut builder);
     commands::event_subscription::register_commands(&mut builder);
     commands::event_delivery::register_commands(&mut builder);
     commands::search::register_commands(&mut builder);

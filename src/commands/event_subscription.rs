@@ -1,7 +1,6 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
-    CollectionId, EventSinkId, EventSubscriptionFilter, NewEventSubscription,
-    UpdateEventSubscription,
+    EventSinkId, EventSubscriptionFilter, NewEventSubscription, UpdateEventSubscription,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::from_value;
@@ -18,7 +17,7 @@ use crate::autocomplete::{
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json_message;
-use crate::services::AppServices;
+use crate::services::{AppServices, EventSubscriptionScope};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -80,6 +79,12 @@ pub struct EventSubscriptionList {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
+    #[option(
+        long = "system",
+        help = "Administrator-only system subscriptions; conflicts with --collection",
+        flag = true
+    )]
+    pub system: bool,
     #[option(long = "where", help = "Filter clause: 'field op value'", nargs = 3)]
     pub where_clauses: Vec<String>,
     #[option(long = "sort", help = "Sort clause: 'field asc|desc'", nargs = 2)]
@@ -108,7 +113,8 @@ impl CliCommand for EventSubscriptionList {
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let collection_id = resolve_collection_id(services, query.collection)?;
+        let scope =
+            resolve_subscription_scope(services, query.collection.as_deref(), query.system)?;
         let list_query = build_list_query(
             &query.where_clauses,
             &query.sort_clauses,
@@ -120,9 +126,7 @@ impl CliCommand for EventSubscriptionList {
         .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         render_list_page(
             tokens,
-            &services
-                .gateway()
-                .event_subscriptions(collection_id, &list_query)?,
+            &services.gateway().event_subscriptions(scope, &list_query)?,
         )
     }
 }
@@ -135,6 +139,12 @@ pub struct EventSubscriptionShow {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
+    #[option(
+        long = "system",
+        help = "Administrator-only system subscriptions; conflicts with --collection",
+        flag = true
+    )]
+    pub system: bool,
     #[option(
         long = "name",
         help = "Subscription name",
@@ -150,11 +160,11 @@ impl CliCommand for EventSubscriptionShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);
-        let collection_id = resolve_collection_id(services, query.collection)?;
-        let record = services.gateway().event_subscription_by_name(
-            collection_id,
-            required_str(query.name.as_deref(), "name")?,
-        )?;
+        let scope =
+            resolve_subscription_scope(services, query.collection.as_deref(), query.system)?;
+        let record = services
+            .gateway()
+            .event_subscription_by_name(scope, required_str(query.name.as_deref(), "name")?)?;
         render_json_record(tokens, &record)
     }
 }
@@ -167,6 +177,12 @@ pub struct EventSubscriptionCreate {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
+    #[option(
+        long = "system",
+        help = "Administrator-only system subscriptions; conflicts with --collection",
+        flag = true
+    )]
+    pub system: bool,
     #[option(long = "sink", help = "Sink name", autocomplete = "event_sinks")]
     pub sink: Option<String>,
     #[option(long = "name", help = "Subscription name")]
@@ -196,10 +212,11 @@ pub struct EventSubscriptionCreate {
 impl CliCommand for EventSubscriptionCreate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let collection_id = resolve_collection_id(services, query.collection)?;
-        let sink_id = resolve_sink_id(services, collection_id, query.sink)?;
+        let scope =
+            resolve_subscription_scope(services, query.collection.as_deref(), query.system)?;
+        let sink_id = resolve_sink_id(services, scope, query.sink)?;
         let record = services.gateway().create_event_subscription(
-            collection_id,
+            scope,
             NewEventSubscription {
                 sink_id,
                 name: query.name,
@@ -223,6 +240,12 @@ pub struct EventSubscriptionUpdate {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
+    #[option(
+        long = "system",
+        help = "Administrator-only system subscriptions; conflicts with --collection",
+        flag = true
+    )]
+    pub system: bool,
     #[option(
         long = "subscription",
         help = "Subscription name",
@@ -263,12 +286,13 @@ impl CliCommand for EventSubscriptionUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.subscription = name_or_first_pos(query.subscription, tokens);
-        let collection_id = resolve_collection_id(services, query.collection)?;
+        let scope =
+            resolve_subscription_scope(services, query.collection.as_deref(), query.system)?;
         let record = services.gateway().update_event_subscription(
-            collection_id,
+            scope,
             required_str(query.subscription.as_deref(), "subscription")?,
             UpdateEventSubscription {
-                sink_id: resolve_optional_sink_id(services, collection_id, query.sink)?,
+                sink_id: resolve_optional_sink_id(services, scope, query.sink)?,
                 name: query.name,
                 description: query.description,
                 entity_types: query.entity_types.map(|value| split_csv(&value)),
@@ -290,6 +314,12 @@ pub struct EventSubscriptionDelete {
         autocomplete = "collections"
     )]
     pub collection: Option<String>,
+    #[option(
+        long = "system",
+        help = "Administrator-only system subscriptions; conflicts with --collection",
+        flag = true
+    )]
+    pub system: bool,
     #[option(long = "name", help = "Subscription name")]
     pub name: Option<String>,
 }
@@ -298,9 +328,10 @@ impl CliCommand for EventSubscriptionDelete {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.name = name_or_first_pos(query.name, tokens);
-        let collection_id = resolve_collection_id(services, query.collection)?;
+        let scope =
+            resolve_subscription_scope(services, query.collection.as_deref(), query.system)?;
         services.gateway().delete_event_subscription_by_name(
-            collection_id,
+            scope,
             required_str(query.name.as_deref(), "name")?,
         )?;
         append_json_message("event subscription deleted")
@@ -325,36 +356,70 @@ fn parse_subscription_filter(
         .map_err(AppError::from)
 }
 
-fn resolve_collection_id(
+pub(super) fn resolve_subscription_scope(
     services: &AppServices,
-    collection: Option<String>,
-) -> Result<CollectionId, AppError> {
-    collection
-        .as_deref()
-        .ok_or_else(|| AppError::MissingOptions(vec!["collection".to_string()]))
-        .and_then(|name| services.gateway().collection_id_by_name(name))
+    collection: Option<&str>,
+    system: bool,
+) -> Result<EventSubscriptionScope, AppError> {
+    validate_subscription_scope(collection, system)?;
+    match collection {
+        Some(name) => Ok(EventSubscriptionScope::Collection(
+            services.gateway().collection_id_by_name(name)?,
+        )),
+        None => Ok(EventSubscriptionScope::System),
+    }
+}
+
+fn validate_subscription_scope(collection: Option<&str>, system: bool) -> Result<(), AppError> {
+    if collection.is_some() == system {
+        return Err(AppError::InvalidOption(
+            "Specify exactly one of --collection or --system".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_sink_id(
     services: &AppServices,
-    collection_id: CollectionId,
+    scope: EventSubscriptionScope,
     sink: Option<String>,
 ) -> Result<EventSinkId, AppError> {
-    resolve_optional_sink_id(services, collection_id, sink)?
+    resolve_optional_sink_id(services, scope, sink)?
         .ok_or_else(|| AppError::MissingOptions(vec!["sink".to_string()]))
 }
 
 fn resolve_optional_sink_id(
     services: &AppServices,
-    collection_id: CollectionId,
+    scope: EventSubscriptionScope,
     sink: Option<String>,
 ) -> Result<Option<EventSinkId>, AppError> {
     sink.as_deref()
-        .map(|name| {
-            services
+        .map(|name| match scope {
+            EventSubscriptionScope::Collection(collection) => services
                 .gateway()
-                .subscription_sink_id_by_name(collection_id, name)
-                .map(Some)
+                .subscription_sink_id_by_name(collection, name),
+            EventSubscriptionScope::System => services.gateway().event_sink_id_by_name(name),
         })
-        .unwrap_or(Ok(None))
+        .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subscription_scope_is_explicit_and_exclusive() {
+        assert!(validate_subscription_scope(Some("Inventory"), false).is_ok());
+        assert!(validate_subscription_scope(None, true).is_ok());
+        assert!(validate_subscription_scope(None, false).is_err());
+        assert!(validate_subscription_scope(Some("Inventory"), true).is_err());
+    }
+
+    #[test]
+    fn authentication_subject_filters_round_trip() {
+        let filter = parse_subscription_filter(Some(r#"{"subject_principal_ids":[3],"subject_identity_scopes":["local"],"subject_is_admin":false}"#.into())).unwrap().unwrap();
+        assert_eq!(filter.subject_is_admin, Some(false));
+        assert_eq!(filter.subject_identity_scopes.unwrap(), ["local"]);
+        assert_eq!(filter.subject_principal_ids.unwrap()[0].get(), 3);
+    }
 }

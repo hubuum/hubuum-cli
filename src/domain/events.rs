@@ -69,6 +69,49 @@ impl From<AuditEventId> for i64 {
     }
 }
 
+/// Public event UUID, distinct from the numeric audit row identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct EventUuid(String);
+
+impl FromStr for EventUuid {
+    type Err = AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.len() != 36
+            || !value.bytes().enumerate().all(|(index, byte)| {
+                if [8, 13, 18, 23].contains(&index) {
+                    byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            })
+        {
+            return Err(AppError::InvalidOption("--event requires the event_id UUID from audit output, for example 11111111-1111-4111-8111-111111111111".into()));
+        }
+        Ok(Self(value.to_owned()))
+    }
+}
+
+impl TryFrom<String> for EventUuid {
+    type Error = AppError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<EventUuid> for String {
+    fn from(value: EventUuid) -> Self {
+        value.0
+    }
+}
+
+impl Display for EventUuid {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 transparent_record!(AuditEventRecord, EventResponse);
 
 impl AuditEventRecord {

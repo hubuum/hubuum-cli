@@ -231,6 +231,18 @@ impl CompletionContext {
             return Vec::new();
         }
 
+        if parts.iter().any(|part| part == "--system") {
+            let gateway = self.services.gateway();
+            return self
+                .runtime
+                .block_on(spawn_blocking(move || {
+                    gateway.list_system_event_subscription_names()
+                }))
+                .ok()
+                .and_then(Result::ok)
+                .map(|values| filter_prefix(&values, prefix))
+                .unwrap_or_default();
+        }
         let Some(collection) = option_value(parts, "--collection") else {
             return Vec::new();
         };
