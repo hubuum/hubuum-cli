@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-10-19
+
 ### Added
 
 - Add administrator `event sink preview` and `test` commands using an audit event
