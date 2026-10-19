@@ -1579,7 +1579,10 @@ mod tests {
     fn root_scope_help_lists_scope_subcommands() {
         let catalog = build_command_catalog();
         let help = catalog.render_scope_help(&[]);
-        let plain = strip_ansi(&help);
+        let plain = strip_ansi(&help)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         let collection_scope = catalog
             .resolve_scope(&[], &["collection".to_string()])
             .expect("collection scope");
@@ -1590,7 +1593,7 @@ mod tests {
             plain
                 .matches("create, delete, fields, list, modify, show")
                 .count(),
-            1
+            2
         );
         assert!(plain.contains("query-usage"));
         assert!(plain.contains("event"));
