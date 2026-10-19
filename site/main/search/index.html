@@ -850,6 +850,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stream-a-structured-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Stream a structured search
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1830,6 +1841,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#stream-a-structured-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Stream a structured search
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1990,8 +2012,8 @@ returned resources.</p>
 <code>version</code>, <code>kind</code>, <code>results</code> entries with <code>kind</code> and <code>resource</code>, <code>next</code>, and
 optional <code>total</code>. Text, JSONL, and semantic pipelines operate on resource rows
 with original lower-case fields such as <code>id</code>, <code>name</code>, and <code>data</code>. Text includes
-next-page and requested-total hints. Plain-text search options, including
-<code>--stream</code>, cannot be mixed with structured mode.</p>
+next-page and requested-total hints. Plain-text search options such as <code>--query</code>
+and <code>--kind</code> cannot be mixed with structured mode. Both modes support <code>--stream</code>.</p>
 <h2 id="incremental-plain-text-search">Incremental plain-text search<a class="headerlink" href="#incremental-plain-text-search" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>search<span class="w"> </span>server<span class="w"> </span>--kind<span class="w"> </span>class<span class="w"> </span>--kind<span class="w"> </span>object<span class="w"> </span>--limit-per-kind<span class="w"> </span><span class="m">5</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>search<span class="w"> </span>server<span class="w"> </span>--stream<span class="w"> </span>--output<span class="w"> </span>jsonl
@@ -2008,6 +2030,26 @@ a complete page and failed redirects preserve the previous file. A shell's own
 redirection simply captures stdout as usual. <code>--all</code> and <code>--stream</code> are mutually
 exclusive. Server error events and a connection ending before <code>done</code> exit with
 an error; already emitted terminal batches remain visible and are not replayed.</p>
+<h2 id="stream-a-structured-search">Stream a structured search<a class="headerlink" href="#stream-a-structured-search" title="Permanent link">&para;</a></h2>
+<p>Structured searches use the typed client 0.15.0 API and require server v0.0.19:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>search --target object --class Hosts --where 'data.cpu.cores &gt;= 8' --stream
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>search --query-file search.json --stream --output jsonl
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>search --target object --class Hosts --stream | P name
+</code></pre></div>
+<p>Text results arrive as the server emits them. JSONL emits <code>started</code>, <code>result</code>,
+and <code>done</code> envelopes with <code>event</code> and <code>data</code> properties. Each result's <code>data</code>
+contains <code>kind</code> and <code>resource</code>; the final <code>done</code> contains <code>next</code>, <code>total</code>, and
+<code>page_limit</code>. JSON returns the complete event array. Unknown future SSE events
+are ignored.</p>
+<p>Pipelines receive resource rows and buffer the page before filtering or
+projection. File redirects also buffer output and leave an existing destination
+untouched if the stream fails. A stream that ends without <code>done</code>, returns invalid
+metadata, or emits a terminal error fails; already displayed results are partial
+and are never automatically replayed. The command only records a continuation
+cursor after successful completion. <code>next</code> preserves the original predicate,
+stream option, and local pipeline. <code>--all</code> and <code>--stream</code> are mutually exclusive.</p>
+<p>Structured JSON resources follow the client serialization contract, including
+UTC timestamps rendered with <code>+00:00</code>, which denotes the same timezone as <code>Z</code>.</p>
 
 
 

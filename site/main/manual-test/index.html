@@ -1780,6 +1780,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#structured-search-streaming" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Structured search streaming
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2088,6 +2099,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Query-usage declarations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structured-search-streaming" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Structured search streaming
       </span>
     </span>
   </a>
@@ -2621,6 +2643,17 @@ removed, continue with the remaining cleanup commands.</p>
   adapter progress, errors, and limitations when the server supplies them.</li>
 <li>Delete with the current revision. Backup and restore a retained declaration and
   confirm its pattern, revision, and attribution survive format 9 restoration.</li>
+</ul>
+<h2 id="structured-search-streaming">Structured search streaming<a class="headerlink" href="#structured-search-streaming" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Compare a structured query file and terminal predicate across JSON responses,
+  streaming JSON/JSONL, text, and a local projection pipeline.</li>
+<li>Verify text and JSONL show the first resource while the server is still sending
+  results; JSON remains one complete event array.</li>
+<li>Continue a streamed page with <code>next</code>; retain its predicate and local pipeline.</li>
+<li>Check a missing <code>done</code> or terminal server error fails without replay. A failing
+  redirected stream must leave the original destination intact.</li>
+<li>Reject <code>--all --stream</code> for both plain and structured searches.</li>
 </ul>
 
 

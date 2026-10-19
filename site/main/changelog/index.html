@@ -2315,6 +2315,12 @@
   suggestions or preparing indexes. See <a href="../query-usage/">query usage</a>.</p>
 </li>
 <li>
+<p>Stream structured searches with <code>search --target ... --stream</code> or
+  <code>search --query-file ... --stream</code>. Text results and JSONL event envelopes
+  arrive incrementally; JSON, pipelines, and redirects retain complete output.
+  Truncated streams and terminal errors fail without replaying partial results.</p>
+</li>
+<li>
 <p>Add <code>self_update.check_on_startup</code> (default <code>false</code>) to optionally announce
   newer stable releases when the interactive shell starts, without installing
   them. Add <code>self_update.enabled</code> (default <code>true</code>) so managed installations can
@@ -2335,12 +2341,20 @@
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Breaking (server target):</strong> pin <code>hubuum_client</code> 0.15.0 and target the released
+<li>
+<p>Use the client's typed structured-search requests, responses, and SSE decoder.
+  Structured resource timestamps now use the client's equivalent UTC <code>+00:00</code>
+  representation. Terminal predicates, cursor continuation, and local resource
+  pipelines remain supported.</p>
+</li>
+<li>
+<p><strong>Breaking (server target):</strong> pin <code>hubuum_client</code> 0.15.0 and target the released
   Hubuum server v0.0.19 image. Upgrade matching server processes, replace blank
   principal names before upgrading, and retain a pre-upgrade snapshot and matching
   binaries for rollback. Direct server connections require HTTP/1.1. The client
   retains its blocking feature and Rust 1.88 MSRV; the CLI declares no MSRV.
-  The upstream contract grows from 235 to 240 operations.</li>
+  The upstream contract grows from 235 to 240 operations.</p>
+</li>
 <li>
 <p><strong>Breaking (backup output):</strong> new server backups use format 9 and preserve
   query-usage declarations. Upgrade the restore server before using new backups.
