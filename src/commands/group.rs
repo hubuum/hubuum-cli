@@ -1,6 +1,5 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -14,7 +13,7 @@ use crate::domain::GroupDetails;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json_line, append_line};
 use crate::services::{AppServices, CreateGroupInput, GroupUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
@@ -309,7 +308,7 @@ impl CliCommand for GroupInfo {
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&details)?)?,
+            OutputFormat::Json => append_json_line(&details)?,
             OutputFormat::Text => {
                 details.group.format()?;
                 details.members.format_noreturn()?

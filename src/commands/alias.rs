@@ -1,7 +1,7 @@
 use cli_command_derive::CommandArgs;
 use hubuum_filter::OutputEnvelope;
 use serde::Serialize;
-use serde_json::{json, to_string_pretty};
+use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{build_command_catalog, desired_format, CliCommand};
@@ -16,7 +16,7 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::models::OutputFormat;
-use crate::output::{append_line, set_semantic_output};
+use crate::output::{append_json_line, append_line, set_semantic_output};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -127,11 +127,11 @@ impl CliCommand for AliasShow {
         })?;
         let description = config.aliases.description(name.as_str());
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&json!({
+            OutputFormat::Json => append_json_line(&json!({
                 "name": name.as_str(),
                 "description": description,
                 "command": command,
-            }))?)?,
+            }))?,
             OutputFormat::Text => set_semantic_output(OutputEnvelope::detail(
                 json!({
                     "Name": name.as_str(),
@@ -250,13 +250,13 @@ fn render_persisted_alias(
     path: &str,
 ) -> Result<(), AppError> {
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(&json!({
+        OutputFormat::Json => append_json_line(&json!({
             "action": action.to_lowercase(),
             "name": name,
             "description": description,
             "command": command,
             "path": path,
-        }))?)?,
+        }))?,
         OutputFormat::Text => append_line(format!(
             "{action} command alias '{name}' in {path} and reloaded the current session."
         ))?,

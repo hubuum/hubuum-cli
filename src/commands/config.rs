@@ -1,6 +1,6 @@
 use cli_command_derive::CommandArgs;
 use serde::Serialize;
-use serde_json::{json, to_string_pretty, to_value, Map, Value};
+use serde_json::{json, to_value, Map, Value};
 
 use hubuum_filter::OutputEnvelope;
 
@@ -15,7 +15,7 @@ use crate::config::{
 };
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
-use crate::output::{append_key_value, append_line, set_semantic_output};
+use crate::output::{append_json_line, append_key_value, append_line, set_semantic_output};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -177,7 +177,7 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
     }
 
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
+        OutputFormat::Json => append_json_line(&state)?,
         OutputFormat::Text => render_config_entries(&state.entries)?,
     }
 
@@ -200,7 +200,7 @@ pub(crate) fn render_config_paths(tokens: &CommandTokenizer) -> Result<(), AppEr
     let _query = ConfigPaths::parse_tokens(tokens)?;
     let paths = &get_config_state().paths;
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(paths)?)?,
+        OutputFormat::Json => append_json_line(paths)?,
         OutputFormat::Text => {
             append_key_value("System", paths.system.display(), 12)?;
             append_key_value("User", paths.user.display(), 12)?;
@@ -395,10 +395,10 @@ impl CliCommand for ConfigStore {
             path.display()
         );
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&json!({
+            OutputFormat::Json => append_json_line(&json!({
                 "enabled": query.enabled,
                 "path": path,
-            }))?)?,
+            }))?,
             OutputFormat::Text => append_line(message)?,
         }
         Ok(())
@@ -411,7 +411,7 @@ fn render_preferences_result(
     message: &str,
 ) -> Result<(), AppError> {
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(preferences)?)?,
+        OutputFormat::Json => append_json_line(preferences)?,
         OutputFormat::Text => append_line(message)?,
     }
     Ok(())
@@ -435,7 +435,7 @@ fn render_persist_message(message: &PersistMessage, text: String) -> Result<(), 
 
 fn render_single_entry(entry: &ConfigEntry, format: OutputFormat) -> Result<(), AppError> {
     match format {
-        OutputFormat::Json => append_line(to_string_pretty(entry)?)?,
+        OutputFormat::Json => append_json_line(entry)?,
         OutputFormat::Text => {
             let mut object = Map::new();
             object.insert("key".to_string(), Value::String(entry.key.clone()));

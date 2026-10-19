@@ -2,7 +2,7 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.16 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
 `hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.16 | 0.15.1 | 0.0.19 | Latest release; command tracing and adaptive grouped table headers |
+| 0.0.17 | 0.15.1 | 0.0.19 | Latest release; structured JSON command diagnostics |
+| 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
 | 0.0.15 | 0.15.0 | 0.0.19 | Previous CLI release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9 |
 | 0.0.14 | 0.14.1 | 0.0.18 | Previous CLI release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
 | 0.0.13 | 0.13.0 | 0.0.17 | Previous CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
@@ -29,7 +30,7 @@ against other server versions is not guaranteed.
 
 ## Before upgrading
 
-CLI v0.0.16 targets server v0.0.19 through client 0.15.1. Protected
+CLI v0.0.17 targets server v0.0.19 through client 0.15.1. Protected
 credential mutations and restore confirmation require fresh human approval.
 Use [credential approvals](docs/credential-approvals.md), [webhooks](docs/webhooks.md),
 [query usage](docs/query-usage.md), and [backup and restore](docs/backup-restore.md)
@@ -49,6 +50,12 @@ aliased as `--debug`; the host now reserves this flag for command diagnostics.
 
 [Detailed evidence and historical migrations](docs/compatibility-evidence.md) retain tested
 image identities, dates, suite results, and earlier compatibility limits.
+
+## CLI v0.0.17: client v0.15.1
+
+JSON debug consumers must now read command results from `.data` and diagnostics
+from `.debug`. The client dependency and server target remain unchanged. See
+[CLI v0.0.17 evidence](docs/compatibility-evidence.md#cli-v0017-client-v0151).
 
 ## CLI v0.0.16: client v0.15.1
 

@@ -9,7 +9,7 @@ use jsonpath_rust::JsonPath;
 use smooth_json::Flattener;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, to_string_pretty, to_value, Map, Value};
+use serde_json::{from_str, to_value, Map, Value};
 
 use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
@@ -39,7 +39,7 @@ use crate::list_query::{
 };
 use crate::models::{ObjectListDataColumns, OutputFormat};
 use crate::output::{
-    add_warning, append_key_value, append_line, has_pipeline, set_semantic_output,
+    add_warning, append_json_line, append_key_value, append_line, has_pipeline, set_semantic_output,
 };
 use crate::services::{
     AppServices, CreateObjectInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
@@ -382,9 +382,7 @@ impl CliCommand for ObjectInfo {
         }
 
         if desired_format(tokens)? == OutputFormat::Json {
-            append_line(to_string_pretty(
-                &computed_selection.project_object_show(&object),
-            )?)?;
+            append_json_line(&computed_selection.project_object_show(&object))?;
             return Ok(());
         }
 

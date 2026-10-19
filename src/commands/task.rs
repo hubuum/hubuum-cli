@@ -1,6 +1,5 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -12,7 +11,7 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json_line, append_line};
 use crate::services::{AppServices, ListTasksInput, TaskDiscovery, TaskLookupInput};
 use crate::tokenizer::CommandTokenizer;
 
@@ -177,7 +176,7 @@ impl CliCommand for TaskQueue {
         let state = services.gateway().task_queue_state()?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&state)?)?,
+            OutputFormat::Json => append_json_line(&state)?,
             OutputFormat::Text => state.format_noreturn()?,
         }
 
@@ -262,7 +261,7 @@ impl CliCommand for TaskOutputCmd {
         let output = services.gateway().task_output(task_id)?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
+            OutputFormat::Json => append_json_line(&output)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
                     append_line(line)?;

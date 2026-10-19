@@ -1,6 +1,5 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
@@ -8,7 +7,7 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json_line, append_line};
 use crate::services::{AppServices, TaskLookupInput};
 use crate::tokenizer::CommandTokenizer;
 
@@ -89,7 +88,7 @@ impl CliCommand for JobsList {
         let jobs = services.background().list_jobs();
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&jobs)?)?,
+            OutputFormat::Json => append_json_line(&jobs)?,
             OutputFormat::Text => {
                 jobs.format_noreturn()?;
                 if !jobs.is_empty() {
@@ -127,7 +126,7 @@ impl CliCommand for JobsShow {
             .ok_or_else(|| AppError::EntityNotFound(format!("background job {id}")))?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&job)?)?,
+            OutputFormat::Json => append_json_line(&job)?,
             OutputFormat::Text => {
                 job.format_noreturn()?;
                 append_line(format!(
@@ -167,7 +166,7 @@ impl CliCommand for JobsOutput {
             .ok_or_else(|| AppError::EntityNotFound(format!("background job {local_id}")))?;
         let output = services.gateway().task_output(job.task_id)?;
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&output)?)?,
+            OutputFormat::Json => append_json_line(&output)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
                     append_line(line)?;

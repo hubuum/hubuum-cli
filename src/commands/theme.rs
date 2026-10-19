@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use hubuum_filter::OutputEnvelope;
 use hubuum_theme::{paint, ThemeError};
 use serde::Serialize;
-use serde_json::{json, to_string_pretty};
+use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, option_or_pos, CliCommand};
@@ -13,7 +13,9 @@ use crate::config::{
 };
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
-use crate::output::{append_line, append_lines, render_dense_theme_preview, set_semantic_output};
+use crate::output::{
+    append_json_line, append_line, append_lines, render_dense_theme_preview, set_semantic_output,
+};
 use crate::services::AppServices;
 use crate::theme::{available_themes, paint_command, ThemeRole};
 use crate::tokenizer::CommandTokenizer;
@@ -250,11 +252,11 @@ impl CliCommand for ThemeUse {
         services.sync_user_preferences_if_enabled()?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(&to_string_pretty(&json!({
+            OutputFormat::Json => append_json_line(&json!({
                 "theme": name,
                 "path": path,
                 "note": "Saved and reloaded for this CLI session."
-            }))?)?,
+            }))?,
             OutputFormat::Text => append_line(format!(
                 "Saved {} to {} and reloaded the current session.",
                 paint_command(&name),

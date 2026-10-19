@@ -2,7 +2,6 @@ use std::fs::read_to_string;
 
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{parse_task_submit_options, run_task_backed};
@@ -18,7 +17,7 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json_line, append_line};
 use crate::services::{
     AppServices, CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput,
 };
@@ -172,7 +171,7 @@ impl CliCommand for ExportShow {
         let export = services.gateway().export_template(&name)?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_json_line(&export)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 
@@ -230,7 +229,7 @@ impl CliCommand for ExportCreate {
             })?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_json_line(&export)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 
@@ -289,7 +288,7 @@ impl CliCommand for ExportModify {
             })?;
 
         match desired_format(tokens)? {
-            OutputFormat::Json => append_line(to_string_pretty(&export)?)?,
+            OutputFormat::Json => append_json_line(&export)?,
             OutputFormat::Text => export.format_noreturn()?,
         }
 

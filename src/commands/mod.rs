@@ -1,6 +1,6 @@
 use log::trace;
 use serde::Serialize;
-use serde_json::{json, to_string_pretty};
+use serde_json::json;
 use std::any::TypeId;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -69,7 +69,7 @@ use crate::{
         PageSelection, PagedResult, ServerPageSize, SERVER_MAX_PAGE_SIZE,
     },
     models::{OutputFormat, TableHeaders},
-    output::{add_warning, append_line, has_pipeline},
+    output::{add_warning, append_json_line, append_line, has_pipeline},
 };
 
 pub type AutoCompleter = fn(&CompletionContext, &str, &[String]) -> Vec<String>;
@@ -137,7 +137,7 @@ pub fn standard_options() -> Vec<CliOption> {
             nargs: None,
             repeatable: false,
             value_source: false,
-            help: "Report command time and client API calls to stderr".to_string(),
+            help: "Include command diagnostics in JSON output or report them to stderr".to_string(),
             field_type: TypeId::of::<bool>(),
             field_type_help: "bool".to_string(),
             required: false,
@@ -406,7 +406,7 @@ where
 
 pub fn render_task_record(tokens: &CommandTokenizer, task: &TaskRecord) -> Result<(), AppError> {
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(task)?)?,
+        OutputFormat::Json => append_json_line(task)?,
         OutputFormat::Text => task.format_noreturn()?,
     }
 
@@ -421,11 +421,11 @@ fn render_issued_token(
     token: &IssuedTokenRecord,
 ) -> Result<(), AppError> {
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(&json!({
+        OutputFormat::Json => append_json_line(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
             "warning": ISSUED_TOKEN_WARNING,
-        }))?)?,
+        }))?,
         OutputFormat::Text => {
             append_line(format!("\nToken created for {owner}:"))?;
             append_line(format!("  {}", token.token()))?;
@@ -453,7 +453,7 @@ fn render_cloned_token(
     };
 
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(&json!({
+        OutputFormat::Json => append_json_line(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
             "source_token_id": outcome.source_token_id(),
@@ -461,7 +461,7 @@ fn render_cloned_token(
             "source_revoked": source_revoked,
             "revoke_error": revoke_error,
             "warning": ISSUED_TOKEN_WARNING,
-        }))?)?,
+        }))?,
         OutputFormat::Text => {
             append_line(format!("\nToken cloned for {owner}:"))?;
             append_line(format!("  {}", token.token()))?;

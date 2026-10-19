@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use log::debug;
 
 use crate::config::get_config;
+use crate::diagnostics::{self, DebugReport};
 use crate::errors::AppError;
 use crate::models::{
     EmptyResult, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
@@ -33,7 +34,25 @@ static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(Output
 #[derive(Debug)]
 enum OutputEvent {
     Line(String),
+    Json { value: Value, rendered: String },
     Semantic(OutputEnvelope),
+}
+
+impl OutputEvent {
+    fn rendered_line(&self) -> Option<String> {
+        match self {
+            Self::Line(line) => Some(line.clone()),
+            Self::Json { rendered, .. } => Some(rendered.clone()),
+            Self::Semantic(_) => None,
+        }
+    }
+}
+
+fn json_envelope(value: Value) -> OutputEnvelope {
+    match value {
+        Value::Array(values) => OutputEnvelope::values(values),
+        value => OutputEnvelope::detail(value, Vec::new()),
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -44,6 +63,8 @@ pub struct OutputSnapshot {
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
     pub next_page_command: Option<String>,
+    pub debug: Option<DebugReport>,
+    pub messages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -58,10 +79,26 @@ pub enum RenderFormat {
 
 impl OutputSnapshot {
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty() && self.warnings.is_empty() && self.errors.is_empty()
+        self.debug.is_none()
+            && self.lines.is_empty()
+            && self.warnings.is_empty()
+            && self.errors.is_empty()
     }
 
     pub fn render(&self) -> String {
+        if self.render_format == RenderFormat::Json && self.debug.is_some() {
+            let data = match self.semantic.as_slice() {
+                [] => Value::Null,
+                [envelope] => envelope.value().clone(),
+                envelopes => Value::Array(
+                    envelopes
+                        .iter()
+                        .map(|envelope| envelope.value().clone())
+                        .collect(),
+                ),
+            };
+            return self.render_debug_json(&data);
+        }
         let mut rendered = Vec::new();
 
         rendered.extend(
@@ -81,6 +118,23 @@ impl OutputSnapshot {
         } else {
             format!("{}\n", rendered.join("\n"))
         }
+    }
+
+    pub(crate) fn render_debug_json(&self, data: &Value) -> String {
+        let mut response = json!({ "data": data, "debug": self.debug });
+        for (key, values) in [
+            ("warnings", &self.warnings),
+            ("errors", &self.errors),
+            ("messages", &self.messages),
+        ] {
+            if !values.is_empty() {
+                response[key] = json!(values);
+            }
+        }
+        format!(
+            "{}\n",
+            to_string_pretty(&response).expect("JSON values serialize")
+        )
     }
 }
 
@@ -202,6 +256,13 @@ impl OutputBuffer {
             for event in &self.events {
                 match event {
                     OutputEvent::Line(line) => rendered.push(line.clone()),
+                    OutputEvent::Json {
+                        value,
+                        rendered: line,
+                    } => {
+                        rendered.push(line.clone());
+                        semantic.push(json_envelope(value.clone()));
+                    }
                     OutputEvent::Semantic(envelope) => {
                         let envelope = apply_pipeline_with_settings(
                             envelope.clone(),
@@ -219,21 +280,19 @@ impl OutputBuffer {
             }
             rendered
         } else if self.pipeline.is_empty() {
+            semantic.extend(self.events.iter().filter_map(|event| match event {
+                OutputEvent::Json { value, .. } => Some(json_envelope(value.clone())),
+                _ => None,
+            }));
             self.events
                 .iter()
-                .filter_map(|event| match event {
-                    OutputEvent::Line(line) => Some(line.clone()),
-                    OutputEvent::Semantic(_) => None,
-                })
+                .filter_map(OutputEvent::rendered_line)
                 .collect()
         } else {
             let lines = self
                 .events
                 .iter()
-                .filter_map(|event| match event {
-                    OutputEvent::Line(line) => Some(line.clone()),
-                    OutputEvent::Semantic(_) => None,
-                })
+                .filter_map(OutputEvent::rendered_line)
                 .collect();
             let envelope = apply_pipeline_with_settings(
                 OutputEnvelope::lines(lines),
@@ -256,6 +315,18 @@ impl OutputBuffer {
             warnings: self.warnings.clone(),
             errors: self.errors.clone(),
             next_page_command: self.next_page_command.clone(),
+            debug: None,
+            messages: if has_semantic || self.pipeline.is_empty() {
+                self.events
+                    .iter()
+                    .filter_map(|event| match event {
+                        OutputEvent::Line(line) => Some(line.clone()),
+                        OutputEvent::Json { .. } | OutputEvent::Semantic(_) => None,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -327,9 +398,22 @@ pub fn append_debug<T: Debug>(value: T) -> Result<(), AppError> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn append_json<T: Serialize>(value: T) -> Result<(), AppError> {
     set_semantic_output(OutputEnvelope::detail(to_value(value)?, Vec::new()))
+}
+
+pub fn append_json_line<T: Serialize + ?Sized>(value: &T) -> Result<(), AppError> {
+    // Preserve legacy JSON commands' line-oriented pipeline behavior while
+    // retaining typed data for diagnostic responses and per-item redirects.
+    OUTPUT_BUFFER
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .events
+        .push(OutputEvent::Json {
+            value: to_value(value)?,
+            rendered: to_string_pretty(value)?,
+        });
+    Ok(())
 }
 
 pub fn append_key_value<K: Display, V: Display>(
@@ -370,7 +454,10 @@ pub(crate) fn set_stream_output(enabled: bool) -> Result<(), AppError> {
 pub(crate) fn flush_stream_output() -> Result<(), AppError> {
     let snapshot = {
         let mut output = OUTPUT_BUFFER.lock().map_err(|_| AppError::LockError)?;
-        if !output.stream_output || output.has_pipeline() {
+        if !output.stream_output
+            || output.has_pipeline()
+            || (output.render_format == RenderFormat::Json && diagnostics::enabled())
+        {
             return Ok(());
         }
         let snapshot = output.snapshot()?;
@@ -413,6 +500,7 @@ pub fn has_pipeline() -> Result<bool, AppError> {
 }
 
 pub fn set_render_format(format: RenderFormat) -> Result<(), AppError> {
+    diagnostics::set_json_output(format == RenderFormat::Json);
     OUTPUT_BUFFER
         .lock()
         .map_err(|_| AppError::LockError)?

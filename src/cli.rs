@@ -20,7 +20,7 @@ pub fn build_cli() -> Command {
             Arg::new("debug")
                 .long("debug")
                 .action(ArgAction::SetTrue)
-                .help("Report command time and client API calls to stderr"),
+                .help("Include command diagnostics in JSON output or report them to stderr"),
         )
         .arg(
             Arg::new("config")

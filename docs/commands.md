@@ -56,13 +56,56 @@ Debug: command took 18.750 ms; 2 client API calls; 2 HTTP attempts
   render: 0.800 ms
 ```
 
-Reports go to stderr, keeping JSON, pipelines, and redirected result files clean.
+Text, JSONL, CSV, and TSV reports go to stderr. With `--output json` (or `--json`)
+and `--debug`, the response is an object containing the original result in `data`
+and structured diagnostics in `debug`:
+
+```sh
+hubuum-cli object list --class Hosts --output json --debug
+```
+
+```json
+{
+  "data": [],
+  "debug": {
+    "version": 1,
+    "duration_ms": 18.75,
+    "client_api_calls": 2,
+    "http_attempts": 2,
+    "custom_transport_attempts": 0,
+    "client_library_spans": 0,
+    "spans": []
+  }
+}
+```
+
+The example omits span entries for brevity. Each entry has `kind` (`stage`,
+`client_call`, `client_library`, or `page`), `name`, `depth`, and `duration_ms`.
+Client calls also have `succeeded`; supported native client spans have a `client`
+object with applicable `method`, `route`, `transport`, `attempt`, `status`,
+`outcome`, `page`, and `items` fields. Durations are milliseconds; `null` means a
+span was unfinished or the entry is a page event. Spans are listed in start order,
+with depth describing nesting under the command. `client_library_spans` counts
+client spans outside the recognized diagnostics contract.
+
+Warnings and errors appear as optional top-level `warnings` and `errors` arrays;
+plain-text command messages appear in `messages`. Failed commands still exit
+unsuccessfully. `data` is `null` when there is no semantic result; multiple
+semantic results form an array. Pipelines transform the original result before
+the wrapper is added. File redirects contain the same response; `each:` files
+contain their individual result in `data` and the same whole-command report.
+JSON output without `--debug` keeps its existing shape. Consumers enabling both
+options must read result values from `.data` instead of the document root.
+No duplicate human-readable debug report is printed to stderr in JSON mode.
+
 The command option works in the REPL and scripts. Placing `--debug` before the
 command enables it for every command in that invocation, including a whole
 script or REPL session. A command-specific flag applies only to that command.
 
 Total time includes command execution, pipeline processing, and result rendering
-or file redirection. Initial startup and login happen before command timing;
+or file redirection for non-JSON reports. JSON diagnostics include result
+preparation but exclude serialization and writing of the final response, which
+contains those timings. Initial startup and login happen before command timing;
 background polling and completion are excluded. Nested workflow operations share
 the enclosing command's report.
 

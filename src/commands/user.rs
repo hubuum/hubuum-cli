@@ -2,7 +2,6 @@ use chrono::NaiveDateTime;
 use cli_command_derive::CommandArgs;
 use hubuum_client::{FilterOperator, TokenId};
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 use std::fs::read_to_string;
 use std::iter::repeat;
 use std::path::Path;
@@ -18,7 +17,7 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
-use crate::output::{append_key_value, append_line};
+use crate::output::{append_json_line, append_key_value, append_line};
 use crate::services::{
     AppServices, CloneTokenInput, CreateUserInput, NewTokenInput, RenewTokenInput,
     TokenStateFilter, UserFilter, UserUpdateInput,
@@ -212,7 +211,7 @@ impl CliCommand for UserNew {
 
         match desired_format(tokens)? {
             OutputFormat::Json => {
-                append_line(to_string_pretty(&created)?)?;
+                append_json_line(&created)?;
             }
             OutputFormat::Text => {
                 created.user.format_noreturn()?;
@@ -532,7 +531,7 @@ impl CliCommand for UserTokenList {
 
         match desired_format(tokens)? {
             OutputFormat::Json => {
-                append_line(to_string_pretty(&token_list)?)?;
+                append_json_line(&token_list)?;
             }
             OutputFormat::Text => {
                 token_list.format_noreturn()?;
