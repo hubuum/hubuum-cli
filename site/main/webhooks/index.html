@@ -1102,6 +1102,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#preview-and-test-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Preview and test notifications
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-subscriptions-and-login-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        System subscriptions and login alerts
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#collection-owned-destinations" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1993,6 +2015,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#preview-and-test-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Preview and test notifications
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-subscriptions-and-login-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        System subscriptions and login alerts
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#collection-owned-destinations" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2309,25 +2353,59 @@ configuration file and replace the saved configuration:</p>
 and <code>response</code> if you want to keep their behavior. Omitting the template restores
 the original event envelope; omitting the response rules restores generic HTTP
 handling. Updating only <code>--config</code> leaves the separate delivery policy unchanged.</p>
-<p>Use the server's <a href="https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/#preview-test-and-check-delivery">preview and test steps</a>
-before enabling production notifications. Preview renders a saved event without
-looking up secrets or sending a message; test queues a real delivery. Preset
-templates and the custom example above display <code>[TEST]</code>; an unmodified event
-envelope has no automatically inserted message label. Tests bypass subscription
-filters and enabled flags while respecting scope checks and pacing.
-These endpoints and system-subscription CRUD currently require the server API;
-this release has no dedicated CLI commands for them. Verify the delivery reaches
-<code>succeeded</code> and the receiver processed it or the message appears in your channel.
-Queuing is not delivery.</p>
-<p>The pinned CLI integration test creates each preset and checks real server
-previews and pacing round trips. It does not send messages to hosted providers
-or verify your channel permissions and credentials.</p>
+<h2 id="preview-and-test-notifications">Preview and test notifications<a class="headerlink" href="#preview-and-test-notifications" title="Permanent link">&para;</a></h2>
+<p>Administrators can render a saved event and explicitly queue a real test:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hubuum-cli<span class="w"> </span>audit<span class="w"> </span>list<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>show<span class="w"> </span>--collection<span class="w"> </span>Inventory<span class="w"> </span>--name<span class="w"> </span>inventory-changes
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>sink<span class="w"> </span>preview<span class="w"> </span>--name<span class="w"> </span>ops-slack<span class="w"> </span>--subscription-id<span class="w"> </span><span class="m">7</span><span class="w"> </span>--event<span class="w"> </span><span class="m">11111111</span>-1111-4111-8111-111111111111
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>sink<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--name<span class="w"> </span>ops-slack<span class="w"> </span>--subscription-id<span class="w"> </span><span class="m">7</span><span class="w"> </span>--event<span class="w"> </span><span class="m">11111111</span>-1111-4111-8111-111111111111
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>delivery<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
+</code></pre></div>
+<p>Substitute the subscription's numeric <code>id</code> and the audit event's <code>event_id</code> UUID;
+the numeric audit row <code>id</code> is a different identifier. Preview renders without
+looking up secrets or sending a message. Test queues a real delivery, even when
+the sink or subscription is disabled or the event does not match its filters.
+Both operations require administrator access and retain server scope checks.
+Rendered payloads can contain sensitive event data. Preset templates display
+<code>[TEST]</code>; a generic event envelope has no automatically inserted message label.</p>
+<p>Test returns the delivery record. Inspect its ID with <code>event delivery show</code> and
+verify it reaches <code>succeeded</code> and appears at the receiver. Delivery workers,
+credentials, and pacing still apply. After an ambiguous submission failure,
+inspect <code>event delivery list</code> before issuing another test; mutations are not
+replayed automatically.</p>
+<h2 id="system-subscriptions-and-login-alerts">System subscriptions and login alerts<a class="headerlink" href="#system-subscriptions-and-login-alerts" title="Permanent link">&para;</a></h2>
+<p>Use exactly one of <code>--system</code> or <code>--collection</code> with every subscription command.
+System subscriptions require administrator access and use global sink lookup.
+For successful administrator logins:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>create<span class="w"> </span>--system<span class="w"> </span>--name<span class="w"> </span>admin-logins<span class="w"> </span>--sink<span class="w"> </span>ops-slack<span class="w"> </span>--entity-types<span class="w"> </span>authentication<span class="w"> </span>--actions<span class="w"> </span>succeeded<span class="w"> </span>--filter<span class="w"> </span><span class="s1">'{"subject_identity_scopes":["local"],"subject_is_admin":true}'</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>list<span class="w"> </span>--system
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>show<span class="w"> </span>--system<span class="w"> </span>--name<span class="w"> </span>admin-logins
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>update<span class="w"> </span>--system<span class="w"> </span>--subscription<span class="w"> </span>admin-logins<span class="w"> </span>--enabled<span class="w"> </span><span class="nb">false</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>hubuum-cli<span class="w"> </span>event<span class="w"> </span>subscription<span class="w"> </span>delete<span class="w"> </span>--system<span class="w"> </span>--name<span class="w"> </span>admin-logins
+</code></pre></div>
+<p>Filters also accept <code>subject_principal_ids</code>. They select the immutable subject
+captured when the authentication event occurred, independently of the event's
+actor. Audit JSON retains that subject under <code>metadata.subject</code>. <code>--filter {}</code>
+clears subject filters. System list returns the complete list and accepts
+<code>--all</code> and <code>--include-total</code>; server filtering, sorting, limits, and cursors are
+unsupported. Use local output pipelines to filter or sort it. REPL completion
+includes system subscription names and the <code>authentication</code> event type.</p>
+<p>To inspect relationship activity involving a resource, including deleted relations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>hubuum-cli<span class="w"> </span>audit<span class="w"> </span>resource<span class="w"> </span>--resource<span class="w"> </span>object<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--name<span class="w"> </span>host-01<span class="w"> </span>--include-relations<span class="w"> </span>--all
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>hubuum-cli<span class="w"> </span>audit<span class="w"> </span>resource<span class="w"> </span>--resource<span class="w"> </span>class<span class="w"> </span>--name<span class="w"> </span>Hosts<span class="w"> </span>--include-relations
+</code></pre></div>
+<p>Without <code>--include-relations</code>, audit results retain their entity-only behavior.
+The option requires a class or object; the server still applies audit permissions
+and snapshot redaction.</p>
+<p>The pinned integration suite checks all three chat previews, system subscription
+CRUD, login filters, queued test delivery, and relation-inclusive audit. It does
+not send messages to hosted providers or verify your channel credentials.</p>
 <h2 id="collection-owned-destinations">Collection-owned destinations<a class="headerlink" href="#collection-owned-destinations" title="Permanent link">&para;</a></h2>
 <p>With Hubuum server <code>v0.0.18</code> and Rust client
 <code>0.14.1</code>, a collection manager can configure a destination and subscription:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>event sink create --collection Inventory --name alerts --target slack --destination-url-file slack-webhook-url.txt
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>event sink list --collection Inventory
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>event subscription create --collection Inventory --sink alerts --name changes --entity-types object --actions updated
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>event sink create --collection Inventory --name alerts --target slack --destination-url-file slack-webhook-url.txt
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>event sink list --collection Inventory
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>event subscription create --collection Inventory --sink alerts --name changes --entity-types object --actions updated
 </code></pre></div>
 <p>The URL file contains the complete HTTPS webhook URL. Keep it private. Presets
 require file input so the URL does not enter process arguments or REPL history. For a custom
@@ -2344,8 +2422,8 @@ Destinations belong to the collection and survive the creator losing access.</p>
 Delivery diagnostics and retries remain administrator operations.</p>
 <p>The required integration command runs the delegated workflow on its own disposable
 server, followed by administrator, backup, and restore checks:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--locked
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>python3<span class="w"> </span>scripts/test-backup-restore.py
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--locked
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>python3<span class="w"> </span>scripts/test-backup-restore.py
 </code></pre></div>
 <p>For a focused check against an existing disposable server, run
 <code>python3 scripts/test-collection-integrations.py</code> with <code>HUBUUM_E2E_BASE_URL</code> and

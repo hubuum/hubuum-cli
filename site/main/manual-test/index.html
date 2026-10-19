@@ -1731,6 +1731,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#server-v0019-notifications-and-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Server v0.0.19 notifications and audit
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2017,6 +2028,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Cleanup
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#server-v0019-notifications-and-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Server v0.0.19 notifications and audit
       </span>
     </span>
   </a>
@@ -2524,6 +2546,19 @@ exercise backup handling:</p>
 </code></pre></div>
 <p>If a cleanup step fails because a resource was not created or was already
 removed, continue with the remaining cleanup commands.</p>
+<h2 id="server-v0019-notifications-and-audit">Server v0.0.19 notifications and audit<a class="headerlink" href="#server-v0019-notifications-and-audit" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Create, list, show, update, and delete a disabled system subscription with
+  <code>--system</code>; reject combining it with <code>--collection</code> or omitting both.</li>
+<li>Set and clear authentication subject filters, including <code>subject_is_admin: false</code>.</li>
+<li>Complete system subscription names in the REPL. Collection completion remains
+  scoped and respects the API-completion setting.</li>
+<li>Preview a saved event UUID; inspect the payload without creating a delivery.
+  On a disposable server, test it and inspect the returned delivery ID.</li>
+<li>Reject numeric audit IDs, malformed UUIDs, and nonpositive subscription IDs.</li>
+<li>Compare class/object audit output with and without <code>--include-relations</code>,
+  including after deleting a relation. Reject that flag for other resource kinds.</li>
+</ul>
 
 
 
