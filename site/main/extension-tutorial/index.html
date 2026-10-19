@@ -2013,9 +2013,9 @@ names from its flags. Ask the CLI for the workflow-facing contract:</p>
 Boolean flag, and <code>where</code> as repeatable groups of three strings. It also says
 whether the command may mutate data and whether authentication is required.
 The keys under a step's <code>with</code> object must be these canonical input IDs.</p>
-<p>Rendering options such as <code>output</code> and <code>table-headers</code> are deliberately absent.
-They belong to the installed extension command, after the workflow produces its
-semantic result.</p>
+<p>Host options such as <code>output</code>, <code>table-headers</code>, and <code>debug</code> are deliberately
+absent. They belong to the installed extension command: rendering options apply
+to its semantic result, and <code>--debug</code> reports timing for the whole workflow.</p>
 <h2 id="4-validate-and-explain">4. Validate and explain<a class="headerlink" href="#4-validate-and-explain" title="Permanent link">&para;</a></h2>
 <p>Run both authoring checks before installation:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>validate<span class="w"> </span>./my-inventory

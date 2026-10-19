@@ -619,6 +619,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0016-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.16: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0015-client-v0150" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1864,6 +1875,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0016-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.16: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0015-client-v0150" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1950,8 +1972,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.15 uses
-<code>hubuum_client</code> 0.15.0, which targets Hubuum server v0.0.19.
+and reproducibly tests its Hubuum server target. CLI v0.0.16 uses
+<code>hubuum_client</code> 0.15.1, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -1967,10 +1989,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>0.0.16</td>
+<td>0.15.1</td>
+<td>0.0.19</td>
+<td>Latest release; command tracing and adaptive grouped table headers</td>
+</tr>
+<tr>
 <td>0.0.15</td>
 <td>0.15.0</td>
 <td>0.0.19</td>
-<td>Latest release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9</td>
+<td>Previous CLI release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9</td>
 </tr>
 <tr>
 <td>0.0.14</td>
@@ -2047,20 +2075,25 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.15 targets server v0.0.19 through client 0.15.0. Protected
+<p>CLI v0.0.16 targets server v0.0.19 through client 0.15.1. Protected
 credential mutations and restore confirmation require fresh human approval.
 Use <a href="../credential-approvals/">credential approvals</a>, <a href="../webhooks/">webhooks</a>,
 <a href="../query-usage/">query usage</a>, and <a href="../backup-restore/">backup and restore</a>
 for command-specific behavior.</p>
-<p><strong>Breaking server target and backup output:</strong> upgrade the server before adopting
-this CLI target. New backups use format 9; restore still accepts formats 6–8.
+<p><strong>Upgrading from CLI v0.0.14 or earlier:</strong> upgrade the server before adopting
+this CLI target. The server target and backup output changed in CLI v0.0.15. New backups use format 9; restore still accepts formats 6–8.
 Replace blank principal names before upgrading, retain a pre-upgrade backup and
 matching binaries for rollback, and use HTTP/1.1 for direct server connections.
 Follow the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.19">server release notes</a>
 and <a href="https://hubuum.github.io/hubuum/v0.0.19/backup-restore/">backup compatibility</a>.</p>
+<p><strong>Breaking for extension authors in v0.0.16:</strong> rename options named <code>debug</code> or
+aliased as <code>--debug</code>; the host now reserves this flag for command diagnostics.</p>
 <h2 id="verification-evidence">Verification evidence<a class="headerlink" href="#verification-evidence" title="Permanent link">&para;</a></h2>
 <p><a href="../compatibility-evidence/">Detailed evidence and historical migrations</a> retain tested
 image identities, dates, suite results, and earlier compatibility limits.</p>
+<h2 id="cli-v0016-client-v0151">CLI v0.0.16: client v0.15.1<a class="headerlink" href="#cli-v0016-client-v0151" title="Permanent link">&para;</a></h2>
+<p>See <a href="../compatibility-evidence/#cli-v0016-client-v0151">CLI v0.0.16 evidence</a>
+for the tracing contract, pinned server identity, and completed checks.</p>
 <h2 id="cli-v0015-client-v0150">CLI v0.0.15: client v0.15.0<a class="headerlink" href="#cli-v0015-client-v0150" title="Permanent link">&para;</a></h2>
 <p>See <a href="../compatibility-evidence/#cli-v0015-client-v0150">CLI v0.0.15 evidence</a>
 for the pinned server identity and completed checks.</p>

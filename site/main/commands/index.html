@@ -649,6 +649,23 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Commands and scripts
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -664,6 +681,48 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Command diagnostics
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scripts-and-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Scripts and aliases
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1682,6 +1741,11 @@
                       
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -1693,6 +1757,36 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#command-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Command diagnostics
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scripts-and-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Scripts and aliases
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1741,42 +1835,94 @@ so the shell passes them to Hubuum CLI as standalone arguments:</p>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span>show<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>each:/tmp/hubuum-config-<span class="o">{</span>n<span class="o">}</span>.txt
 </code></pre></div>
 <p>Operators do not need escaping inside the REPL or a Hubuum CLI script file.</p>
+<h2 id="command-diagnostics">Command diagnostics<a class="headerlink" href="#command-diagnostics" title="Permanent link">&para;</a></h2>
+<p>Add <code>--debug</code> to a command to print its total duration and the client API
+operations it performed. Each operation includes its duration and whether it
+succeeded or failed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--debug
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>--debug<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>--debug<span class="w"> </span>script<span class="w"> </span>commands.hubuum
+</code></pre></div>
+<p>For example, the report for a successful list command might be:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Debug: command took 18.750 ms; 2 client API calls; 2 HTTP attempts
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  execute: 17.900 ms
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    1. classes.get_by_name: 4.250 ms (ok)
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>      request GET /api/v1/classes/by-name/{class_name}: 4.200 ms (ok)
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        HTTP GET attempt 1: 3.500 ms [status 200] (ok)
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    2. QueryOp.page: 10.500 ms (ok)
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>      request GET /api/v1/classes/{class_id}/: 10.400 ms (ok)
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>        HTTP GET attempt 1: 9.700 ms [status 200] (ok)
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>  render: 0.800 ms
+</code></pre></div>
+<p>Reports go to stderr, keeping JSON, pipelines, and redirected result files clean.
+The command option works in the REPL and scripts. Placing <code>--debug</code> before the
+command enables it for every command in that invocation, including a whole
+script or REPL session. A command-specific flag applies only to that command.</p>
+<p>Total time includes command execution, pipeline processing, and result rendering
+or file redirection. Initial startup and login happen before command timing;
+background polling and completion are excluded. Nested workflow operations share
+the enclosing command's report.</p>
+<p>The report is collected from <code>tracing</code> spans beneath the current command's root
+span. Execution, rendering, and client calls emit their own spans. The context
+follows command work onto blocking workers, and each script or REPL command starts
+a fresh report. Detached spans and work that finishes after its command cannot
+enter the next report. Timings measure elapsed wall time, including waits; nested
+durations overlap and should not be added together. Debug collection works even
+with <code>RUST_LOG=off</code>; the normal log filter applies independently.</p>
+<p>Client 0.15.1 supplies versioned request, HTTP-attempt, retry, and stream spans,
+plus automatic-pagination events. The report shows endpoint templates, response
+statuses, retry attempts, pages, and outcomes using that documented contract.
+Only those diagnostic fields are collected. Other descendant client spans appear
+by name and lifetime, with their fields omitted.</p>
+<p>Client API calls and HTTP attempts are counted separately: one API call can
+perform several requests, including internal retries or automatic pagination.
+HTTP-attempt timing ends at response headers; request timing also includes
+buffered body processing. Redirects handled internally by the HTTP client remain
+inside its send attempt. Custom transport invocations are counted separately
+because they need not correspond to individual HTTP requests. Explicit page
+iteration is recorded as <code>pages.next</code> for each page or failure.</p>
+<p>For streaming calls, API-call timing ends when the client returns the stream;
+the client body span follows consumption until EOF, failure, or cancellation.
+Unfinished spans are marked as such when a command ends. Network activity inside
+executable extensions is outside the CLI's client instrumentation. Operation
+labels contain no argument values, credentials, response bodies, or error messages.</p>
+<h2 id="scripts-and-aliases">Scripts and aliases<a class="headerlink" href="#scripts-and-aliases" title="Permanent link">&para;</a></h2>
 <p>Run commands from a script file:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>commands.hubuum
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>commands.hubuum
 </code></pre></div>
 <p>Personal command aliases bind one root-level word to a complete command line,
 including pipe stages and redirects. They are stored in the active user config
 and participate in preference export/import. Built-in commands and scopes take
 precedence over aliases.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>hosts<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'List known hosts'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--command<span class="w"> </span><span class="s1">'object list --class Hosts | P Name'</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>hubuum-cli<span class="w"> </span>hosts
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>list
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>show<span class="w"> </span>--name<span class="w"> </span>hosts
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--name<span class="w"> </span>hosts
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'List known hosts'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--command<span class="w"> </span><span class="s1">'object list --class Hosts | P Name'</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>hubuum-cli<span class="w"> </span>hosts
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>list
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>show<span class="w"> </span>--name<span class="w"> </span>hosts
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--name<span class="w"> </span>hosts
 </code></pre></div>
 <p><code>alias list</code>, root help, and <code>config show</code> use the optional description so long
 command pipelines do not overwhelm summary output. <code>alias show</code> retains the
 complete command. Described aliases use this compatible expanded TOML form;
 existing <code>name = "command"</code> aliases remain valid:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">[aliases.hosts]</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"object list --class Hosts | P Name"</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"List known hosts"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">[aliases.hosts]</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"object list --class Hosts | P Name"</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"List known hosts"</span>
 </code></pre></div>
 <p>Larger site workflows can be installed as extension packs. They
 live under the reserved <code>extension &lt;pack&gt; ...</code> namespace and join the normal
 help tree, validation, completion, semantic output, pipeline, and redirect
 machinery:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>init<span class="w"> </span>./my-pack<span class="w"> </span>--template<span class="w"> </span>minimal
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>contract<span class="w"> </span>object<span class="w"> </span>list
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>validate<span class="w"> </span>examples/hubuum-placement
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>explain<span class="w"> </span>examples/hubuum-placement
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>install<span class="w"> </span>examples/hubuum-placement
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>list
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>host<span class="w"> </span>placement<span class="w"> </span>server-01
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>room<span class="w"> </span>jacks<span class="w"> </span>R-301
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>doctor
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>init<span class="w"> </span>./my-pack<span class="w"> </span>--template<span class="w"> </span>minimal
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>contract<span class="w"> </span>object<span class="w"> </span>list
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>validate<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>explain<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>install<span class="w"> </span>examples/hubuum-placement
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>list
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>host<span class="w"> </span>placement<span class="w"> </span>server-01
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>placement<span class="w"> </span>room<span class="w"> </span>jacks<span class="w"> </span>R-301
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>hubuum-cli<span class="w"> </span>extension<span class="w"> </span>doctor
 </code></pre></div>
 <p>Portable workflow packs are the preferred extension kind. They run reusable,
 typed JSONC workflows in-process, require no runtime dependency other than
@@ -1798,11 +1944,11 @@ catalog of every tagged workflow step and binding form.</p>
 <p>Long aliases can be loaded from a one-command script file. This example finds
 hosts whose kernel is older than the newest numeric kernel version observed in
 the same OS major version:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>examples/aliases/outdated-kernels.hubuum
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>outdated-kernels<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'Show hosts with kernels older than the newest observed for their OS release'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--command<span class="w"> </span>file://examples/aliases/outdated-kernels.hubuum
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>hubuum-cli<span class="w"> </span>outdated-kernels
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>hubuum-cli<span class="w"> </span>script<span class="w"> </span>examples/aliases/outdated-kernels.hubuum
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>hubuum-cli<span class="w"> </span><span class="nb">alias</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span>--name<span class="w"> </span>outdated-kernels<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--description<span class="w"> </span><span class="s1">'Show hosts with kernels older than the newest observed for their OS release'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span>--command<span class="w"> </span>file://examples/aliases/outdated-kernels.hubuum
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>hubuum-cli<span class="w"> </span>outdated-kernels
 </code></pre></div>
 <p>The example converts each kernel into an array of numeric components, so
 <code>553.16</code> becomes <code>[553, 16]</code> rather than <code>55316</code>. The example uses <code>--all</code> so

@@ -2095,8 +2095,9 @@ management names.</p>
   input key exactly.</li>
 <li>Command paths are non-empty arrays such as <code>["host", "list"]</code>.</li>
 <li>One command path cannot prefix another command path in the same pack.</li>
-<li>Short and long aliases share a namespace. Host rendering aliases are
-  reserved.</li>
+<li>Short and long aliases share a namespace. Host rendering aliases and <code>debug</code>
+  are reserved. Rename an existing extension option named <code>debug</code> or aliased as
+  <code>--debug</code>; the host consumes this flag and does not forward it to executables.</li>
 </ul>
 <h2 id="value-declarations">Value declarations<a class="headerlink" href="#value-declarations" title="Permanent link">&para;</a></h2>
 <p>Configuration and workflow inputs use the same fields:</p>
