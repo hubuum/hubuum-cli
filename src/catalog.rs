@@ -1589,9 +1589,11 @@ mod tests {
 
         assert!(plain.contains("class"));
         assert!(plain.contains("object"));
+        // Wrapped summaries omit the comma at a line break.
         assert_eq!(
             plain
-                .matches("create, delete, fields, list, modify, show")
+                .replace(',', "")
+                .matches("create delete fields list modify show")
                 .count(),
             2
         );
