@@ -1,5 +1,4 @@
 use std::env::args;
-use std::future::Future;
 use std::io::{stdin, IsTerminal};
 use std::path::PathBuf;
 use std::process::exit;
@@ -7,16 +6,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app::{init_logging, load_app_config, login, AppRuntime, SharedSession};
-use catalog::{CatalogStore, CommandCatalog, CommandOutcome};
+use catalog::{CatalogStore, CommandCatalog};
 use cli::{build_cli, execution_mode, split_startup_args, StartupMode};
 use commands::build_command_catalog;
-use dispatch::{
-    apply_output_state, apply_scope_action, can_execute_offline, execute_line,
-    execute_offline_line, render_error,
-};
+use dispatch::{can_execute_offline, execute_line, execute_offline_line};
 use errors::AppError;
-use output::{print_rendered, OutputSnapshot};
-use redirection::write_output;
+use presentation::present_command;
 use repl::run;
 use services::{AppServices, CredentialApprovalSource};
 use tokio::fs::read_to_string;
@@ -44,6 +39,7 @@ mod list_query;
 mod models;
 mod output;
 mod pipe_help;
+mod presentation;
 mod redirection;
 mod repl;
 mod services;
@@ -66,11 +62,12 @@ async fn main() -> Result<(), AppError> {
             if can_execute_offline(catalog.snapshot().as_ref(), command) =>
         {
             diagnostics::init();
-            if !render_command(
+            if present_command(
                 &sessionless(),
                 execute_offline_line(catalog.clone(), command),
             )
             .await
+            .is_err()
             {
                 exit(1);
             }
@@ -111,7 +108,10 @@ async fn main() -> Result<(), AppError> {
     let session = SharedSession::new();
 
     if let StartupMode::Command(command) = mode {
-        if !render_command(&session, execute_line(runtime.clone(), &session, &command)).await {
+        if present_command(&session, execute_line(runtime.clone(), &session, &command))
+            .await
+            .is_err()
+        {
             exit(1);
         }
         return Ok(());
@@ -131,30 +131,6 @@ fn sessionless() -> SharedSession {
     SharedSession::new()
 }
 
-async fn render_command(
-    session: &SharedSession,
-    operation: impl Future<Output = Result<CommandOutcome, AppError>>,
-) -> bool {
-    diagnostics::command(async {
-        let result = operation.await;
-        diagnostics::stage("render", async { render_dispatch_result(session, result) }).await
-    })
-    .await
-}
-
-fn render_dispatch_result(
-    session: &SharedSession,
-    result: Result<CommandOutcome, AppError>,
-) -> bool {
-    match result {
-        Ok(outcome) => render_outcome(session, outcome),
-        Err(err) => {
-            render_snapshot(render_error(err));
-            false
-        }
-    }
-}
-
 async fn execute_script(
     runtime: Arc<AppRuntime>,
     session: &SharedSession,
@@ -162,7 +138,10 @@ async fn execute_script(
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        if !render_command(session, execute_line(runtime.clone(), session, line)).await {
+        if present_command(session, execute_line(runtime.clone(), session, line))
+            .await
+            .is_err()
+        {
             return Ok(false);
         }
     }
@@ -187,33 +166,12 @@ async fn execute_offline_script(
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        if !render_command(session, execute_offline_line(catalog.clone(), line)).await {
+        if present_command(session, execute_offline_line(catalog.clone(), line))
+            .await
+            .is_err()
+        {
             return Ok(false);
         }
     }
     Ok(true)
-}
-
-fn render_outcome(session: &SharedSession, outcome: CommandOutcome) -> bool {
-    apply_scope_action(session, &outcome.scope_action);
-    apply_output_state(session, &outcome.output);
-    match outcome.redirect {
-        Some(redirect) => match write_output(&outcome.output, &redirect) {
-            Ok(()) => true,
-            Err(err) => {
-                render_snapshot(render_error(err));
-                false
-            }
-        },
-        None => {
-            render_snapshot(outcome.output);
-            true
-        }
-    }
-}
-
-fn render_snapshot(snapshot: OutputSnapshot) {
-    if !snapshot.is_empty() {
-        let _ = print_rendered(&snapshot.render());
-    }
 }

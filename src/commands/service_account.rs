@@ -1,14 +1,13 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::TokenId;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use crate::autocomplete::{groups, service_account_token_ids, service_accounts};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
+use crate::output::{append_json_line, append_line};
 use crate::services::{
     AppServices, CloneTokenInput, CreateServiceAccountInput, NewTokenInput, RenewTokenInput,
     TokenStateFilter,
@@ -371,7 +370,7 @@ impl CliCommand for ServiceAccountTokenList {
 
         match desired_format(tokens)? {
             OutputFormat::Json => {
-                append_line(to_string_pretty(&token_list)?)?;
+                append_json_line(&token_list)?;
             }
             OutputFormat::Text => {
                 token_list.format_noreturn()?;

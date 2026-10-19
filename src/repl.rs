@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::MAIN_SEPARATOR;
@@ -24,12 +25,13 @@ use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::commands::self_update::startup_notice;
 use crate::config::get_config;
 use crate::diagnostics;
-use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, render_error};
+use crate::dispatch::execute_line;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::files::get_history_file;
 use crate::json_schema::schema_paths;
 use crate::output::{print_rendered, OutputSnapshot};
-use crate::redirection::{redirect_completion_context, write_output};
+use crate::presentation::present_command;
+use crate::redirection::redirect_completion_context;
 use crate::services::CompletionContext;
 
 const CANCEL_PAGINATION_HOST_COMMAND: &str = "__hubuum_cancel_pagination__";
@@ -122,25 +124,10 @@ fn run_thread(
                 } else {
                     line
                 };
-                let exit_repl = runtime.block_on(diagnostics::command(async {
-                    let result = execute_repl_line(app.clone(), &session, &effective_line).await;
-                    diagnostics::stage("render", async {
-                        match result {
-                            Ok(outcome) => {
-                                let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
-                                if let Err(err) = apply_outcome(&session, outcome) {
-                                    let _ = print_rendered(&render_error(err).render());
-                                }
-                                exit_repl
-                            }
-                            Err(err) => {
-                                let _ = print_rendered(&render_error(err).render());
-                                false
-                            }
-                        }
-                    })
-                    .await
-                }));
+                let exit_repl = runtime.block_on(present_command(
+                    &session,
+                    execute_repl_line(app.clone(), &session, &effective_line),
+                )) == Ok(ScopeAction::ExitRepl);
                 if exit_repl {
                     break;
                 }
@@ -162,13 +149,21 @@ async fn execute_repl_line(
     session: &SharedSession,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
-    execute_with_reauthentication(
+    let warnings = RefCell::new(Vec::new());
+    let result = execute_with_reauthentication(
         || execute_line(app.clone(), session, line),
         |request| {
             let app = app.clone();
             let session = session.clone();
+            let warnings = &warnings;
             async move {
-                print_reauthentication_warning(&request)?;
+                if diagnostics::enabled() && diagnostics::json_output() {
+                    warnings
+                        .borrow_mut()
+                        .extend(reauthentication_warning(&request).warnings);
+                } else {
+                    print_reauthentication_warning(&request)?;
+                }
                 session.set_next_page_command(None);
                 let client = reauthenticate(app.config.clone()).await?;
                 app.services.replace_authenticated_client(client);
@@ -176,7 +171,15 @@ async fn execute_repl_line(
             }
         },
     )
-    .await
+    .await;
+    let warnings = warnings.into_inner();
+    match result {
+        Ok(mut outcome) => {
+            outcome.output.warnings.splice(0..0, warnings);
+            Ok(outcome)
+        }
+        Err(error) => Err(error.with_warnings(warnings)),
+    }
 }
 
 fn print_reauthentication_warning(request: &str) -> Result<(), AppError> {
@@ -288,17 +291,6 @@ impl Drop for BackgroundGuard {
     fn drop(&mut self) {
         self.manager.disable();
     }
-}
-
-fn apply_outcome(session: &SharedSession, outcome: CommandOutcome) -> Result<(), AppError> {
-    apply_scope_action(session, &outcome.scope_action);
-    apply_output_state(session, &outcome.output);
-    if let Some(redirect) = outcome.redirect {
-        write_output(&outcome.output, &redirect)?;
-    } else if !outcome.output.is_empty() {
-        print_rendered(&outcome.output.render())?;
-    }
-    Ok(())
 }
 
 struct ReplPrompt {

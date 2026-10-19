@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::{Serialize, Serializer};
 use tokio::task::JoinHandle;
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
@@ -22,15 +23,17 @@ tokio::task_local! {
 }
 
 #[derive(Clone)]
-struct CommandTrace(Arc<Mutex<CommandReport>>);
+pub(crate) struct CommandTrace(Arc<Mutex<CommandReport>>);
 
 struct CommandReport {
     enabled: bool,
+    json_output: Option<bool>,
     duration: Option<Duration>,
     spans: Vec<TimedSpan>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum SpanKind {
     Stage,
     ClientCall,
@@ -38,14 +41,41 @@ enum SpanKind {
     Page,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
 struct TimedSpan {
     kind: SpanKind,
     name: String,
     depth: usize,
+    #[serde(rename = "duration_ms", serialize_with = "serialize_duration")]
     duration: Option<Duration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     succeeded: Option<bool>,
+    #[serde(skip)]
     empty: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     client: Option<ClientFields>,
+}
+
+/// Versioned, command-local diagnostics. Durations are elapsed milliseconds;
+/// nested spans overlap and must not be summed.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct DebugReport {
+    version: u8,
+    duration_ms: f64,
+    client_api_calls: usize,
+    http_attempts: usize,
+    custom_transport_attempts: usize,
+    client_library_spans: usize,
+    spans: Vec<TimedSpan>,
+}
+
+fn serialize_duration<S: Serializer>(
+    duration: &Option<Duration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    duration
+        .map(|value| value.as_secs_f64() * 1000.0)
+        .serialize(serializer)
 }
 
 struct CapturedSpan {
@@ -83,17 +113,27 @@ impl Visit for SpanFields {
     fn record_debug(&mut self, _field: &Field, _value: &dyn fmt::Debug) {}
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 struct ClientFields {
+    #[serde(skip)]
     version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     route: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     transport: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     attempt: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     outcome: Option<&'static str>,
+    #[serde(skip)]
     duration: Option<Duration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<u64>,
 }
 
@@ -173,6 +213,7 @@ impl CommandTrace {
     fn new(enabled: bool) -> Self {
         Self(Arc::new(Mutex::new(CommandReport {
             enabled,
+            json_output: None,
             duration: None,
             spans: Vec::new(),
         })))
@@ -190,7 +231,48 @@ impl CommandTrace {
             .get_or_insert(duration);
     }
 
-    fn render(&self) -> Option<String> {
+    pub(crate) fn snapshot(&self) -> Option<DebugReport> {
+        let report = self.0.lock().expect("debug trace lock poisoned");
+        if !report.enabled {
+            return None;
+        }
+        let duration_ms = report.duration?.as_secs_f64() * 1000.0;
+        let spans: Vec<_> = report
+            .spans
+            .iter()
+            .filter(|span| !span.empty)
+            .cloned()
+            .collect();
+        let attempts = |transport| {
+            spans
+                .iter()
+                .filter(|span| {
+                    span.name == "hubuum.http_attempt"
+                        && span
+                            .client
+                            .as_ref()
+                            .is_some_and(|fields| fields.transport == Some(transport))
+                })
+                .count()
+        };
+        Some(DebugReport {
+            version: 1,
+            duration_ms,
+            client_api_calls: spans
+                .iter()
+                .filter(|span| span.kind == SpanKind::ClientCall)
+                .count(),
+            http_attempts: attempts("reqwest"),
+            custom_transport_attempts: attempts("custom"),
+            client_library_spans: spans
+                .iter()
+                .filter(|span| span.kind == SpanKind::ClientLibrary && span.client.is_none())
+                .count(),
+            spans,
+        })
+    }
+
+    pub(crate) fn render(&self) -> Option<String> {
         let report = self.0.lock().expect("debug trace lock poisoned");
         if !report.enabled {
             return None;
@@ -462,6 +544,36 @@ pub(crate) fn enable() {
     let _ = TRACE.try_with(CommandTrace::enable);
 }
 
+pub(crate) fn enabled() -> bool {
+    TRACE
+        .try_with(|trace| trace.0.lock().expect("debug trace lock poisoned").enabled)
+        .unwrap_or(false)
+}
+
+pub(crate) fn set_json_output(json: bool) {
+    let _ = TRACE.try_with(|trace| {
+        trace
+            .0
+            .lock()
+            .expect("debug trace lock poisoned")
+            .json_output = Some(json)
+    });
+}
+
+pub(crate) fn json_output() -> bool {
+    TRACE
+        .try_with(|trace| {
+            trace
+                .0
+                .lock()
+                .expect("debug trace lock poisoned")
+                .json_output
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
 async fn run_in_trace<T>(trace: CommandTrace, operation: impl Future<Output = T>) -> T {
     TRACE
         .scope(trace, async {
@@ -479,15 +591,23 @@ async fn run_in_trace<T>(trace: CommandTrace, operation: impl Future<Output = T>
 /// Reuse the enclosing command for workflows. Independent commands each get a
 /// root span, and only its descendants contribute to the report.
 pub(crate) async fn command<T>(operation: impl Future<Output = T>) -> T {
-    if TRACE.try_with(|_| ()).is_ok() {
-        return operation.await;
-    }
-    let trace = CommandTrace::new(DEBUG_DEFAULT.load(Ordering::Relaxed));
-    let result = run_in_trace(trace.clone(), operation).await;
-    if let Some(report) = trace.render() {
+    let (result, trace) = capture_command(operation).await;
+    if let Some(report) = trace.and_then(|trace| trace.render()) {
         eprint!("{report}");
     }
     result
+}
+
+/// Let the presentation layer put the finished report in the selected output.
+pub(crate) async fn capture_command<T>(
+    operation: impl Future<Output = T>,
+) -> (T, Option<CommandTrace>) {
+    if TRACE.try_with(|_| ()).is_ok() {
+        return (operation.await, None);
+    }
+    let trace = CommandTrace::new(DEBUG_DEFAULT.load(Ordering::Relaxed));
+    let result = run_in_trace(trace.clone(), operation).await;
+    (result, Some(trace))
 }
 
 pub(crate) async fn stage<T>(name: &'static str, operation: impl Future<Output = T>) -> T {
@@ -611,8 +731,22 @@ mod tests {
         assert!(report.contains("page 1: 2 items"));
         assert!(!report.contains("private"));
         assert!(!report.contains("unfinished"));
+        let json = serde_json::to_value(trace.snapshot().unwrap()).unwrap();
+        assert_eq!(json["http_attempts"], 2);
+        assert_eq!(json["client_api_calls"], 1);
+        assert_eq!(json["spans"][1]["duration_ms"], 7.5);
+        assert_eq!(json["spans"][2]["client"]["status"], 503);
+        assert_eq!(json["spans"][2]["client"]["outcome"], "failed");
+        assert_eq!(json["spans"][3]["client"]["attempt"], 2);
+        assert_eq!(json["spans"][4]["client"]["items"], 2);
+        assert!(json["spans"][4]["duration_ms"].is_null());
+        assert!(!json.to_string().contains("private"));
         drop(retained);
         assert_eq!(trace.render().unwrap(), report);
+        assert_eq!(
+            serde_json::to_value(trace.snapshot().unwrap()).unwrap(),
+            json
+        );
     }
 
     #[tokio::test]

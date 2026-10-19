@@ -2,7 +2,7 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.16 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
 `hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.16 | 0.15.1 | 0.0.19 | Latest release; command tracing and adaptive grouped table headers |
+| 0.0.17 | 0.15.1 | 0.0.19 | Latest release; structured JSON command diagnostics |
+| 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
 | 0.0.15 | 0.15.0 | 0.0.19 | Previous CLI release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9 |
 | 0.0.14 | 0.14.1 | 0.0.18 | Previous CLI release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
 | 0.0.13 | 0.13.0 | 0.0.17 | Previous CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
@@ -52,6 +53,27 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.17: client v0.15.1
+
+CLI v0.0.17 keeps the published `hubuum_client` 0.15.1 and server v0.0.19 target.
+It adds a version 1 JSON diagnostics response around the original command data.
+No dependency, feature, MSRV, server target, or OpenAPI contract changes are
+introduced. JSON debug consumers must read results from `.data` and diagnostics
+from `.debug`; other output modes keep their existing behavior.
+
+The release checks use the same immutable server image as v0.0.16:
+`ghcr.io/hubuum/hubuum-server@sha256:6fbe91693356b8885e6b1115cea4417dbf80747ba4af3eb0a15b855ffff47225`.
+Regression coverage includes API failures and HTTP statuses, pipeline and redirect
+errors, extension warnings, JSON result shapes, command isolation, and diagnostic
+redaction. An authorized read-only Hosts query on 2026-10-19 returned two rows
+with three client API calls and three HTTP attempts, all status 200, inside a
+single JSON response with empty stderr. All 812 workspace tests passed, together
+with Clippy, rustfmt, Markdown lint, wrapper tests, extension schema validation,
+and CI-policy tests. The disposable-server integration suite passed against that
+pinned image, including all three format 9 restore cycles and the supported
+command/streaming surfaces. A fresh audit found no vulnerable dependencies in
+the 424-package lockfile.
 
 ## CLI v0.0.16: client v0.15.1
 

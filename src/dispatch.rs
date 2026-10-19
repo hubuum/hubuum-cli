@@ -26,7 +26,7 @@ use crate::domain::expand_command_aliases;
 use crate::errors::AppError;
 use crate::output::{
     add_error, add_warning, append_line, reset_output, set_pipeline, set_pipeline_suffix,
-    set_render_format, set_table_headers, take_output, OutputSnapshot,
+    set_render_format, set_table_headers, take_output, OutputSnapshot, RenderFormat,
 };
 use crate::redirection::{split_redirect_candidate, OutputRedirect};
 use crate::tokenizer::CommandTokenizer;
@@ -478,7 +478,11 @@ pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
 }
 
 pub fn render_error(err: AppError) -> OutputSnapshot {
+    let json_output = diagnostics::json_output();
     reset_output().expect("reset output buffer for errors");
+    if json_output {
+        set_render_format(RenderFormat::Json).expect("error format should be set");
+    }
     let mut warnings = Vec::new();
     let mut err = err;
     let err = loop {

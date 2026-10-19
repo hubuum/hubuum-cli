@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-10-19
+
+### Added
+
+- Include versioned, structured command diagnostics in JSON output when `--debug`
+  is enabled: elapsed milliseconds, API/HTTP/custom transport counts, and nested
+  span timings, outcomes, statuses, routes, retries, and pagination details.
+  Direct commands, scripts, the REPL, pipelines, and file redirects share this
+  behavior. JSON warnings and errors are included as arrays in the response.
+
+### Changed
+
+- **Breaking for JSON debug consumers:** `--debug --output json` now returns
+  `{"data": ..., "debug": ...}` instead of a raw result with a text debug report
+  on stderr. Read the original result from `.data` and diagnostics from `.debug`.
+  JSON timing ends before final response serialization and writing. JSON output
+  without debug and diagnostic reports for other output formats are unchanged.
+
 ## [0.0.16] - 2026-10-19
 
 ### Added

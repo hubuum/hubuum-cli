@@ -1,6 +1,5 @@
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -15,7 +14,7 @@ use crate::domain::ClassShowRecord;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, render_related_class_tree_with_key, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::{append_key_value, append_line};
+use crate::output::{append_json_line, append_key_value, append_line};
 use crate::services::{
     AppServices, ClassUpdateInput, CreateClassInput, RelatedGraphLimit, RelationTraversalOptions,
 };
@@ -169,7 +168,7 @@ impl CliCommand for ClassInfo {
 
         match desired_format(tokens)? {
             OutputFormat::Json => {
-                append_line(to_string_pretty(&details)?)?;
+                append_json_line(&details)?;
             }
             OutputFormat::Text => {
                 render_class_show_text(&details)?;

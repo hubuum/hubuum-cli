@@ -12,7 +12,7 @@ use serde_json::Value;
 use shlex::split;
 
 use crate::errors::AppError;
-use crate::output::{render_semantic_item, OutputSnapshot};
+use crate::output::{render_semantic_item, OutputSnapshot, RenderFormat};
 use crate::theme::color_choice;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,12 +146,16 @@ fn write_each_output(
                 path.display()
             )));
         }
-        let content = render_semantic_item(
-            &item.value,
-            item.source_shape,
-            item.columns,
-            snapshot.render_format,
-        )?;
+        let content = if snapshot.render_format == RenderFormat::Json && snapshot.debug.is_some() {
+            snapshot.render_debug_json(&item.value)
+        } else {
+            render_semantic_item(
+                &item.value,
+                item.source_shape,
+                item.columns,
+                snapshot.render_format,
+            )?
+        };
         writes.push((path, content));
     }
 

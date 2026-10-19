@@ -1184,6 +1184,32 @@ fn protocol_failures_are_actionable() {
         .stdout(contains("Warning: partial work was retained"))
         .stdout(contains("[expected_failure]: fixture failed"))
         .stdout(contains("details: {\"step\":2}"));
+
+    let output = cargo_bin_cmd!("hubuum-cli")
+        .args([
+            "--config",
+            config.to_str().expect("config path"),
+            "extension",
+            "reported-error",
+            "run",
+            "--debug",
+            "--output",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .stderr("")
+        .get_output()
+        .stdout
+        .clone();
+    let response: serde_json::Value = serde_json::from_slice(&output).expect("JSON error response");
+    assert!(response["data"].is_null());
+    assert_eq!(response["warnings"][0], "partial work was retained");
+    assert!(response["errors"][0]
+        .as_str()
+        .unwrap()
+        .contains("[expected_failure]: fixture failed"));
+    assert_eq!(response["debug"]["version"], 1);
 }
 
 #[test]

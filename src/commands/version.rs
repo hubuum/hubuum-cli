@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
-use serde_json::to_string_pretty;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{desired_format, CliCommand};
@@ -12,7 +11,7 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::models::OutputFormat;
-use crate::output::{append_key_value, append_line};
+use crate::output::{append_json_line, append_key_value};
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
@@ -88,7 +87,7 @@ pub(crate) fn render_version(tokens: &CommandTokenizer) -> Result<(), AppError> 
     };
 
     match desired_format(tokens)? {
-        OutputFormat::Json => append_line(to_string_pretty(&info)?)?,
+        OutputFormat::Json => append_json_line(&info)?,
         OutputFormat::Text => {
             append_key_value("CLI", info.cli_version, 10)?;
             if let Some(git_commit) = info.git_commit {
