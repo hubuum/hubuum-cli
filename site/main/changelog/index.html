@@ -851,6 +851,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../query-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Query usage
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../schema-evolution/" class="md-nav__link">
         
   
@@ -2279,6 +2306,13 @@
 <li>
 <p>Add <code>audit resource --include-relations</code> for class and object relationship
   activity, including deleted relations, while retaining entity-only defaults.</p>
+</li>
+<li>
+<p>Manage class query-usage declarations with <code>class query-usage
+  list|create|replace|delete|analyze</code>. Replacement and deletion require an explicit
+  reviewed revision. Analysis reports workload evidence, schema compatibility,
+  suggestions, native resource ownership and adapter progress without adopting
+  suggestions or preparing indexes. See <a href="../query-usage/">query usage</a>.</p>
 </li>
 <li>
 <p>Add <code>self_update.check_on_startup</code> (default <code>false</code>) to optionally announce

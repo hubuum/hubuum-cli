@@ -851,6 +851,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../query-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Query usage
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../schema-evolution/" class="md-nav__link">
         
   
@@ -1742,6 +1769,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#query-usage-declarations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Query-usage declarations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2039,6 +2077,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Server v0.0.19 notifications and audit
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-usage-declarations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Query-usage declarations
       </span>
     </span>
   </a>
@@ -2558,6 +2607,20 @@ removed, continue with the remaining cleanup commands.</p>
 <li>Reject numeric audit IDs, malformed UUIDs, and nonpositive subscription IDs.</li>
 <li>Compare class/object audit output with and without <code>--include-relations</code>,
   including after deleting a relation. Reject that flag for other resource kinds.</li>
+</ul>
+<h2 id="query-usage-declarations">Query-usage declarations<a class="headerlink" href="#query-usage-declarations" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Create a numeric declaration, list it, and replace its operations using the
+  returned <code>--expected-revision</code>. Confirm the revision advances.</li>
+<li>Retry replacement and deletion with the old revision. Both must fail without
+  overwriting the reviewed declaration; refresh and review before retrying.</li>
+<li>Analyze with a hypothetical <code>--proposed file://patterns.json</code> array and confirm
+  analysis leaves the declarations unchanged. Check disabled observations and
+  insufficient evidence remain distinct from complete analysis with no suggestions.</li>
+<li>Check JSON output preserves resource ownership, optional native scan counts,
+  adapter progress, errors, and limitations when the server supplies them.</li>
+<li>Delete with the current revision. Backup and restore a retained declaration and
+  confirm its pattern, revision, and attribution survive format 9 restoration.</li>
 </ul>
 
 
