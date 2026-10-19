@@ -7,6 +7,7 @@ the REPL, or automate repeatable workflows with scripts and extensions.
 
 - [Install, configure, and connect](getting-started.md).
 - [Search your inventory](search.md).
+- [Declare and analyze query usage](query-usage.md).
 - [Shape command output with pipelines](output-pipeline.md).
 - [Check server compatibility](compatibility.md).
 - [Set up generic webhooks or Slack, Mattermost, and Discord presets](webhooks.md).

@@ -143,6 +143,26 @@ pub fn export_content_types(
     )
 }
 
+pub fn query_usage_types(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(&["string", "numeric", "boolean"], prefix)
+}
+
+pub fn query_usage_operations(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    let (head, tail) = prefix
+        .rsplit_once(',')
+        .map_or(("", prefix), |(head, tail)| {
+            (&prefix[..head.len() + 1], tail)
+        });
+    complete_values(&["equals", "gt", "gte", "lt", "lte", "between"], tail)
+        .into_iter()
+        .map(|value| format!("{head}{value}"))
+        .collect()
+}
+
 pub fn search_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(&["collection", "class", "object"], prefix)
 }

@@ -31,6 +31,7 @@ mod imports;
 mod object_aggregates;
 mod object_fields;
 mod objects;
+mod query_usage;
 mod relations;
 mod remote_targets;
 mod schema;
@@ -75,6 +76,7 @@ pub use objects::{
     ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectRecord, ObjectShowRecord,
     ResolvedObjectRecord,
 };
+pub use query_usage::{ExpectedQueryUsageRevision, QueryUsageId, QueryUsageOutput};
 pub use relations::{
     build_related_class_tree, build_related_object_tree, RelatedClassTreeNode,
     RelatedObjectTreeNode, ResolvedClassRelationRecord, ResolvedObjectRelationRecord,

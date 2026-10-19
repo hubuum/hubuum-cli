@@ -1579,19 +1579,25 @@ mod tests {
     fn root_scope_help_lists_scope_subcommands() {
         let catalog = build_command_catalog();
         let help = catalog.render_scope_help(&[]);
-        let plain = strip_ansi(&help);
+        let plain = strip_ansi(&help)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         let collection_scope = catalog
             .resolve_scope(&[], &["collection".to_string()])
             .expect("collection scope");
 
         assert!(plain.contains("class"));
         assert!(plain.contains("object"));
+        // Wrapped summaries omit the comma at a line break.
         assert_eq!(
             plain
-                .matches("create, delete, fields, list, modify, show")
+                .replace(',', "")
+                .matches("create delete fields list modify show")
                 .count(),
             2
         );
+        assert!(plain.contains("query-usage"));
         assert!(plain.contains("event"));
         assert!(plain.contains("delivery, sink, subscription"));
         assert!(!plain.contains("event-subscription"));
@@ -1985,6 +1991,8 @@ mod tests {
             "bg output --id",
             "bg show --id",
             "bg watch --task",
+            "class query-usage delete --id",
+            "class query-usage replace --id",
             "class schema cancel --task",
             "class schema generate-report --task",
             "class schema report --task",

@@ -15,6 +15,12 @@
 - Add `audit resource --include-relations` for class and object relationship
   activity, including deleted relations, while retaining entity-only defaults.
 
+- Manage class query-usage declarations with `class query-usage
+  list|create|replace|delete|analyze`. Replacement and deletion require an explicit
+  reviewed revision. Analysis reports workload evidence, schema compatibility,
+  suggestions, native resource ownership and adapter progress without adopting
+  suggestions or preparing indexes. See [query usage](docs/query-usage.md).
+
 - Add `self_update.check_on_startup` (default `false`) to optionally announce
   newer stable releases when the interactive shell starts, without installing
   them. Add `self_update.enabled` (default `true`) so managed installations can

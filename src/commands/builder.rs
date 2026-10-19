@@ -123,6 +123,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::class::register_commands(&mut builder);
     commands::class_fields::register_commands(&mut builder);
     commands::class_schema::register_commands(&mut builder);
+    commands::class_query_usage::register_commands(&mut builder);
     commands::config::register_commands(&mut builder);
     commands::collection::register_commands(&mut builder);
     commands::computed::register_commands(&mut builder);

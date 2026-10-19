@@ -14,6 +14,7 @@ mod notification_tests;
 mod object_aggregates;
 mod objects;
 mod principal_tokens;
+mod query_usage;
 #[cfg(test)]
 mod read_resolution_tests;
 mod relations;
@@ -67,6 +68,7 @@ pub use principal_tokens::{
     CloneTokenInput, CloneTokenOutcome, NewTokenInput, RenewTokenInput, SourceTokenRevocation,
     TokenStateFilter,
 };
+pub use query_usage::QueryUsageCommand;
 pub use relations::{
     CreateClassRelationInput, RelatedObjectOptions, RelationRoot, RelationTarget,
     RelationTraversalOptions,

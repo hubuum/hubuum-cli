@@ -8,6 +8,7 @@ mod groups;
 mod identity;
 mod imports;
 mod objects;
+mod query_usage;
 mod relations;
 mod schema;
 mod service_accounts;
