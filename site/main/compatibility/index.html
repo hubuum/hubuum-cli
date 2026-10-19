@@ -1901,8 +1901,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.14 uses
-<code>hubuum_client</code> 0.14.1, which targets Hubuum server v0.0.18.
+and reproducibly tests its Hubuum server target. Development builds use
+<code>hubuum_client</code> 0.15.0, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -1918,10 +1918,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>Unreleased</td>
+<td>0.15.0</td>
+<td>0.0.19</td>
+<td>Development target; backup output 9 and restore input 6/7/8/9</td>
+</tr>
+<tr>
 <td>0.0.14</td>
 <td>0.14.1</td>
 <td>0.0.18</td>
-<td>Current target; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8</td>
+<td>Latest release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8</td>
 </tr>
 <tr>
 <td>0.0.13</td>
@@ -1992,16 +1998,16 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.14 targets server v0.0.18 through client 0.14.1. Protected credential
-mutations and restore confirmation require fresh human approval. Use
-<a href="../credential-approvals/">credential approvals</a>, <a href="../webhooks/">webhooks</a>,
+<p>Development builds target server v0.0.19 through client 0.15.0. Protected
+credential mutations and restore confirmation require fresh human approval.
+Use <a href="../credential-approvals/">credential approvals</a>, <a href="../webhooks/">webhooks</a>,
 and <a href="../backup-restore/">backup and restore</a> for command-specific behavior.</p>
-<p>Server v0.0.18 requires an offline upgrade from v0.0.17 and emits backup format 8;
-older servers cannot restore that format. Follow the canonical
-<a href="https://hubuum.github.io/hubuum/v0.0.18/events/#upgrade-and-rollback">server upgrade and recovery instructions</a>
-and <a href="https://hubuum.github.io/hubuum/v0.0.18/backup-restore/">backup compatibility</a>.
-Use the server guide for the actual version transition rather than copying
-migration commands from an older client release.</p>
+<p><strong>Breaking server target and backup output:</strong> upgrade the server before adopting
+this CLI target. New backups use format 9; restore still accepts formats 6–8.
+Replace blank principal names before upgrading, retain a pre-upgrade backup and
+matching binaries for rollback, and use HTTP/1.1 for direct server connections.
+Follow the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.19">server release notes</a>
+and <a href="https://hubuum.github.io/hubuum/v0.0.19/backup-restore/">backup compatibility</a>.</p>
 <h2 id="verification-evidence">Verification evidence<a class="headerlink" href="#verification-evidence" title="Permanent link">&para;</a></h2>
 <p><a href="../compatibility-evidence/">Detailed evidence and historical migrations</a> retain tested
 image identities, dates, suite results, and earlier compatibility limits.</p>

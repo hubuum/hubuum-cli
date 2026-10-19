@@ -2033,7 +2033,7 @@
 
 
 <h1 id="webhook-setup">Webhook setup<a class="headerlink" href="#webhook-setup" title="Permanent link">&para;</a></h1>
-<p>CLI v0.0.14 uses <code>hubuum_client</code> 0.14.1, which targets Hubuum server v0.0.18.
+<p>The development CLI uses <code>hubuum_client</code> 0.15.0, which targets Hubuum server v0.0.19.
 Use <code>--kind webhook --config</code> for any receiver that accepts HTTPS JSON POSTs.
 The <code>--target slack|mattermost|discord</code> presets are shortcuts for this same
 generic sink. They generate the configuration and delivery policy described
@@ -2046,7 +2046,7 @@ the affected processes.</p>
 <p>Receivers need HTTPS with trusted certificates. Private destinations, including
 self-hosted receivers and Mattermost installations, require the server's
 outbound private-target setting. Redirects are refused. See the server's
-<a href="https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/">versioned setup guide</a>
+<a href="https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/">versioned setup guide</a>
 for worker settings, secret sources, and network requirements.</p>
 <h2 id="store-the-url-on-the-server">Store the URL on the server<a class="headerlink" href="#store-the-url-on-the-server" title="Permanent link">&para;</a></h2>
 <p>Keep a webhook URL containing credentials in the server's secret source. For
@@ -2125,7 +2125,7 @@ A failed acknowledgement is permanent. In this example, only the listed
 transient statuses retry; other HTTP failures are permanent, while HTTP 429
 defers delivery using <code>Retry-After</code> without spending a failure attempt. Missing
 or invalid <code>Retry-After</code> uses a 60-second cooldown. Transport failures still
-retry. See the <a href="https://hubuum.github.io/hubuum/v0.0.18/events/#configurable-webhook-notifications">server webhook reference</a>
+retry. See the <a href="https://hubuum.github.io/hubuum/v0.0.19/events/#configurable-webhook-notifications">server webhook reference</a>
 for response rules, custom headers, timeouts, and payload limits.</p>
 <p>Delivery is at least once, so a lost acknowledgement can cause duplicates.
 Receivers can deduplicate using <code>X-Hubuum-Event-Id</code> or an <code>event_id</code> included in
@@ -2309,7 +2309,7 @@ configuration file and replace the saved configuration:</p>
 and <code>response</code> if you want to keep their behavior. Omitting the template restores
 the original event envelope; omitting the response rules restores generic HTTP
 handling. Updating only <code>--config</code> leaves the separate delivery policy unchanged.</p>
-<p>Use the server's <a href="https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/#preview-test-and-check-delivery">preview and test steps</a>
+<p>Use the server's <a href="https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/#preview-test-and-check-delivery">preview and test steps</a>
 before enabling production notifications. Preview renders a saved event without
 looking up secrets or sending a message; test queues a real delivery. Preset
 templates and the custom example above display <code>[TEST]</code>; an unmodified event

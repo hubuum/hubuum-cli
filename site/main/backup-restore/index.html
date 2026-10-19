@@ -1899,29 +1899,32 @@
 
 
 <h1 id="backup-and-restore">Backup and restore<a class="headerlink" href="#backup-and-restore" title="Permanent link">&para;</a></h1>
-<p>CLI v0.0.14 uses <code>hubuum_client</code> 0.14.1, which targets Hubuum server v0.0.18.
+<p>The development CLI uses <code>hubuum_client</code> 0.15.0, which targets Hubuum server v0.0.19.
 Backups and restore staging/confirmation require administrator access.</p>
 <h2 id="prepare-the-server">Prepare the server<a class="headerlink" href="#prepare-the-server" title="Permanent link">&para;</a></h2>
-<p><strong>Breaking server upgrade requirement:</strong> upgrading from 0.0.17 requires a
-maintenance window. Stop all writers, including API, worker, and restore-executor
-processes, then take a PostgreSQL snapshot. Apply the collection-event-sinks
-migration with <code>hubuum-admin --migrate</code> before starting matching 0.0.18 binaries.
-Binary-only rollback is unsupported: recovery requires the snapshot and matching
-0.0.17 binaries, losing writes made after the snapshot. When upgrading from before
-0.0.17, also apply its notification migration;
-optional Treetop installations require protocol 0.1 and compatible policy bundles.
-See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.18">server release notes</a>.</p>
-<p>When upgrading from before 0.0.15, existing enforced objects start pending;
-request schema revalidation. Review
-<a href="../schema-evolution/">schema evolution</a> for policy and authorization migration.</p>
-<p><strong>Breaking backup output change:</strong> server v0.0.18 creates format 8 backups,
-including collection sink ownership and direct grants. Older servers cannot
-restore format 8. CLI v0.0.14 and server 0.0.18 still accept formats 6 and 7 with
-legacy grant backfill; keep those artifacts intact. Restores reset transient sink
-scheduling while preserving notification configuration and terminal delivery
-history. Restore format 5 artifacts with the matching older server, then migrate
-and take a new backup. Changing <code>backup_version</code> does not convert it. Keep a
-verified backup from the previous server version.</p>
+<p><strong>Breaking server target:</strong> upgrade to v0.0.19 before adopting this development
+CLI. Replace empty or whitespace-only local principal names with new accounts
+and reassign group memberships; correct external names at the identity provider.
+Stop writers and retain a PostgreSQL snapshot and matching pre-upgrade binaries
+before applying migrations with <code>hubuum-admin --migrate</code>. Deploy matching API,
+worker, administrator, and restore-executor binaries together. Older event
+readers cannot read the authentication event catalog entry; binary-only rollback
+is unsupported. Direct connections require HTTP/1.1; a reverse proxy may accept
+HTTP/2 with HTTP/1.1 upstream connections.
+See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.19">server release notes</a>.</p>
+<p>When upgrading from before 0.0.18, also follow the collection-sink migration;
+from before 0.0.17, follow the notification migration. Optional Treetop
+installations require protocol 0.1 and compatible policy bundles. When upgrading
+from before 0.0.15, existing enforced objects start pending; request schema
+revalidation. Review <a href="../schema-evolution/">schema evolution</a>.</p>
+<p><strong>Breaking backup output:</strong> server v0.0.19 creates format 9 backups, preserving
+query-usage declarations and their attribution. Older servers cannot restore
+format 9. Formats 6, 7, and 8 remain accepted, restoring without declarations.
+Native indexes and their ownership records are not portable backup content;
+reconcile restored intent on the destination server. Keep pre-upgrade artifacts
+intact for recovery with matching older binaries. Restore format 5 artifacts
+with the matching older server, then migrate and take a new backup. Changing
+<code>backup_version</code> does not convert a backup.</p>
 <h2 id="create-a-backup">Create a backup<a class="headerlink" href="#create-a-backup" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>state-only.json<span class="w"> </span>--include-history<span class="w"> </span><span class="nb">false</span>
@@ -1932,7 +1935,7 @@ when needed. For task-based automation, retain the ID returned by submission:</p
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>download<span class="w"> </span><span class="m">123</span><span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
 </code></pre></div>
-<p>Formats 6 and 7 exclude password hashes, bearer tokens, and token scopes. The manifest
+<p>Formats 6–9 exclude password hashes, bearer tokens, and token scopes. The manifest
 lists excluded data. Privileged integration configuration remains sensitive;
 protect the backup accordingly. Saved JSON retains the server's creation instant,
 including its UTC offset and fractional seconds, so it can be staged again.</p>
@@ -1958,7 +1961,7 @@ The CLI never displays the capability in normal output or semantic pipelines.</p
 returns <code>confirmed</code>, meaning the restore is queued. <code>--wait</code> polls until
 <code>succeeded</code>, <code>failed</code>, or <code>expired</code>; only <code>succeeded</code> exits successfully.
 Without <code>--wait</code>, confirmation returns immediately after acceptance.</p>
-<p>Server 0.0.18 retains the requirement for fresh approval from an unscoped human user before
+<p>Server 0.0.19 retains the requirement for fresh approval from an unscoped human user before
 confirmation. <code>--yes</code> still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place <code>--approval-password-file FILE</code> before <code>restore</code>
@@ -1985,7 +1988,7 @@ failed restore.</p>
 <p>Substitute a restored local administrator's name when needed. Log in with the
 reset password and issue fresh tokens, including replacements for service
 accounts and any CLI <code>--token-file</code>. Old passwords and tokens are absent from
-format 6 and 7 backups. Recheck integration configuration before resuming automation.</p>
+formats 6–9 backups. Recheck integration configuration before resuming automation.</p>
 <h2 id="file-handling">File handling<a class="headerlink" href="#file-handling" title="Permanent link">&para;</a></h2>
 <p>Backup and receipt files use owner-only permissions (<code>0600</code>) on Unix. Existing
 files require <code>--force</code>. Directories, symbolic links, and devices are rejected;
@@ -1995,7 +1998,7 @@ existing destination intact. If installation fails after the content is written,
 the error gives the private temporary file path for recovery.</p>
 <p>On other platforms, use a destination directory with suitable access controls.</p>
 <h2 id="history-free-restores-and-older-artifacts">History-free restores and older artifacts<a class="headerlink" href="#history-free-restores-and-older-artifacts" title="Permanent link">&para;</a></h2>
-<p>Server 0.0.18 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+<p>Server 0.0.19 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with <code>--include-history false</code>. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -2010,7 +2013,7 @@ an artifact that fails staging. Do not edit revision or history fields to bypass
 validation.</p>
 <p>The earlier 0.0.13 error, <code>Full backup live revisions disagree with
 'collection_history'</code>, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.18.</p>
+successful staging and a complete second-generation restore on 0.0.19.</p>
 <h2 id="reproduce-the-integration-check">Reproduce the integration check<a class="headerlink" href="#reproduce-the-integration-check" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--locked
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>python3<span class="w"> </span>scripts/test-backup-restore.py
