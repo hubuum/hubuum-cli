@@ -134,10 +134,11 @@ hubuum-cli object list --class Hosts --table-headers full
 hubuum-cli object list --class Hosts --table-headers none
 ```
 
-Grouped headers are the default for text tables. Dotted paths are displayed on
-multiple header lines so path names do not determine individual column widths;
-unambiguous class aliases take precedence. Use `--table-headers full` for the
-original flat paths, or `--table-headers none` to suppress table headers.
+Grouped headers are the default for text tables. Dotted paths stay on one line
+when they fit the column, or wrap between path segments when space is limited.
+Compact columns keep their widths based on row content and individual path
+segments; unambiguous class aliases take precedence. Use `--table-headers full`
+for the original flat paths, or `--table-headers none` to suppress table headers.
 Machine-oriented formats retain their semantic column names. Persist the mode
 with `hubuum-cli config set --key output.table_headers --value none`.
 
