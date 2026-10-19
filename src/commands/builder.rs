@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use crate::diagnostics::spawn_blocking;
 use async_trait::async_trait;
-use tokio::task::spawn_blocking;
 
 use crate::catalog::{
     AsyncCommandHandler, CommandCatalog, CommandCatalogBuilder, CommandContext, CommandInvocation,

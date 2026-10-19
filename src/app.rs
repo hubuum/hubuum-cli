@@ -6,14 +6,15 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::diagnostics::{self, client_call, spawn_blocking};
 use clap::ArgMatches;
 use hubuum_client::{
     blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, Token, Unauthenticated,
 };
 use log::debug;
 use rpassword::prompt_password;
-use tokio::task::spawn_blocking;
 use tracing_subscriber::fmt as tracing_fmt;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 use crate::catalog::CatalogStore;
@@ -98,9 +99,13 @@ impl SharedSession {
 pub fn init_logging() -> Result<(), AppError> {
     let file = get_log_file()?;
     let file = File::create(file)?;
-    tracing_fmt()
-        .with_writer(file)
-        .with_env_filter(EnvFilter::from_default_env())
+    tracing_subscriber::registry()
+        .with(diagnostics::layer())
+        .with(
+            tracing_fmt::layer()
+                .with_writer(file)
+                .with_filter(EnvFilter::from_default_env()),
+        )
         .init();
     Ok(())
 }
@@ -337,14 +342,17 @@ fn authenticate(
 ) -> Result<BlockingClient<Authenticated>, AppError> {
     if let Some(token_file) = token_file {
         let token = BearerTokenFile::new(token_file)?.read()?;
-        return client.login_with_token(token).map_err(AppError::from);
+        return client_call("client.login_with_token", || client.login_with_token(token))
+            .map_err(AppError::from);
     }
 
     if matches!(cached_token, CachedToken::Allow) {
         let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
         if let Some(token) = token {
             debug!("Found existing token, testing validity...");
-            if let Ok(client) = client.clone().login_with_token(Token::new(token)) {
+            if let Ok(client) = client_call("client.login_with_token", || {
+                client.clone().login_with_token(Token::new(token))
+            }) {
                 return Ok(client);
             }
         }
@@ -366,7 +374,7 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    let client = client.login(credentials)?;
+    let client = client_call("client.login", || client.login(credentials))?;
 
     write_token_to_tokenfile(TokenEntry {
         hostname: hostname.to_string(),

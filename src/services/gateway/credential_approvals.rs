@@ -10,6 +10,7 @@ use rpassword::prompt_password;
 use serde::de::DeserializeOwned;
 use serde_json::{to_string, to_value, Value};
 
+use crate::diagnostics::client_call;
 use crate::errors::AppError;
 
 #[derive(Clone, Default)]
@@ -43,12 +44,12 @@ impl CredentialApprovalSource {
             ));
         }
         // Approval authentication must not enter the REPL's login/replay flow.
-        client
-            .credential_approvals()
-            .approve(password, operation)
-            .map_err(|error| {
-                AppError::CommandExecutionError(format!("Credential approval failed: {error}"))
-            })
+        client_call("credential_approvals.approve", || {
+            client.credential_approvals().approve(password, operation)
+        })
+        .map_err(|error| {
+            AppError::CommandExecutionError(format!("Credential approval failed: {error}"))
+        })
     }
 }
 
@@ -94,7 +95,7 @@ pub(super) fn send_approved<T: DeserializeOwned>(
     let mut stderr = stderr().lock();
     writeln!(stderr, "Credential approval ID: {id}")?;
     stderr.flush()?;
-    approved.send().map_err(|error| AppError::CommandExecutionError(format!(
+    client_call("credential_approvals.send", || approved.send()).map_err(|error| AppError::CommandExecutionError(format!(
         "Approved operation failed (approval ID {id}): {error}. Run auth approval show {id} and inspect the target before retrying; the operation may have committed."
     )))
 }
@@ -106,7 +107,9 @@ impl super::HubuumGateway {
                 "Credential approval ID must be positive".into(),
             ));
         }
-        Ok(to_value(self.client().credential_approvals().get(id)?)?)
+        Ok(to_value(client_call("credential_approvals.get", || {
+            self.client().credential_approvals().get(id)
+        })?)?)
     }
     pub(crate) fn set_credential_approval_source(&self, source: CredentialApprovalSource) {
         *self

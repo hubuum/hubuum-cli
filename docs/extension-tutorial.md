@@ -104,9 +104,9 @@ Boolean flag, and `where` as repeatable groups of three strings. It also says
 whether the command may mutate data and whether authentication is required.
 The keys under a step's `with` object must be these canonical input IDs.
 
-Rendering options such as `output` and `table-headers` are deliberately absent.
-They belong to the installed extension command, after the workflow produces its
-semantic result.
+Host options such as `output`, `table-headers`, and `debug` are deliberately
+absent. They belong to the installed extension command: rendering options apply
+to its semantic result, and `--debug` reports timing for the whole workflow.
 
 ## 4. Validate and explain
 

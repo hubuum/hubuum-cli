@@ -4,6 +4,7 @@ use hubuum_client::{
 };
 use serde_json::Value;
 
+use crate::diagnostics::client_call;
 use crate::domain::SchemaOutput;
 
 use crate::errors::AppError;
@@ -38,58 +39,88 @@ impl HubuumGateway {
         operation: SchemaOperation,
     ) -> Result<SchemaOutput, AppError> {
         let client = self.client();
-        let class = client.classes().get_by_name(class)?;
+        let class = client_call("classes.get_by_name", || {
+            client.classes().get_by_name(class)
+        })?;
         let schema = class.schema();
         Ok(match operation {
-            SchemaOperation::Show => SchemaOutput::State(schema.get()?),
-            SchemaOperation::Revisions(page) => SchemaOutput::Revisions(schema.revisions(&page)?),
-            SchemaOperation::Objects(page, status) => {
-                SchemaOutput::Compliance(schema.objects(&page, status)?)
+            SchemaOperation::Show => {
+                SchemaOutput::State(client_call("schema.get", || schema.get())?)
             }
-            SchemaOperation::Stage(request) => SchemaOutput::Revision(schema.stage(request)?),
+            SchemaOperation::Revisions(page) => {
+                SchemaOutput::Revisions(client_call("schema.revisions", || {
+                    schema.revisions(&page)
+                })?)
+            }
+            SchemaOperation::Objects(page, status) => {
+                SchemaOutput::Compliance(client_call("schema.objects", || {
+                    schema.objects(&page, status)
+                })?)
+            }
+            SchemaOperation::Stage(request) => {
+                SchemaOutput::Revision(client_call("schema.stage", || schema.stage(request))?)
+            }
             SchemaOperation::StageValidation { validate_schema } => {
-                let active = schema.get()?.active;
+                let active = client_call("schema.get", || schema.get())?.active;
                 if validate_schema && active.json_schema.as_ref().is_none_or(Value::is_null) {
                     return Err(AppError::InvalidOption(
                         "The active policy has no schema; provide --schema with --validate true"
                             .into(),
                     ));
                 }
-                SchemaOutput::Revision(schema.stage(SchemaStageRequest {
-                    json_schema: active.json_schema,
-                    validate_schema,
+                SchemaOutput::Revision(client_call("schema.stage", || {
+                    schema.stage(SchemaStageRequest {
+                        json_schema: active.json_schema,
+                        validate_schema,
+                    })
                 })?)
             }
             SchemaOperation::StageFromRevision {
                 revision,
                 validate_schema,
             } => {
-                let source = schema.revision(revision)?;
+                let source = client_call("schema.revision", || schema.revision(revision))?;
                 let validate_schema = validate_schema.unwrap_or(source.validate_schema);
                 if validate_schema && source.json_schema.as_ref().is_none_or(Value::is_null) {
                     return Err(AppError::InvalidOption("The source revision has no schema; provide --schema instead of --from-revision to enable validation".into()));
                 }
-                SchemaOutput::Revision(schema.stage(SchemaStageRequest {
-                    json_schema: source.json_schema,
-                    validate_schema,
+                SchemaOutput::Revision(client_call("schema.stage", || {
+                    schema.stage(SchemaStageRequest {
+                        json_schema: source.json_schema,
+                        validate_schema,
+                    })
                 })?)
             }
             SchemaOperation::Revision(revision) => {
-                SchemaOutput::Revision(schema.revision(revision)?)
+                SchemaOutput::Revision(client_call("schema.revision", || {
+                    schema.revision(revision)
+                })?)
             }
-            SchemaOperation::Abandon(revision) => SchemaOutput::Revision(schema.abandon(revision)?),
+            SchemaOperation::Abandon(revision) => {
+                SchemaOutput::Revision(client_call("schema.abandon", || schema.abandon(revision))?)
+            }
             SchemaOperation::Activate(revision, request) => {
-                SchemaOutput::Activation(schema.activate(revision, request)?)
+                SchemaOutput::Activation(client_call("schema.activate", || {
+                    schema.activate(revision, request)
+                })?)
             }
             SchemaOperation::Impact(revision) => {
-                SchemaOutput::Work(Box::new(schema.impact(revision)?))
+                SchemaOutput::Work(Box::new(client_call("schema.impact", || {
+                    schema.impact(revision)
+                })?))
             }
             SchemaOperation::Revalidate(revision) => {
-                SchemaOutput::Work(Box::new(schema.revalidate(revision)?))
+                SchemaOutput::Work(Box::new(client_call("schema.revalidate", || {
+                    schema.revalidate(revision)
+                })?))
             }
-            SchemaOperation::Work(task) => SchemaOutput::Work(Box::new(schema.work(task)?)),
+            SchemaOperation::Work(task) => {
+                SchemaOutput::Work(Box::new(client_call("schema.work", || schema.work(task))?))
+            }
             SchemaOperation::Cancel(task) => {
-                SchemaOutput::Work(Box::new(schema.cancel_work(task)?))
+                SchemaOutput::Work(Box::new(client_call("schema.cancel_work", || {
+                    schema.cancel_work(task)
+                })?))
             }
         })
     }
@@ -101,11 +132,15 @@ impl HubuumGateway {
         request: Option<SchemaRepairReportRequest>,
     ) -> Result<String, AppError> {
         let client = self.client();
-        let class = client.classes().get_by_name(class)?;
+        let class = client_call("classes.get_by_name", || {
+            client.classes().get_by_name(class)
+        })?;
         let schema = class.schema();
         Ok(match request {
-            Some(request) => schema.generate_report(task, request)?,
-            None => schema.report(task, true)?,
+            Some(request) => client_call("schema.generate_report", || {
+                schema.generate_report(task, request)
+            })?,
+            None => client_call("schema.report", || schema.report(task, true))?,
         })
     }
 }

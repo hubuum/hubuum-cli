@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-10-19
+
+### Added
+
+- Add shared `--debug` diagnostics for command duration and each client-library
+  API operation, including its duration and success or failure. Reports use
+  command-scoped tracing spans, show execution and rendering time, and collect
+  client-library requests, HTTP attempts, retries, pagination, and stream spans.
+  HTTP attempts include status codes and are counted separately from client calls.
+  Reports go to stderr and work with direct commands, scripts, the REPL, and workflows.
+
+### Changed
+
+- Declare `tracing` 0.1 as a direct dependency for command diagnostics, using the
+  version already present in the lockfile. Upgrade the pinned client from 0.15.0
+  to 0.15.1 for its versioned diagnostics contract; the declared server target
+  remains v0.0.19.
+- **Breaking for extension authors:** `debug` is now a reserved host option.
+  Rename any extension option named `debug` or using the `--debug` alias before
+  upgrading. The flag controls host diagnostics and is not forwarded to
+  executable extensions.
+
 ### Fixed
 
 - Fit grouped table headers into the space available for each column, keeping

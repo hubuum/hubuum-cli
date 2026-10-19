@@ -152,7 +152,7 @@ an error; already emitted terminal batches remain visible and are not replayed.
 
 ## Stream a structured search
 
-Structured searches use the typed client 0.15.0 API and require server v0.0.19:
+Structured searches use the typed client 0.15.1 API and require server v0.0.19:
 
 ```text
 search --target object --class Hosts --where 'data.cpu.cores >= 8' --stream

@@ -129,6 +129,21 @@ pub trait CliCommand: CommandArgs + Send + Sync {
 pub fn standard_options() -> Vec<CliOption> {
     vec![
         CliOption {
+            name: "debug".to_string(),
+            short: None,
+            long: Some("--debug".to_string()),
+            flag: true,
+            greedy: false,
+            nargs: None,
+            repeatable: false,
+            value_source: false,
+            help: "Report command time and client API calls to stderr".to_string(),
+            field_type: TypeId::of::<bool>(),
+            field_type_help: "bool".to_string(),
+            required: false,
+            autocomplete: None,
+        },
+        CliOption {
             name: "help".to_string(),
             short: Some("-h".to_string()),
             long: Some("--help".to_string()),

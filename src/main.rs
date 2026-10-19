@@ -1,4 +1,5 @@
 use std::env::args;
+use std::future::Future;
 use std::io::{stdin, IsTerminal};
 use std::path::PathBuf;
 use std::process::exit;
@@ -31,6 +32,7 @@ mod command_line;
 mod commands;
 mod config;
 mod defaults;
+mod diagnostics;
 mod dispatch;
 mod domain;
 mod errors;
@@ -54,6 +56,7 @@ mod tokenizer;
 async fn main() -> Result<(), AppError> {
     let startup_args = split_startup_args(args());
     let matches = build_cli().get_matches_from(startup_args.clap_args);
+    diagnostics::set_default(matches.get_flag("debug"));
     let config = load_app_config(&matches)?;
     let catalog = Arc::new(CatalogStore::new(build_command_catalog()));
     let mode = execution_mode(&matches, startup_args.mode);
@@ -62,8 +65,13 @@ async fn main() -> Result<(), AppError> {
         StartupMode::Command(command)
             if can_execute_offline(catalog.snapshot().as_ref(), command) =>
         {
-            let outcome = execute_offline_line(catalog.clone(), command).await;
-            if !render_dispatch_result(&sessionless(), outcome) {
+            diagnostics::init();
+            if !render_command(
+                &sessionless(),
+                execute_offline_line(catalog.clone(), command),
+            )
+            .await
+            {
                 exit(1);
             }
             return Ok(());
@@ -71,6 +79,7 @@ async fn main() -> Result<(), AppError> {
         StartupMode::Script(filename)
             if can_execute_script_offline(catalog.snapshot().as_ref(), filename).await? =>
         {
+            diagnostics::init();
             let session = SharedSession::new();
             if !execute_offline_script(catalog.clone(), &session, filename).await? {
                 exit(1);
@@ -102,8 +111,7 @@ async fn main() -> Result<(), AppError> {
     let session = SharedSession::new();
 
     if let StartupMode::Command(command) = mode {
-        let outcome = execute_line(runtime.clone(), &session, &command).await;
-        if !render_dispatch_result(&session, outcome) {
+        if !render_command(&session, execute_line(runtime.clone(), &session, &command)).await {
             exit(1);
         }
         return Ok(());
@@ -121,6 +129,17 @@ async fn main() -> Result<(), AppError> {
 
 fn sessionless() -> SharedSession {
     SharedSession::new()
+}
+
+async fn render_command(
+    session: &SharedSession,
+    operation: impl Future<Output = Result<CommandOutcome, AppError>>,
+) -> bool {
+    diagnostics::command(async {
+        let result = operation.await;
+        diagnostics::stage("render", async { render_dispatch_result(session, result) }).await
+    })
+    .await
 }
 
 fn render_dispatch_result(
@@ -143,8 +162,7 @@ async fn execute_script(
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        let outcome = execute_line(runtime.clone(), session, line).await;
-        if !render_dispatch_result(session, outcome) {
+        if !render_command(session, execute_line(runtime.clone(), session, line)).await {
             return Ok(false);
         }
     }
@@ -169,8 +187,7 @@ async fn execute_offline_script(
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
     for line in content.lines() {
-        let outcome = execute_offline_line(catalog.clone(), line).await;
-        if !render_dispatch_result(session, outcome) {
+        if !render_command(session, execute_offline_line(catalog.clone(), line)).await {
             return Ok(false);
         }
     }

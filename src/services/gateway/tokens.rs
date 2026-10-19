@@ -5,6 +5,7 @@ use hubuum_client::{
     TokenResourceScope,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::{PrincipalTokenDetailsRecord, ResolvedTokenResource, TokenResourceParent};
 use crate::errors::AppError;
 
@@ -188,7 +189,9 @@ impl<'a> TokenScopeResolver<'a> {
                 self.objects
                     .extend(found.into_values().map(|object| (object.id, object)));
             } else {
-                let found = self.gateway.client().objects(*class_id).query().all()?;
+                let found = client_call("objects.all", || {
+                    self.gateway.client().objects(*class_id).query().all()
+                })?;
                 self.fully_scanned_object_classes.insert(*class_id);
                 self.probed_object_ids_by_class.remove(class_id);
                 self.objects

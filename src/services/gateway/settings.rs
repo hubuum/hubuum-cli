@@ -4,6 +4,7 @@ use serde_json::to_value;
 use hubuum_client::{PrincipalSettingsPatchDocument, PrincipalSettingsPatchOperation};
 
 use crate::config::UserPreferences;
+use crate::diagnostics::client_call;
 use crate::errors::AppError;
 
 use super::HubuumGateway;
@@ -46,7 +47,7 @@ impl HubuumGateway {
     }
 
     pub fn server_user_preferences(&self) -> Result<ServerUserPreferences, AppError> {
-        let settings = self.client().settings().get()?;
+        let settings = client_call("settings.get", || self.client().settings().get())?;
         let stored = settings.settings.get(SETTINGS_NAMESPACE).ok_or_else(|| {
             AppError::EntityNotFound(format!(
                 "no settings are stored under the '{SETTINGS_NAMESPACE}' namespace"
@@ -68,7 +69,9 @@ impl HubuumGateway {
             path: format!("/{SETTINGS_NAMESPACE}"),
             value: stored,
         }])?;
-        let updated = self.client().settings().json_patch(&patch)?;
+        let updated = client_call("settings.json_patch", || {
+            self.client().settings().json_patch(&patch)
+        })?;
         let stored = updated.settings.get(SETTINGS_NAMESPACE).ok_or_else(|| {
             AppError::GeneralConfigError(
                 "server response omitted the stored Hubuum CLI settings".to_string(),

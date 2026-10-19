@@ -4,7 +4,7 @@
 <span id="a-cli-for-hubuum"></span>
 
 Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI **v0.0.15** (2026-10-19) uses Rust client **0.15.0** and targets server
+CLI **v0.0.16** (2026-10-19) uses Rust client **0.15.1** and targets server
 **v0.0.19**. Hubuum is under active development before 1.0.
 
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
@@ -12,7 +12,7 @@ CLI **v0.0.15** (2026-10-19) uses Rust client **0.15.0** and targets server
 ## Release binaries
 
 Download and extract the archive for your platform from
-[release v0.0.15](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.15).
+[release v0.0.16](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.16).
 Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
 on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See [binary details](docs/updates.md).
@@ -29,7 +29,7 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-CLI v0.0.15 uses client **0.15.0** and targets server **v0.0.19**.
+CLI v0.0.16 uses client **0.15.1** and targets server **v0.0.19**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).

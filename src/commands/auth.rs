@@ -12,6 +12,7 @@ use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
+use crate::diagnostics::client_call;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::output::set_semantic_output;
 use crate::services::AppServices;
@@ -105,8 +106,7 @@ pub(crate) fn render_auth_providers(tokens: &CommandTokenizer) -> Result<(), App
         .timeout(PROVIDER_DISCOVERY_TIMEOUT)
         .user_agent(format!("hubuum-cli/{}", build_info::VERSION))
         .build()?;
-    let rows = client
-        .auth_providers()?
+    let rows = client_call("client.auth_providers", || client.auth_providers())?
         .into_providers()
         .into_iter()
         .map(|provider| json!({"provider": provider}))

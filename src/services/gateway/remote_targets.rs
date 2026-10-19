@@ -4,6 +4,7 @@ use hubuum_client::{
 };
 use serde_json::Value;
 
+use crate::diagnostics::client_call;
 use crate::domain::{RemoteTargetRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
@@ -239,7 +240,9 @@ impl HubuumGateway {
             timeout_ms: input.timeout_ms,
         };
 
-        let target = self.client().remote_targets().create_raw(new_target)?;
+        let target = client_call("remote_targets.create_raw", || {
+            self.client().remote_targets().create_raw(new_target)
+        })?;
         Ok(RemoteTargetRecord::from(target))
     }
 
@@ -263,7 +266,9 @@ impl HubuumGateway {
     }
 
     pub fn remote_target(&self, name: &str) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client().remote_targets().get_by_name(name)?;
+        let target = client_call("remote_targets.get_by_name", || {
+            self.client().remote_targets().get_by_name(name)
+        })?;
         Ok(RemoteTargetRecord::from(target.resource()))
     }
 
@@ -271,7 +276,9 @@ impl HubuumGateway {
         &self,
         input: UpdateRemoteTargetInput,
     ) -> Result<RemoteTargetRecord, AppError> {
-        let target = self.client().remote_targets().get_by_name(&input.name)?;
+        let target = client_call("remote_targets.get_by_name", || {
+            self.client().remote_targets().get_by_name(&input.name)
+        })?;
 
         let method = input.method.as_ref().map(|m| parse_method(m)).transpose()?;
         let allowed_subject_types = input
@@ -309,18 +316,23 @@ impl HubuumGateway {
             timeout_ms: input.timeout_ms,
         };
 
-        let updated = self
-            .client()
-            .remote_targets()
-            .update(target.id())
-            .params(update)
-            .send()?;
+        let updated = client_call("remote_targets.update.send", || {
+            self.client()
+                .remote_targets()
+                .update(target.id())
+                .params(update)
+                .send()
+        })?;
         Ok(RemoteTargetRecord::from(updated))
     }
 
     pub fn delete_remote_target(&self, name: &str) -> Result<(), AppError> {
-        let target = self.client().remote_targets().get_by_name(name)?;
-        self.client().remote_targets().delete(target.id())?;
+        let target = client_call("remote_targets.get_by_name", || {
+            self.client().remote_targets().get_by_name(name)
+        })?;
+        client_call("remote_targets.delete", || {
+            self.client().remote_targets().delete(target.id())
+        })?;
         Ok(())
     }
 
@@ -329,7 +341,9 @@ impl HubuumGateway {
         name: &str,
         input: InvokeRemoteTargetInput,
     ) -> Result<TaskRecord, AppError> {
-        let handle = self.client().remote_targets().get_by_name(name)?;
+        let handle = client_call("remote_targets.get_by_name", || {
+            self.client().remote_targets().get_by_name(name)
+        })?;
         let subject = build_invocation_subject(self, &input)?;
         let mut req = RemoteTargetInvokeRequest::new(subject);
         if let Some(p) = input.parameters {
@@ -338,7 +352,9 @@ impl HubuumGateway {
         if let Some(b) = input.body_override {
             req = req.body_override(b);
         }
-        Ok(TaskRecord(handle.invoke(req)?))
+        Ok(TaskRecord(client_call("remote_targets.invoke", || {
+            handle.invoke(req)
+        })?))
     }
 }
 

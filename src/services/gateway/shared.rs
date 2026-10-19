@@ -6,6 +6,7 @@ use hubuum_client::{
     EntityTag, FilterOperator, Object, ObjectRelation, ObjectWithPath, QueryFilter, ResourceId,
 };
 
+use crate::diagnostics::client_call;
 use crate::errors::AppError;
 use crate::list_query::{
     validated_clause_to_query_filter, FilterValueResolver, ValidatedFilterClause,
@@ -43,16 +44,16 @@ impl HubuumGateway {
         class_to: &str,
     ) -> Result<(Class, Class), AppError> {
         Ok((
-            self.client()
-                .classes()
-                .get_by_name(class_from)?
-                .resource()
-                .clone(),
-            self.client()
-                .classes()
-                .get_by_name(class_to)?
-                .resource()
-                .clone(),
+            client_call("classes.get_by_name", || {
+                self.client().classes().get_by_name(class_from)
+            })?
+            .resource()
+            .clone(),
+            client_call("classes.get_by_name", || {
+                self.client().classes().get_by_name(class_to)
+            })?
+            .resource()
+            .clone(),
         ))
     }
 
@@ -135,21 +136,22 @@ impl HubuumGateway {
         class_from_id: i32,
         class_to_id: i32,
     ) -> Result<ClassRelation, AppError> {
-        Ok(self
-            .client()
-            .class_relation()
-            .query()
-            .filter(
-                "from_classes",
-                FilterOperator::Equals { is_negated: false },
-                class_from_id,
-            )
-            .filter(
-                "to_classes",
-                FilterOperator::Equals { is_negated: false },
-                class_to_id,
-            )
-            .one()?)
+        Ok(client_call("class_relation.one", || {
+            self.client()
+                .class_relation()
+                .query()
+                .filter(
+                    "from_classes",
+                    FilterOperator::Equals { is_negated: false },
+                    class_from_id,
+                )
+                .filter(
+                    "to_classes",
+                    FilterOperator::Equals { is_negated: false },
+                    class_to_id,
+                )
+                .one()
+        })?)
     }
 
     pub(super) fn find_class_relation_between(
@@ -170,7 +172,9 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<SyncHandle<Class>, AppError> {
-        Ok(self.client().classes().get_by_name(class_name)?)
+        Ok(client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?)
     }
 
     pub(super) fn object_handle_by_name(
@@ -179,20 +183,21 @@ impl HubuumGateway {
         object_name: &str,
     ) -> Result<SyncHandle<Object>, AppError> {
         let class = self.class_handle_by_name(class_name)?;
-        match class.object_by_name(object_name) {
+        match client_call("class.object_by_name", || class.object_by_name(object_name)) {
             Ok(object) => Ok(object),
             Err(error) if is_missing_api_error(&error) => {
-                let matches = self
-                    .client()
-                    .objects(class.id())
-                    .query()
-                    .filter(
-                        "name",
-                        FilterOperator::StartsWith { is_negated: false },
-                        object_name,
-                    )
-                    .limit(2)
-                    .list()?;
+                let matches = client_call("objects.list", || {
+                    self.client()
+                        .objects(class.id())
+                        .query()
+                        .filter(
+                            "name",
+                            FilterOperator::StartsWith { is_negated: false },
+                            object_name,
+                        )
+                        .limit(2)
+                        .list()
+                })?;
                 match matches.as_slice() {
                     [object] => Ok(SyncHandle::new(class.client().clone(), object.clone())),
                     [] => Err(AppError::EntityNotFound(format!(
@@ -208,7 +213,11 @@ impl HubuumGateway {
     }
 
     pub(super) fn collection_id(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self.client().collections().get_by_name(name)?.id().into())
+        Ok(client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(name)
+        })?
+        .id()
+        .into())
     }
 
     pub(super) fn collection_map_from_ids<I, Id>(
@@ -345,10 +354,12 @@ where
             .map(i32::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        let results = resource
-            .query()
-            .filter("id", FilterOperator::Equals { is_negated: false }, joined)
-            .all()?;
+        let results = client_call("QueryOp.all", || {
+            resource
+                .query()
+                .filter("id", FilterOperator::Equals { is_negated: false }, joined)
+                .all()
+        })?;
         entities.extend(
             results
                 .into_iter()

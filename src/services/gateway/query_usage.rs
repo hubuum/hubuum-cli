@@ -5,6 +5,7 @@ use hubuum_client::{
 use reqwest::StatusCode;
 
 use super::HubuumGateway;
+use crate::diagnostics::client_call;
 use crate::domain::QueryUsageOutput;
 use crate::errors::AppError;
 
@@ -40,23 +41,29 @@ impl HubuumGateway {
         let usage = self.client().class_query_usage(class);
         let result: Result<_, ApiError> = (|| {
             Ok(match command {
-                QueryUsageCommand::List => QueryUsageOutput::List(usage.list()?),
-                QueryUsageCommand::Create(pattern) => QueryUsageOutput::Declaration(Box::new(
-                    usage.create(QueryUsageCreateRequest { pattern })?,
-                )),
-                QueryUsageCommand::Replace { id, request } => {
-                    QueryUsageOutput::Declaration(Box::new(usage.replace(id, request)?))
+                QueryUsageCommand::List => {
+                    QueryUsageOutput::List(client_call("query_usage.list", || usage.list())?)
                 }
+                QueryUsageCommand::Create(pattern) => QueryUsageOutput::Declaration(Box::new(
+                    client_call("query_usage.create", || {
+                        usage.create(QueryUsageCreateRequest { pattern })
+                    })?,
+                )),
+                QueryUsageCommand::Replace { id, request } => QueryUsageOutput::Declaration(
+                    Box::new(client_call("query_usage.replace", || {
+                        usage.replace(id, request)
+                    })?),
+                ),
                 QueryUsageCommand::Delete {
                     id,
                     expected_revision,
                 } => {
-                    usage.delete(id, expected_revision)?;
+                    client_call("query_usage.delete", || usage.delete(id, expected_revision))?;
                     QueryUsageOutput::Deleted { deleted: id }
                 }
-                QueryUsageCommand::Analyze(request) => {
-                    QueryUsageOutput::Analysis(Box::new(usage.analyze(request)?))
-                }
+                QueryUsageCommand::Analyze(request) => QueryUsageOutput::Analysis(Box::new(
+                    client_call("query_usage.analyze", || usage.analyze(request))?,
+                )),
             })
         })();
         result.map_err(|error| {

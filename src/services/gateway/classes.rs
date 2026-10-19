@@ -1,6 +1,7 @@
 use hubuum_client::{ClassPatch, ClassPost, FilterOperator};
 use serde_json::Value;
 
+use crate::diagnostics::client_call;
 use crate::domain::{build_related_class_tree, ClassRecord, ClassShowRecord, ObjectRecord};
 use crate::errors::AppError;
 use crate::list_query::{
@@ -30,34 +31,35 @@ pub struct ClassUpdateInput {
 
 impl HubuumGateway {
     pub fn list_class_names(&self) -> Result<Vec<String>, AppError> {
-        Ok(self
-            .client()
-            .classes()
-            .query()
-            .list()?
-            .into_iter()
-            .map(|class| class.name)
-            .collect())
+        Ok(
+            client_call("classes.list", || self.client().classes().query().list())?
+                .into_iter()
+                .map(|class| class.name)
+                .collect(),
+        )
     }
 
     pub fn class_schema(&self, name: &str) -> Result<Option<Value>, AppError> {
-        Ok(self
-            .client()
-            .classes()
-            .get_by_name(name)?
-            .resource()
-            .json_schema
-            .clone())
+        Ok(client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(name)
+        })?
+        .resource()
+        .json_schema
+        .clone())
     }
 
     pub fn create_class(&self, input: CreateClassInput) -> Result<ClassRecord, AppError> {
-        let collection = self.client().collections().get_by_name(&input.collection)?;
-        let class = self.client().classes().create_raw(ClassPost {
-            name: input.name,
-            collection_id: collection.id(),
-            description: input.description,
-            json_schema: None,
-            validate_schema: None,
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(&input.collection)
+        })?;
+        let class = client_call("classes.create_raw", || {
+            self.client().classes().create_raw(ClassPost {
+                name: input.name,
+                collection_id: collection.id(),
+                description: input.description,
+                json_schema: None,
+                validate_schema: None,
+            })
         })?;
         Ok(ClassRecord::from(class))
     }
@@ -67,21 +69,25 @@ impl HubuumGateway {
         name: &str,
         options: &RelationTraversalOptions,
     ) -> Result<ClassShowRecord, AppError> {
-        let class = self.client().classes().get_by_name(name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(name)
+        })?;
         let objects = class
             .objects()?
             .into_iter()
             .map(|object| ObjectRecord::from(object.resource()))
             .collect();
-        let related_graph = apply_related_graph_limit(
-            class.related_graph().filter(
-                "depth",
-                FilterOperator::Lte { is_negated: false },
-                options.max_depth(),
-            ),
-            options.graph_limit(),
-        )
-        .send()?;
+        let related_graph = client_call("class.related_graph.send", || {
+            apply_related_graph_limit(
+                class.related_graph().filter(
+                    "depth",
+                    FilterOperator::Lte { is_negated: false },
+                    options.max_depth(),
+                ),
+                options.graph_limit(),
+            )
+            .send()
+        })?;
         let collection_map = self.collection_map_with_classes(
             related_graph
                 .classes
@@ -110,33 +116,40 @@ impl HubuumGateway {
     }
 
     pub fn delete_class(&self, name: &str) -> Result<(), AppError> {
-        self.client().classes().get_by_name(name)?.delete()?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(name)
+        })?;
+        client_call("class.delete", || class.delete())?;
         Ok(())
     }
 
     pub fn update_class(&self, input: ClassUpdateInput) -> Result<ClassRecord, AppError> {
-        let class = self.client().classes().get_by_name(&input.name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(&input.name)
+        })?;
 
         let collection_id = input
             .collection
             .map(|collection| {
-                self.client()
-                    .collections()
-                    .get_by_name(&collection)
-                    .map(|collection| collection.id())
+                client_call("collections.get_by_name", || {
+                    self.client().collections().get_by_name(&collection)
+                })
+                .map(|collection| collection.id())
             })
             .transpose()?;
 
-        let updated = self.client().classes().update_raw(
-            class.id(),
-            ClassPatch {
-                name: input.rename,
-                collection_id,
-                description: input.description,
-                json_schema: None,
-                validate_schema: None,
-            },
-        )?;
+        let updated = client_call("classes.update_raw", || {
+            self.client().classes().update_raw(
+                class.id(),
+                ClassPatch {
+                    name: input.rename,
+                    collection_id,
+                    description: input.description,
+                    json_schema: None,
+                    validate_schema: None,
+                },
+            )
+        })?;
 
         Ok(ClassRecord::from(updated))
     }

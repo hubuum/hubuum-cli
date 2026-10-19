@@ -43,8 +43,9 @@ management names.
   input key exactly.
 - Command paths are non-empty arrays such as `["host", "list"]`.
 - One command path cannot prefix another command path in the same pack.
-- Short and long aliases share a namespace. Host rendering aliases are
-  reserved.
+- Short and long aliases share a namespace. Host rendering aliases and `debug`
+  are reserved. Rename an existing extension option named `debug` or aliased as
+  `--debug`; the host consumes this flag and does not forward it to executables.
 
 ## Value declarations
 

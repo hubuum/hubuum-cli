@@ -1,3 +1,4 @@
+use crate::diagnostics::client_call;
 use crate::domain::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 use crate::errors::AppError;
 use crate::list_query::{
@@ -22,42 +23,55 @@ pub struct GroupUpdateInput {
 
 impl HubuumGateway {
     pub fn list_group_names(&self) -> Result<Vec<String>, AppError> {
-        Ok(self
-            .client()
-            .groups()
-            .query()
-            .list()?
-            .into_iter()
-            .map(|group| group.groupname.clone())
-            .collect())
+        Ok(
+            client_call("groups.list", || self.client().groups().query().list())?
+                .into_iter()
+                .map(|group| group.groupname.clone())
+                .collect(),
+        )
     }
 
     pub fn group_id_by_name(&self, group_name: &str) -> Result<i32, AppError> {
-        Ok(self.client().groups().get_by_name(group_name)?.id().into())
+        Ok(client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?
+        .id()
+        .into())
     }
 
     pub fn create_group(&self, input: CreateGroupInput) -> Result<GroupRecord, AppError> {
-        let group = self
-            .client()
-            .groups()
-            .create_checked()
-            .groupname(input.groupname)
-            .description(input.description)
-            .send()?;
+        let group = client_call("groups.create_checked.send", || {
+            self.client()
+                .groups()
+                .create_checked()
+                .groupname(input.groupname)
+                .description(input.description)
+                .send()
+        })?;
         Ok(GroupRecord::from(group))
     }
 
     pub fn add_user_to_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client().groups().get_by_name(group_name)?;
-        let principal_id = self.client().users().get_by_name(username)?.id();
-        group.add_member(principal_id)?;
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
+        let principal_id = client_call("users.get_by_name", || {
+            self.client().users().get_by_name(username)
+        })?
+        .id();
+        client_call("groups.add_member", || group.add_member(principal_id))?;
         Ok(())
     }
 
     pub fn remove_user_from_group(&self, group_name: &str, username: &str) -> Result<(), AppError> {
-        let group = self.client().groups().get_by_name(group_name)?;
-        let principal_id = self.client().users().get_by_name(username)?.id();
-        group.remove_member(principal_id)?;
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
+        let principal_id = client_call("users.get_by_name", || {
+            self.client().users().get_by_name(username)
+        })?
+        .id();
+        client_call("groups.remove_member", || group.remove_member(principal_id))?;
         Ok(())
     }
 
@@ -66,13 +80,16 @@ impl HubuumGateway {
         group_name: &str,
         service_account_name: &str,
     ) -> Result<(), AppError> {
-        let group = self.client().groups().get_by_name(group_name)?;
-        let principal_id = self
-            .client()
-            .service_accounts()
-            .get_by_name(service_account_name)?
-            .id();
-        group.add_member(principal_id)?;
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
+        let principal_id = client_call("service_accounts.get_by_name", || {
+            self.client()
+                .service_accounts()
+                .get_by_name(service_account_name)
+        })?
+        .id();
+        client_call("groups.add_member", || group.add_member(principal_id))?;
         Ok(())
     }
 
@@ -81,20 +98,24 @@ impl HubuumGateway {
         group_name: &str,
         service_account_name: &str,
     ) -> Result<(), AppError> {
-        let group = self.client().groups().get_by_name(group_name)?;
-        let principal_id = self
-            .client()
-            .service_accounts()
-            .get_by_name(service_account_name)?
-            .id();
-        group.remove_member(principal_id)?;
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
+        let principal_id = client_call("service_accounts.get_by_name", || {
+            self.client()
+                .service_accounts()
+                .get_by_name(service_account_name)
+        })?
+        .id();
+        client_call("groups.remove_member", || group.remove_member(principal_id))?;
         Ok(())
     }
 
     pub fn group_details(&self, group_name: &str) -> Result<GroupDetails, AppError> {
-        let handle = self.client().groups().get_by_name(group_name)?;
-        let members = handle
-            .members()?
+        let handle = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
+        let members = client_call("groups.members", || handle.members())?
             .into_iter()
             .map(PrincipalMemberRecord::from)
             .collect::<Vec<_>>();
@@ -106,16 +127,19 @@ impl HubuumGateway {
     }
 
     pub fn update_group(&self, input: GroupUpdateInput) -> Result<GroupRecord, AppError> {
-        let handle = self.client().groups().get_by_name(&input.groupname)?;
-        let updated = self
-            .client()
-            .groups()
-            .update(handle.id())
-            .params(GroupPatch {
-                groupname: input.rename,
-                description: input.description,
-            })
-            .send()?;
+        let handle = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(&input.groupname)
+        })?;
+        let updated = client_call("groups.update.send", || {
+            self.client()
+                .groups()
+                .update(handle.id())
+                .params(GroupPatch {
+                    groupname: input.rename,
+                    description: input.description,
+                })
+                .send()
+        })?;
 
         Ok(GroupRecord::from(updated))
     }

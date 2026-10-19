@@ -1,6 +1,6 @@
 # Webhook setup
 
-The development CLI uses `hubuum_client` 0.15.0, which targets Hubuum server v0.0.19.
+The development CLI uses `hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
 Use `--kind webhook --config` for any receiver that accepts HTTPS JSON POSTs.
 The `--target slack|mattermost|discord` presets are shortcuts for this same
 generic sink. They generate the configuration and delivery policy described

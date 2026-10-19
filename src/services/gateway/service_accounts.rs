@@ -1,5 +1,6 @@
 use hubuum_client::TokenId;
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     IssuedTokenRecord, PrincipalTokenDetailsRecord, PrincipalTokenRecord, ServiceAccountRecord,
 };
@@ -48,7 +49,7 @@ impl HubuumGateway {
         if let Some(description) = input.description {
             create = create.description(description);
         }
-        let sa = create.send()?;
+        let sa = client_call("service_accounts.create.send", || create.send())?;
 
         Ok(ServiceAccountRecord::from(sa))
     }
@@ -74,28 +75,35 @@ impl HubuumGateway {
     }
 
     pub fn service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let sa = self.client().service_accounts().get_by_name(name)?;
+        let sa = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
         Ok(ServiceAccountRecord::from(sa.resource().clone()))
     }
 
     pub fn service_account_id_by_name(&self, name: &str) -> Result<i32, AppError> {
-        Ok(self
-            .client()
-            .service_accounts()
-            .get_by_name(name)?
-            .id()
-            .into())
+        Ok(client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?
+        .id()
+        .into())
     }
 
     pub fn delete_service_account(&self, name: &str) -> Result<(), AppError> {
-        let sa = self.client().service_accounts().get_by_name(name)?;
-        self.client().service_accounts().delete(sa.id())?;
+        let sa = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
+        client_call("service_accounts.delete", || {
+            self.client().service_accounts().delete(sa.id())
+        })?;
         Ok(())
     }
 
     pub fn disable_service_account(&self, name: &str) -> Result<ServiceAccountRecord, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        let disabled = handle.disable()?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
+        let disabled = client_call("service_accounts.disable", || handle.disable())?;
         Ok(ServiceAccountRecord::from(disabled))
     }
 
@@ -104,18 +112,23 @@ impl HubuumGateway {
         name: &str,
         state: Option<TokenStateFilter>,
     ) -> Result<Vec<PrincipalTokenRecord>, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
         let tokens = match state {
-            Some(state) => handle.tokens_request_state(state.into()).all()?,
-            None => handle.tokens()?,
+            Some(state) => client_call("service_accounts.all", || {
+                handle.tokens_request_state(state.into()).all()
+            })?,
+            None => client_call("service_accounts.tokens", || handle.tokens())?,
         };
         Ok(tokens.into_iter().map(PrincipalTokenRecord::from).collect())
     }
 
     pub fn list_service_account_token_ids(&self, name: &str) -> Result<Vec<String>, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        Ok(handle
-            .tokens()?
+        let handle = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
+        Ok(client_call("service_accounts.tokens", || handle.tokens())?
             .into_iter()
             .map(|token| token.id.to_string())
             .collect())
@@ -126,8 +139,13 @@ impl HubuumGateway {
         name: &str,
         token_id: TokenId,
     ) -> Result<PrincipalTokenDetailsRecord, AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        self.principal_token_details(handle.tokens()?, token_id)
+        let handle = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
+        self.principal_token_details(
+            client_call("service_accounts.tokens", || handle.tokens())?,
+            token_id,
+        )
     }
 
     pub fn service_account_token_create(
@@ -136,9 +154,13 @@ impl HubuumGateway {
         input: NewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
         let client = self.client();
-        let handle = client.service_accounts().get_by_name(name)?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            client.service_accounts().get_by_name(name)
+        })?;
         let request = input.into_request()?;
-        let token = match handle.tokens_create_token(request.clone()) {
+        let token = match client_call("service_accounts.tokens_create_token", || {
+            handle.tokens_create_token(request.clone())
+        }) {
             Ok(token) => token,
             Err(error) if error.is_reauthentication_required() => {
                 self.create_approved_token(&client, handle.id().into(), request)?
@@ -155,9 +177,13 @@ impl HubuumGateway {
         input: RenewTokenInput,
     ) -> Result<IssuedTokenRecord, AppError> {
         let client = self.client();
-        let handle = client.service_accounts().get_by_name(name)?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            client.service_accounts().get_by_name(name)
+        })?;
         let request = input.into_request();
-        let token = match handle.token_renew(token_id, request.clone()) {
+        let token = match client_call("service_accounts.token_renew", || {
+            handle.token_renew(token_id, request.clone())
+        }) {
             Ok(token) => token,
             Err(error) if error.is_reauthentication_required() => {
                 self.renew_approved_token(&client, handle.id().into(), token_id, request)?
@@ -173,11 +199,18 @@ impl HubuumGateway {
         input: CloneTokenInput,
     ) -> Result<CloneTokenOutcome, AppError> {
         let client = self.client();
-        let handle = client.service_accounts().get_by_name(name)?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            client.service_accounts().get_by_name(name)
+        })?;
         let source_token_id = input.source_token_id();
-        let source = find_source_token(handle.tokens()?, source_token_id)?;
+        let source = find_source_token(
+            client_call("service_accounts.tokens", || handle.tokens())?,
+            source_token_id,
+        )?;
         let request = input.request_for(&source)?;
-        let token = match handle.tokens_create_token(request.clone()) {
+        let token = match client_call("service_accounts.tokens_create_token", || {
+            handle.tokens_create_token(request.clone())
+        }) {
             Ok(token) => token,
             Err(error) if error.is_reauthentication_required() => {
                 self.create_approved_token(&client, handle.id().into(), request)?
@@ -187,11 +220,13 @@ impl HubuumGateway {
         let issued_token = token.into();
         let source_revocation = if input.should_revoke_source() {
             let revoke_result = (|| -> Result<(), AppError> {
-                let current = handle.token(source_token_id)?;
+                let current =
+                    client_call("service_accounts.token", || handle.token(source_token_id))?;
                 let etag = required_entity_tag(current.etag(), "service-account token")?;
-                handle
-                    .token_revoke_if_match(source_token_id, &etag)
-                    .map_err(AppError::from)
+                client_call("service_accounts.token_revoke_if_match", || {
+                    handle.token_revoke_if_match(source_token_id, &etag)
+                })
+                .map_err(AppError::from)
             })();
             match revoke_result {
                 Ok(()) => SourceTokenRevocation::Revoked,
@@ -209,10 +244,14 @@ impl HubuumGateway {
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
-        let handle = self.client().service_accounts().get_by_name(name)?;
-        let current = handle.token(token_id)?;
+        let handle = client_call("service_accounts.get_by_name", || {
+            self.client().service_accounts().get_by_name(name)
+        })?;
+        let current = client_call("service_accounts.token", || handle.token(token_id))?;
         let etag = required_entity_tag(current.etag(), "service-account token")?;
-        handle.token_revoke_if_match(token_id, &etag)?;
+        client_call("service_accounts.token_revoke_if_match", || {
+            handle.token_revoke_if_match(token_id, &etag)
+        })?;
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.15"
+version = "0.0.16"
 edition = "2021"
 
 [workspace]
@@ -29,6 +29,7 @@ hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
 hubuum-update = { path = "./crates/hubuum-update" }
 thiserror = "2"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0", features = ["fmt", "env-filter"] }
 log = "0"
 shlex = "2"
@@ -41,7 +42,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.15.0", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.15.1", default-features = false, features = ["blocking"] }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"

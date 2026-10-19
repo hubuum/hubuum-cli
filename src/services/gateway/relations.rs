@@ -8,6 +8,7 @@ use hubuum_client::{
     ClassWithPath, Object, ObjectRelation, ObjectRelationLimit, ObjectWithPath,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     ResolvedClassRelationRecord, ResolvedObjectRelationRecord, ResolvedRelatedClassGraph,
     ResolvedRelatedClassRecord, ResolvedRelatedObjectGraph, ResolvedRelatedObjectRecord,
@@ -215,8 +216,9 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = apply_related_graph_limit(class.related_graph().filters(filters), graph_limit)
-            .send()?;
+        let graph = client_call("class.related_graph.send", || {
+            apply_related_graph_limit(class.related_graph().filters(filters), graph_limit).send()
+        })?;
 
         let class_map = self.class_map_with_known(
             graph
@@ -282,8 +284,10 @@ impl HubuumGateway {
         let classes = self.class_pair(class_a, class_b)?;
         let relation =
             self.find_class_relation_between(classes.0.id.into(), classes.1.id.into())?;
-        self.class_handle_by_name(class_a)?
-            .delete_relation(relation.id)?;
+        let class = self.class_handle_by_name(class_a)?;
+        client_call("class.delete_relation", || {
+            class.delete_relation(relation.id)
+        })?;
         Ok(())
     }
 
@@ -312,7 +316,9 @@ impl HubuumGateway {
         target: &RelationTarget,
     ) -> Result<ResolvedObjectRelationRecord, AppError> {
         let (object_a, object_b) = self.canonical_object_relation_handles(target)?;
-        let relation = object_a.relation_to(object_b.resource().hubuum_class_id, object_b.id())?;
+        let relation = client_call("relations.relation_to", || {
+            object_a.relation_to(object_b.resource().hubuum_class_id, object_b.id())
+        })?;
         self.resolve_object_relation_record(relation.resource())
     }
 
@@ -332,9 +338,11 @@ impl HubuumGateway {
             input.reverse_direction();
         }
 
-        let relation = classes
-            .0
-            .create_relation_with_options(classes.1.id(), input.into_client_options())?;
+        let relation = client_call("relations.create_relation_with_options", || {
+            classes
+                .0
+                .create_relation_with_options(classes.1.id(), input.into_client_options())
+        })?;
         let class_map = self.class_map_from_classes([classes.0.resource(), classes.1.resource()]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
     }
@@ -344,14 +352,17 @@ impl HubuumGateway {
         target: &RelationTarget,
     ) -> Result<ResolvedObjectRelationRecord, AppError> {
         let (object_a, object_b) = self.canonical_object_relation_handles(target)?;
-        let relation =
-            object_a.create_relation_to(object_b.resource().hubuum_class_id, object_b.id())?;
+        let relation = client_call("relations.create_relation_to", || {
+            object_a.create_relation_to(object_b.resource().hubuum_class_id, object_b.id())
+        })?;
         self.resolve_object_relation_record(&relation)
     }
 
     pub fn delete_object_relation_v2(&self, target: &RelationTarget) -> Result<(), AppError> {
         let (object_a, object_b) = self.canonical_object_relation_handles(target)?;
-        object_a.delete_relation_to(object_b.resource().hubuum_class_id, object_b.id())?;
+        client_call("relations.delete_relation_to", || {
+            object_a.delete_relation_to(object_b.resource().hubuum_class_id, object_b.id())
+        })?;
         Ok(())
     }
 
@@ -401,8 +412,9 @@ impl HubuumGateway {
             .iter()
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let graph = apply_related_graph_limit(object.related_graph().filters(filters), graph_limit)
-            .send()?;
+        let graph = client_call("object.related_graph.send", || {
+            apply_related_graph_limit(object.related_graph().filters(filters), graph_limit).send()
+        })?;
 
         let class_map = self.class_map_from_ids(
             graph
@@ -466,12 +478,13 @@ impl HubuumGateway {
         &self,
         relation: &ObjectRelation,
     ) -> Result<ResolvedObjectRelationRecord, AppError> {
-        let class_relation = self
-            .client()
-            .class_relation()
-            .get(relation.class_relation_id)?
-            .resource()
-            .clone();
+        let class_relation = client_call("class_relation.get", || {
+            self.client()
+                .class_relation()
+                .get(relation.class_relation_id)
+        })?
+        .resource()
+        .clone();
         let object_map = self.object_map_for_relation(
             from_ref(relation),
             class_relation.from_hubuum_class_id.into(),
@@ -676,8 +689,12 @@ impl HubuumGateway {
         let (object_a_name, object_b_name) = validate_object_names(target)?;
         let class_a = self.class_handle_by_name(&target.class_a)?;
         let class_b = self.class_handle_by_name(&target.class_b)?;
-        let object_a = class_a.object_by_name(object_a_name)?;
-        let object_b = class_b.object_by_name(object_b_name)?;
+        let object_a = client_call("class.object_by_name", || {
+            class_a.object_by_name(object_a_name)
+        })?;
+        let object_b = client_call("class.object_by_name", || {
+            class_b.object_by_name(object_b_name)
+        })?;
         let class_a_id: i32 = class_a.id().into();
         let class_b_id: i32 = class_b.id().into();
         let class_relation = self.find_class_relation_between(class_a_id, class_b_id)?;

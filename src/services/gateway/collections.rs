@@ -3,6 +3,7 @@ use hubuum_client::{
     GroupResult,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     CollectionPermission, CollectionPermissionsView, CollectionRecord, GroupPermissionsRecord,
     GroupPermissionsSummary,
@@ -31,26 +32,28 @@ pub struct CollectionUpdateInput {
 
 impl HubuumGateway {
     pub fn list_collection_names(&self) -> Result<Vec<String>, AppError> {
-        Ok(self
-            .client()
-            .collections()
-            .query()
-            .list()?
-            .into_iter()
-            .map(|collection| collection.name)
-            .collect())
+        Ok(client_call("collections.list", || {
+            self.client().collections().query().list()
+        })?
+        .into_iter()
+        .map(|collection| collection.name)
+        .collect())
     }
 
     pub fn create_collection(
         &self,
         input: CreateCollectionInput,
     ) -> Result<CollectionRecord, AppError> {
-        let group = self.client().groups().get_by_name(&input.owner)?;
-        let collection = self.client().collections().create_raw(CollectionPost {
-            name: input.name,
-            description: input.description,
-            group_id: group.id(),
-            parent_collection_id: None,
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(&input.owner)
+        })?;
+        let collection = client_call("collections.create_raw", || {
+            self.client().collections().create_raw(CollectionPost {
+                name: input.name,
+                description: input.description,
+                group_id: group.id(),
+                parent_collection_id: None,
+            })
         })?;
         Ok(CollectionRecord::from(collection))
     }
@@ -75,13 +78,19 @@ impl HubuumGateway {
     }
 
     pub fn get_collection(&self, name: &str) -> Result<CollectionRecord, AppError> {
-        let collection = self.client().collections().get_by_name(name)?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(name)
+        })?;
         Ok(CollectionRecord::from(collection.resource()))
     }
 
     pub fn delete_collection(&self, name: &str) -> Result<(), AppError> {
-        let collection = self.client().collections().get_by_name(name)?;
-        self.client().collections().delete(collection.id())?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(name)
+        })?;
+        client_call("collections.delete", || {
+            self.client().collections().delete(collection.id())
+        })?;
         Ok(())
     }
 
@@ -89,14 +98,18 @@ impl HubuumGateway {
         &self,
         input: CollectionUpdateInput,
     ) -> Result<CollectionRecord, AppError> {
-        let collection = self.client().collections().get_by_name(&input.name)?;
-        let updated = self.client().collections().update_raw(
-            collection.id(),
-            CollectionPatch {
-                name: input.rename,
-                description: input.description,
-            },
-        )?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(&input.name)
+        })?;
+        let updated = client_call("collections.update_raw", || {
+            self.client().collections().update_raw(
+                collection.id(),
+                CollectionPatch {
+                    name: input.rename,
+                    description: input.description,
+                },
+            )
+        })?;
 
         Ok(CollectionRecord::from(updated))
     }
@@ -105,11 +118,10 @@ impl HubuumGateway {
         &self,
         name: &str,
     ) -> Result<CollectionPermissionsView, AppError> {
-        let permissions = self
-            .client()
-            .collections()
-            .get_by_name(name)?
-            .permissions()?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(name)
+        })?;
+        let permissions = client_call("collection.permissions", || collection.permissions())?;
         let permissions = self.expand_collection_permissions(permissions)?;
         let entries = permissions
             .iter()
@@ -130,19 +142,29 @@ impl HubuumGateway {
         group_name: &str,
         permissions: &[CollectionPermission],
     ) -> Result<(), AppError> {
-        let collection = self.client().collections().get_by_name(collection_name)?;
-        let group = self.client().groups().get_by_name(group_name)?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(collection_name)
+        })?;
+        let group = client_call("groups.get_by_name", || {
+            self.client().groups().get_by_name(group_name)
+        })?;
         let permissions = permissions
             .iter()
             .map(|permission| permission.api_name())
             .collect();
-        let current = collection.permissions_revisioned()?;
+        let current = client_call("collections.permissions_revisioned", || {
+            collection.permissions_revisioned()
+        })?;
         match current.etag() {
             Some(etag) => {
-                collection.grant_permissions_if_match(group.id(), permissions, etag)?;
+                client_call("collections.grant_permissions_if_match", || {
+                    collection.grant_permissions_if_match(group.id(), permissions, etag)
+                })?;
             }
             None => {
-                collection.grant_permissions(group.id(), permissions)?;
+                client_call("collections.grant_permissions", || {
+                    collection.grant_permissions(group.id(), permissions)
+                })?;
             }
         }
         Ok(())
@@ -153,12 +175,15 @@ impl HubuumGateway {
         collection: &str,
         principal_id: i32,
     ) -> Result<Vec<GroupPermissionsRecord>, AppError> {
-        let collection = self.client().collections().get_by_name(collection)?;
-        Ok(collection
-            .principal_permissions(principal_id)?
-            .into_iter()
-            .map(GroupPermissionsRecord::from)
-            .collect())
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(collection)
+        })?;
+        Ok(client_call("collections.principal_permissions", || {
+            collection.principal_permissions(principal_id)
+        })?
+        .into_iter()
+        .map(GroupPermissionsRecord::from)
+        .collect())
     }
 
     fn expand_collection_permissions(
