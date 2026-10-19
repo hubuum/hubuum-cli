@@ -126,8 +126,8 @@ Structured `--output json` preserves the response envelope:
 `version`, `kind`, `results` entries with `kind` and `resource`, `next`, and
 optional `total`. Text, JSONL, and semantic pipelines operate on resource rows
 with original lower-case fields such as `id`, `name`, and `data`. Text includes
-next-page and requested-total hints. Plain-text search options, including
-`--stream`, cannot be mixed with structured mode.
+next-page and requested-total hints. Plain-text search options such as `--query`
+and `--kind` cannot be mixed with structured mode. Both modes support `--stream`.
 
 ## Incremental plain-text search
 
@@ -149,3 +149,30 @@ a complete page and failed redirects preserve the previous file. A shell's own
 redirection simply captures stdout as usual. `--all` and `--stream` are mutually
 exclusive. Server error events and a connection ending before `done` exit with
 an error; already emitted terminal batches remain visible and are not replayed.
+
+## Stream a structured search
+
+Structured searches use the typed client 0.15.0 API and require server v0.0.19:
+
+```text
+search --target object --class Hosts --where 'data.cpu.cores >= 8' --stream
+search --query-file search.json --stream --output jsonl
+search --target object --class Hosts --stream | P name
+```
+
+Text results arrive as the server emits them. JSONL emits `started`, `result`,
+and `done` envelopes with `event` and `data` properties. Each result's `data`
+contains `kind` and `resource`; the final `done` contains `next`, `total`, and
+`page_limit`. JSON returns the complete event array. Unknown future SSE events
+are ignored.
+
+Pipelines receive resource rows and buffer the page before filtering or
+projection. File redirects also buffer output and leave an existing destination
+untouched if the stream fails. A stream that ends without `done`, returns invalid
+metadata, or emits a terminal error fails; already displayed results are partial
+and are never automatically replayed. The command only records a continuation
+cursor after successful completion. `next` preserves the original predicate,
+stream option, and local pipeline. `--all` and `--stream` are mutually exclusive.
+
+Structured JSON resources follow the client serialization contract, including
+UTC timestamps rendered with `+00:00`, which denotes the same timezone as `Z`.

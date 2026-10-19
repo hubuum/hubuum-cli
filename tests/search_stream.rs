@@ -28,7 +28,7 @@ fn event(kind: &str, data: Value) -> String {
 
 // The server withholds done until the test has observed a batch on stdout.
 // A buffering regression fails by timeout instead of depending on timing guesses.
-fn exercise(format: &str, terminal: bool, redirect: bool) {
+fn exercise(format: &str, terminal: bool, redirect: bool, structured: bool) {
     let directory = tempdir().unwrap();
     let token = directory.path().join("token");
     write(&token, "fixture-token").unwrap();
@@ -51,7 +51,25 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
         }
         let (mut stream, _) = listener.accept().unwrap();
         let request = read_request(&mut stream);
-        assert!(request.starts_with("GET /api/v1/search/stream?"));
+        if structured {
+            assert!(request.starts_with("POST /api/v1/search/stream "));
+            let length: usize = request
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(str::parse)
+                })
+                .unwrap()
+                .unwrap();
+            let mut body = vec![0; length];
+            stream.read_exact(&mut body).unwrap();
+            let body: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["target"]["kind"], "collection");
+            assert_eq!(body["include_total"], true);
+        } else {
+            assert!(request.starts_with("GET /api/v1/search/stream?"));
+        }
         write!(
             stream,
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
@@ -64,13 +82,29 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
             "id":1,"name":"early","description":"fixture","group_id":1,"created_at":"2026-09-22T00:00:00Z","updated_at":"2026-09-22T00:00:00Z","revision":1
         }],"next":"collection-page-2"}),
         );
+        let (first, batch) = if structured {
+            (
+                event("started", json!({"version":1,"kind":"collection"})),
+                event(
+                    "result",
+                    json!({"kind":"collection","resource":{"id":1,"name":"early","description":"fixture","group_id":1,"created_at":"2026-09-22T00:00:00Z","updated_at":"2026-09-22T00:00:00Z","revision":1}}),
+                ),
+            )
+        } else {
+            (first, batch)
+        };
         write!(stream, "{first}{batch}").unwrap();
         stream.flush().unwrap();
         wait_for_release
             .recv_timeout(Duration::from_secs(10))
             .expect("CLI must display a batch before server completion");
         if terminal {
-            write!(stream, "{}", event("done", json!({"query":"needle"}))).unwrap();
+            let done = if structured {
+                json!({"version":1,"kind":"collection","next":"collection-page-2","total":2,"page_limit":1})
+            } else {
+                json!({"query":"needle"})
+            };
+            write!(stream, "{}", event("done", done)).unwrap();
         }
     });
     let destination = directory.path().join("output.json");
@@ -91,16 +125,16 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
             "--token-file",
             token.to_str().unwrap(),
             "search",
-            "needle",
-            "--kind",
-            "collection",
-            "--stream",
-            "--output",
-            format,
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if structured {
+        command.args(["--target", "collection", "--include-total"]);
+    } else {
+        command.args(["needle", "--kind", "collection"]);
+    }
+    command.args(["--stream", "--output", format]);
     if redirect {
         command.args([">", destination.to_str().unwrap()]);
     }
@@ -128,7 +162,11 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
                     panic!("no incremental batch: {error}");
                 }
             };
-            if line.contains("collection-page-2") {
+            if line.contains(if structured {
+                "early"
+            } else {
+                "collection-page-2"
+            }) {
                 break;
             }
         }
@@ -161,7 +199,11 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
         assert_eq!(events[2]["event"], "done");
     } else if terminal && format == "text" {
         assert!(
-            output.contains("Next collections cursor: collection-page-2"),
+            output.contains(if structured {
+                "Total matching collection results: 2"
+            } else {
+                "Next collections cursor: collection-page-2"
+            }),
             "{output}"
         );
     } else if !terminal {
@@ -171,19 +213,32 @@ fn exercise(format: &str, terminal: bool, redirect: bool) {
 
 #[test]
 fn text_and_jsonl_batches_arrive_before_done() {
-    exercise("text", true, false);
-    exercise("jsonl", true, false);
+    exercise("text", true, false, false);
+    exercise("jsonl", true, false, false);
 }
 #[test]
 fn json_retains_one_complete_document() {
-    exercise("json", true, false);
+    exercise("json", true, false, false);
 }
 #[test]
 fn truncated_stream_fails_and_preserves_redirect_destination() {
-    exercise("text", false, false);
-    exercise("json", false, true);
+    exercise("text", false, false, false);
+    exercise("json", false, true, false);
 }
 #[test]
 fn redirects_capture_the_stream_without_stdout_leaks() {
-    exercise("json", true, true);
+    exercise("json", true, true, false);
+}
+
+#[test]
+fn structured_results_arrive_before_done_and_keep_json_envelopes() {
+    exercise("text", true, false, true);
+    exercise("jsonl", true, false, true);
+    exercise("json", true, false, true);
+}
+#[test]
+fn structured_truncation_fails_without_overwriting_redirects() {
+    exercise("text", false, false, true);
+    exercise("json", false, true, true);
+    exercise("json", true, true, true);
 }
