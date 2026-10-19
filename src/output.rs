@@ -6,7 +6,7 @@ use std::iter::{once, repeat_n};
 use anstream::AutoStream;
 use comfy_table::{
     presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
-    ColumnConstraint, ContentArrangement, Table, Width,
+    Cell, ColumnConstraint, ContentArrangement, Table, Width,
 };
 use hubuum_filter::{
     apply_pipeline_with_settings, group_summary_rows, OutputEnvelope, OutputShape, PipeStage,
@@ -557,7 +557,7 @@ fn render_rows_text(
     let headers = column_headers(&columns, &rows, table_headers);
     let mut table = Table::new();
     if !headers.is_empty() {
-        table.set_header(headers);
+        table.set_header(headers.clone());
     }
     apply_table_style(&mut table, &get_config().output.table_style);
     apply_table_layout(
@@ -575,8 +575,41 @@ fn render_rows_text(
                 .collect::<Vec<_>>(),
         );
     }
+    fit_table_headers(&mut table, &columns, &headers);
 
     Ok(table.to_string().lines().map(str::to_string).collect())
+}
+
+fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) {
+    let widths = table.column_max_content_widths();
+    let full_width = matches!(
+        table.content_arrangement(),
+        ContentArrangement::DynamicFullWidth
+    ) && table.width().is_some();
+    let mut cells = Vec::with_capacity(headers.len());
+    for (index, (column, header)) in columns.iter().zip(headers).enumerate() {
+        let Some(path) = grouped_header_path(column, header) else {
+            cells.push(Cell::new(header));
+            continue;
+        };
+        if !full_width {
+            if let Some(column) = table.column_mut(index) {
+                // Keep the width budget from the rows and individual path segments.
+                // The complete path must not widen an otherwise compact column.
+                let mut width = widths[index].saturating_add(column.padding_width());
+                if let Some(ColumnConstraint::UpperBoundary(Width::Fixed(limit))) =
+                    column.constraint()
+                {
+                    width = width.min(*limit);
+                }
+                column.set_constraint(ColumnConstraint::UpperBoundary(Width::Fixed(width)));
+            }
+        }
+        cells.push(Cell::new(path).set_delimiter('.'));
+    }
+    if !cells.is_empty() {
+        table.set_header(cells);
+    }
 }
 
 fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> {
@@ -741,8 +774,13 @@ fn render_dense_rows_with_band(
     layout: DenseLayout<'_>,
     mut band_row: impl FnMut(usize, String) -> String,
 ) -> Vec<String> {
-    let headers = column_headers(columns, rows, table_headers);
+    let mut headers = column_headers(columns, rows, table_headers);
     let widths = dense_widths(rows, columns, &headers, layout);
+    for ((header, column), width) in headers.iter_mut().zip(columns).zip(&widths) {
+        if let Some(path) = grouped_header_path(column, header) {
+            *header = wrap_grouped_header(&path, *width);
+        }
+    }
     let mut lines = render_dense_headers(&headers, &widths);
     lines.reserve(rows.len());
     for (index, row) in rows.iter().enumerate() {
@@ -932,6 +970,31 @@ fn column_headers(columns: &[String], rows: &[Value], table_headers: TableHeader
             })
         })
         .collect()
+}
+
+fn grouped_header_path(column: &str, header: &str) -> Option<String> {
+    let path = column_header(column);
+    (header != path && header == path.replace('.', "\n")).then_some(path)
+}
+
+fn wrap_grouped_header(path: &str, width: usize) -> String {
+    let mut result = String::new();
+    let mut line_width = 0;
+    for segment in path.split('.') {
+        let segment_width = segment.chars().count();
+        if !result.is_empty() {
+            if line_width + 1 + segment_width <= width {
+                result.push('.');
+                line_width += 1;
+            } else {
+                result.push('\n');
+                line_width = 0;
+            }
+        }
+        result.push_str(segment);
+        line_width += segment_width;
+    }
+    result
 }
 
 fn configured_header_aliases(columns: &[String], rows: &[Value]) -> HashMap<String, String> {
@@ -1744,6 +1807,66 @@ mod tests {
             .is_some_and(|line| line.contains("contact")));
         assert!(!rendered.contains("data.contact"));
         assert!(rendered.contains("Entry"));
+    }
+
+    #[test]
+    #[serial]
+    fn grouped_headers_use_available_row_width_and_respect_wrapping() {
+        let processor = "data.facts.hardware.processor.summary";
+        let disk = "data.fleet.disk.all_total_gb";
+        for style in [TableStyle::Rounded, TableStyle::Plain, TableStyle::Dense] {
+            for (width, wrap, fits) in [
+                (120, TableWrap::Auto, true),
+                (70, TableWrap::Auto, false),
+                (120, TableWrap::Fixed(18), false),
+            ] {
+                let mut config = AppConfig::default();
+                config.output.table_style = style.clone();
+                config.output.table_headers = TableHeaders::Grouped;
+                config.output.table_bands = TableBands::Never;
+                config.output.table_width = TableWidth::Fixed(width);
+                config.output.table_wrap = wrap.clone();
+                init_config(config).expect("config should initialize");
+                reset_output().expect("buffer should reset");
+                set_semantic_output(OutputEnvelope::rows(
+                    vec![
+                        json!({
+                            "id": 1, "Name": "host-1", "manual": "serial=1234567890",
+                            processor: "12 x 11th Gen Intel(R) Core(TM) i5-11400 @ 2.60GHz",
+                            disk: "38.51",
+                        }),
+                        json!({
+                            "id": 2, "Name": "host-2", "manual": "serial=0987654321",
+                            processor: "14 x Intel(R) Core(TM) Ultra 5 245K",
+                            disk: "38.48",
+                        }),
+                    ],
+                    ["id", "Name", "manual", processor, disk]
+                        .map(str::to_string)
+                        .to_vec(),
+                ))
+                .expect("semantic output should be set");
+
+                let rendered = take_output().expect("snapshot").render();
+
+                assert_eq!(
+                    rendered.contains("facts.hardware.processor.summary"),
+                    fits,
+                    "{style}, {width}, {wrap}:\n{rendered}"
+                );
+                assert!(rendered.contains("fleet.disk"), "{rendered}");
+                assert!(rendered.contains("all_total_gb"), "{rendered}");
+                assert!(!rendered.contains("fleet.disk.all_total_gb"), "{rendered}");
+                assert!(
+                    rendered
+                        .lines()
+                        .all(|line| line.chars().count() <= usize::from(width)),
+                    "{style}, {width}, {wrap}:\n{rendered}"
+                );
+                assert!(rendered.contains("host-1") && rendered.contains("host-2"));
+                assert!(rendered.contains("38.51") && rendered.contains("38.48"));
+            }
+        }
     }
 
     #[test]

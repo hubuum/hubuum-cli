@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fit grouped table headers into the space available for each column, keeping
+  dotted paths on one line when possible and wrapping between path segments
+  when needed instead of always stacking every segment.
+
 ## [0.0.15] - 2026-10-19
 
 ### Added
