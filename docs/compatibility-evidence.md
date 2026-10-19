@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.14 uses
-`hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
+and reproducibly tests its Hubuum server target. Development builds use
+`hubuum_client` 0.15.0, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.14 | 0.14.1 | 0.0.18 | Current target; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
+| Unreleased | 0.15.0 | 0.0.19 | Development target; backup output 9 and restore input 6/7/8/9 |
+| 0.0.14 | 0.14.1 | 0.0.18 | Latest release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
 | 0.0.13 | 0.13.0 | 0.0.17 | Previous CLI release; chat webhook presets, notification policies, backup output 7 and restore input 6/7 |
 | 0.0.12 | 0.12.0 | 0.0.16 | Previous CLI release; structured search, credential approvals, task discovery, and backup format 6 |
 | 0.0.11 | 0.10.1 | 0.0.14 | Previous CLI release; backup format 5, queued restores, and restorable follow-up backups |
@@ -50,6 +51,35 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## Development: client v0.15.0
+
+Development builds pin the published `hubuum_client` 0.15.0 and the released
+server v0.0.19 image
+`ghcr.io/hubuum/hubuum-server@sha256:6fbe91693356b8885e6b1115cea4417dbf80747ba4af3eb0a15b855ffff47225`.
+The upstream contract grows from 235 to 240 operations and has 111 reconciled
+wire-model mappings. Client features remain blocking-only and its MSRV remains
+Rust 1.88. The CLI declares no MSRV; local verification used Rust 1.98.0.
+
+On 2026-10-19, all 780 workspace tests, Clippy, formatting, tracked Markdown lint,
+wrapper tests, extension JSON Schema validation, CI policy tests, and documentation
+build/link checks passed. Cargo audit found no vulnerable dependencies using a
+fresh advisory database; its optional registry refresh could not lock the local
+NFS cache. The client itself was fetched from crates.io and its checksum is locked.
+The unchanged workspace library APIs introduce no semver or feature changes.
+
+`cargo build --locked` followed by `python3.12 scripts/test-backup-restore.py`
+passed against the pinned image using isolated Podman storage under `/tmp`.
+This verifies the Linux amd64 image from the multi-platform index. The suite
+covered collection-owned integrations, shared webhook presets and server previews,
+object/relation reads and graph limits, structured search and JSONL streams,
+credential approvals, task discovery, and schema evolution. All three format 9
+restore cycles completed, including with/without history and a second generation.
+Each cycle recovered a deleted query-usage declaration with its revision and
+attribution, invalidated old tokens, and preserved object revisions, timestamps,
+and JSON nulls. Follow-up staging and preservation of an earlier deletion passed.
+Unit tests retain format 6, 7, and 8 acceptance and reject unsupported versions
+before row decoding. See [upgrade and recovery](backup-restore.md).
 
 ## CLI v0.0.14: client v0.14.1
 

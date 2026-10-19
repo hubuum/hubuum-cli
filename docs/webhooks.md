@@ -1,6 +1,6 @@
 # Webhook setup
 
-CLI v0.0.14 uses `hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
+The development CLI uses `hubuum_client` 0.15.0, which targets Hubuum server v0.0.19.
 Use `--kind webhook --config` for any receiver that accepts HTTPS JSON POSTs.
 The `--target slack|mattermost|discord` presets are shortcuts for this same
 generic sink. They generate the configuration and delivery policy described
@@ -16,7 +16,7 @@ the affected processes.
 Receivers need HTTPS with trusted certificates. Private destinations, including
 self-hosted receivers and Mattermost installations, require the server's
 outbound private-target setting. Redirects are refused. See the server's
-[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/)
+[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/)
 for worker settings, secret sources, and network requirements.
 
 ## Store the URL on the server
@@ -119,7 +119,7 @@ A failed acknowledgement is permanent. In this example, only the listed
 transient statuses retry; other HTTP failures are permanent, while HTTP 429
 defers delivery using `Retry-After` without spending a failure attempt. Missing
 or invalid `Retry-After` uses a 60-second cooldown. Transport failures still
-retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.18/events/#configurable-webhook-notifications)
+retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.19/events/#configurable-webhook-notifications)
 for response rules, custom headers, timeouts, and payload limits.
 
 Delivery is at least once, so a lost acknowledgement can cause duplicates.
@@ -273,7 +273,7 @@ and `response` if you want to keep their behavior. Omitting the template restore
 the original event envelope; omitting the response rules restores generic HTTP
 handling. Updating only `--config` leaves the separate delivery policy unchanged.
 
-Use the server's [preview and test steps](https://hubuum.github.io/hubuum/v0.0.18/webhook_notifications/#preview-test-and-check-delivery)
+Use the server's [preview and test steps](https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/#preview-test-and-check-delivery)
 before enabling production notifications. Preview renders a saved event without
 looking up secrets or sending a message; test queues a real delivery. Preset
 templates and the custom example above display `[TEST]`; an unmodified event

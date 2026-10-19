@@ -1,32 +1,35 @@
 # Backup and restore
 
-CLI v0.0.14 uses `hubuum_client` 0.14.1, which targets Hubuum server v0.0.18.
+The development CLI uses `hubuum_client` 0.15.0, which targets Hubuum server v0.0.19.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-**Breaking server upgrade requirement:** upgrading from 0.0.17 requires a
-maintenance window. Stop all writers, including API, worker, and restore-executor
-processes, then take a PostgreSQL snapshot. Apply the collection-event-sinks
-migration with `hubuum-admin --migrate` before starting matching 0.0.18 binaries.
-Binary-only rollback is unsupported: recovery requires the snapshot and matching
-0.0.17 binaries, losing writes made after the snapshot. When upgrading from before
-0.0.17, also apply its notification migration;
-optional Treetop installations require protocol 0.1 and compatible policy bundles.
-See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.18).
+**Breaking server target:** upgrade to v0.0.19 before adopting this development
+CLI. Replace empty or whitespace-only local principal names with new accounts
+and reassign group memberships; correct external names at the identity provider.
+Stop writers and retain a PostgreSQL snapshot and matching pre-upgrade binaries
+before applying migrations with `hubuum-admin --migrate`. Deploy matching API,
+worker, administrator, and restore-executor binaries together. Older event
+readers cannot read the authentication event catalog entry; binary-only rollback
+is unsupported. Direct connections require HTTP/1.1; a reverse proxy may accept
+HTTP/2 with HTTP/1.1 upstream connections.
+See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.19).
 
-When upgrading from before 0.0.15, existing enforced objects start pending;
-request schema revalidation. Review
-[schema evolution](schema-evolution.md) for policy and authorization migration.
+When upgrading from before 0.0.18, also follow the collection-sink migration;
+from before 0.0.17, follow the notification migration. Optional Treetop
+installations require protocol 0.1 and compatible policy bundles. When upgrading
+from before 0.0.15, existing enforced objects start pending; request schema
+revalidation. Review [schema evolution](schema-evolution.md).
 
-**Breaking backup output change:** server v0.0.18 creates format 8 backups,
-including collection sink ownership and direct grants. Older servers cannot
-restore format 8. CLI v0.0.14 and server 0.0.18 still accept formats 6 and 7 with
-legacy grant backfill; keep those artifacts intact. Restores reset transient sink
-scheduling while preserving notification configuration and terminal delivery
-history. Restore format 5 artifacts with the matching older server, then migrate
-and take a new backup. Changing `backup_version` does not convert it. Keep a
-verified backup from the previous server version.
+**Breaking backup output:** server v0.0.19 creates format 9 backups, preserving
+query-usage declarations and their attribution. Older servers cannot restore
+format 9. Formats 6, 7, and 8 remain accepted, restoring without declarations.
+Native indexes and their ownership records are not portable backup content;
+reconcile restored intent on the destination server. Keep pre-upgrade artifacts
+intact for recovery with matching older binaries. Restore format 5 artifacts
+with the matching older server, then migrate and take a new backup. Changing
+`backup_version` does not convert a backup.
 
 ## Create a backup
 
@@ -44,7 +47,7 @@ hubuum-cli backup show 123
 hubuum-cli backup download 123 --file hubuum-backup.json
 ```
 
-Formats 6 and 7 exclude password hashes, bearer tokens, and token scopes. The manifest
+Formats 6–9 exclude password hashes, bearer tokens, and token scopes. The manifest
 lists excluded data. Privileged integration configuration remains sensitive;
 protect the backup accordingly. Saved JSON retains the server's creation instant,
 including its UTC offset and fractional seconds, so it can be staged again.
@@ -80,7 +83,7 @@ returns `confirmed`, meaning the restore is queued. `--wait` polls until
 `succeeded`, `failed`, or `expired`; only `succeeded` exits successfully.
 Without `--wait`, confirmation returns immediately after acceptance.
 
-Server 0.0.18 retains the requirement for fresh approval from an unscoped human user before
+Server 0.0.19 retains the requirement for fresh approval from an unscoped human user before
 confirmation. `--yes` still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place `--approval-password-file FILE` before `restore`
@@ -116,7 +119,7 @@ hubuum-admin --reset-password admin
 Substitute a restored local administrator's name when needed. Log in with the
 reset password and issue fresh tokens, including replacements for service
 accounts and any CLI `--token-file`. Old passwords and tokens are absent from
-format 6 and 7 backups. Recheck integration configuration before resuming automation.
+formats 6–9 backups. Recheck integration configuration before resuming automation.
 
 ## File handling
 
@@ -131,7 +134,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.18 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+Server 0.0.19 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -148,7 +151,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.18.
+successful staging and a complete second-generation restore on 0.0.19.
 
 ## Reproduce the integration check
 

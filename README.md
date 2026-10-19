@@ -29,6 +29,7 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
+Development builds use client **0.15.0** and target server **v0.0.19**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).

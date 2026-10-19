@@ -385,6 +385,13 @@ def main():
             print("PASS: schema staging, incompatible/compatible impact, reports, activation, compliance, "
                   "revalidation, and idempotent cancellation", flush=True)
 
+            usage_path = f'/api/v1/classes/{cls["id"]}/query-usage'
+            declaration = api("POST", usage_path, {"pattern": {
+                "path": "value", "value_type": "numeric", "operations": ["equals", "gte"]
+            }}, token)
+            declarations = api("GET", usage_path, token=token)
+            assert any(item["id"] == declaration["id"] for item in declarations)
+
             def restore_cycle(label, expected_object, *, include_history=True, wait_on_confirm=True):
                 nonlocal token, password
                 backup = directory / f"backup-{label}.json"
@@ -393,7 +400,7 @@ def main():
                 if not include_history:
                     backup_args += ["--include-history", "false"]
                 summary = cli(*backup_args)
-                assert summary["backup"]["backup_version"] == 8
+                assert summary["backup"]["backup_version"] == 9
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))
@@ -401,7 +408,9 @@ def main():
                 assert backup.stat().st_mode & 0o777 == 0o600
                 assert "tokens" not in document["state"]["sections"]
                 assert "password_hash" not in json.dumps(document["state"]["sections"].get("principals", []))
+                assert document["state"]["sections"]["query_usage_declarations"]
                 api("DELETE", object_path, token=token)
+                api("DELETE", f'{usage_path}/{declaration["id"]}?expected_revision={declaration["revision"]}', token=token)
                 tasks = cli("task", "list", "--kind", "backup", "--status", "succeeded",
                             "--where", "backup_include_history", "equals", str(include_history).lower(), "--all")
                 assert tasks and all(task["details"]["backup"]["retained"]["include_history"] == include_history for task in tasks)
@@ -433,11 +442,12 @@ def main():
                 token, password = eventually(reset_and_login)
                 token_file.write_text(token)
                 approval_file.write_text(password)
+                assert api("GET", usage_path, token=token) == declarations
                 recovered = api("GET", object_path, token=token)
                 for field in ["id", "revision", "created_at", "updated_at", "description", "data"]:
                     assert recovered[field] == expected_object[field], (field, recovered, expected_object)
                 print(f"PASS: {label}, history={include_history}, confirm --wait={wait_on_confirm}, "
-                      "completion, token invalidation, password reset, revision-preserving object recovery",
+                      "completion, token invalidation, password reset, revision-preserving object and query-usage recovery",
                       flush=True)
 
             restore_cycle("with-history", obj)
