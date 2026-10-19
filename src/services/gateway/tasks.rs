@@ -4,6 +4,7 @@ use hubuum_client::{
     types::SortDirection, TaskCancelRequest, TaskCancellationReason, TaskKind, TaskStatus,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     ImportResultRecord, TaskEventRecord, TaskOutput, TaskQueueStateRecord, TaskRecord,
 };
@@ -46,30 +47,39 @@ impl HubuumGateway {
                 .map(parse_task_status)
                 .transpose()?,
         };
-        Ok(self.client().tasks().cancel(input.task_id, request)?.into())
+        Ok(client_call("tasks.cancel", || {
+            self.client().tasks().cancel(input.task_id, request)
+        })?
+        .into())
     }
 
     pub fn recent_schema_tasks(&self) -> Result<Vec<TaskRecord>, AppError> {
-        Ok(self
-            .client()
-            .tasks()
-            .query()
-            .kind(TaskKind::SchemaValidation)
-            .sort("id", SortDirection::Desc)
-            .limit(50)
-            .page()?
-            .items
-            .into_iter()
-            .map(TaskRecord::from)
-            .collect())
+        Ok(client_call("tasks.page", || {
+            self.client()
+                .tasks()
+                .query()
+                .kind(TaskKind::SchemaValidation)
+                .sort("id", SortDirection::Desc)
+                .limit(50)
+                .page()
+        })?
+        .items
+        .into_iter()
+        .map(TaskRecord::from)
+        .collect())
     }
 
     pub fn task_queue_state(&self) -> Result<TaskQueueStateRecord, AppError> {
-        Ok(TaskQueueStateRecord::from(self.client().meta_tasks()?))
+        Ok(TaskQueueStateRecord::from(client_call(
+            "client.meta_tasks",
+            || self.client().meta_tasks(),
+        )?))
     }
 
     pub fn task(&self, input: TaskLookupInput) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord::from(self.client().tasks().get(input.task_id)?))
+        Ok(TaskRecord::from(client_call("tasks.get", || {
+            self.client().tasks().get(input.task_id)
+        })?))
     }
 
     pub fn task_events(
@@ -87,18 +97,18 @@ impl HubuumGateway {
     }
 
     pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
-        let task = self.client().tasks().get(task_id)?;
+        let task = client_call("tasks.get", || self.client().tasks().get(task_id))?;
         Ok(match task.kind {
-            TaskKind::Export => TaskOutput::Export(self.client().exports().output(task_id)?.into()),
+            TaskKind::Export => TaskOutput::Export(
+                client_call("exports.output", || self.client().exports().output(task_id))?.into(),
+            ),
             TaskKind::Import => {
-                let results: Vec<ImportResultRecord> = self
-                    .client()
-                    .imports()
-                    .results(task_id)
-                    .list()?
-                    .into_iter()
-                    .map(ImportResultRecord::from)
-                    .collect();
+                let results: Vec<ImportResultRecord> = client_call("imports.list", || {
+                    self.client().imports().results(task_id).list()
+                })?
+                .into_iter()
+                .map(ImportResultRecord::from)
+                .collect();
                 TaskOutput::ImportResults(results)
             }
             // RemoteCall task output is not exposed by the current client API.
@@ -112,7 +122,7 @@ impl HubuumGateway {
             op = op.poll_interval(Duration::from_secs(p));
         }
         op = op.timeout(input.timeout_secs.map(Duration::from_secs));
-        Ok(TaskRecord(op.send()?))
+        Ok(TaskRecord(client_call("tasks.wait.send", || op.send())?))
     }
 
     pub fn list_tasks(&self, input: ListTasksInput) -> Result<PagedResult<TaskRecord>, AppError> {
@@ -141,7 +151,7 @@ impl HubuumGateway {
         let page = if matches!(input.page_selection, PageSelection::All) {
             PagedResult::from_pages(q.pages())?
         } else {
-            PagedResult::from_page(q.page()?, |task| task)
+            PagedResult::from_page(client_call("tasks.query.page", || q.page())?, |task| task)
         };
         Ok(page.map(TaskRecord::from))
     }

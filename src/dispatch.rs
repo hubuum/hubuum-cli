@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::diagnostics::{self, spawn_blocking};
 use hubuum_client::ApiError;
 use hubuum_filter::{split_pipeline, PipeStage};
 use shlex::split;
-use tokio::task::spawn_blocking;
 
 use crate::app::{AppRuntime, SharedSession};
 use crate::catalog::{
@@ -32,6 +32,18 @@ use crate::redirection::{split_redirect_candidate, OutputRedirect};
 use crate::tokenizer::CommandTokenizer;
 
 pub async fn execute_line(
+    app: Arc<AppRuntime>,
+    session: &SharedSession,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
+    diagnostics::command(diagnostics::stage(
+        "execute",
+        execute_scoped_line(app, session, line),
+    ))
+    .await
+}
+
+async fn execute_scoped_line(
     app: Arc<AppRuntime>,
     session: &SharedSession,
     line: &str,
@@ -128,6 +140,9 @@ async fn execute_line_inner(
     set_render_format(render_format(&tokens)?)?;
     set_table_headers(table_headers(&tokens)?)?;
     let options = tokens.get_options();
+    if options.contains_key("debug") {
+        diagnostics::enable();
+    }
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
             app.clone(),
@@ -254,6 +269,17 @@ pub async fn execute_offline_line(
     catalog_store: Arc<CatalogStore>,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
+    diagnostics::command(diagnostics::stage(
+        "execute",
+        execute_scoped_offline_line(catalog_store, line),
+    ))
+    .await
+}
+
+async fn execute_scoped_offline_line(
+    catalog_store: Arc<CatalogStore>,
+    line: &str,
+) -> Result<CommandOutcome, AppError> {
     let catalog = catalog_store.snapshot();
     let aliases = get_config();
     let expansion = expand_command_aliases(&catalog, &[], &aliases.aliases, line)?;
@@ -305,6 +331,9 @@ async fn execute_offline_line_inner(
     if let Ok(resolved) = catalog.resolve_command(&[], &parts) {
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
         let options = tokens.get_options();
+        if options.contains_key("debug") {
+            diagnostics::enable();
+        }
         if options.contains_key("help") || options.contains_key("h") {
             return render_help_from_catalog(
                 catalog,

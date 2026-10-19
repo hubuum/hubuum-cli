@@ -197,7 +197,7 @@ fn option_spec(option: &OptionDeclaration) -> OptionSpec {
     }
 }
 
-const WORKFLOW_HOST_INPUTS: &[&str] = &["help", "json", "output", "table-headers"];
+const WORKFLOW_HOST_INPUTS: &[&str] = &["help", "json", "output", "table-headers", "debug"];
 
 pub(crate) fn workflow_step_arguments(
     command: &CommandSpec,
@@ -1426,7 +1426,16 @@ fn validate_invocation(
             by_key.insert(long.to_string(), *option);
         }
     }
-    let standard_keys = HashSet::from(["h", "help", "j", "json", "o", "output", "table-headers"]);
+    let standard_keys = HashSet::from([
+        "h",
+        "help",
+        "j",
+        "json",
+        "o",
+        "output",
+        "table-headers",
+        "debug",
+    ]);
     let mut counts = HashMap::<&str, usize>::new();
     for occurrence in tokens.get_option_occurrences() {
         if standard_keys.contains(occurrence.key.as_str()) {
@@ -1521,7 +1530,7 @@ fn forwarded_arguments(tokens: &CommandTokenizer, argument_start: usize) -> Vec<
     while let Some(argument) = raw.get(index) {
         let name = argument.split('=').next().unwrap_or(argument);
         match name {
-            "-h" | "--help" | "-j" | "--json" => index += 1,
+            "-h" | "--help" | "-j" | "--json" | "--debug" => index += 1,
             "-o" | "--output" | "--table-headers" => {
                 index += if argument.contains('=') { 1 } else { 2 };
             }
@@ -1778,7 +1787,7 @@ mod tests {
         .expect("manifest");
         let declaration = &manifest.commands()[0];
         let tokens = CommandTokenizer::new_at(
-            "list target-1 --state active --output json",
+            "list target-1 --state active --output json --debug",
             0,
             &extension_cli_options(declaration),
         )

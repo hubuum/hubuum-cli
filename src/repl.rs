@@ -23,6 +23,7 @@ use crate::background::BackgroundManager;
 use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec, ScopeAction};
 use crate::commands::self_update::startup_notice;
 use crate::config::get_config;
+use crate::diagnostics;
 use crate::dispatch::{apply_output_state, apply_scope_action, execute_line, render_error};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::files::get_history_file;
@@ -121,21 +122,27 @@ fn run_thread(
                 } else {
                     line
                 };
-                let result =
-                    runtime.block_on(execute_repl_line(app.clone(), &session, &effective_line));
-                match result {
-                    Ok(outcome) => {
-                        let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
-                        if let Err(err) = apply_outcome(&session, outcome) {
-                            let _ = print_rendered(&render_error(err).render());
+                let exit_repl = runtime.block_on(diagnostics::command(async {
+                    let result = execute_repl_line(app.clone(), &session, &effective_line).await;
+                    diagnostics::stage("render", async {
+                        match result {
+                            Ok(outcome) => {
+                                let exit_repl = outcome.scope_action == ScopeAction::ExitRepl;
+                                if let Err(err) = apply_outcome(&session, outcome) {
+                                    let _ = print_rendered(&render_error(err).render());
+                                }
+                                exit_repl
+                            }
+                            Err(err) => {
+                                let _ = print_rendered(&render_error(err).render());
+                                false
+                            }
                         }
-                        if exit_repl {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        let _ = print_rendered(&render_error(err).render());
-                    }
+                    })
+                    .await
+                }));
+                if exit_repl {
+                    break;
                 }
             }
             Signal::CtrlD => break,

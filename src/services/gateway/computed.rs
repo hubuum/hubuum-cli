@@ -7,6 +7,7 @@ use hubuum_client::{
 };
 use serde_json::Value;
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     ClassComputationStateRecord, ComputedFieldDeleteRecord, ComputedFieldMutationRecord,
     ComputedFieldPreviewRecord, ComputedFieldRecord, SharedComputedFieldListRecord,
@@ -282,8 +283,12 @@ impl HubuumGateway {
         &self,
         class_name: &str,
     ) -> Result<SharedComputedFieldListRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        let response = self.client().computed_fields(class.id()).list()?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        let response = client_call("computed_fields.list", || {
+            self.client().computed_fields(class.id()).list()
+        })?;
         Ok(SharedComputedFieldListRecord {
             definitions: response
                 .definitions
@@ -299,12 +304,15 @@ impl HubuumGateway {
         class_name: &str,
         input: ComputedDefinitionInput,
     ) -> Result<ComputedFieldMutationRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        Ok(self
-            .client()
-            .computed_fields(class.id())
-            .create(input.into_api())?
-            .into())
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        Ok(client_call("computed_fields.create", || {
+            self.client()
+                .computed_fields(class.id())
+                .create(input.into_api())
+        })?
+        .into())
     }
 
     pub fn update_shared_computed_field(
@@ -313,20 +321,22 @@ impl HubuumGateway {
         field_key: &str,
         input: ComputedPatchInput,
     ) -> Result<ComputedFieldMutationRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let fields = self.client().computed_fields(class.id());
-        let definition = fields
-            .list()?
+        let definition = client_call("computed_fields.list", || fields.list())?
             .definitions
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("shared", class_name, field_key))?;
-        let current = fields.get(definition.id)?;
+        let current = client_call("computed_fields.get", || fields.get(definition.id))?;
         ensure_expected_revision(current.revision, input.expected_revision())?;
         let etag = required_entity_tag(current.etag(), "shared computed field")?;
-        Ok(fields
-            .update_if_match(definition.id, input.into_api(), &etag)?
-            .into())
+        Ok(client_call("computed_fields.update_if_match", || {
+            fields.update_if_match(definition.id, input.into_api(), &etag)
+        })?
+        .into())
     }
 
     pub fn delete_shared_computed_field(
@@ -335,18 +345,22 @@ impl HubuumGateway {
         field_key: &str,
         expected_revision: i64,
     ) -> Result<ComputedFieldDeleteRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let fields = self.client().computed_fields(class.id());
-        let definition = fields
-            .list()?
+        let definition = client_call("computed_fields.list", || fields.list())?
             .definitions
             .into_iter()
             .find(|definition| definition.key == field_key)
             .ok_or_else(|| computed_field_not_found("shared", class_name, field_key))?;
-        let current = fields.get(definition.id)?;
+        let current = client_call("computed_fields.get", || fields.get(definition.id))?;
         ensure_expected_revision(current.revision, expected_revision)?;
         let etag = required_entity_tag(current.etag(), "shared computed field")?;
-        Ok(fields.delete_if_match(definition.id, &etag)?.into())
+        Ok(client_call("computed_fields.delete_if_match", || {
+            fields.delete_if_match(definition.id, &etag)
+        })?
+        .into())
     }
 
     pub fn preview_shared_computed_field(
@@ -355,21 +369,27 @@ impl HubuumGateway {
         definition: ComputedDefinitionInput,
         target: ComputedPreviewTarget,
     ) -> Result<ComputedFieldPreviewRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let request = self.computed_preview_request(&class, definition, target, false)?;
-        Ok(self
-            .client()
-            .computed_fields(class.id())
-            .preview(request)?
-            .into())
+        Ok(client_call("computed_fields.preview", || {
+            self.client().computed_fields(class.id()).preview(request)
+        })?
+        .into())
     }
 
     pub fn rebuild_shared_computed_fields(
         &self,
         class_name: &str,
     ) -> Result<ClassComputationStateRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        Ok(self.client().computed_fields(class.id()).rebuild()?.into())
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        Ok(client_call("computed_fields.rebuild", || {
+            self.client().computed_fields(class.id()).rebuild()
+        })?
+        .into())
     }
 
     pub fn list_personal_computed_fields(
@@ -379,7 +399,9 @@ impl HubuumGateway {
     ) -> Result<PagedResult<ComputedFieldRecord>, AppError> {
         let request = match class_name {
             Some(class_name) => {
-                let class = self.client().classes().get_by_name(class_name)?;
+                let class = client_call("classes.get_by_name", || {
+                    self.client().classes().get_by_name(class_name)
+                })?;
                 self.client()
                     .personal_computed_fields()
                     .for_class(class.id())
@@ -395,15 +417,15 @@ impl HubuumGateway {
         class_name: &str,
         input: ComputedDefinitionInput,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        Ok(self
-            .client()
-            .personal_computed_fields()
-            .create(PersonalComputedFieldDefinitionRequest::new(
-                class.id(),
-                input.into_api(),
-            ))?
-            .into())
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        Ok(client_call("personal_computed_fields.create", || {
+            self.client().personal_computed_fields().create(
+                PersonalComputedFieldDefinitionRequest::new(class.id(), input.into_api()),
+            )
+        })?
+        .into())
     }
 
     pub fn update_personal_computed_field(
@@ -412,20 +434,23 @@ impl HubuumGateway {
         field_key: &str,
         input: ComputedPatchInput,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let fields = self.client().personal_computed_fields();
-        let definition = fields
-            .for_class(class.id())
-            .all()?
-            .into_iter()
-            .find(|definition| definition.key == field_key)
-            .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
-        let current = fields.get(definition.id)?;
+        let definition = client_call("personal_computed_fields.all", || {
+            fields.for_class(class.id()).all()
+        })?
+        .into_iter()
+        .find(|definition| definition.key == field_key)
+        .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
+        let current = client_call("personal_computed_fields.get", || fields.get(definition.id))?;
         ensure_expected_revision(current.revision, input.expected_revision())?;
         let etag = required_entity_tag(current.etag(), "personal computed field")?;
-        Ok(fields
-            .update_if_match(definition.id, input.into_api(), &etag)?
-            .into())
+        Ok(client_call("personal_computed_fields.update_if_match", || {
+            fields.update_if_match(definition.id, input.into_api(), &etag)
+        })?
+        .into())
     }
 
     pub fn delete_personal_computed_field(
@@ -434,18 +459,22 @@ impl HubuumGateway {
         field_key: &str,
         expected_revision: i64,
     ) -> Result<ComputedFieldRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let fields = self.client().personal_computed_fields();
-        let definition = fields
-            .for_class(class.id())
-            .all()?
-            .into_iter()
-            .find(|definition| definition.key == field_key)
-            .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
-        let current = fields.get(definition.id)?;
+        let definition = client_call("personal_computed_fields.all", || {
+            fields.for_class(class.id()).all()
+        })?
+        .into_iter()
+        .find(|definition| definition.key == field_key)
+        .ok_or_else(|| computed_field_not_found("personal", class_name, field_key))?;
+        let current = client_call("personal_computed_fields.get", || fields.get(definition.id))?;
         ensure_expected_revision(current.revision, expected_revision)?;
         let etag = required_entity_tag(current.etag(), "personal computed field")?;
-        fields.delete_if_match(definition.id, &etag)?;
+        client_call("personal_computed_fields.delete_if_match", || {
+            fields.delete_if_match(definition.id, &etag)
+        })?;
         Ok(definition.into())
     }
 
@@ -455,13 +484,14 @@ impl HubuumGateway {
         definition: ComputedDefinitionInput,
         target: ComputedPreviewTarget,
     ) -> Result<ComputedFieldPreviewRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let request = self.computed_preview_request(&class, definition, target, true)?;
-        Ok(self
-            .client()
-            .personal_computed_fields()
-            .preview(request)?
-            .into())
+        Ok(client_call("personal_computed_fields.preview", || {
+            self.client().personal_computed_fields().preview(request)
+        })?
+        .into())
     }
 
     fn computed_preview_request(
@@ -474,7 +504,9 @@ impl HubuumGateway {
         let definition = definition.into_api();
         let request = match target {
             ComputedPreviewTarget::Object(object_name) => {
-                let object = class.object_by_name(&object_name)?;
+                let object = client_call("class.object_by_name", || {
+                    class.object_by_name(&object_name)
+                })?;
                 ComputedFieldPreviewRequest::for_object(definition, object.id())
             }
             ComputedPreviewTarget::Data(data) => {

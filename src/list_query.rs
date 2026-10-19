@@ -1,3 +1,5 @@
+use crate::diagnostics::{client_call, client_page};
+
 use chrono::{DateTime, NaiveDateTime};
 use hubuum_client::{
     client::{sync::CursorRequest, sync::QueryOp, Page},
@@ -248,13 +250,13 @@ impl<T> PagedResult<T> {
         I: IntoIterator<Item = Result<Page<T>, ApiError>>,
     {
         let mut pages = pages.into_iter();
-        let Some(first_page) = pages.next() else {
+        let Some(first_page) = client_page(&mut pages) else {
             return Ok(Self::empty(None, None));
         };
         let first_page = first_page?;
         let total_count = first_page.total_count;
         let mut items = first_page.items;
-        for page in pages {
+        while let Some(page) = client_page(&mut pages) {
             items.extend(page?.items);
         }
         let returned_count = items.len();
@@ -471,7 +473,10 @@ where
     if list_query.fetches_all() {
         PagedResult::from_pages(query.pages())
     } else {
-        Ok(PagedResult::from_page(query.page()?, |item| item))
+        Ok(PagedResult::from_page(
+            client_call("QueryOp.page", || query.page())?,
+            |item| item,
+        ))
     }
 }
 
@@ -616,7 +621,10 @@ where
     if list_query.fetches_all() {
         PagedResult::from_pages(request.pages())
     } else {
-        Ok(PagedResult::from_page(request.page()?, |item| item))
+        Ok(PagedResult::from_page(
+            client_call("CursorRequest.page", || request.page())?,
+            |item| item,
+        ))
     }
 }
 

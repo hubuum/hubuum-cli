@@ -5,7 +5,7 @@ use crate::models::{
 };
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
-use clap::{value_parser, Arg, ArgMatches, Command};
+use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use shlex::try_quote;
 use std::path::PathBuf;
 
@@ -15,6 +15,12 @@ pub fn build_cli() -> Command {
         .disable_version_flag(false)
         .after_help(
             "Commands:\n  hubuum-cli <command...>        Run one command and exit\n  hubuum-cli script <file>       Run commands from a file and exit\n\nExamples:\n  hubuum-cli object list --limit 5\n  hubuum-cli config show \\| P key value \\| L 5\n  hubuum-cli object list --class Hosts \\| G os_version AS \"OS Version\" \\| A count AS Hosts\n  hubuum-cli object list --json --class Hosts \\| P Name os_version \\> each:/tmp/host-{Name}.json\n  hubuum-cli config show '>>' config.log\n  hubuum-cli theme list\n  hubuum-cli help --tree\n\nIn POSIX shells, escape or quote |, >, and >> so the operators reach Hubuum CLI.",
+        )
+        .arg(
+            Arg::new("debug")
+                .long("debug")
+                .action(ArgAction::SetTrue)
+                .help("Report command time and client API calls to stderr"),
         )
         .arg(
             Arg::new("config")
@@ -278,6 +284,11 @@ where
     let mut idx = 1;
     while idx < args.len() {
         let arg = &args[idx];
+        if arg == "--debug" {
+            clap_args.push(arg.clone());
+            idx += 1;
+            continue;
+        }
         if is_help_or_version(arg) {
             clap_args.extend(args[idx..].iter().cloned());
             return StartupArgs {
@@ -352,6 +363,10 @@ fn has_legacy_execution_arg(args: &[String]) -> bool {
     let mut idx = 1;
     while idx < args.len() {
         let arg = &args[idx];
+        if arg == "--debug" {
+            idx += 1;
+            continue;
+        }
         if is_legacy_execution_arg(arg) {
             return true;
         }

@@ -29,9 +29,18 @@ const RESERVED_PACK_NAMES: &[&str] = &[
     "contract", "disable", "doctor", "enable", "explain", "init", "install", "list", "reload",
     "remove", "show", "upgrade", "validate",
 ];
-const RESERVED_LONG_OPTIONS: &[&str] = &["help", "json", "output", "table-headers"];
+const RESERVED_LONG_OPTIONS: &[&str] = &["help", "json", "output", "table-headers", "debug"];
 const RESERVED_SHORT_OPTIONS: &[char] = &['h', 'j', 'o'];
-const RESERVED_OPTION_KEYS: &[&str] = &["h", "help", "j", "json", "o", "output", "table-headers"];
+const RESERVED_OPTION_KEYS: &[&str] = &[
+    "h",
+    "help",
+    "j",
+    "json",
+    "o",
+    "output",
+    "table-headers",
+    "debug",
+];
 
 #[derive(Debug, Error)]
 pub enum ProtocolError {

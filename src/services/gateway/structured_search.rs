@@ -9,6 +9,7 @@ use hubuum_search::{ResourceKind, SearchRequest};
 use serde::Serialize;
 use serde_json::{from_value, to_value, Value};
 
+use crate::diagnostics::client_call;
 use crate::errors::AppError;
 
 use super::HubuumGateway;
@@ -102,7 +103,9 @@ impl HubuumGateway {
         let mut request = typed_request(&request)?;
         let mut result: Option<StructuredSearchResponse> = None;
         for _ in 0..10_000 {
-            let page = self.client().structured_search(request.clone()).send()?;
+            let page = client_call("structured_search.send", || {
+                self.client().structured_search(request.clone()).send()
+            })?;
             validate_metadata(
                 page.version,
                 page.kind,
@@ -146,10 +149,10 @@ impl HubuumGateway {
         mut emit: impl FnMut(StructuredSearchStreamEvent) -> Result<(), AppError>,
     ) -> Result<StructuredSearchDoneEvent, AppError> {
         let expected = from_value(to_value(request.kind())?)?;
-        let stream = self
-            .client()
-            .structured_search(typed_request(&request)?)
-            .stream()?;
+        let request = typed_request(&request)?;
+        let stream = client_call("structured_search.stream", || {
+            self.client().structured_search(request).stream()
+        })?;
         let mut started = false;
         for event in stream {
             // Once the stream is open, errors must never trigger command replay.

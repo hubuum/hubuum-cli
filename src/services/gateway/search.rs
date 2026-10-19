@@ -7,6 +7,7 @@ use hubuum_client::{
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     ClassRecord, CollectionRecord, ResolvedObjectRecord, SearchBatchRecord, SearchCursorSet,
     SearchQueryEvent, SearchResponseRecord, SearchResultsRecord, SearchStreamEvent,
@@ -148,7 +149,7 @@ impl SearchPaginationGuard {
 
 impl HubuumGateway {
     pub fn search(&self, input: &SearchInput) -> Result<SearchResponseRecord, AppError> {
-        let raw = self.build_search_request(input).send()?;
+        let raw = client_call("search.send", || self.build_search_request(input).send())?;
         Ok(SearchResponseRecord {
             query: raw.query,
             results: self.map_search_results(raw.results)?,
@@ -185,7 +186,9 @@ impl HubuumGateway {
         input: &SearchInput,
         mut emit: impl FnMut(SearchStreamEvent) -> Result<(), AppError>,
     ) -> Result<SearchCursorSet, AppError> {
-        let stream = self.build_search_request(input).stream()?;
+        let stream = client_call("search.stream", || {
+            self.build_search_request(input).stream()
+        })?;
         let mut next = SearchCursorSet::default();
         for event in stream {
             // A stream may already have emitted data. Never replay it on an error.

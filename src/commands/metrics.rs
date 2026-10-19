@@ -11,6 +11,7 @@ use crate::app::request_with_server_port_fallback;
 use crate::build_info;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{get_config, AppConfig};
+use crate::diagnostics::client_call;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::output::set_semantic_output;
 use crate::services::AppServices;
@@ -75,8 +76,8 @@ fn fetch_metrics(config: &AppConfig, path: Option<&str>) -> Result<String, AppEr
         .user_agent(format!("hubuum-cli/{}", build_info::VERSION))
         .build()?;
     let metrics = match path {
-        Some(path) => client.metrics_at(path)?,
-        None => client.metrics()?,
+        Some(path) => client_call("client.metrics_at", || client.metrics_at(path))?,
+        None => client_call("client.metrics", || client.metrics())?,
     };
     Ok(metrics)
 }

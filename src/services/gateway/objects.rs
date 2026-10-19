@@ -6,6 +6,7 @@ use json_patch::{patch as apply_json_patch, Patch};
 use reqwest::StatusCode;
 use serde_json::Value;
 
+use crate::diagnostics::client_call;
 use crate::domain::{
     build_related_object_tree, observed_object_data_fields, ObjectDataMutationOutcome,
     ObjectDataMutationRecord, ObjectShowRecord, ObservedObjectDataFields, ResolvedObjectRecord,
@@ -101,7 +102,7 @@ impl HubuumGateway {
             .objects();
         let object = objects.by_name(input.object_name.clone());
 
-        match object.patch_data(&input.patch) {
+        match client_call("objects.patch_data", || object.patch_data(&input.patch)) {
             Ok(patched) => Ok(ObjectDataMutationRecord::new(
                 ObjectDataMutationOutcome::Patched,
                 input.class_name,
@@ -112,14 +113,17 @@ impl HubuumGateway {
                     return Err(error.into());
                 };
                 let initial_data = initial_data_from_patch(&input.patch)?;
-                match objects.create(input.object_name.clone(), description, initial_data) {
+                match client_call("objects.create", || {
+                    objects.create(input.object_name.clone(), description, initial_data)
+                }) {
                     Ok(created) => Ok(ObjectDataMutationRecord::new(
                         ObjectDataMutationOutcome::Created,
                         input.class_name,
                         created,
                     )),
                     Err(error) if error.is_status(StatusCode::CONFLICT) => {
-                        let patched = object.patch_data(&input.patch)?;
+                        let patched =
+                            client_call("objects.patch_data", || object.patch_data(&input.patch))?;
                         Ok(ObjectDataMutationRecord::new(
                             ObjectDataMutationOutcome::Patched,
                             input.class_name,
@@ -139,13 +143,16 @@ impl HubuumGateway {
         sample_limit: usize,
         max_depth: usize,
     ) -> Result<ObservedObjectDataFields, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        let objects = self
-            .client()
-            .objects(class.id())
-            .query()
-            .limit(sample_limit)
-            .list()?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        let objects = client_call("objects.list", || {
+            self.client()
+                .objects(class.id())
+                .query()
+                .limit(sample_limit)
+                .list()
+        })?;
         Ok(observed_object_data_fields(
             objects.iter().filter_map(|object| object.data.as_ref()),
             max_depth,
@@ -153,15 +160,15 @@ impl HubuumGateway {
     }
 
     pub fn list_object_names_for_class(&self, class_name: &str) -> Result<Vec<String>, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        Ok(self
-            .client()
-            .objects(class.id())
-            .query()
-            .list()?
-            .into_iter()
-            .map(|object| object.name)
-            .collect())
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        Ok(client_call("objects.list", || {
+            self.client().objects(class.id()).query().list()
+        })?
+        .into_iter()
+        .map(|object| object.name)
+        .collect())
     }
 
     pub fn list_object_names_for_class_prefix(
@@ -169,36 +176,45 @@ impl HubuumGateway {
         class_name: &str,
         prefix: &str,
     ) -> Result<Vec<String>, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        Ok(self
-            .client()
-            .objects(class.id())
-            .query()
-            .filter(
-                "name",
-                FilterOperator::StartsWith { is_negated: false },
-                prefix,
-            )
-            .limit(100)
-            .list()?
-            .into_iter()
-            .map(|object| object.name)
-            .collect())
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        Ok(client_call("objects.list", || {
+            self.client()
+                .objects(class.id())
+                .query()
+                .filter(
+                    "name",
+                    FilterOperator::StartsWith { is_negated: false },
+                    prefix,
+                )
+                .limit(100)
+                .list()
+        })?
+        .into_iter()
+        .map(|object| object.name)
+        .collect())
     }
 
     pub fn create_object(
         &self,
         input: CreateObjectInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let collection = self.client().collections().get_by_name(&input.collection)?;
-        let class = self.client().classes().get_by_name(&input.class_name)?;
+        let collection = client_call("collections.get_by_name", || {
+            self.client().collections().get_by_name(&input.collection)
+        })?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(&input.class_name)
+        })?;
 
-        let object = self.client().objects(class.id()).create_raw(ObjectPost {
-            name: input.name,
-            hubuum_class_id: Some(class.id()),
-            collection_id: Some(collection.id()),
-            description: input.description,
-            data: input.data,
+        let object = client_call("objects.create_raw", || {
+            self.client().objects(class.id()).create_raw(ObjectPost {
+                name: input.name,
+                hubuum_class_id: Some(class.id()),
+                collection_id: Some(collection.id()),
+                description: input.description,
+                data: input.data,
+            })
         })?;
 
         let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
@@ -217,12 +233,15 @@ impl HubuumGateway {
         class_name: &str,
         object_name: &str,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        let object = class.object_by_name(object_name)?;
-        let collection = self
-            .client()
-            .collections()
-            .get(object.resource().collection_id)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        let object = client_call("class.object_by_name", || class.object_by_name(object_name))?;
+        let collection = client_call("collections.get", || {
+            self.client()
+                .collections()
+                .get(object.resource().collection_id)
+        })?;
 
         let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
         let collectionmap =
@@ -242,7 +261,9 @@ impl HubuumGateway {
         options: &RelationTraversalOptions,
         include_computed: bool,
     ) -> Result<ObjectShowRecord, AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
         let related_graph_request = self
             .client()
             .class_by_name(class_name)
@@ -265,7 +286,8 @@ impl HubuumGateway {
                 class.id(),
             )
         };
-        let related_graph = related_graph_request.send()?;
+        let related_graph =
+            client_call("object.related_graph.send", || related_graph_request.send())?;
         // The bounded graph includes the root even when same-class descendants
         // are filtered out. Keep a point-read fallback for rootless responses.
         let object = match related_graph.objects.iter().find(|object| {
@@ -274,7 +296,9 @@ impl HubuumGateway {
                 && object.name == object_name
         }) {
             Some(object) => object_from_path(object)?,
-            None => class.object_by_name(object_name)?.resource().clone(),
+            None => client_call("class.object_by_name", || class.object_by_name(object_name))?
+                .resource()
+                .clone(),
         };
         let class_map = self.class_map_with_known(
             related_graph
@@ -293,7 +317,9 @@ impl HubuumGateway {
         )?;
         let mut object_record = ResolvedObjectRecord::new(&object, &class_map, &collection_map);
         if include_computed {
-            let computed = self.client().computed_object(class.id(), object.id)?;
+            let computed = client_call("client.computed_object", || {
+                self.client().computed_object(class.id(), object.id)
+            })?;
             object_record = object_record.with_computed(serde_json::to_value(computed.computed)?);
         }
 
@@ -311,9 +337,13 @@ impl HubuumGateway {
     }
 
     pub fn delete_object(&self, class_name: &str, object_name: &str) -> Result<(), AppError> {
-        let class = self.client().classes().get_by_name(class_name)?;
-        let object = class.object_by_name(object_name)?;
-        self.client().objects(class.id()).delete(object.id())?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(class_name)
+        })?;
+        let object = client_call("class.object_by_name", || class.object_by_name(object_name))?;
+        client_call("objects.delete", || {
+            self.client().objects(class.id()).delete(object.id())
+        })?;
         Ok(())
     }
 
@@ -349,7 +379,9 @@ impl HubuumGateway {
             .iter()
             .find(|clause| clause.spec.public_name == "class")
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let class = self.client().classes().get_by_name(&class_filter.value)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(&class_filter.value)
+        })?;
 
         let filters = validated
             .iter()
@@ -358,11 +390,12 @@ impl HubuumGateway {
             .collect::<Result<Vec<_>, _>>()?;
 
         if has_computed_sort {
-            let fetched = self
-                .client()
-                .computed_objects(class.id())
-                .filters(filters)
-                .all()?;
+            let fetched = client_call("computed_objects.all", || {
+                self.client()
+                    .computed_objects(class.id())
+                    .filters(filters)
+                    .all()
+            })?;
             let classmap = self.class_map_with_known(
                 fetched.iter().map(|object| object.object.hubuum_class_id),
                 [class.resource()],
@@ -460,8 +493,10 @@ impl HubuumGateway {
         &self,
         input: ObjectUpdateInput,
     ) -> Result<ResolvedObjectRecord, AppError> {
-        let class = self.client().classes().get_by_name(&input.class_name)?;
-        let object = class.object_by_name(&input.name)?;
+        let class = client_call("classes.get_by_name", || {
+            self.client().classes().get_by_name(&input.class_name)
+        })?;
+        let object = client_call("class.object_by_name", || class.object_by_name(&input.name))?;
         let mut result_class = class.resource().clone();
 
         let mut patch = ObjectPatch {
@@ -470,11 +505,15 @@ impl HubuumGateway {
         };
 
         if let Some(collection) = input.collection {
-            let collection = self.client().collections().get_by_name(&collection)?;
+            let collection = client_call("collections.get_by_name", || {
+                self.client().collections().get_by_name(&collection)
+            })?;
             patch.collection_id = Some(collection.id());
         }
         if let Some(reclass) = input.reclass {
-            let reclass = self.client().classes().get_by_name(&reclass)?;
+            let reclass = client_call("classes.get_by_name", || {
+                self.client().classes().get_by_name(&reclass)
+            })?;
             patch.hubuum_class_id = Some(reclass.id());
             result_class = reclass.resource().clone();
         }
@@ -485,11 +524,14 @@ impl HubuumGateway {
             patch.description = Some(description);
         }
 
-        let result = self
-            .client()
-            .objects(class.id())
-            .update_raw(object.id(), patch)?;
-        let collection = self.client().collections().get(result.collection_id)?;
+        let result = client_call("objects.update_raw", || {
+            self.client()
+                .objects(class.id())
+                .update_raw(object.id(), patch)
+        })?;
+        let collection = client_call("collections.get", || {
+            self.client().collections().get(result.collection_id)
+        })?;
 
         let classmap = HashMap::from([(result_class.id.into(), result_class)]);
         let collectionmap =

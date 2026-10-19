@@ -9,6 +9,7 @@ use hubuum_client::{
     ObjectAggregateSort, QueryFilter,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::ObjectAggregateRecord;
 use crate::errors::AppError;
 use crate::list_query::{
@@ -345,7 +346,10 @@ impl HubuumGateway {
         if matches!(input.page_selection, PageSelection::All) {
             Ok(PagedResult::from_pages(request.pages())?.map(Into::into))
         } else {
-            Ok(PagedResult::from_page(request.page()?, Into::into))
+            Ok(PagedResult::from_page(
+                client_call("objects.aggregate.page", || request.page())?,
+                Into::into,
+            ))
         }
     }
 

@@ -1,6 +1,7 @@
 use super::credential_approvals::send_approved;
 use hubuum_client::{CredentialOperation, FullImportRequest};
 
+use crate::diagnostics::client_call;
 use crate::domain::{ImportResultRecord, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
@@ -20,8 +21,10 @@ impl HubuumGateway {
         let client = self.client();
         let submit = client.imports().submit_full(input.request.clone());
         let result = match input.idempotency_key.as_ref() {
-            Some(key) => submit.idempotency_key(key).send(),
-            None => submit.send(),
+            Some(key) => client_call("imports.submit_full.send", || {
+                submit.idempotency_key(key).send()
+            }),
+            None => client_call("imports.submit_full.send", || submit.send()),
         };
         let task = match result {
             Ok(task) => task,
@@ -48,7 +51,9 @@ impl HubuumGateway {
     }
 
     pub fn import_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord::from(self.client().imports().get(task_id)?))
+        Ok(TaskRecord::from(client_call("imports.get", || {
+            self.client().imports().get(task_id)
+        })?))
     }
 
     pub fn import_results(

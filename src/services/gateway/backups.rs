@@ -5,6 +5,7 @@ use hubuum_client::{
     RestoreId, Unauthenticated,
 };
 
+use crate::diagnostics::client_call;
 use crate::domain::{BackupArtifact, RestoreReceipt, RestoreRecord, TaskRecord};
 use crate::errors::AppError;
 
@@ -20,10 +21,12 @@ impl RestoreMonitor {
     }
 
     pub fn status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
-        let response = self.client.restore_status(
-            RestoreId::from(receipt.restore_id()),
-            &RestoreCapability::new(receipt.capability()),
-        )?;
+        let response = client_call("client.restore_status", || {
+            self.client.restore_status(
+                RestoreId::from(receipt.restore_id()),
+                &RestoreCapability::new(receipt.capability()),
+            )
+        })?;
         receipt.verify_response(&response)?;
         RestoreRecord::from_response(response)
     }
@@ -86,15 +89,21 @@ impl HubuumGateway {
         if let Some(idempotency_key) = input.idempotency_key {
             operation = operation.idempotency_key(idempotency_key);
         }
-        Ok(TaskRecord(operation.send()?))
+        Ok(TaskRecord(client_call("backups.submit.send", || {
+            operation.send()
+        })?))
     }
 
     pub fn backup_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
-        Ok(TaskRecord(self.client().backups().get(task_id)?))
+        Ok(TaskRecord(client_call("backups.get", || {
+            self.client().backups().get(task_id)
+        })?))
     }
 
     pub fn backup_output(&self, task_id: i32) -> Result<BackupArtifact, AppError> {
-        BackupArtifact::from_document(self.client().backups().output(task_id)?)
+        BackupArtifact::from_document(client_call("backups.output", || {
+            self.client().backups().output(task_id)
+        })?)
     }
 
     pub fn run_backup(&self, input: RunBackupInput) -> Result<BackupArtifact, AppError> {
@@ -106,7 +115,7 @@ impl HubuumGateway {
         if let Some(poll_interval_secs) = input.poll_interval_secs {
             operation = operation.poll_interval(Duration::from_secs(poll_interval_secs));
         }
-        BackupArtifact::from_document(operation.send()?)
+        BackupArtifact::from_document(client_call("backups.run.send", || operation.send())?)
     }
 
     pub fn stage_restore(
@@ -114,7 +123,9 @@ impl HubuumGateway {
         backup_json: &str,
     ) -> Result<(RestoreRecord, RestoreReceipt), AppError> {
         let document = BackupArtifact::parse_document(backup_json)?;
-        let mut response = self.client().restores().stage(&document)?;
+        let mut response = client_call("restores.stage", || {
+            self.client().restores().stage(&document)
+        })?;
         let capability = response.restore_capability.take().ok_or_else(|| {
             AppError::CommandExecutionError(
                 "Restore stage did not return its one-time capability".to_string(),
@@ -129,10 +140,12 @@ impl HubuumGateway {
     }
 
     pub fn restore_status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
-        let response = self.client().restores().status(
-            RestoreId::from(receipt.restore_id()),
-            &RestoreCapability::new(receipt.capability()),
-        )?;
+        let response = client_call("restores.status", || {
+            self.client().restores().status(
+                RestoreId::from(receipt.restore_id()),
+                &RestoreCapability::new(receipt.capability()),
+            )
+        })?;
         receipt.verify_response(&response)?;
         RestoreRecord::from_response(response)
     }
@@ -144,7 +157,9 @@ impl HubuumGateway {
         );
         let client = self.client();
         let id = RestoreId::from(receipt.restore_id());
-        let response = match client.restores().confirm(id, request.clone()) {
+        let response = match client_call("restores.confirm", || {
+            client.restores().confirm(id, request.clone())
+        }) {
             Ok(response) => response,
             Err(error) if error.is_reauthentication_required() => {
                 send_approved(self.approval_source().approve(

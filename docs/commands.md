@@ -30,6 +30,72 @@ hubuum-cli config show \> each:/tmp/hubuum-config-{n}.txt
 
 Operators do not need escaping inside the REPL or a Hubuum CLI script file.
 
+## Command diagnostics
+
+Add `--debug` to a command to print its total duration and the client API
+operations it performed. Each operation includes its duration and whether it
+succeeded or failed:
+
+```sh
+hubuum-cli object list --class Hosts --debug
+hubuum-cli --debug object list --class Hosts
+hubuum-cli --debug script commands.hubuum
+```
+
+For example, the report for a successful list command might be:
+
+```text
+Debug: command took 18.750 ms; 2 client API calls; 2 HTTP attempts
+  execute: 17.900 ms
+    1. classes.get_by_name: 4.250 ms (ok)
+      request GET /api/v1/classes/by-name/{class_name}: 4.200 ms (ok)
+        HTTP GET attempt 1: 3.500 ms [status 200] (ok)
+    2. QueryOp.page: 10.500 ms (ok)
+      request GET /api/v1/classes/{class_id}/: 10.400 ms (ok)
+        HTTP GET attempt 1: 9.700 ms [status 200] (ok)
+  render: 0.800 ms
+```
+
+Reports go to stderr, keeping JSON, pipelines, and redirected result files clean.
+The command option works in the REPL and scripts. Placing `--debug` before the
+command enables it for every command in that invocation, including a whole
+script or REPL session. A command-specific flag applies only to that command.
+
+Total time includes command execution, pipeline processing, and result rendering
+or file redirection. Initial startup and login happen before command timing;
+background polling and completion are excluded. Nested workflow operations share
+the enclosing command's report.
+
+The report is collected from `tracing` spans beneath the current command's root
+span. Execution, rendering, and client calls emit their own spans. The context
+follows command work onto blocking workers, and each script or REPL command starts
+a fresh report. Detached spans and work that finishes after its command cannot
+enter the next report. Timings measure elapsed wall time, including waits; nested
+durations overlap and should not be added together. Debug collection works even
+with `RUST_LOG=off`; the normal log filter applies independently.
+
+Client 0.15.1 supplies versioned request, HTTP-attempt, retry, and stream spans,
+plus automatic-pagination events. The report shows endpoint templates, response
+statuses, retry attempts, pages, and outcomes using that documented contract.
+Only those diagnostic fields are collected. Other descendant client spans appear
+by name and lifetime, with their fields omitted.
+
+Client API calls and HTTP attempts are counted separately: one API call can
+perform several requests, including internal retries or automatic pagination.
+HTTP-attempt timing ends at response headers; request timing also includes
+buffered body processing. Redirects handled internally by the HTTP client remain
+inside its send attempt. Custom transport invocations are counted separately
+because they need not correspond to individual HTTP requests. Explicit page
+iteration is recorded as `pages.next` for each page or failure.
+
+For streaming calls, API-call timing ends when the client returns the stream;
+the client body span follows consumption until EOF, failure, or cancellation.
+Unfinished spans are marked as such when a command ends. Network activity inside
+executable extensions is outside the CLI's client instrumentation. Operation
+labels contain no argument values, credentials, response bodies, or error messages.
+
+## Scripts and aliases
+
 Run commands from a script file:
 
 ```sh
