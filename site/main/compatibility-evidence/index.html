@@ -1589,10 +1589,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-client-v0150" class="md-nav__link">
+  <a href="#cli-v0015-client-v0150" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Development: client v0.15.0
+        CLI v0.0.15: client v0.15.0
       </span>
     </span>
   </a>
@@ -1820,10 +1820,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-client-v0150" class="md-nav__link">
+  <a href="#cli-v0015-client-v0150" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Development: client v0.15.0
+        CLI v0.0.15: client v0.15.0
       </span>
     </span>
   </a>
@@ -1906,7 +1906,7 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. Development builds use
+and reproducibly tests its Hubuum server target. CLI v0.0.15 uses
 <code>hubuum_client</code> 0.15.0, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -1923,16 +1923,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
-<td>Unreleased</td>
+<td>0.0.15</td>
 <td>0.15.0</td>
 <td>0.0.19</td>
-<td>Development target; backup output 9 and restore input 6/7/8/9</td>
+<td>Latest release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9</td>
 </tr>
 <tr>
 <td>0.0.14</td>
 <td>0.14.1</td>
 <td>0.0.18</td>
-<td>Latest release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8</td>
+<td>Previous CLI release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8</td>
 </tr>
 <tr>
 <td>0.0.13</td>
@@ -2026,14 +2026,14 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
-<h2 id="development-client-v0150">Development: client v0.15.0<a class="headerlink" href="#development-client-v0150" title="Permanent link">&para;</a></h2>
-<p>Development builds pin the published <code>hubuum_client</code> 0.15.0 and the released
+<h2 id="cli-v0015-client-v0150">CLI v0.0.15: client v0.15.0<a class="headerlink" href="#cli-v0015-client-v0150" title="Permanent link">&para;</a></h2>
+<p>CLI v0.0.15 pins the published <code>hubuum_client</code> 0.15.0 and the released
 server v0.0.19 image
 <code>ghcr.io/hubuum/hubuum-server@sha256:6fbe91693356b8885e6b1115cea4417dbf80747ba4af3eb0a15b855ffff47225</code>.
 The upstream contract grows from 235 to 240 operations and has 111 reconciled
 wire-model mappings. Client features remain blocking-only and its MSRV remains
 Rust 1.88. The CLI declares no MSRV; local verification used Rust 1.98.0.</p>
-<p>On 2026-10-19, all 780 workspace tests, Clippy, formatting, tracked Markdown lint,
+<p>On 2026-10-19, all 799 workspace tests, Clippy, formatting, tracked Markdown lint,
 wrapper tests, extension JSON Schema validation, CI policy tests, and documentation
 build/link checks passed. Cargo audit found no vulnerable dependencies using a
 fresh advisory database; its optional registry refresh could not lock the local
@@ -2042,10 +2042,14 @@ The unchanged workspace library APIs introduce no semver or feature changes.</p>
 <p><code>cargo build --locked</code> followed by <code>python3.12 scripts/test-backup-restore.py</code>
 passed against the pinned image using isolated Podman storage under <code>/tmp</code>.
 This verifies the Linux amd64 image from the multi-platform index. The suite
-covered collection-owned integrations, shared webhook presets and server previews,
-object/relation reads and graph limits, structured search and JSONL streams,
-credential approvals, task discovery, and schema evolution. All three format 9
-restore cycles completed, including with/without history and a second generation.
+covered collection-owned integrations, shared webhook presets, CLI preview/test,
+system subscription CRUD and authentication subject filters, relation-aware audit
+including deleted relationships, object/relation reads and graph limits, typed
+structured search and incremental JSON/JSONL streams, resource pipelines,
+credential approvals, task discovery, and schema evolution. Query-usage CRUD, stale
+revision rejection, and hypothetical analysis without declaration mutation passed.
+All three format 9 restore cycles completed, including with/without history and a
+second generation.
 Each cycle recovered a deleted query-usage declaration with its revision and
 attribution, invalidated old tokens, and preserved object revisions, timestamps,
 and JSON nulls. Follow-up staging and preservation of an earlier deletion passed.
