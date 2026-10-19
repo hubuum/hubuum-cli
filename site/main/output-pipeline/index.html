@@ -1967,6 +1967,13 @@ before each item is rendered. Parent directories must already exist, and
 duplicate generated paths fail before writing. Redirect output uses the same
 color choice as terminal output: <code>auto</code> and <code>never</code> strip ANSI from files,
 while <code>always</code> retains it.</p>
+<p>With <code>--debug --output json</code>, final rendering wraps the transformed result in
+<code>{"data": ..., "debug": ...}</code>. Debug metadata does not enter pipe transforms or
+filename-template resolution. File redirects receive that response object, and
+each <code>each:</code> file contains its own result with the whole-command debug report.
+Warnings, errors, and plain-text messages are optional sibling arrays. See
+<a href="../commands/#command-diagnostics">command diagnostics</a> for the report schema and
+timing boundary. JSON output without debug keeps its existing shape.</p>
 <p>Redirect operators are standalone, whitespace-delimited tokens. Compact DSL
 comparisons such as <code>F age&gt;3</code> are not redirect candidates. Spaced comparisons
 such as <code>F WHERE age &gt; 3</code> remain predicates because redirect parsing requires

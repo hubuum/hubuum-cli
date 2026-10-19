@@ -619,6 +619,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0017-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.17: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0016-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1875,6 +1886,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0017-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.17: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0016-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1972,7 +1994,7 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.16 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
 <code>hubuum_client</code> 0.15.1, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -1989,10 +2011,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>0.0.17</td>
+<td>0.15.1</td>
+<td>0.0.19</td>
+<td>Latest release; structured JSON command diagnostics</td>
+</tr>
+<tr>
 <td>0.0.16</td>
 <td>0.15.1</td>
 <td>0.0.19</td>
-<td>Latest release; command tracing and adaptive grouped table headers</td>
+<td>Previous CLI release; command tracing and adaptive grouped table headers</td>
 </tr>
 <tr>
 <td>0.0.15</td>
@@ -2075,7 +2103,7 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.16 targets server v0.0.19 through client 0.15.1. Protected
+<p>CLI v0.0.17 targets server v0.0.19 through client 0.15.1. Protected
 credential mutations and restore confirmation require fresh human approval.
 Use <a href="../credential-approvals/">credential approvals</a>, <a href="../webhooks/">webhooks</a>,
 <a href="../query-usage/">query usage</a>, and <a href="../backup-restore/">backup and restore</a>
@@ -2091,6 +2119,10 @@ aliased as <code>--debug</code>; the host now reserves this flag for command dia
 <h2 id="verification-evidence">Verification evidence<a class="headerlink" href="#verification-evidence" title="Permanent link">&para;</a></h2>
 <p><a href="../compatibility-evidence/">Detailed evidence and historical migrations</a> retain tested
 image identities, dates, suite results, and earlier compatibility limits.</p>
+<h2 id="cli-v0017-client-v0151">CLI v0.0.17: client v0.15.1<a class="headerlink" href="#cli-v0017-client-v0151" title="Permanent link">&para;</a></h2>
+<p>JSON debug consumers must now read command results from <code>.data</code> and diagnostics
+from <code>.debug</code>. The client dependency and server target remain unchanged. See
+<a href="../compatibility-evidence/#cli-v0017-client-v0151">CLI v0.0.17 evidence</a>.</p>
 <h2 id="cli-v0016-client-v0151">CLI v0.0.16: client v0.15.1<a class="headerlink" href="#cli-v0016-client-v0151" title="Permanent link">&para;</a></h2>
 <p>See <a href="../compatibility-evidence/#cli-v0016-client-v0151">CLI v0.0.16 evidence</a>
 for the tracing contract, pinned server identity, and completed checks.</p>

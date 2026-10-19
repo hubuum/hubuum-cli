@@ -1589,6 +1589,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0017-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.17: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0016-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1831,6 +1842,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0017-client-v0151" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.17: client v0.15.1
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0016-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1928,7 +1950,7 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.16 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
 <code>hubuum_client</code> 0.15.1, which targets Hubuum server v0.0.19.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -1945,10 +1967,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>0.0.17</td>
+<td>0.15.1</td>
+<td>0.0.19</td>
+<td>Latest release; structured JSON command diagnostics</td>
+</tr>
+<tr>
 <td>0.0.16</td>
 <td>0.15.1</td>
 <td>0.0.19</td>
-<td>Latest release; command tracing and adaptive grouped table headers</td>
+<td>Previous CLI release; command tracing and adaptive grouped table headers</td>
 </tr>
 <tr>
 <td>0.0.15</td>
@@ -2054,6 +2082,24 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0017-client-v0151">CLI v0.0.17: client v0.15.1<a class="headerlink" href="#cli-v0017-client-v0151" title="Permanent link">&para;</a></h2>
+<p>CLI v0.0.17 keeps the published <code>hubuum_client</code> 0.15.1 and server v0.0.19 target.
+It adds a version 1 JSON diagnostics response around the original command data.
+No dependency, feature, MSRV, server target, or OpenAPI contract changes are
+introduced. JSON debug consumers must read results from <code>.data</code> and diagnostics
+from <code>.debug</code>; other output modes keep their existing behavior.</p>
+<p>The release checks use the same immutable server image as v0.0.16:
+<code>ghcr.io/hubuum/hubuum-server@sha256:6fbe91693356b8885e6b1115cea4417dbf80747ba4af3eb0a15b855ffff47225</code>.
+Regression coverage includes API failures and HTTP statuses, pipeline and redirect
+errors, extension warnings, JSON result shapes, command isolation, and diagnostic
+redaction. An authorized read-only Hosts query on 2026-10-19 returned two rows
+with three client API calls and three HTTP attempts, all status 200, inside a
+single JSON response with empty stderr. All 813 workspace tests passed, together
+with Clippy, rustfmt, Markdown lint, wrapper tests, extension schema validation,
+and CI-policy tests. The disposable-server integration suite passed against that
+pinned image, including all three format 9 restore cycles and the supported
+command/streaming surfaces. A fresh audit found no vulnerable dependencies in
+the 424-package lockfile.</p>
 <h2 id="cli-v0016-client-v0151">CLI v0.0.16: client v0.15.1<a class="headerlink" href="#cli-v0016-client-v0151" title="Permanent link">&para;</a></h2>
 <p>CLI v0.0.16 pins the published <code>hubuum_client</code> 0.15.1 for its versioned tracing
 contract. The server target remains v0.0.19, with immutable image
