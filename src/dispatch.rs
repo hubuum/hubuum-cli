@@ -137,12 +137,12 @@ async fn execute_line_inner(
         resolved.command_index,
         &option_defs,
     )?;
-    set_render_format(render_format(&tokens)?)?;
-    set_table_headers(table_headers(&tokens)?)?;
     let options = tokens.get_options();
     if options.contains_key("debug") {
         diagnostics::enable();
     }
+    set_render_format(render_format(&tokens)?)?;
+    set_table_headers(table_headers(&tokens)?)?;
     if options.contains_key("help") || options.contains_key("h") {
         return render_help(
             app.clone(),
@@ -334,6 +334,7 @@ async fn execute_offline_line_inner(
         if options.contains_key("debug") {
             diagnostics::enable();
         }
+        set_render_format(render_format(&tokens)?)?;
         if options.contains_key("help") || options.contains_key("h") {
             return render_help_from_catalog(
                 catalog,
@@ -480,8 +481,13 @@ pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
 pub fn render_error(err: AppError) -> OutputSnapshot {
     let json_output = diagnostics::json_output();
     reset_output().expect("reset output buffer for errors");
-    if json_output {
-        set_render_format(RenderFormat::Json).expect("error format should be set");
+    if let Some(json) = json_output {
+        set_render_format(if json {
+            RenderFormat::Json
+        } else {
+            RenderFormat::Text
+        })
+        .expect("error format should be set");
     }
     let mut warnings = Vec::new();
     let mut err = err;

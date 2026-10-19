@@ -952,6 +952,61 @@ fn offline_workflow_steps_run_without_login() {
 }
 
 #[test]
+fn nested_workflow_errors_keep_the_outer_debug_output_format() {
+    let temporary = tempdir().expect("temporary directory");
+    let user_root = temporary.path().join("installed");
+    create_dir_all(&user_root).unwrap();
+    write_workflow_pack(
+        &user_root,
+        "failed-flow",
+        &["config", "show"],
+        &[("key", "unknown.key")],
+        false,
+    );
+    let config = temporary.path().join("config.toml");
+    write_config(&config, &user_root);
+    let contents = std::fs::read_to_string(&config).unwrap();
+    write(
+        &config,
+        format!("{contents}\n[output]\nformat = \"Json\"\n"),
+    )
+    .unwrap();
+    for format in ["text", "json"] {
+        let output = cargo_bin_cmd!("hubuum-cli")
+            .args([
+                "--config",
+                config.to_str().unwrap(),
+                "extension",
+                "failed-flow",
+                "snapshot",
+                "--debug",
+                "--output",
+                format,
+            ])
+            .assert()
+            .failure()
+            .get_output()
+            .clone();
+        if format == "json" {
+            assert!(output.stderr.is_empty());
+            let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert!(response["errors"][0]
+                .as_str()
+                .unwrap()
+                .contains("unknown.key"));
+            assert_eq!(response["debug"]["version"], 1);
+        } else {
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            assert!(stdout.contains("Error:"), "{stdout}");
+            assert!(stdout.contains("unknown.key"), "{stdout}");
+            assert!(String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("Debug: command took"));
+        }
+    }
+}
+
+#[test]
 fn doctor_quarantines_mutating_workflows_without_capability() {
     let temporary = tempdir().expect("temporary directory");
     let user_root = temporary.path().join("installed");

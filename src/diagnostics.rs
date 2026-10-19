@@ -551,16 +551,19 @@ pub(crate) fn enabled() -> bool {
 }
 
 pub(crate) fn set_json_output(json: bool) {
+    // Workflow steps may request another format. Error presentation belongs to
+    // the outer command, whose format is selected first.
     let _ = TRACE.try_with(|trace| {
         trace
             .0
             .lock()
             .expect("debug trace lock poisoned")
-            .json_output = Some(json)
+            .json_output
+            .get_or_insert(json);
     });
 }
 
-pub(crate) fn json_output() -> bool {
+pub(crate) fn json_output() -> Option<bool> {
     TRACE
         .try_with(|trace| {
             trace
@@ -571,7 +574,6 @@ pub(crate) fn json_output() -> bool {
         })
         .ok()
         .flatten()
-        .unwrap_or(false)
 }
 
 async fn run_in_trace<T>(trace: CommandTrace, operation: impl Future<Output = T>) -> T {

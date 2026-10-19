@@ -68,7 +68,7 @@ Regression coverage includes API failures and HTTP statuses, pipeline and redire
 errors, extension warnings, JSON result shapes, command isolation, and diagnostic
 redaction. An authorized read-only Hosts query on 2026-10-19 returned two rows
 with three client API calls and three HTTP attempts, all status 200, inside a
-single JSON response with empty stderr. All 812 workspace tests passed, together
+single JSON response with empty stderr. All 813 workspace tests passed, together
 with Clippy, rustfmt, Markdown lint, wrapper tests, extension schema validation,
 and CI-policy tests. The disposable-server integration suite passed against that
 pinned image, including all three format 9 restore cycles and the supported

@@ -157,7 +157,7 @@ async fn execute_repl_line(
             let session = session.clone();
             let warnings = &warnings;
             async move {
-                if diagnostics::enabled() && diagnostics::json_output() {
+                if diagnostics::enabled() && diagnostics::json_output() == Some(true) {
                     warnings
                         .borrow_mut()
                         .extend(reauthentication_warning(&request).warnings);
