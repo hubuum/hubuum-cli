@@ -2,9 +2,12 @@ use crate::services::{AuditActorKind, AuditResourceKind, CompletionContext};
 
 pub fn event_sinks(ctx: &CompletionContext, prefix: &str, parts: &[String]) -> Vec<String> {
     if parts.get(1).is_some_and(|part| part == "sink")
-        && parts
-            .get(2)
-            .is_some_and(|part| matches!(part.as_str(), "grant" | "revoke" | "collections"))
+        && parts.get(2).is_some_and(|part| {
+            matches!(
+                part.as_str(),
+                "grant" | "revoke" | "collections" | "preview" | "test"
+            )
+        })
     {
         return ctx.event_sinks(prefix);
     }
@@ -56,6 +59,8 @@ pub fn event_entity_types(
             "task",
             "event_sink",
             "event_subscription",
+            "authentication",
+            "query_usage_declaration",
         ],
         prefix,
     )

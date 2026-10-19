@@ -168,9 +168,8 @@ def main():
                                    "--sink", sink_name, "--name", sink_name,
                                    "--entity-types", "object", "--actions", "created,updated",
                                    "--enabled", "false")
-                preview = api("POST", f'/api/v1/event-sinks/{sink["id"]}/preview', {
-                    "subscription_id": subscription["id"], "event_id": event_id,
-                }, token)
+                preview = cli("event", "sink", "preview", "--name", sink_name,
+                              "--subscription-id", str(subscription["id"]), "--event", event_id)
                 assert preview["sink_kind"] == "webhook", preview
                 payload = preview["payload"]
                 message = payload["content" if target == "discord" else "text"]
@@ -184,6 +183,27 @@ def main():
                               "--delivery-policy", '{}')
                 assert not cleared.get("delivery_policy") or cleared["delivery_policy"].get("min_interval_ms") is None
             print("Webhook presets and server previews passed for Slack, Mattermost, and Discord", flush=True)
+
+            login_events = api("GET", "/api/v1/events?entity_type=authentication&limit=100", token=token)
+            login_event = next(event for event in login_events if event["metadata"]["subject"]["is_admin"])
+            system_name = prefix + "-login-alerts"
+            system = cli("event", "subscription", "create", "--system", "--name", system_name,
+                         "--sink", sink_name, "--entity-types", "authentication", "--actions", "succeeded",
+                         "--filter", '{"subject_is_admin":true}', "--enabled", "false")
+            assert system["filter"]["subject_is_admin"] and "collection_id" not in system
+            assert cli("event", "subscription", "show", "--system", "--name", system_name)["id"] == system["id"]
+            assert any(item["id"] == system["id"] for item in cli("event", "subscription", "list", "--system"))
+            updated_system = cli("event", "subscription", "update", "--system", "--subscription", system_name,
+                                 "--filter", '{"subject_identity_scopes":["local"],"subject_is_admin":true}')
+            assert updated_system["filter"]["subject_identity_scopes"] == ["local"]
+            notification = ["--name", sink_name, "--subscription-id", str(system["id"]), "--event", login_event["event_id"]]
+            assert cli("event", "sink", "preview", *notification)["sink_kind"] == "webhook"
+            delivery = cli("event", "sink", "test", *notification)
+            assert delivery["purpose"] == "test" and delivery["subscription_id"] == system["id"]
+            assert cli("event", "delivery", "show", str(delivery["id"]))["purpose"] == "test"
+            assert "exactly one" in cli("event", "subscription", "list", "--system", "--collection", prefix, success=False)
+            cli("event", "subscription", "delete", "--system", "--name", system_name)
+            print("PASS: system subscription CRUD, authentication filters, CLI notification preview/test and delivery status", flush=True)
 
             # Detail and relation reads reuse graph roots and embedded metadata.
             # Keep the root and related class in different collections so the
@@ -231,6 +251,17 @@ def main():
             graph = cli("relation", "object", "graph", "--root-class", prefix, "--root-object", prefix)
             neighbor = next(item for item in graph["objects"] if item["id"] == related_object["id"])
             assert neighbor["collection"] == related_collection["name"] and neighbor["path"] == ["neighbor"]
+            entity_events = cli("audit", "resource", "--resource", "object", "--class", prefix, "--name", prefix, "--all")
+            relation_events = cli("audit", "resource", "--resource", "object", "--class", prefix, "--name", prefix, "--include-relations", "--all")
+            entity_events = entity_events["items"]
+            relation_events = relation_events["items"]
+            assert len(relation_events) > len(entity_events), {
+                "entity": [(event["entity_type"], event["action"]) for event in entity_events],
+                "relations": [(event["entity_type"], event["action"]) for event in relation_events],
+                "direct": [(event["entity_type"], event["action"]) for event in api("GET", object_path + "/events?include_relations=true", token=token)],
+            }
+            assert any("relation" in event["entity_type"] for event in relation_events)
+            assert "requires" in cli("audit", "resource", "--resource", "collection", "--name", prefix, "--include-relations", success=False)
             print("PASS: object detail text/JSON/pipeline, object lists, class details, and relation reads", flush=True)
             # Graph limits are server-side guards, not list pagination or truncation.
             # The root is excluded from the related-entry count, so two neighbors
@@ -259,6 +290,19 @@ def main():
                 exceeded = cli(*command, "--limit", "1", success=False)
                 assert "limit" in exceeded.lower(), exceeded
             print("PASS: all four graph limits preserve results and reject zero/oversized graphs", flush=True)
+            endpoints = ["--class-a", prefix, "--object-a", prefix,
+                         "--class-b", related_name, "--object-b", "neighbor"]
+            cli("relation", "object", "delete", *endpoints)
+            for class_name, object_name in [(prefix, prefix), (related_name, "neighbor")]:
+                events = cli("audit", "resource", "--resource", "object", "--class", class_name,
+                             "--name", object_name, "--include-relations", "--all")
+                assert any("relation" in event["entity_type"] and event["action"] == "deleted" for event in events["items"])
+            class_events = cli("audit", "resource", "--resource", "class", "--name", prefix,
+                               "--include-relations", "--all")
+            assert any("relation" in event["entity_type"] for event in class_events["items"])
+            cli("relation", "object", "create", *endpoints)
+            print("PASS: opt-in class/object audit includes relation activity and deleted relationships from either endpoint", flush=True)
+
 
 
             # Search files and the terminal predicate DSL must agree on the pinned API.

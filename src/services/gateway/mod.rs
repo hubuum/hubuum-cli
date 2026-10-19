@@ -9,6 +9,8 @@ mod exports;
 mod groups;
 mod identity;
 mod imports;
+#[cfg(test)]
+mod notification_tests;
 mod object_aggregates;
 mod objects;
 mod principal_tokens;
@@ -50,7 +52,8 @@ pub use computed::{
 };
 pub(crate) use credential_approvals::CredentialApprovalSource;
 pub use events::{
-    AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, HistoryInput, HistoryScope,
+    AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, EventSubscriptionScope,
+    HistoryInput, HistoryScope,
 };
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};

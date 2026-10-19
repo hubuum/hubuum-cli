@@ -4,6 +4,17 @@
 
 ### Added
 
+- Add administrator `event sink preview` and `test` commands using an audit event
+  UUID and subscription ID. Preview renders without delivery; test queues a real
+  message and bypasses enabled flags and subscription filters. Test submissions
+  are never replayed automatically after ambiguous failures.
+- Add `event subscription list|show|create|update|delete --system`, with explicit
+  collection/system scope selection, authentication subject filters, and REPL
+  completion. System lists return all subscriptions; use local pipelines for
+  filtering and sorting.
+- Add `audit resource --include-relations` for class and object relationship
+  activity, including deleted relations, while retaining entity-only defaults.
+
 - Add `self_update.check_on_startup` (default `false`) to optionally announce
   newer stable releases when the interactive shell starts, without installing
   them. Add `self_update.enabled` (default `true`) so managed installations can

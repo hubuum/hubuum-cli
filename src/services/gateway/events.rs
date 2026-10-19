@@ -4,9 +4,10 @@ use std::str::FromStr;
 use hubuum_client::{
     client::sync::{EventListRequest, HistoryRequest},
     types::SortDirection,
-    ClassId, CollectionId, EventDeliveryId, EventSinkId, EventSubscriptionId, ExportTemplateId,
-    FilterOperator, GroupId, HistoryId, HubuumDateTime, NewEventSink, NewEventSubscription,
-    ObjectId, QueryFilter, RemoteTargetId, UpdateEventSink, UpdateEventSubscription, UserId,
+    ClassId, CollectionId, EventDeliveryId, EventNotificationRequest, EventSinkId,
+    EventSubscriptionId, ExportTemplateId, FilterOperator, GroupId, HistoryId, HubuumDateTime,
+    NewEventSink, NewEventSubscription, ObjectId, QueryFilter, RemoteTargetId, UpdateEventSink,
+    UpdateEventSubscription, UserId,
 };
 use log::debug;
 use reqwest::StatusCode;
@@ -27,6 +28,7 @@ use super::HubuumGateway;
 #[derive(Debug, Clone, Default)]
 pub struct AuditListInput {
     pub action: Option<String>,
+    pub include_relations: bool,
     pub actor_kind: Option<AuditActorKind>,
     pub actor_user_id: Option<UserId>,
     pub collection_id: Option<CollectionId>,
@@ -36,6 +38,12 @@ pub struct AuditListInput {
     pub sort: Option<String>,
     pub cursor: Option<String>,
     pub page_selection: PageSelection,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum EventSubscriptionScope {
+    Collection(CollectionId),
+    System,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,6 +273,13 @@ impl HubuumGateway {
         scope: AuditScope,
         input: AuditListInput,
     ) -> Result<PagedResult<AuditEventRecord>, AppError> {
+        if input.include_relations
+            && !matches!(scope, AuditScope::Class(_) | AuditScope::Object { .. })
+        {
+            return Err(AppError::InvalidOption(
+                "--include-relations requires a class or object audit resource".into(),
+            ));
+        }
         let request = match scope {
             AuditScope::Global => self.client().events(),
             AuditScope::Collection(id) => self.client().collection_events(id),
@@ -649,109 +664,143 @@ impl HubuumGateway {
 
     pub fn event_subscriptions(
         &self,
-        collection_id: CollectionId,
+        scope: EventSubscriptionScope,
         query: &ListQuery,
     ) -> Result<PagedResult<JsonRecord>, AppError> {
+        let EventSubscriptionScope::Collection(collection_id) = scope else {
+            if !query.filters.is_empty()
+                || !query.sorts.is_empty()
+                || query.limit.is_some()
+                || query.cursor.is_some()
+            {
+                return Err(AppError::InvalidOption("System subscriptions return the complete list; --where, --sort, --limit and --cursor are unsupported. Use a local output pipeline to filter or sort.".into()));
+            }
+            let items = self
+                .client()
+                .system_event_subscriptions()
+                .list()?
+                .into_iter()
+                .map(JsonRecord::from_serializable)
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(PagedResult {
+                returned_count: items.len(),
+                total_count: query.include_total.then_some(items.len() as u64),
+                items,
+                next_cursor: None,
+            });
+        };
         let validated = validate_filter_clauses(&query.filters, EVENT_SUBSCRIPTION_FILTER_SPECS)?;
         let validated_sorts = validate_sort_clauses(&query.sorts, EVENT_SUBSCRIPTION_SORT_SPECS)?;
         let filters = self.resolve_event_filters(&validated)?;
-        let page = fetch_cursor_results(
+        paged_to_json(fetch_cursor_results(
             self.client()
                 .event_subscriptions(collection_id)
                 .query()
                 .filters(filters),
             query,
             &validated_sorts,
-        )?;
-        paged_to_json(page)
-    }
-
-    pub fn event_subscription(
-        &self,
-        collection_id: CollectionId,
-        subscription_id: EventSubscriptionId,
-    ) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(
-            self.client()
-                .event_subscriptions(collection_id)
-                .get(subscription_id)?,
-        )
-        .map_err(AppError::from)
+        )?)
     }
 
     pub fn event_subscription_by_name(
         &self,
-        collection_id: CollectionId,
+        scope: EventSubscriptionScope,
         name: &str,
     ) -> Result<JsonRecord, AppError> {
-        let subscription = self.event_subscription_id_by_name(collection_id, name)?;
-        self.event_subscription(collection_id, subscription)
+        let id = self.event_subscription_id_by_name(scope, name)?;
+        match scope {
+            EventSubscriptionScope::Collection(collection) => Ok(JsonRecord::from_serializable(
+                self.client().event_subscriptions(collection).get(id)?,
+            )?),
+            EventSubscriptionScope::System => Ok(JsonRecord::from_serializable(
+                self.client().system_event_subscriptions().get(id)?,
+            )?),
+        }
     }
 
     pub fn create_event_subscription(
         &self,
-        collection_id: CollectionId,
+        scope: EventSubscriptionScope,
         input: NewEventSubscription,
     ) -> Result<JsonRecord, AppError> {
-        JsonRecord::from_serializable(
-            self.client()
-                .event_subscriptions(collection_id)
-                .create(input)?,
-        )
-        .map_err(AppError::from)
+        match scope {
+            EventSubscriptionScope::Collection(collection) => Ok(JsonRecord::from_serializable(
+                self.client()
+                    .event_subscriptions(collection)
+                    .create(input)?,
+            )?),
+            EventSubscriptionScope::System => Ok(JsonRecord::from_serializable(
+                self.client().system_event_subscriptions().create(input)?,
+            )?),
+        }
     }
 
     pub fn update_event_subscription(
         &self,
-        collection_id: CollectionId,
-        subscription_name: &str,
+        scope: EventSubscriptionScope,
+        name: &str,
         input: UpdateEventSubscription,
     ) -> Result<JsonRecord, AppError> {
-        let subscription_id =
-            self.event_subscription_id_by_name(collection_id, subscription_name)?;
-        JsonRecord::from_serializable(
-            self.client()
-                .event_subscriptions(collection_id)
-                .update(subscription_id, input)?,
-        )
-        .map_err(AppError::from)
-    }
-
-    pub fn delete_event_subscription(
-        &self,
-        collection_id: CollectionId,
-        subscription_id: EventSubscriptionId,
-    ) -> Result<(), AppError> {
-        self.client()
-            .event_subscriptions(collection_id)
-            .delete(subscription_id)?;
-        Ok(())
+        let id = self.event_subscription_id_by_name(scope, name)?;
+        match scope {
+            EventSubscriptionScope::Collection(collection) => Ok(JsonRecord::from_serializable(
+                self.client()
+                    .event_subscriptions(collection)
+                    .update(id, input)?,
+            )?),
+            EventSubscriptionScope::System => Ok(JsonRecord::from_serializable(
+                self.client()
+                    .system_event_subscriptions()
+                    .update(id, input)?,
+            )?),
+        }
     }
 
     pub fn delete_event_subscription_by_name(
         &self,
-        collection_id: CollectionId,
-        subscription_name: &str,
+        scope: EventSubscriptionScope,
+        name: &str,
     ) -> Result<(), AppError> {
-        let subscription_id =
-            self.event_subscription_id_by_name(collection_id, subscription_name)?;
-        self.delete_event_subscription(collection_id, subscription_id)
+        let id = self.event_subscription_id_by_name(scope, name)?;
+        match scope {
+            EventSubscriptionScope::Collection(collection) => {
+                self.client().event_subscriptions(collection).delete(id)?
+            }
+            EventSubscriptionScope::System => {
+                self.client().system_event_subscriptions().delete(id)?
+            }
+        }
+        Ok(())
     }
 
     fn event_subscription_id_by_name(
         &self,
-        collection_id: CollectionId,
+        scope: EventSubscriptionScope,
         name: &str,
     ) -> Result<EventSubscriptionId, AppError> {
-        let page = self
-            .client()
-            .event_subscriptions(collection_id)
-            .query()
-            .filter("name", FilterOperator::Equals { is_negated: false }, name)
-            .limit(2)
-            .page()?;
-        match page.items.as_slice() {
-            [subscription] => Ok(subscription.id),
+        let ids: Vec<_> = match scope {
+            EventSubscriptionScope::Collection(collection) => self
+                .client()
+                .event_subscriptions(collection)
+                .query()
+                .filter("name", FilterOperator::Equals { is_negated: false }, name)
+                .limit(2)
+                .page()?
+                .items
+                .into_iter()
+                .map(|subscription| subscription.id)
+                .collect(),
+            EventSubscriptionScope::System => self
+                .client()
+                .system_event_subscriptions()
+                .list()?
+                .into_iter()
+                .filter(|subscription| subscription.name == name)
+                .map(|subscription| subscription.id)
+                .collect(),
+        };
+        match ids.as_slice() {
+            [id] => Ok(*id),
             [] => Err(AppError::EntityNotFound(format!(
                 "event subscription '{name}'"
             ))),
@@ -759,6 +808,36 @@ impl HubuumGateway {
                 "event subscriptions named '{name}'"
             ))),
         }
+    }
+
+    pub fn list_system_event_subscription_names(&self) -> Result<Vec<String>, AppError> {
+        Ok(self
+            .client()
+            .system_event_subscriptions()
+            .list()?
+            .into_iter()
+            .map(|subscription| subscription.name)
+            .collect())
+    }
+
+    pub fn preview_event_notification(
+        &self,
+        sink: EventSinkId,
+        request: EventNotificationRequest,
+    ) -> Result<JsonRecord, AppError> {
+        Ok(JsonRecord::from_serializable(
+            self.client().preview_event_notification(sink, request)?,
+        )?)
+    }
+
+    pub fn test_event_notification(
+        &self,
+        sink: EventSinkId,
+        request: EventNotificationRequest,
+    ) -> Result<JsonRecord, AppError> {
+        Ok(JsonRecord::from_serializable(
+            self.client().test_event_notification(sink, request)?,
+        )?)
     }
 
     pub fn event_deliveries(&self, query: &ListQuery) -> Result<PagedResult<JsonRecord>, AppError> {
@@ -817,6 +896,9 @@ fn apply_audit_input(
     }
     if let Some(actor_kind) = input.actor_kind {
         request = request.actor_kind(actor_kind.as_str());
+    }
+    if input.include_relations {
+        request = request.include_relations(true);
     }
     if let Some(actor_user_id) = input.actor_user_id {
         request = request.actor_user_id(actor_user_id);

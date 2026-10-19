@@ -21,6 +21,7 @@ mod collection;
 mod computed;
 pub(crate) mod config;
 mod event_delivery;
+mod event_notification;
 mod event_sink;
 mod event_subscription;
 mod export;
