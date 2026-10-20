@@ -1405,6 +1405,112 @@ mod tests {
 
     #[test]
     #[serial]
+    fn object_list_reuses_schema_for_text_json_and_pipeline_output() {
+        init_config(AppConfig::default()).unwrap();
+        let fixture: Value =
+            from_str(include_str!("../../tests/fixtures/object-show.json")).unwrap();
+        let runtime = Runtime::new().unwrap();
+
+        for (suffix, pipeline, has_schema, empty) in [
+            ("", false, true, false),
+            ("--data-columns auto", false, false, false),
+            ("--computed S:rank", false, true, false),
+            ("--computed S:rank --sort S:rank desc", false, true, false),
+            ("--output json", false, true, false),
+            ("--output json", true, true, false),
+            ("", false, true, true),
+            ("--computed S:rank", false, true, true),
+            ("--computed S:rank --sort S:rank desc", false, true, true),
+        ] {
+            let mut class = fixture["root_class"].clone();
+            if has_schema {
+                class["json_schema"] = json!({
+                    "type": "object",
+                    "properties": {"serial": {"type": "string"}}
+                });
+            }
+            let mut object = fixture["graph"]["objects"][0].clone();
+            object["data"] = json!({"serial": "NX10067563", "cpu": "Intel"});
+            object["computed"] = json!({
+                "shared": {
+                    "revision": 1, "materialization_stale": false,
+                    "values": {"rank": 2}, "errors": {}
+                }
+            });
+            let objects = if empty { json!([]) } else { json!([object]) };
+            let transport = MockTransport::default();
+            for response in [class, objects]
+                .into_iter()
+                .chain((!empty).then(|| json!([fixture["collections"][0]])))
+            {
+                transport
+                    .push_response(TransportResponse::json(StatusCode::OK, &response).unwrap());
+            }
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap()
+                .authenticate(Token::new("test-token"));
+            let services = AppServices::new(
+                Arc::new(client),
+                runtime.handle().clone(),
+                Duration::from_secs(60),
+            );
+            reset_output().unwrap();
+            if pipeline {
+                set_pipeline(vec![PipeStage::Columns(vec![
+                    ProjectTerm::keep("name").unwrap(),
+                    ProjectTerm::keep("serial").unwrap(),
+                ])])
+                .unwrap();
+            }
+            let tokens = CommandTokenizer::new(
+                &format!("object list --class Hosts --where data.cpu contains Intel {suffix}"),
+                "list",
+                &command_options::<ObjectList>(),
+            )
+            .unwrap();
+            ObjectList::default().execute(&services, &tokens).unwrap();
+            let output = take_output().unwrap();
+            if suffix == "--output json" && !pipeline {
+                let value = output.semantic[0].value();
+                assert_eq!(value[0]["data"]["serial"], "NX10067563");
+                assert_eq!(value[0]["collection"], "Math");
+                assert!(value[0].get("class_schema").is_none());
+            } else if pipeline {
+                assert_eq!(
+                    output.semantic[0].value(),
+                    &json!([{"name": "nommo.uio.no", "serial": "NX10067563"}])
+                );
+            } else {
+                let rows = &output.semantic[0];
+                let cpu_column = if has_schema { "data.cpu" } else { "cpu" };
+                assert!(rows.columns().contains(&"serial".to_string()));
+                assert!(rows.columns().contains(&cpu_column.to_string()));
+                if empty {
+                    assert_eq!(rows.value(), &json!([]));
+                } else {
+                    assert_eq!(rows.value()[0]["serial"], "NX10067563");
+                    assert_eq!(rows.value()[0][cpu_column], "Intel");
+                    if suffix.contains("--computed") {
+                        assert_eq!(rows.value()[0]["S:rank"], 2);
+                    }
+                }
+            }
+            let requests = transport.requests();
+            assert_eq!(requests.len(), if empty { 2 } else { 3 }, "{suffix}");
+            assert_eq!(requests[0].url.path(), "/api/v1/classes/by-name/Hosts");
+            assert!(requests[1]
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "json_data__contains" && value.contains("Intel")));
+        }
+        reset_output().unwrap();
+    }
+
+    #[test]
+    #[serial]
     fn object_show_reuses_graph_without_changing_text_json_or_pipeline_output() {
         init_config(AppConfig::default()).unwrap();
         let fixture: Value =
@@ -1790,9 +1896,9 @@ impl CliCommand for ObjectList {
         let where_result_data_keys =
             where_result_data_keys(&list_query.filters, include_where_results);
         render_object_list_page(
-            services,
+            objects.class_schema(),
             tokens,
-            &objects,
+            objects.objects(),
             class_filter.as_deref(),
             query.data_columns.as_deref(),
             &where_result_data_keys,
@@ -1802,7 +1908,7 @@ impl CliCommand for ObjectList {
 }
 
 fn render_object_list_page(
-    services: &AppServices,
+    class_schema: Option<&Value>,
     tokens: &CommandTokenizer,
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
@@ -1819,13 +1925,13 @@ fn render_object_list_page(
         ),
         (OutputFormat::Json, true) | (OutputFormat::Text, _) => {
             let columns = object_list_columns(
-                services,
+                class_schema,
                 objects,
                 class_filter,
                 data_columns,
                 where_result_data_keys,
                 computed_selection,
-            )?;
+            );
             let rows = objects
                 .items
                 .iter()
@@ -2085,18 +2191,18 @@ fn computed_error_display(error: &Value) -> String {
 }
 
 fn object_list_columns(
-    services: &AppServices,
+    class_schema: Option<&Value>,
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
     requested: Option<&str>,
     where_result_data_keys: &[String],
     computed_selection: &ComputedFieldSelection,
-) -> Result<ObjectListColumns, AppError> {
+) -> ObjectListColumns {
     let (mut data_keys, compact_base) = match requested {
         Some(value) => match value.parse::<ObjectListDataColumns>() {
             Ok(ObjectListDataColumns::Preview) => (Vec::new(), false),
             Ok(ObjectListDataColumns::Auto) => {
-                let keys = auto_object_data_columns(services, objects, class_filter)?;
+                let keys = auto_object_data_columns(class_schema, objects, class_filter);
                 let compact_base = !keys.is_empty();
                 (keys, compact_base)
             }
@@ -2108,7 +2214,7 @@ fn object_list_columns(
             ObjectListDataColumns::Auto => {
                 let keys = match configured_object_data_columns(class_filter) {
                     Some(columns) => columns,
-                    None => auto_object_data_columns(services, objects, class_filter)?,
+                    None => auto_object_data_columns(class_schema, objects, class_filter),
                 };
                 let compact_base = !keys.is_empty();
                 (keys, compact_base)
@@ -2118,12 +2224,12 @@ fn object_list_columns(
     };
     let data_preview = data_keys.is_empty();
     extend_unique_data_keys(&mut data_keys, where_result_data_keys);
-    Ok(ObjectListColumns {
+    ObjectListColumns {
         data_keys,
         data_preview,
         compact_base,
         computed_columns: computed_selection.columns(&objects.items),
-    })
+    }
 }
 
 fn where_result_data_keys(filters: &[FilterClause], include: bool) -> Vec<String> {
@@ -2173,26 +2279,21 @@ fn configured_object_data_columns(class_filter: Option<&str>) -> Option<Vec<Stri
 }
 
 fn auto_object_data_columns(
-    services: &AppServices,
+    class_schema: Option<&Value>,
     objects: &PagedResult<ResolvedObjectRecord>,
     class_filter: Option<&str>,
-) -> Result<Vec<String>, AppError> {
-    let Some(class_name) = class_filter else {
-        return Ok(Vec::new());
-    };
+) -> Vec<String> {
+    if class_filter.is_none() {
+        return Vec::new();
+    }
 
-    let schema_keys = services
-        .gateway()
-        .class_schema(class_name)?
-        .as_ref()
-        .map(schema_property_keys)
-        .unwrap_or_default();
+    let schema_keys = class_schema.map(schema_property_keys).unwrap_or_default();
     let keys = if schema_keys.is_empty() {
         first_seen_data_keys(objects)
     } else {
         schema_keys
     };
-    Ok(bounded_auto_data_columns(keys, objects))
+    bounded_auto_data_columns(keys, objects)
 }
 
 fn bounded_auto_data_columns(

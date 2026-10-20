@@ -200,7 +200,12 @@ impl HubuumGateway {
             return Ok(PagedResult::empty(page.next_cursor, page.total_count));
         }
 
-        let class_map = self.class_map_from_relation_ids(&page.items)?;
+        let class_map = self.class_map_with_known(
+            page.items
+                .iter()
+                .flat_map(|relation| [relation.from_hubuum_class_id, relation.to_hubuum_class_id]),
+            [class.resource()],
+        )?;
         Ok(page.map(|relation| ResolvedClassRelationRecord::new(&relation, &class_map)))
     }
 
@@ -271,8 +276,8 @@ impl HubuumGateway {
     ) -> Result<ResolvedClassRelationRecord, AppError> {
         let classes = self.class_pair(class_a, class_b)?;
         let relation =
-            self.find_class_relation_between(classes.0.id.into(), classes.1.id.into())?;
-        let class_map = self.class_map_from_classes([&classes.0, &classes.1]);
+            self.find_class_relation_between(classes.0.id().into(), classes.1.id().into())?;
+        let class_map = self.class_map_from_classes([classes.0.resource(), classes.1.resource()]);
         Ok(ResolvedClassRelationRecord::new(&relation, &class_map))
     }
 
@@ -283,10 +288,9 @@ impl HubuumGateway {
     ) -> Result<(), AppError> {
         let classes = self.class_pair(class_a, class_b)?;
         let relation =
-            self.find_class_relation_between(classes.0.id.into(), classes.1.id.into())?;
-        let class = self.class_handle_by_name(class_a)?;
+            self.find_class_relation_between(classes.0.id().into(), classes.1.id().into())?;
         client_call("class.delete_relation", || {
-            class.delete_relation(relation.id)
+            classes.0.delete_relation(relation.id)
         })?;
         Ok(())
     }
@@ -327,10 +331,7 @@ impl HubuumGateway {
         mut input: CreateClassRelationInput,
     ) -> Result<ResolvedClassRelationRecord, AppError> {
         let (class_a, class_b) = input.class_names();
-        let mut classes = (
-            self.class_handle_by_name(class_a)?,
-            self.class_handle_by_name(class_b)?,
-        );
+        let mut classes = self.class_pair(class_a, class_b)?;
         let class_a_id: i32 = classes.0.id().into();
         let class_b_id: i32 = classes.1.id().into();
         if class_a_id > class_b_id {
@@ -687,8 +688,7 @@ impl HubuumGateway {
         target: &RelationTarget,
     ) -> Result<(SyncHandle<Object>, SyncHandle<Object>), AppError> {
         let (object_a_name, object_b_name) = validate_object_names(target)?;
-        let class_a = self.class_handle_by_name(&target.class_a)?;
-        let class_b = self.class_handle_by_name(&target.class_b)?;
+        let (class_a, class_b) = self.class_pair(&target.class_a, &target.class_b)?;
         let object_a = client_call("class.object_by_name", || {
             class_a.object_by_name(object_a_name)
         })?;

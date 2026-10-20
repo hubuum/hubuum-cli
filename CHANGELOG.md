@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Reuse the class schema fetched by `object list` when choosing automatic data
+  columns, avoiding a second class lookup for text and pipeline output.
+- Reuse embedded collection metadata for object details and known class metadata
+  when listing or deleting class relations. Same-class relations avoid duplicate
+  class and object lookups.
+
 ## [0.0.17] - 2026-10-19
 
 ### Added
