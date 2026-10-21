@@ -190,7 +190,7 @@ fn inspect_class_fields(
         .gateway()
         .list_objects(&list_query, !computed_fields.is_empty())?;
     render_class_fields(
-        &objects,
+        objects.objects(),
         &computed_fields,
         sample_limit,
         depth.unwrap_or(DEFAULT_OBJECT_FIELD_DEPTH),

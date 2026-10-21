@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use hubuum_client::{blocking::Client, Class, MockTransport, Token, TransportResponse};
-use reqwest::{header::HeaderValue, StatusCode};
+use reqwest::{header::HeaderValue, Method, StatusCode};
 use serde_json::{from_str, from_value, json, to_value, Value};
 
 use crate::list_query::{list_query_from_raw, ListQuery};
 
 use super::{
-    HubuumGateway, RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTraversalOptions,
+    CreateClassRelationInput, HubuumGateway, RelatedGraphLimit, RelatedObjectOptions, RelationRoot,
+    RelationTraversalOptions,
 };
 
 fn fixture() -> Value {
@@ -149,9 +150,10 @@ fn object_lists_reuse_the_class_for_plain_computed_and_sorted_output() {
         let f = fixture();
         let mut class = f["root_class"].clone();
         class["collection"] = f["collections"][0].clone();
+        class["json_schema"] = json!({"properties": {"serial": {"type": "string"}}});
         let mut object = f["graph"]["objects"][0].clone();
         object["computed"] = json!({"shared": {"revision": 1, "materialization_stale": false, "values": {"rank": 2}, "errors": {}}});
-        let (gateway, transport) = gateway([class, json!([object.clone()])]);
+        let (gateway, transport) = gateway([class.clone(), json!([object.clone()])]);
         let sorts = if sorted {
             vec!["S:rank desc".to_string()]
         } else {
@@ -159,7 +161,9 @@ fn object_lists_reuse_the_class_for_plain_computed_and_sorted_output() {
         };
         let query =
             list_query_from_raw(&["class equals Hosts".to_string()], &sorts, None, None).unwrap();
-        let page = gateway.list_objects(&query, include_computed).unwrap();
+        let result = gateway.list_objects(&query, include_computed).unwrap();
+        let page = result.objects();
+        assert_eq!(result.class_schema(), Some(&class["json_schema"]));
         let mut expected = f["expected"].clone();
         expected.as_object_mut().unwrap().remove("related_objects");
         if include_computed {
@@ -169,6 +173,131 @@ fn object_lists_reuse_the_class_for_plain_computed_and_sorted_output() {
         assert_eq!(transport.requests().len(), 2);
         assert_eq!(page.returned_count, 1);
     }
+}
+
+#[test]
+fn object_details_reuses_only_matching_embedded_collections() {
+    for collection_id in [7, 8] {
+        let f = fixture();
+        let mut class = f["root_class"].clone();
+        class["collection"] = f["collections"][0].clone();
+        let mut object = f["graph"]["objects"][0].clone();
+        object["collection_id"] = json!(collection_id);
+        let (gateway, transport) = gateway(
+            [class, json!([object])]
+                .into_iter()
+                .chain((collection_id == 8).then(|| f["collections"][1].clone())),
+        );
+        let details = gateway.object_details("Hosts", "nommo.uio.no").unwrap();
+        assert_eq!(details.class, "Hosts");
+        assert_eq!(
+            details.collection,
+            if collection_id == 7 {
+                "Math"
+            } else {
+                "Facilities"
+            }
+        );
+        let requests = transport.requests();
+        assert_eq!(requests.len(), if collection_id == 7 { 2 } else { 3 });
+        if collection_id == 8 {
+            assert_eq!(requests[2].url.path(), "/api/v1/collections/8");
+        }
+    }
+}
+
+fn class_relation(from: i32, to: i32) -> Value {
+    json!({
+        "id": 5, "from_hubuum_class_id": from, "to_hubuum_class_id": to,
+        "forward_template_alias": null, "reverse_template_alias": null,
+        "revision": 1,
+        "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z"
+    })
+}
+
+#[test]
+fn related_class_relations_fetch_only_unknown_endpoint_classes() {
+    let f = fixture();
+    let (gateway, transport) = gateway([
+        f["root_class"].clone(),
+        json!([class_relation(9, 10), class_relation(9, 9)]),
+        json!([f["classes"][0]]),
+    ]);
+    let page = gateway
+        .list_related_class_relations("Hosts", &ListQuery::default())
+        .unwrap();
+    assert_eq!(page.items[0].class_a, "Hosts");
+    assert_eq!(page.items[0].class_b, "Contacts");
+    assert_eq!(page.items[1].class_b, "Hosts");
+    let requests = transport.requests();
+    assert_eq!(requests.len(), 3);
+    assert!(requests[2]
+        .url
+        .query_pairs()
+        .any(|(key, value)| key == "id__equals" && value == "10"));
+}
+
+#[test]
+fn same_class_relations_resolve_the_class_once_for_show_create_and_delete() {
+    for action in ["show", "create", "delete"] {
+        let f = fixture();
+        let relation = class_relation(9, 9);
+        let (gateway, transport) = gateway([
+            f["root_class"].clone(),
+            if action == "create" {
+                relation
+            } else {
+                json!([relation])
+            },
+        ]);
+        match action {
+            "show" => {
+                let relation = gateway
+                    .get_class_relation_by_pair("Hosts", "Hosts")
+                    .unwrap();
+                assert_eq!(relation.class_a, "Hosts");
+                assert_eq!(relation.class_b, "Hosts");
+            }
+            "create" => {
+                let relation = gateway
+                    .create_class_relation_v2(CreateClassRelationInput::new("Hosts", "Hosts"))
+                    .unwrap();
+                assert_eq!(relation.class_a, "Hosts");
+                assert_eq!(relation.class_b, "Hosts");
+            }
+            _ => {
+                transport.push_response(TransportResponse::empty(StatusCode::NO_CONTENT));
+                gateway
+                    .delete_class_relation_by_pair("Hosts", "Hosts")
+                    .unwrap();
+            }
+        }
+        let requests = transport.requests();
+        assert_eq!(requests.len(), if action == "delete" { 3 } else { 2 });
+        if action == "delete" {
+            assert_eq!(requests[2].method, Method::DELETE);
+            assert_eq!(requests[2].url.path(), "/api/v1/classes/9/relations/5");
+        }
+    }
+}
+
+#[test]
+fn same_class_object_relation_resolution_queries_objects_once() {
+    let f = fixture();
+    let mut second = f["graph"]["objects"][0].clone();
+    second["id"] = json!(43);
+    second["name"] = json!("second");
+    let (gateway, transport) = gateway([json!([f["graph"]["objects"][0], second])]);
+    let relation = from_value(json!({
+        "id": 1, "from_hubuum_object_id": 42, "to_hubuum_object_id": 43,
+        "class_relation_id": 5, "revision": 1,
+        "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z"
+    }))
+    .unwrap();
+    let objects = gateway.object_map_for_relation(&[relation], 9, 9).unwrap();
+    assert_eq!(objects[&42].name, "nommo.uio.no");
+    assert_eq!(objects[&43].name, "second");
+    assert_eq!(transport.requests().len(), 1);
 }
 
 #[test]

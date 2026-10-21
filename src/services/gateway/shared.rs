@@ -42,19 +42,14 @@ impl HubuumGateway {
         &self,
         class_from: &str,
         class_to: &str,
-    ) -> Result<(Class, Class), AppError> {
-        Ok((
-            client_call("classes.get_by_name", || {
-                self.client().classes().get_by_name(class_from)
-            })?
-            .resource()
-            .clone(),
-            client_call("classes.get_by_name", || {
-                self.client().classes().get_by_name(class_to)
-            })?
-            .resource()
-            .clone(),
-        ))
+    ) -> Result<(SyncHandle<Class>, SyncHandle<Class>), AppError> {
+        let from = self.class_handle_by_name(class_from)?;
+        let to = if class_from == class_to {
+            from.clone()
+        } else {
+            self.class_handle_by_name(class_to)?
+        };
+        Ok((from, to))
     }
 
     pub(super) fn class_map_from_classes<'a, I>(&self, classes: I) -> HashMap<i32, Class>
@@ -96,18 +91,6 @@ impl HubuumGateway {
         Ok(classes)
     }
 
-    pub(super) fn class_map_from_relation_ids(
-        &self,
-        relations: &[ClassRelation],
-    ) -> Result<HashMap<i32, Class>, AppError> {
-        fetch_entities_for_ids(
-            &self.client().classes(),
-            relations
-                .iter()
-                .flat_map(|relation| [relation.from_hubuum_class_id, relation.to_hubuum_class_id]),
-        )
-    }
-
     pub(super) fn object_map_for_relation(
         &self,
         relations: &[ObjectRelation],
@@ -123,10 +106,12 @@ impl HubuumGateway {
             &self.client().objects(from_class_id),
             object_ids.iter().copied(),
         )?);
-        objects.extend(fetch_entities_for_ids(
-            &self.client().objects(to_class_id),
-            object_ids,
-        )?);
+        if from_class_id != to_class_id {
+            objects.extend(fetch_entities_for_ids(
+                &self.client().objects(to_class_id),
+                object_ids,
+            )?);
+        }
 
         Ok(objects)
     }

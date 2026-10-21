@@ -73,8 +73,8 @@ pub use object_fields::{
     DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
 pub use objects::{
-    ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectRecord, ObjectShowRecord,
-    ResolvedObjectRecord,
+    ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectListPage, ObjectRecord,
+    ObjectShowRecord, ResolvedObjectRecord,
 };
 pub use query_usage::{ExpectedQueryUsageRevision, QueryUsageId, QueryUsageOutput};
 pub use relations::{
