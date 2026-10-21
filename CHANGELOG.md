@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+- Update `rustls-webpki` to 0.103.16 and `webpki-roots`/`webpki-root-certs` to
+  1.0.10 to reject distrusted emSign certificate chains
+  ([RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html),
+  [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html), and
+  [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html)).
+
 ### Fixed
 
 - Reuse the class schema fetched by `object list` when choosing automatic data
