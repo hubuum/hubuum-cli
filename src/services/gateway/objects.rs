@@ -9,7 +9,8 @@ use serde_json::Value;
 use crate::diagnostics::client_call;
 use crate::domain::{
     build_related_object_tree, observed_object_data_fields, ObjectDataMutationOutcome,
-    ObjectDataMutationRecord, ObjectShowRecord, ObservedObjectDataFields, ResolvedObjectRecord,
+    ObjectDataMutationRecord, ObjectListPage, ObjectShowRecord, ObservedObjectDataFields,
+    ResolvedObjectRecord,
 };
 use crate::errors::AppError;
 use crate::list_query::{
@@ -237,15 +238,22 @@ impl HubuumGateway {
             self.client().classes().get_by_name(class_name)
         })?;
         let object = client_call("class.object_by_name", || class.object_by_name(object_name))?;
-        let collection = client_call("collections.get", || {
-            self.client()
-                .collections()
-                .get(object.resource().collection_id)
-        })?;
-
+        let collection_id = object.resource().collection_id;
+        let collection = match class
+            .resource()
+            .collection
+            .as_ref()
+            .filter(|collection| collection.id == collection_id)
+        {
+            Some(collection) => collection.clone(),
+            None => client_call("collections.get", || {
+                self.client().collections().get(collection_id)
+            })?
+            .resource()
+            .clone(),
+        };
         let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id.into(), collection)]);
 
         Ok(ResolvedObjectRecord::new(
             object.resource(),
@@ -351,7 +359,7 @@ impl HubuumGateway {
         &self,
         query: &ListQuery,
         include_computed: bool,
-    ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
+    ) -> Result<ObjectListPage, AppError> {
         let validated = validate_filter_clauses(&query.filters, OBJECT_FILTER_SPECS)?;
         let object_sorts = validate_object_sort_clauses(query)?;
         let has_computed_sort = object_sorts
@@ -388,6 +396,7 @@ impl HubuumGateway {
             .filter(|clause| clause.spec.public_name != "class")
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
+        let with_schema = |page| ObjectListPage::new(page, class.resource().json_schema.clone());
 
         if has_computed_sort {
             let fetched = client_call("computed_objects.all", || {
@@ -421,12 +430,12 @@ impl HubuumGateway {
                 }
             }
             let returned_count = items.len();
-            return Ok(PagedResult {
+            return Ok(with_schema(PagedResult {
                 items,
                 next_cursor: None,
                 returned_count,
                 total_count,
-            });
+            }));
         }
 
         if include_computed {
@@ -436,7 +445,10 @@ impl HubuumGateway {
                 &validated_sorts,
             )?;
             if page.items.is_empty() {
-                return Ok(PagedResult::empty(page.next_cursor, page.total_count));
+                return Ok(with_schema(PagedResult::empty(
+                    page.next_cursor,
+                    page.total_count,
+                )));
             }
 
             let classmap = self.class_map_with_known(
@@ -460,12 +472,12 @@ impl HubuumGateway {
                     )
                 })
                 .collect::<Result<Vec<_>, AppError>>()?;
-            return Ok(PagedResult {
+            return Ok(with_schema(PagedResult {
                 items,
                 next_cursor: page.next_cursor,
                 returned_count,
                 total_count: page.total_count,
-            });
+            }));
         }
 
         let page = fetch_query_results(
@@ -474,7 +486,10 @@ impl HubuumGateway {
             &validated_sorts,
         )?;
         if page.items.is_empty() {
-            return Ok(PagedResult::empty(page.next_cursor, page.total_count));
+            return Ok(with_schema(PagedResult::empty(
+                page.next_cursor,
+                page.total_count,
+            )));
         }
 
         let classmap = self.class_map_with_known(
@@ -486,7 +501,9 @@ impl HubuumGateway {
             classmap.values(),
         )?;
 
-        Ok(page.map(|object| ResolvedObjectRecord::new(&object, &classmap, &collectionmap)))
+        Ok(with_schema(page.map(|object| {
+            ResolvedObjectRecord::new(&object, &classmap, &collectionmap)
+        })))
     }
 
     pub fn update_object(

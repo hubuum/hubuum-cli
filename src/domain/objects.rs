@@ -4,9 +4,33 @@ use hubuum_client::{Class, Collection, Object};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::list_query::PagedResult;
+
 use super::RelatedObjectTreeNode;
 
 transparent_record!(ObjectRecord, Object);
+
+pub struct ObjectListPage {
+    objects: PagedResult<ResolvedObjectRecord>,
+    class_schema: Option<Value>,
+}
+
+impl ObjectListPage {
+    pub fn new(objects: PagedResult<ResolvedObjectRecord>, class_schema: Option<Value>) -> Self {
+        Self {
+            objects,
+            class_schema,
+        }
+    }
+
+    pub fn objects(&self) -> &PagedResult<ResolvedObjectRecord> {
+        &self.objects
+    }
+
+    pub fn class_schema(&self) -> Option<&Value> {
+        self.class_schema.as_ref()
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
