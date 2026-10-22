@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-10-22
+
+### Changed
+
+- **Breaking server target:** pin published Rust SDK 0.16.0 and require Hubuum
+  server v0.0.20. Password login and provider discovery use `/api/v1/auth`.
+  Upgrade server API, workers, and restore executors together during the offline
+  migration, retain a pre-upgrade snapshot, and sign in again.
+- **Breaking credential cache behavior:** new interactive sessions stay in
+  memory and rotate automatically. Each new CLI process needs credentials;
+  use an explicit PAT/service-token file for automation or the REPL for reuse.
+  Existing cache entries can still be read and validated; no refresh credential
+  is persisted across processes.
+- Recognize backup format 10 and restore formats 6–10. Older servers cannot
+  restore format 10; use a matching upgraded restore executor.
+- Refresh direct/transitive dependencies and GitHub Actions, including jaq-all
+  0.4. Adapt the embedded jq runner to its input-filename API.
+- Treat SDK session expiry as an authentication failure in interactive recovery.
+  Read-only commands can retry once after sign-in; mutations are not replayed.
+
 ### Security
 
 - Update `rustls-webpki` to 0.103.16 and `webpki-roots`/`webpki-root-certs` to

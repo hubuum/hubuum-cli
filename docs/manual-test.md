@@ -1,7 +1,7 @@
 # Manual Test Checklist
 
-This checklist covers the development CLI, which uses `hubuum_client` 0.15.1. That client
-library targets Hubuum server v0.0.19. It intentionally uses the current
+This checklist covers the development CLI, which uses `hubuum_client` 0.16.0. That client
+library targets Hubuum server v0.0.20. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
 
@@ -595,7 +595,10 @@ collection delete cli-smoke
 If a cleanup step fails because a resource was not created or was already
 removed, continue with the remaining cleanup commands.
 
-## Server v0.0.19 notifications and audit
+## Server notifications and audit
+
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="server-v0019-notifications-and-audit"></span>
 
 - Create, list, show, update, and delete a disabled system subscription with
   `--system`; reject combining it with `--collection` or omitting both.

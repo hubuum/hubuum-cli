@@ -106,7 +106,7 @@ pub(crate) fn render_auth_providers(tokens: &CommandTokenizer) -> Result<(), App
         .timeout(PROVIDER_DISCOVERY_TIMEOUT)
         .user_agent(format!("hubuum-cli/{}", build_info::VERSION))
         .build()?;
-    let rows = client_call("client.auth_providers", || client.auth_providers())?
+    let rows = client_call("client.session_providers", || client.session_providers())?
         .into_providers()
         .into_iter()
         .map(|provider| json!({"provider": provider}))

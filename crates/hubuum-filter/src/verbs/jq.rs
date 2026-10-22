@@ -3,6 +3,7 @@ use std::iter::once;
 use jaq_all::data::{compile, run, Runner};
 use jaq_all::jaq_core::unwrap_valr;
 use jaq_all::json::read::parse_single;
+use jaq_all::json::Val;
 use jaq_all::load::FileReportsDisp;
 use serde_json::{from_str, to_vec, Value};
 
@@ -89,7 +90,7 @@ pub(crate) fn evaluate_bounded_jq(
         &Runner::default(),
         &filter,
         Default::default(),
-        once(Ok::<_, String>(input)),
+        (&Val::Null, once(Ok::<_, String>(input))),
         PipelineError::Jq,
         |output| {
             if outputs.len() >= limits.max_outputs {
@@ -145,7 +146,7 @@ pub(crate) fn jq_envelope(
         &Runner::default(),
         &filter,
         Default::default(),
-        once(Ok::<_, String>(input)),
+        (&Val::Null, once(Ok::<_, String>(input))),
         PipelineError::Jq,
         |output| {
             let output = unwrap_valr(output)

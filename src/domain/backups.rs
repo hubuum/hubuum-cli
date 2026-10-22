@@ -287,21 +287,21 @@ mod tests {
         let error = BackupArtifact::parse_document(r#"{"backup_version":4}"#)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("formats 6 through 9"));
+        assert!(error.contains("formats 6 through 10"));
         assert!(error.contains("compatible older server"));
         assert!(error.contains("does not convert"));
     }
 
     #[test]
     fn supported_backup_versions_preserve_notification_and_query_usage_sections() {
-        for version in [6, 7, 8, 9] {
+        for version in [6, 7, 8, 9, 10] {
             let mut value: Value =
                 from_str(include_str!("../../tests/fixtures/backup.json")).unwrap();
             value["backup_version"] = json!(version);
             value["state"]["sections"]["event_sinks"] = json!([{
                 "id": 1, "delivery_policy": {"min_interval_ms": 1000}
             }]);
-            if version == 9 {
+            if version >= 9 {
                 value["state"]["sections"]["query_usage_declarations"] = json!([{
                     "id": 1, "class_id": 2, "revision": 3,
                     "pattern": {"path": "serial", "value_type": "string", "operations": ["equals"]}
@@ -317,7 +317,7 @@ mod tests {
             assert_eq!(restored["backup_version"], version);
             assert_eq!(restored["state"], value["state"]);
         }
-        for version in [json!(5), json!(10), json!(null), json!("7")] {
+        for version in [json!(5), json!(11), json!(null), json!("7")] {
             let error =
                 BackupArtifact::parse_document(&json!({"backup_version": version}).to_string())
                     .unwrap_err()

@@ -2,7 +2,7 @@
 
 Query-usage declarations describe JSON query patterns you expect to use on a
 class. They are separate from schema validation and do not promise an index or
-faster queries. These commands require Hubuum server v0.0.19.
+faster queries. The server introduced them in v0.0.19; this CLI targets v0.0.20.
 
 ## Manage declarations
 
@@ -77,7 +77,7 @@ are operational facts rather than portable readiness guarantees.
 
 The CLI manages declarations and reads analysis. Native preparation runs
 separately on the server through `hubuum-admin --reconcile-query-usage` with the
-appropriate database role configuration. The v0.0.19 PostgreSQL adapter supports
+appropriate database role configuration. The PostgreSQL adapter supports
 shared hash indexes for supported text equality patterns; a valid numeric or
 boolean declaration does not imply native preparation is available.
 

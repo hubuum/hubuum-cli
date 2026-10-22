@@ -1,10 +1,10 @@
-use std::fs::{create_dir_all, read_to_string, File, OpenOptions};
+use std::fs::{create_dir_all, read_to_string, OpenOptions};
 use std::io::{Error, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use dirs::{config_dir, data_dir};
 use log::{debug, trace};
-use serde_json::{from_str, to_string};
+use serde_json::from_str;
 
 use crate::{errors::AppError, models::TokenEntry};
 
@@ -186,42 +186,14 @@ fn get_token_from_file(
     Ok(None)
 }
 
-pub fn write_token_to_tokenfile(token_entry: TokenEntry) -> Result<(), AppError> {
-    let token_file_path = get_token_file()?;
-    write_token_to_file(&token_file_path, token_entry)
-}
-
-fn write_token_to_file(token_file_path: &Path, token_entry: TokenEntry) -> Result<(), AppError> {
-    let token_file_content = read_to_string(token_file_path)?;
-    let mut token_entries: Vec<TokenEntry> = from_str(&token_file_content)?;
-
-    token_entries.retain(|entry| {
-        entry.hostname != token_entry.hostname
-            || entry.identity_scope != token_entry.identity_scope
-            || entry.username != token_entry.username
-    });
-    token_entries.push(token_entry);
-
-    let token_file_content = to_string(&token_entries)?;
-    let mut token_file = File::options()
-        .write(true)
-        .truncate(true)
-        .open(token_file_path)?;
-    token_file.write_all(token_file_content.as_bytes())?;
-    token_file.sync_all()?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs::{read_to_string, write};
 
     use tempfile::tempdir;
 
-    use super::{ensure_file_exists_at, get_token_from_file, write_token_to_file, DataFile};
-    use crate::{errors::AppError, models::TokenEntry};
-    use serde_json::from_str;
+    use super::{ensure_file_exists_at, get_token_from_file, DataFile};
+    use crate::errors::AppError;
 
     #[test]
     fn token_file_starts_with_an_empty_json_array() {
@@ -289,50 +261,25 @@ mod tests {
     }
 
     #[test]
-    fn token_replacement_is_isolated_by_host_scope_and_username() {
+    fn legacy_tokens_are_selected_by_host_scope_and_username() {
         let directory = tempdir().unwrap();
         let path = ensure_file_exists_at(directory.path(), DataFile::Token).unwrap();
-        let identities = [
+        write(&path, r#"[{"hostname":"a","identity_scope":"corp","username":"alice","token":"legacy-token"}]"#).unwrap();
+        assert_eq!(
+            get_token_from_file(&path, "a", Some("corp"), "alice")
+                .unwrap()
+                .as_deref(),
+            Some("legacy-token")
+        );
+        for (host, scope, user) in [
+            ("b", Some("corp"), "alice"),
             ("a", None, "alice"),
-            ("b", None, "alice"),
-            ("a", Some("corp"), "alice"),
-            ("a", None, "bob"),
-        ];
-        for (host, scope, user) in identities {
-            write_token_to_file(
-                &path,
-                TokenEntry {
-                    hostname: host.into(),
-                    identity_scope: scope.map(str::to_string),
-                    username: user.into(),
-                    token: "old".into(),
-                },
-            )
-            .unwrap();
+            ("a", Some("corp"), "bob"),
+        ] {
+            assert!(get_token_from_file(&path, host, scope, user)
+                .unwrap()
+                .is_none());
         }
-        write_token_to_file(
-            &path,
-            TokenEntry {
-                hostname: "a".into(),
-                identity_scope: None,
-                username: "alice".into(),
-                token: "new".into(),
-            },
-        )
-        .unwrap();
-        for (index, (host, scope, user)) in identities.into_iter().enumerate() {
-            assert_eq!(
-                get_token_from_file(&path, host, scope, user)
-                    .unwrap()
-                    .as_deref(),
-                Some(if index == 0 { "new" } else { "old" })
-            );
-        }
-        assert!(get_token_from_file(&path, "missing", None, "alice")
-            .unwrap()
-            .is_none());
-        let entries: Vec<TokenEntry> = from_str(&read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(entries.len(), 4);
     }
 
     #[test]
@@ -342,18 +289,6 @@ mod tests {
         write(&path, "{ invalid JSON").unwrap();
         assert!(matches!(
             get_token_from_file(&path, "a", None, "alice"),
-            Err(AppError::ParseJsonError(_))
-        ));
-        assert!(matches!(
-            write_token_to_file(
-                &path,
-                TokenEntry {
-                    hostname: "a".into(),
-                    identity_scope: None,
-                    username: "alice".into(),
-                    token: "new".into()
-                }
-            ),
             Err(AppError::ParseJsonError(_))
         ));
         assert_eq!(read_to_string(path).unwrap(), "{ invalid JSON");

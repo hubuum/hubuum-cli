@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
-`hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
+and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
+`hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.17 | 0.15.1 | 0.0.19 | Latest release; structured JSON command diagnostics |
+| 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
+| 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
 | 0.0.15 | 0.15.0 | 0.0.19 | Previous CLI release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9 |
 | 0.0.14 | 0.14.1 | 0.0.18 | Previous CLI release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
@@ -30,18 +31,18 @@ against other server versions is not guaranteed.
 
 ## Before upgrading
 
-CLI v0.0.17 targets server v0.0.19 through client 0.15.1. Protected
-credential mutations and restore confirmation require fresh human approval.
-Use [credential approvals](docs/credential-approvals.md), [webhooks](docs/webhooks.md),
-[query usage](docs/query-usage.md), and [backup and restore](docs/backup-restore.md)
-for command-specific behavior.
+CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
+workers, and restore executors together before using the new versioned login.
+New password sessions remain in memory and rotate automatically. Each new CLI
+process needs credentials; use an explicit PAT file for unattended automation.
+See [authentication](docs/authentication.md) and
+[credential approvals](docs/credential-approvals.md).
 
-**Upgrading from CLI v0.0.14 or earlier:** upgrade the server before adopting
-this CLI target. The server target and backup output changed in CLI v0.0.15. New backups use format 9; restore still accepts formats 6–8.
-Replace blank principal names before upgrading, retain a pre-upgrade backup and
-matching binaries for rollback, and use HTTP/1.1 for direct server connections.
-Follow the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.19)
-and [backup compatibility](https://hubuum.github.io/hubuum/v0.0.19/backup-restore/).
+The server requires an offline migration and emits backup format 10. Keep a
+pre-upgrade PostgreSQL snapshot and matching binaries for rollback. Restore
+accepts formats 6–10; older servers cannot restore the new output. Follow the
+[server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.20)
+and [backup compatibility](https://hubuum.github.io/hubuum/v0.0.20/backup-restore/).
 
 **Breaking for extension authors in v0.0.16:** rename options named `debug` or
 aliased as `--debug`; the host now reserves this flag for command diagnostics.
@@ -50,6 +51,12 @@ aliased as `--debug`; the host now reserves this flag for command diagnostics.
 
 [Detailed evidence and historical migrations](docs/compatibility-evidence.md) retain tested
 image identities, dates, suite results, and earlier compatibility limits.
+
+## CLI v0.0.18: client v0.16.0
+
+See [CLI v0.0.18 evidence](docs/compatibility-evidence.md#cli-v0018-client-v0160)
+for the published SDK checksum, immutable server image, session behavior, and
+completed workspace and live recovery checks.
 
 ## CLI v0.0.17: client v0.15.1
 

@@ -199,9 +199,10 @@ impl AppError {
     }
 
     pub fn is_unauthorized(&self) -> bool {
-        self.api_error()
-            .and_then(ApiError::status)
-            .is_some_and(|status| status == reqwest::StatusCode::UNAUTHORIZED)
+        self.api_error().is_some_and(|error| {
+            matches!(error, ApiError::SessionExpired)
+                || error.status() == Some(reqwest::StatusCode::UNAUTHORIZED)
+        })
     }
 
     pub fn reauthentication_retry(&self) -> Option<ReauthenticationRetry> {
@@ -242,4 +243,19 @@ fn redacted_request_target(url: &str) -> String {
         |_| url.split('?').next().unwrap_or(url).to_string(),
         |url| url.path().to_string(),
     )
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::{AppError, ReauthenticationRetry};
+    use hubuum_client::ApiError;
+
+    #[test]
+    fn expired_sessions_preserve_command_replay_safety() {
+        for retry in [ReauthenticationRetry::Safe, ReauthenticationRetry::Unsafe] {
+            let error = AppError::from(ApiError::SessionExpired).for_command(retry);
+            assert!(error.is_unauthorized());
+            assert_eq!(error.reauthentication_retry(), Some(retry));
+        }
+    }
 }

@@ -117,7 +117,7 @@ enter the next report. Timings measure elapsed wall time, including waits; neste
 durations overlap and should not be added together. Debug collection works even
 with `RUST_LOG=off`; the normal log filter applies independently.
 
-Client 0.15.1 supplies versioned request, HTTP-attempt, retry, and stream spans,
+Client 0.16.0 supplies versioned request, HTTP-attempt, retry, and stream spans,
 plus automatic-pagination events. The report shows endpoint templates, response
 statuses, retry attempts, pages, and outcomes using that documented contract.
 Only those diagnostic fields are collected. Other descendant client spans appear
