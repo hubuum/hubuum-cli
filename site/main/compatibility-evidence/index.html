@@ -1589,6 +1589,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0018-client-v0160" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.18: client v0.16.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0017-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1842,6 +1853,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0018-client-v0160" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.18: client v0.16.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0017-client-v0151" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1950,8 +1972,8 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
-<code>hubuum_client</code> 0.15.1, which targets Hubuum server v0.0.19.
+and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
+<code>hubuum_client</code> 0.16.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -1967,10 +1989,16 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
+<td>0.0.18</td>
+<td>0.16.0</td>
+<td>0.0.20</td>
+<td>Rotating interactive sessions and backup format 10</td>
+</tr>
+<tr>
 <td>0.0.17</td>
 <td>0.15.1</td>
 <td>0.0.19</td>
-<td>Latest release; structured JSON command diagnostics</td>
+<td>Previous release; structured JSON command diagnostics</td>
 </tr>
 <tr>
 <td>0.0.16</td>
@@ -2082,6 +2110,36 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0018-client-v0160">CLI v0.0.18: client v0.16.0<a class="headerlink" href="#cli-v0018-client-v0160" title="Permanent link">&para;</a></h2>
+<p>Verified on 2026-10-22 using the published crates.io <code>hubuum_client</code> 0.16.0,
+with registry checksum
+<code>452c0ac2946af679a220a92eef8c804b3927521428dfb0cb5c1bc08b042312b4</code>.
+The final lockfile uses the registry package, without a local path override.
+The SDK release commit is
+<code>74349baca65a957d302ade3319bc4d599ec7369f</code>.</p>
+<p>The complete CLI live suite used the released server v0.0.20 image:
+<code>ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a</code>.
+Its source revision is <code>3bede6e5b815585f3ac5372cc829734b2ae14a68</code>.
+Password login and provider discovery use the new <code>/api/v1/auth</code> contract.
+Interactive sessions rotate in memory; newly acquired credentials are not
+written to the legacy token cache. Explicit PAT files remain supported.</p>
+<p>All 819 workspace tests passed, together with strict workspace/all-target
+Clippy, rustfmt, CI-policy regressions, extension wrapper tests, extension
+schema validation, and Markdown lint. The dependency refresh includes the
+published SDK and ICU 2.4; the vulnerability audit passed. <code>cargo update</code>
+reports no further compatible updates. Upstream exact requirements retain
+<code>psm</code> 0.1.24 through <code>pest</code> and <code>generic-array</code> 0.14.7 through <code>crypto-common</code>.</p>
+<p>The pinned live driver passed collection integrations, delegated permissions,
+structured search and streaming, credential approvals, schema evolution,
+query usage, and all three format 10 backup/restore cycles. It also verifies
+that password login can read administrator configuration without printing the
+password or persisting the session, and that second-generation recovery
+preserves mutations and prior deletions.</p>
+<p><strong>Breaking upgrade:</strong> upgrade the server API, workers, and restore executor
+together during the offline migration, retain a pre-upgrade PostgreSQL snapshot
+and binaries, and sign in again. Each new CLI process requires credentials
+unless using an explicit PAT file; use the REPL to reuse an interactive session.
+Older servers cannot restore format 10 output.</p>
 <h2 id="cli-v0017-client-v0151">CLI v0.0.17: client v0.15.1<a class="headerlink" href="#cli-v0017-client-v0151" title="Permanent link">&para;</a></h2>
 <p>CLI v0.0.17 keeps the published <code>hubuum_client</code> 0.15.1 and server v0.0.19 target.
 It adds a version 1 JSON diagnostics response around the original command data.

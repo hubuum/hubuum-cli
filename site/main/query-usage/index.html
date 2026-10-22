@@ -1840,7 +1840,7 @@
 <h1 id="query-usage">Query usage<a class="headerlink" href="#query-usage" title="Permanent link">&para;</a></h1>
 <p>Query-usage declarations describe JSON query patterns you expect to use on a
 class. They are separate from schema validation and do not promise an index or
-faster queries. These commands require Hubuum server v0.0.19.</p>
+faster queries. The server introduced them in v0.0.19; this CLI targets v0.0.20.</p>
 <h2 id="manage-declarations">Manage declarations<a class="headerlink" href="#manage-declarations" title="Permanent link">&para;</a></h2>
 <p>Use a class name, a comma-separated JSON path, a scalar type, and operations:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>class query-usage create Hosts --path hardware,serial_number --type string --operations equals
@@ -1894,7 +1894,7 @@ are operational facts rather than portable readiness guarantees.</p>
 <h2 id="prepare-native-resources-and-restore-intent">Prepare native resources and restore intent<a class="headerlink" href="#prepare-native-resources-and-restore-intent" title="Permanent link">&para;</a></h2>
 <p>The CLI manages declarations and reads analysis. Native preparation runs
 separately on the server through <code>hubuum-admin --reconcile-query-usage</code> with the
-appropriate database role configuration. The v0.0.19 PostgreSQL adapter supports
+appropriate database role configuration. The PostgreSQL adapter supports
 shared hash indexes for supported text equality patterns; a valid numeric or
 boolean declaration does not imply native preparation is available.</p>
 <p><a href="../backup-restore/">Format 9 backups</a> preserve declaration intent and attribution.

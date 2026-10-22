@@ -622,6 +622,23 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Connect and authenticate
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -637,6 +654,37 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rotating-sessions-and-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rotating sessions and upgrade
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1682,6 +1730,11 @@
                       
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -1693,6 +1746,25 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rotating-sessions-and-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Rotating sessions and upgrade
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1726,7 +1798,8 @@
 command catalog and configuration files without logging in. <code>version --server</code>,
 <code>auth providers</code>, and <code>metrics</code> make unauthenticated requests. Other API-backed
 commands authenticate before execution.</p>
-<p>If an API-backed command receives <code>401 Unauthorized</code> in the interactive REPL,
+<p>If an API-backed command receives <code>401 Unauthorized</code> or the SDK reports an
+expired session in the interactive REPL,
 Hubuum CLI reports that the session expired or the token was revoked, then
 immediately renews the session. It rereads <code>--token-file</code> credentials, uses a
 configured password without prompting, or prompts for the password when needed.
@@ -1752,6 +1825,20 @@ the CLI token cache:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>/run/secrets/hubuum.token
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--token-file<span class="w"> </span>/run/secrets/hubuum.token<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
 </code></pre></div>
+<h2 id="rotating-sessions-and-upgrade">Rotating sessions and upgrade<a class="headerlink" href="#rotating-sessions-and-upgrade" title="Permanent link">&para;</a></h2>
+<p>CLI v0.0.18 uses Rust SDK 0.16.0 and the server v0.0.20 <code>/api/v1/auth</code> contract.
+Password login creates a session with client ID <code>hubuum-cli</code>. The SDK rotates
+access and refresh credentials automatically before API requests; the REPL and
+scripts reuse the same in-memory session. The server configures access, idle,
+and absolute lifetimes. Refresh failure or uncertain exchange requires sign-in.</p>
+<p><strong>Breaking:</strong> new interactive sessions are not written to <code>token.json</code>.
+Every new CLI process therefore needs a password (prompted or configured), or an
+explicit PAT/service token file. Existing cache entries are read for migration
+and validated by the server; invalid old interactive tokens require sign-in.
+No refresh secret is persisted or shared between processes. Use the REPL for
+interactive reuse and an owner-only <code>--token-file</code> for unattended automation.</p>
+<p>Upgrade server API, workers, and restore executors together before using this
+CLI. The CLI does not downgrade password login to the removed legacy API.</p>
 
 
 

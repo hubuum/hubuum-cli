@@ -1905,7 +1905,7 @@ a fresh report. Detached spans and work that finishes after its command cannot
 enter the next report. Timings measure elapsed wall time, including waits; nested
 durations overlap and should not be added together. Debug collection works even
 with <code>RUST_LOG=off</code>; the normal log filter applies independently.</p>
-<p>Client 0.15.1 supplies versioned request, HTTP-attempt, retry, and stream spans,
+<p>Client 0.16.0 supplies versioned request, HTTP-attempt, retry, and stream spans,
 plus automatic-pagination events. The report shows endpoint templates, response
 statuses, retry attempts, pages, and outcomes using that documented contract.
 Only those diagnostic fields are collected. Other descendant client spans appear
