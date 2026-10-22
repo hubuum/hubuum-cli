@@ -1,12 +1,11 @@
 # Backup and restore
 
-The development CLI uses `hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
+CLI v0.0.18 uses `hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-**Breaking server target:** upgrade to v0.0.19 before adopting this development
-CLI. Replace empty or whitespace-only local principal names with new accounts
+**Breaking server target:** upgrade to v0.0.20 before adopting this CLI. Replace empty or whitespace-only local principal names with new accounts
 and reassign group memberships; correct external names at the identity provider.
 Stop writers and retain a PostgreSQL snapshot and matching pre-upgrade binaries
 before applying migrations with `hubuum-admin --migrate`. Deploy matching API,
@@ -14,7 +13,7 @@ worker, administrator, and restore-executor binaries together. Older event
 readers cannot read the authentication event catalog entry; binary-only rollback
 is unsupported. Direct connections require HTTP/1.1; a reverse proxy may accept
 HTTP/2 with HTTP/1.1 upstream connections.
-See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.19).
+See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.20).
 
 When upgrading from before 0.0.18, also follow the collection-sink migration;
 from before 0.0.17, follow the notification migration. Optional Treetop
@@ -22,9 +21,11 @@ installations require protocol 0.1 and compatible policy bundles. When upgrading
 from before 0.0.15, existing enforced objects start pending; request schema
 revalidation. Review [schema evolution](schema-evolution.md).
 
-**Breaking backup output:** server v0.0.19 creates format 9 backups, preserving
-query-usage declarations and their attribution. Older servers cannot restore
-format 9. Formats 6, 7, and 8 remain accepted, restoring without declarations.
+**Breaking backup output:** server v0.0.20 creates format 10 backups, preserving
+shared computed-definition history alongside query-usage declarations and
+directional relation labels.
+Older servers cannot restore format 10. Formats 6–9 remain accepted with the
+server's compatibility defaults for fields they do not contain.
 Native indexes and their ownership records are not portable backup content;
 reconcile restored intent on the destination server. Keep pre-upgrade artifacts
 intact for recovery with matching older binaries. Restore format 5 artifacts
@@ -47,7 +48,7 @@ hubuum-cli backup show 123
 hubuum-cli backup download 123 --file hubuum-backup.json
 ```
 
-Formats 6–9 exclude password hashes, bearer tokens, and token scopes. The manifest
+Formats 6–10 exclude password hashes, bearer tokens, and token scopes. The manifest
 lists excluded data. Privileged integration configuration remains sensitive;
 protect the backup accordingly. Saved JSON retains the server's creation instant,
 including its UTC offset and fractional seconds, so it can be staged again.
@@ -83,7 +84,7 @@ returns `confirmed`, meaning the restore is queued. `--wait` polls until
 `succeeded`, `failed`, or `expired`; only `succeeded` exits successfully.
 Without `--wait`, confirmation returns immediately after acceptance.
 
-Server 0.0.19 retains the requirement for fresh approval from an unscoped human user before
+Server 0.0.20 retains the requirement for fresh approval from an unscoped human user before
 confirmation. `--yes` still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place `--approval-password-file FILE` before `restore`
@@ -134,7 +135,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.19 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+Server 0.0.20 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -151,7 +152,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.19.
+successful staging and a complete second-generation restore on 0.0.20.
 
 ## Reproduce the integration check
 
@@ -160,7 +161,7 @@ cargo build --locked
 python3 scripts/test-backup-restore.py
 ```
 
-Python 3.9+ and Docker or Podman are required. Use `--runtime docker` or
+Python 3.11+ and Docker or Podman are required. Use `--runtime docker` or
 `--runtime podman` to select the runtime. The script creates its own disposable
 database, pins the server and PostgreSQL images, applies migrations, and starts
 the restore executor. It first checks chat webhook presets, real server previews and pacing updates,

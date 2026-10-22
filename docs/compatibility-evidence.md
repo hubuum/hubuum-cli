@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.17 uses
-`hubuum_client` 0.15.1, which targets Hubuum server v0.0.19.
+and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
+`hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,8 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| 0.0.17 | 0.15.1 | 0.0.19 | Latest release; structured JSON command diagnostics |
+| 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
+| 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
 | 0.0.15 | 0.15.0 | 0.0.19 | Previous CLI release; query usage, system notifications, structured streaming, backup output 9 and restore input 6/7/8/9 |
 | 0.0.14 | 0.14.1 | 0.0.18 | Previous CLI release; collection-owned integrations, direct sink grants, backup output 8 and restore input 6/7/8 |
@@ -53,6 +54,42 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.18: client v0.16.0
+
+Verified on 2026-10-22 using the published crates.io `hubuum_client` 0.16.0,
+with registry checksum
+`452c0ac2946af679a220a92eef8c804b3927521428dfb0cb5c1bc08b042312b4`.
+The final lockfile uses the registry package, without a local path override.
+The SDK release commit is
+`74349baca65a957d302ade3319bc4d599ec7369f`.
+
+The complete CLI live suite used the released server v0.0.20 image:
+`ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
+Its source revision is `3bede6e5b815585f3ac5372cc829734b2ae14a68`.
+Password login and provider discovery use the new `/api/v1/auth` contract.
+Interactive sessions rotate in memory; newly acquired credentials are not
+written to the legacy token cache. Explicit PAT files remain supported.
+
+All 819 workspace tests passed, together with strict workspace/all-target
+Clippy, rustfmt, CI-policy regressions, extension wrapper tests, extension
+schema validation, and Markdown lint. The dependency refresh includes the
+published SDK and ICU 2.4; the vulnerability audit passed. `cargo update`
+reports no further compatible updates. Upstream exact requirements retain
+`psm` 0.1.24 through `pest` and `generic-array` 0.14.7 through `crypto-common`.
+
+The pinned live driver passed collection integrations, delegated permissions,
+structured search and streaming, credential approvals, schema evolution,
+query usage, and all three format 10 backup/restore cycles. It also verifies
+that password login can read administrator configuration without printing the
+password or persisting the session, and that second-generation recovery
+preserves mutations and prior deletions.
+
+**Breaking upgrade:** upgrade the server API, workers, and restore executor
+together during the offline migration, retain a pre-upgrade PostgreSQL snapshot
+and binaries, and sign in again. Each new CLI process requires credentials
+unless using an explicit PAT file; use the REPL to reuse an interactive session.
+Older servers cannot restore format 10 output.
 
 ## CLI v0.0.17: client v0.15.1
 

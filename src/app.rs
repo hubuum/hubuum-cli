@@ -9,7 +9,8 @@ use std::time::Duration;
 use crate::diagnostics::{self, client_call, spawn_blocking};
 use clap::ArgMatches;
 use hubuum_client::{
-    blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, Token, Unauthenticated,
+    blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, SessionClientId,
+    Token, Unauthenticated,
 };
 use log::debug;
 use rpassword::prompt_password;
@@ -25,8 +26,7 @@ use crate::config::{
 };
 use crate::defaults::Defaults;
 use crate::errors::AppError;
-use crate::files::{get_log_file, get_token_from_tokenfile, write_token_to_tokenfile};
-use crate::models::TokenEntry;
+use crate::files::{get_log_file, get_token_from_tokenfile};
 use crate::services::AppServices;
 use crate::theme::{paint, ThemeRole};
 
@@ -374,16 +374,11 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    let client = client_call("client.login", || client.login(credentials))?;
-
-    write_token_to_tokenfile(TokenEntry {
-        hostname: hostname.to_string(),
-        identity_scope: identity_scope.map(str::to_string),
-        username: username.to_string(),
-        token: client.token().to_string(),
-    })?;
-
-    Ok(client)
+    let client_id = SessionClientId::new("hubuum-cli")?;
+    client_call("client.login_session", || {
+        client.login_session(credentials, client_id)
+    })
+    .map_err(AppError::from)
 }
 
 #[derive(Debug, Clone)]
@@ -616,8 +611,7 @@ mod authentication_cache_tests {
     use tempfile::tempdir;
 
     use super::{authenticate, CachedToken};
-    use crate::files::{get_token_from_tokenfile, write_token_to_tokenfile};
-    use crate::models::TokenEntry;
+    use crate::files::{get_token_file, get_token_from_tokenfile};
 
     // dirs uses XDG_DATA_HOME on Linux. Restore it even if an assertion fails.
     struct DataDirectory(Option<OsString>);
@@ -633,7 +627,7 @@ mod authentication_cache_tests {
 
     #[test]
     #[serial]
-    fn authentication_reuses_valid_tokens_and_replaces_missing_or_invalid_tokens() {
+    fn authentication_reuses_legacy_tokens_but_keeps_new_sessions_in_memory() {
         let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
         for (cached, valid, policy) in [
             (true, true, CachedToken::Allow),
@@ -644,13 +638,10 @@ mod authentication_cache_tests {
             let directory = tempdir().unwrap();
             set_var("XDG_DATA_HOME", directory.path());
             if cached {
-                write_token_to_tokenfile(TokenEntry {
-                    hostname: "example.invalid".into(),
-                    identity_scope: Some("corp".into()),
-                    username: "alice".into(),
-                    token: "cached-token".into(),
-                })
-                .unwrap();
+                std::fs::write(
+                    get_token_file().unwrap(),
+                    json!([{"hostname":"example.invalid", "identity_scope":"corp", "username":"alice", "token":"cached-token"}]).to_string(),
+                ).unwrap();
             }
             let transport = MockTransport::default();
             let validate = cached && matches!(policy, CachedToken::Allow);
@@ -664,8 +655,19 @@ mod authentication_cache_tests {
             let reuse = validate && valid;
             if !reuse {
                 transport.push_response(
-                    TransportResponse::json(StatusCode::OK, &json!({"token":"fresh-token"}))
-                        .unwrap(),
+                    TransportResponse::json(
+                        StatusCode::OK,
+                        &json!({
+                            "session_id":"550e8400-e29b-41d4-a716-446655440000",
+                            "token_type":"Bearer",
+                            "access_token":"fresh-token",
+                            "refresh_token":"refresh-secret",
+                            "access_expires_at":chrono::Utc::now()+chrono::Duration::minutes(15),
+                            "refresh_expires_at":chrono::Utc::now()+chrono::Duration::days(7),
+                            "absolute_expires_at":chrono::Utc::now()+chrono::Duration::days(30)
+                        }),
+                    )
+                    .unwrap(),
                 );
             }
             let client = Client::builder_from_url("https://example.invalid")
@@ -673,23 +675,24 @@ mod authentication_cache_tests {
                 .with_transport(Arc::new(transport.clone()))
                 .build()
                 .unwrap();
+            let password = format!("fixture-{}", rand::random::<u64>());
             let client = authenticate(
                 client,
                 "example.invalid",
                 Some("corp"),
                 "alice",
-                Some("password".into()),
+                Some(password.clone()),
                 None,
                 policy,
             )
             .unwrap();
             let expected = if reuse { "cached-token" } else { "fresh-token" };
-            assert_eq!(client.token(), expected);
+            assert_eq!(client.token().unwrap().as_str(), expected);
             assert_eq!(
                 get_token_from_tokenfile("example.invalid", Some("corp"), "alice")
                     .unwrap()
                     .as_deref(),
-                Some(expected)
+                cached.then_some("cached-token")
             );
             assert!(get_token_from_tokenfile("example.invalid", None, "alice")
                 .unwrap()
@@ -704,10 +707,10 @@ mod authentication_cache_tests {
             if !reuse {
                 let request = requests.last().unwrap();
                 assert_eq!(request.method, Method::POST);
-                assert_eq!(request.url.path(), "/api/v0/auth/login");
+                assert_eq!(request.url.path(), "/api/v1/auth/login");
                 assert_eq!(
                     from_slice::<Value>(request.body()).unwrap(),
-                    json!({"identity_scope":"corp", "name":"alice", "password":"password"})
+                    json!({"identity_scope":"corp", "name":"alice", "password":password, "client_id":"hubuum-cli"})
                 );
             }
         }

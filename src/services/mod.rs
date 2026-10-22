@@ -147,9 +147,9 @@ mod tests {
             AppServices::new(old_client, runtime.handle().clone(), Duration::from_secs(1));
         let gateway = services.gateway();
 
-        assert_eq!(gateway.client().token(), "old-token");
+        assert_eq!(gateway.client().token().unwrap().as_str(), "old-token");
         services.replace_authenticated_client(new_client);
-        assert_eq!(gateway.client().token(), "new-token");
+        assert_eq!(gateway.client().token().unwrap().as_str(), "new-token");
     }
 
     fn authenticated_client(token: &str) -> Arc<Client<Authenticated>> {

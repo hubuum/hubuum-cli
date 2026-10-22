@@ -93,7 +93,7 @@ def main():
             match = re.search(r'"password"\s*:\s*"([^"]+)"|reset to:\s*(\S+)', output)
             assert match, "Administrator password reset did not return a password"
             password = next(value for value in match.groups() if value)
-            return api("POST", "/api/v0/auth/login", {"name": "admin", "password": password})["token"], password
+            return api("POST", "/api/v1/auth/login", {"name": "admin", "password": password, "client_id": "cli-backup-test"})["access_token"], password
 
         # The stack is constructed here and never accepts an external server URL.
         token, password = eventually(reset_and_login)
@@ -120,6 +120,22 @@ def main():
             approval_file.chmod(0o600)
             env = {key: value for key, value in os.environ.items() if not key.startswith("HUBUUM_CLI__")}
             env.update(XDG_CONFIG_HOME=temporary, XDG_DATA_HOME=temporary, XDG_STATE_HOME=temporary)
+
+            # XDG directories isolate the legacy cache on Linux. Other platforms
+            # must not consult a developer's existing password-login cache here.
+            if sys.platform == "linux":
+                # Exercise the CLI's password-login path, not only injected bearers.
+                session_result = subprocess.run(
+                    [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
+                     "--protocol", "http", "--username", "admin", "admin", "config", "--output", "json"],
+                    text=True, capture_output=True, timeout=60,
+                    env=dict(env, HUBUUM_CLI__SERVER__PASSWORD=password),
+                )
+                assert session_result.returncode == 0, "CLI session login or authenticated config read failed"
+                assert json.loads(session_result.stdout), "CLI session returned no administrator configuration"
+                assert password not in session_result.stdout + session_result.stderr
+                assert json.loads((directory / "hubuum_cli/token.json").read_text()) == []
+                print("PASS: CLI password login uses a session without persisting credentials", flush=True)
 
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
@@ -488,7 +504,7 @@ def main():
                 if not include_history:
                     backup_args += ["--include-history", "false"]
                 summary = cli(*backup_args)
-                assert summary["backup"]["backup_version"] == 9
+                assert summary["backup"]["backup_version"] == 10
                 document = json.loads(backup.read_text())
                 assert document["source_version"] == version
                 assert document["created_at"].endswith(("Z", "+00:00"))

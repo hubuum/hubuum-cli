@@ -39,7 +39,7 @@ def main():
             body = response.read()
             return json.loads(body) if body else None
 
-    admin = api("POST", "/api/v0/auth/login", {"name": "admin", "password": password})["token"]
+    admin = api("POST", "/api/v1/auth/login", {"name": "admin", "password": password, "client_id": "cli-integration-test"})["access_token"]
     user_body = {"name": prefix, "password": uuid.uuid4().hex}
     approval = api("POST", "/api/v1/iam/credential-approvals", {
         "password": password, "operation": {"kind": "create_user", "user": user_body},
@@ -52,7 +52,7 @@ def main():
         collection = api("POST", "/api/v1/collections", {
             "name": prefix, "description": "CLI delegated webhook test", "group_id": group["id"],
         }, admin)
-        token = api("POST", "/api/v0/auth/login", user_body)["token"]
+        token = api("POST", "/api/v1/auth/login", {**user_body, "client_id": "cli-integration-test"})["access_token"]
         try:
             api("GET", "/api/v1/event-sinks", token=token)
         except urllib.error.HTTPError as error:

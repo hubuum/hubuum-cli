@@ -5,7 +5,8 @@ command catalog and configuration files without logging in. `version --server`,
 `auth providers`, and `metrics` make unauthenticated requests. Other API-backed
 commands authenticate before execution.
 
-If an API-backed command receives `401 Unauthorized` in the interactive REPL,
+If an API-backed command receives `401 Unauthorized` or the SDK reports an
+expired session in the interactive REPL,
 Hubuum CLI reports that the session expired or the token was revoked, then
 immediately renews the session. It rereads `--token-file` credentials, uses a
 configured password without prompting, or prompts for the password when needed.
@@ -41,3 +42,21 @@ the CLI token cache:
 chmod 600 /run/secrets/hubuum.token
 hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token object list --class Hosts
 ```
+
+## Rotating sessions and upgrade
+
+CLI v0.0.18 uses Rust SDK 0.16.0 and the server v0.0.20 `/api/v1/auth` contract.
+Password login creates a session with client ID `hubuum-cli`. The SDK rotates
+access and refresh credentials automatically before API requests; the REPL and
+scripts reuse the same in-memory session. The server configures access, idle,
+and absolute lifetimes. Refresh failure or uncertain exchange requires sign-in.
+
+**Breaking:** new interactive sessions are not written to `token.json`.
+Every new CLI process therefore needs a password (prompted or configured), or an
+explicit PAT/service token file. Existing cache entries are read for migration
+and validated by the server; invalid old interactive tokens require sign-in.
+No refresh secret is persisted or shared between processes. Use the REPL for
+interactive reuse and an owner-only `--token-file` for unattended automation.
+
+Upgrade server API, workers, and restore executors together before using this
+CLI. The CLI does not downgrade password login to the removed legacy API.
