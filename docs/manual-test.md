@@ -597,6 +597,9 @@ removed, continue with the remaining cleanup commands.
 
 ## Server notifications and audit
 
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="server-v0019-notifications-and-audit"></span>
+
 - Create, list, show, update, and delete a disabled system subscription with
   `--system`; reject combining it with `--collection` or omitting both.
 - Set and clear authentication subject filters, including `subject_is_admin: false`.
