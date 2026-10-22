@@ -16,7 +16,7 @@ the affected processes.
 Receivers need HTTPS with trusted certificates. Private destinations, including
 self-hosted receivers and Mattermost installations, require the server's
 outbound private-target setting. Redirects are refused. See the server's
-[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.19/webhook_notifications/)
+[versioned setup guide](https://hubuum.github.io/hubuum/v0.0.20/webhook_notifications/)
 for worker settings, secret sources, and network requirements.
 
 ## Store the URL on the server
@@ -119,7 +119,7 @@ A failed acknowledgement is permanent. In this example, only the listed
 transient statuses retry; other HTTP failures are permanent, while HTTP 429
 defers delivery using `Retry-After` without spending a failure attempt. Missing
 or invalid `Retry-After` uses a 60-second cooldown. Transport failures still
-retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.19/events/#configurable-webhook-notifications)
+retry. See the [server webhook reference](https://hubuum.github.io/hubuum/v0.0.20/events/#configurable-webhook-notifications)
 for response rules, custom headers, timeouts, and payload limits.
 
 Delivery is at least once, so a lost acknowledgement can cause duplicates.

@@ -147,8 +147,8 @@ restore-executor binaries. Revalidate existing enforced classes after migration.
 External authorization must grant `CancelTask`. Restart string-sorted pagination
 following the server upgrade. Review stored schemas against the server's stricter
 reference, complexity, data, and validation budgets before resuming writes.
-Server v0.0.15 introduced format 6; server v0.0.19 writes format 9 and
-still accepts formats 6, 7, and 8. See [backup migration](backup-restore.md).
+Server v0.0.15 introduced format 6; the current server v0.0.20 writes format 10
+and accepts formats 6–10. See [backup migration](backup-restore.md).
 
 See the [server v0.0.15 release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.15)
 and [schema validation limits](https://github.com/hubuum/hubuum/blob/v0.0.15/docs/json_schema_validation.md).

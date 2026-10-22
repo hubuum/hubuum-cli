@@ -595,7 +595,7 @@ collection delete cli-smoke
 If a cleanup step fails because a resource was not created or was already
 removed, continue with the remaining cleanup commands.
 
-## Server v0.0.19 notifications and audit
+## Server notifications and audit
 
 - Create, list, show, update, and delete a disabled system subscription with
   `--system`; reject combining it with `--collection` or omitting both.
