@@ -33,8 +33,13 @@ against other server versions is not guaranteed.
 
 CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
 workers, and restore executors together before using the new versioned login.
-New password sessions remain in memory and rotate automatically. Each new CLI
-process needs credentials; use an explicit PAT file for unattended automation.
+The next unreleased build restores password-session persistence through the
+companion SDK storage API, temporarily pinned to an immutable Git revision.
+Released v0.0.18 kept sessions only in memory; the fix stores rotating credentials
+and coordinates their refresh across CLI processes. Explicit PAT files remain
+available for unattended automation. The server target and API routes are unchanged.
+The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
+while the SDK retains its declared Rust 1.88 MSRV.
 See [authentication](docs/authentication.md) and
 [credential approvals](docs/credential-approvals.md).
 

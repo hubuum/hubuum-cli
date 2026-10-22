@@ -55,6 +55,32 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
+## Unreleased: persistent password sessions
+
+The session-persistence fix pins SDK commit
+`55369d1248f921b1bb4c00c486fdd88030ab6e52` from
+[SDK PR #124](https://github.com/hubuum/hubuum-client-rust/pull/124).
+This temporarily replaces the published 0.16.0 dependency with an immutable Git
+source providing the storage interface. It includes the SDK main-branch additions
+already merged before that fix. The server v0.0.20 target, OpenAPI routes, and
+blocking-only feature selection remain unchanged. The SDK keeps Rust 1.88;
+the CLI declares no MSRV and uses Rust 1.89's standard filesystem locking API.
+
+The CLI stores rotating sessions in an identity-scoped cache and coordinates
+refresh through a stable lock file and atomic durable replacement. Passwords are
+not stored. Existing legacy-token migration and explicit PAT/service-token files
+remain supported. The SDK validates stored server/client bindings and invalidates
+consumed refresh credentials before exchange.
+
+Verification uses the immutable server image
+`ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
+The live CLI driver covers password login, restart without credentials, and two
+concurrent processes refreshing a saved session, alongside the complete existing
+integration and restore/recovery suite. The companion SDK's complete pinned
+library/consumer suite also verifies client recreation after real access-token
+expiry. Workspace regressions cover independent processes, identity isolation,
+cache permissions, redaction, malformed caches, and preservation of other accounts.
+
 ## CLI v0.0.18: client v0.16.0
 
 Verified on 2026-10-22 using the published crates.io `hubuum_client` 0.16.0,

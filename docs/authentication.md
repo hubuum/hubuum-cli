@@ -45,18 +45,32 @@ hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token obj
 
 ## Rotating sessions and upgrade
 
-CLI v0.0.18 uses Rust SDK 0.16.0 and the server v0.0.20 `/api/v1/auth` contract.
-Password login creates a session with client ID `hubuum-cli`. The SDK rotates
-access and refresh credentials automatically before API requests; the REPL and
-scripts reuse the same in-memory session. The server configures access, idle,
-and absolute lifetimes. Refresh failure or uncertain exchange requires sign-in.
+The CLI uses the server v0.0.20 `/api/v1/auth` contract. Password login creates
+an automatically rotating session with client ID `hubuum-cli`.
 
-**Breaking:** new interactive sessions are not written to `token.json`.
-Every new CLI process therefore needs a password (prompted or configured), or an
-explicit PAT/service token file. Existing cache entries are read for migration
-and validated by the server; invalid old interactive tokens require sign-in.
-No refresh secret is persisted or shared between processes. Use the REPL for
-interactive reuse and an owner-only `--token-file` for unattended automation.
+After the first login, the CLI saves the access and refresh credentials and their
+server deadlines in `sessions.json` under its data directory (on Linux,
+`$XDG_DATA_HOME/hubuum_cli`, or `~/.local/share/hubuum_cli`). The directory and
+credential files have owner-only permissions on Unix. Passwords are never saved.
+The cache separates identities by normalized server URL (including protocol,
+port, and base path), identity provider, and username.
+
+New CLI processes resume and validate the saved session. This also lets wrapper
+commands such as `hubuum-room` reuse one login across their CLI subprocesses.
+An open REPL and other CLI processes share the latest credentials through a
+`sessions.lock` sidecar. Updates atomically replace the cache. The refresh
+credential is removed durably before exchange and its successor is saved before
+use, so a crash or lost refresh response requires a new login instead of replaying
+a consumed credential. Server idle and absolute expiry limits still apply.
+
+A revoked session or an expired refresh lifetime requires sign-in again. Network
+failures during validation retain the saved session and report the error. A failed
+or uncertain refresh discards that session. To forget local sessions, close
+running clients and remove `sessions.json`; this does not revoke them at the server.
+
+This restores persistence lost in v0.0.18. Legacy `token.json` entries remain
+readable for migration. Explicit `--token-file` authentication bypasses this
+session cache and remains suitable for PATs and service accounts.
 
 Upgrade server API, workers, and restore executors together before using this
 CLI. The CLI does not downgrade password login to the removed legacy API.

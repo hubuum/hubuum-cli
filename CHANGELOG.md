@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore remembered password logins across CLI restarts and wrapper subprocesses.
+  Save rotating sessions in `sessions.json`, isolate server/provider/user identities,
+  and coordinate refresh across processes with an exclusive lock and atomic writes.
+  Passwords are never stored. Expired, revoked, or uncertain sessions require login.
+- Use the companion SDK session-storage API from a pinned Git revision until it
+  is released. The Hubuum Server v0.0.20 target and OpenAPI contract are unchanged.
+
 ## [0.0.18] - 2026-10-22
 
 ### Changed

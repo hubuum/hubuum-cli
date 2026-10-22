@@ -135,7 +135,25 @@ def main():
                 assert json.loads(session_result.stdout), "CLI session returned no administrator configuration"
                 assert password not in session_result.stdout + session_result.stderr
                 assert json.loads((directory / "hubuum_cli/token.json").read_text()) == []
-                print("PASS: CLI password login uses a session without persisting credentials", flush=True)
+                cache = directory / "hubuum_cli/sessions.json"
+                saved = json.loads(cache.read_text())
+                assert len(saved) == 1 and password not in cache.read_text()
+                session_args = [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
+                                "--protocol", "http", "--username", "admin", "admin", "config", "--output", "json"]
+                restarted = subprocess.run(session_args, text=True, capture_output=True, timeout=60, env=env)
+                assert restarted.returncode == 0, "CLI restart did not reuse the saved session"
+                original_refresh = saved[0]["session"]["pair"]["refresh_token"]
+                saved[0]["session"]["refresh_at"] = "2020-01-01T00:00:00Z"
+                saved[0]["session"]["pair"]["access_expires_at"] = "2020-01-01T00:00:00Z"
+                cache.write_text(json.dumps(saved))
+                processes = [subprocess.Popen(session_args, text=True, stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE, env=env) for _ in range(2)]
+                for process in processes:
+                    stdout, stderr = process.communicate(timeout=60)
+                    assert process.returncode == 0, "Concurrent CLI failed to resume/refresh the saved session"
+                    assert json.loads(stdout) and password not in stdout + stderr
+                assert json.loads(cache.read_text())[0]["session"]["pair"]["refresh_token"] != original_refresh
+                print("PASS: CLI sessions survive restarts and coordinate refresh across processes", flush=True)
 
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
@@ -201,7 +219,7 @@ def main():
             print("Webhook presets and server previews passed for Slack, Mattermost, and Discord", flush=True)
 
             login_events = api("GET", "/api/v1/events?entity_type=authentication&limit=100", token=token)
-            login_event = next(event for event in login_events if event["metadata"]["subject"]["is_admin"])
+            login_event = next(event for event in login_events if event["metadata"].get("subject", {}).get("is_admin"))
             system_name = prefix + "-login-alerts"
             system = cli("event", "subscription", "create", "--system", "--name", system_name,
                          "--sink", sink_name, "--entity-types", "authentication", "--actions", "succeeded",

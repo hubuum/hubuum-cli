@@ -9,8 +9,8 @@ use std::time::Duration;
 use crate::diagnostics::{self, client_call, spawn_blocking};
 use clap::ArgMatches;
 use hubuum_client::{
-    blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, SessionClientId,
-    Token, Unauthenticated,
+    blocking::Client as BlockingClient, ApiError, Authenticated, BaseUrl, Credentials,
+    SessionClientId, Token, Unauthenticated,
 };
 use log::debug;
 use rpassword::prompt_password;
@@ -28,6 +28,7 @@ use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_log_file, get_token_from_tokenfile};
 use crate::services::AppServices;
+use crate::session_store::SessionFileStore;
 use crate::theme::{paint, ThemeRole};
 
 const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -346,7 +347,21 @@ fn authenticate(
             .map_err(AppError::from);
     }
 
+    let client_id = SessionClientId::new("hubuum-cli")?;
+    let store = Arc::new(SessionFileStore::new(
+        client.base_url(),
+        identity_scope,
+        username,
+    )?);
     if matches!(cached_token, CachedToken::Allow) {
+        match client_call("client.resume_session", || {
+            client.resume_session(client_id.clone(), store.clone())
+        }) {
+            Ok(Some(client)) => return Ok(client),
+            Ok(None) | Err(ApiError::SessionExpired) => {}
+            Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => {}
+            Err(error) => return Err(error.into()),
+        }
         let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
         if let Some(token) = token {
             debug!("Found existing token, testing validity...");
@@ -374,9 +389,8 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    let client_id = SessionClientId::new("hubuum-cli")?;
     client_call("client.login_session", || {
-        client.login_session(credentials, client_id)
+        client.login_session_with_store(credentials, client_id, store)
     })
     .map_err(AppError::from)
 }
@@ -627,7 +641,7 @@ mod authentication_cache_tests {
 
     #[test]
     #[serial]
-    fn authentication_reuses_legacy_tokens_but_keeps_new_sessions_in_memory() {
+    fn authentication_reuses_legacy_tokens_and_persists_new_sessions() {
         let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
         for (cached, valid, policy) in [
             (true, true, CachedToken::Allow),
