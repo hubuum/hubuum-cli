@@ -83,23 +83,41 @@ else
     fi
 fi
 room_name=$(jq -r '.name' <<<"$room_json")
-jack_names=$(hubuum_related_names "$HUBUUM_ROOMS_CLASS" "$room_name" "$HUBUUM_JACKS_CLASS")
-jacks_json='[]'
-while IFS= read -r jack_name; do
-    jack_json=$(hubuum_resolve_object "$HUBUUM_JACKS_CLASS" "$jack_name")
-    host_names=$(hubuum_related_names "$HUBUUM_JACKS_CLASS" "$jack_name" "$HUBUUM_HOSTS_CLASS")
-    hosts_json='[]'
-    while IFS= read -r host_name; do
-        host_json=$(hubuum_resolve_host "$host_name")
-        hosts_json=$(jq -c --argjson host "$host_json" '. + [$host]' <<<"$hosts_json")
-    done < <(jq -r '.[]' <<<"$host_names")
-    jacks_json=$(jq -c --argjson jack "$jack_json" --argjson hosts "$hosts_json" \
-        '. + [{jack: $jack, hosts: $hosts}]' <<<"$jacks_json")
-done < <(jq -r '.[]' <<<"$jack_names")
+graph_json=$(hubuum_json relation object graph \
+    --root-class "$HUBUUM_ROOMS_CLASS" --root-object "$room_name" \
+    --max-depth 2 --data)
+# Use edges rather than shortest paths so a Host appears under every connected Jack.
+jacks_json=$(jq -ce \
+    --arg room_class "$HUBUUM_ROOMS_CLASS" --arg room_name "$room_name" \
+    --arg jack_class "$HUBUUM_JACKS_CLASS" --arg host_class "$HUBUUM_HOSTS_CLASS" '
+    def key($class; $name): [$class, $name] | tojson;
+    INDEX(.objects[]; key(.class; .name)) as $objects
+    | (reduce .relations[] as $edge ({};
+        .[key($edge.class_a; $edge.object_a)] +=
+            [{class: $edge.class_b, name: $edge.object_b}]
+        | .[key($edge.class_b; $edge.object_b)] +=
+            [{class: $edge.class_a, name: $edge.object_a}]
+      )) as $neighbors
+    | def related($class; $name; $target):
+        ($neighbors[key($class; $name)] // [])
+        | map(select(.class == $target) | .name)
+        | unique | sort_by(ascii_downcase);
+      def object($class; $name):
+        $objects[key($class; $name)]
+        | if . == null or (has("data") | not)
+          then error("missing object data in room graph: " + $class + "/" + $name)
+          else del(.depth, .path)
+          end;
+      related($room_class; $room_name; $jack_class)
+      | map(. as $jack | {
+          jack: object($jack_class; $jack),
+          hosts: (related($jack_class; $jack; $host_class)
+              | map(object($host_class; .)))
+        })
+' <<<"$graph_json")
 
 if [[ $json_output -eq 1 ]]; then
-    jq -n --argjson room "$room_json" --argjson jacks "$jacks_json" \
-        '{room: $room, jacks: $jacks}'
+    jq -s '{room: .[0], jacks: .[1]}' < <(printf '%s\n' "$room_json" "$jacks_json")
     exit 0
 fi
 

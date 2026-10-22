@@ -847,6 +847,12 @@ pub struct RelatedObjectGraphCommand {
     )]
     pub root_object: String,
     #[option(
+        long = "data",
+        help = "Include each object's data in JSON graph output",
+        flag = "true"
+    )]
+    pub data: Option<bool>,
+    #[option(
         long = "max-depth",
         help = "Maximum traversal depth to include (defaults to 2)"
     )]
@@ -892,6 +898,7 @@ impl CliCommand for RelatedObjectGraphCommand {
             )?
             .filters,
             query.limit.map(RelatedGraphLimit::new).transpose()?,
+            query.data.unwrap_or(false),
         )?;
         render_related_object_graph(tokens, &graph)
     }
@@ -1014,7 +1021,7 @@ mod tests {
         )
         .expect("class graph options should tokenize");
         let object_tokens = CommandTokenizer::new(
-            "relation object graph --root-class Hosts --root-object nommo.uio.no --limit 250",
+            "relation object graph --root-class Hosts --root-object nommo.uio.no --limit 250 --data",
             "graph",
             &command_options::<RelatedObjectGraphCommand>(),
         )
@@ -1027,5 +1034,6 @@ mod tests {
 
         assert_eq!(class_query.limit, Some(200));
         assert_eq!(object_query.limit, Some(250));
+        assert_eq!(object_query.data, Some(true));
     }
 }

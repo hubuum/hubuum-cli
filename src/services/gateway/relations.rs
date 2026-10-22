@@ -406,6 +406,7 @@ impl HubuumGateway {
         root: &RelationRoot,
         filters: &[FilterClause],
         graph_limit: Option<RelatedGraphLimit>,
+        include_data: bool,
     ) -> Result<ResolvedRelatedObjectGraph, AppError> {
         let validated = validate_filter_clauses(filters, RELATED_OBJECT_FILTER_SPECS)?;
         let object = self.object_handle_by_name(&root.root_class, &root.root_object)?;
@@ -444,7 +445,7 @@ impl HubuumGateway {
                 .objects
                 .iter()
                 .map(|related_object| {
-                    ResolvedRelatedObjectRecord::new(
+                    let record = ResolvedRelatedObjectRecord::new(
                         related_object,
                         &class_map,
                         &collection_map,
@@ -453,7 +454,12 @@ impl HubuumGateway {
                             object.resource().id.into(),
                             &object_map,
                         ),
-                    )
+                    );
+                    if include_data {
+                        record.with_data(related_object.data.clone())
+                    } else {
+                        record
+                    }
                 })
                 .collect(),
             relations: graph

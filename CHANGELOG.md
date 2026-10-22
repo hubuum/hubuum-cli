@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `relation object graph --data` to include object data in JSON graph output
+  without additional object lookups.
+
+### Fixed
+
+- Fetch `hubuum-room` placement and object data in one depth-two graph after
+  resolving the Room, replacing per-Jack relation and per-Host object lookups.
+  **Breaking for wrapper-only upgrades:** upgrade `hubuum-cli` together with the
+  wrapper; it now requires `relation object graph --data` support.
+- Keep object-relation class labels aligned with their objects when object IDs
+  and class IDs have different endpoint orderings.
+
 ## [0.0.18] - 2026-10-22
 
 ### Changed

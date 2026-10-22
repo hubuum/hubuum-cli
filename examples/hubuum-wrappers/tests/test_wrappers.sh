@@ -9,6 +9,7 @@ TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/hubuum-wrapper-tests.XXXXXX")
 cleanup() {
     rm -f \
         "$TEST_TMP/created.json" \
+        "$TEST_TMP/cli-queries" \
         "$TEST_TMP/edges" \
         "$TEST_TMP/fake-hubuum-cli" \
         "$TEST_TMP/object-list-queries" \
@@ -31,6 +32,57 @@ done
 [[ ${1:-} == --output ]] || exit 90
 output_format=${2:-}
 set -- "${arguments[@]}"
+printf '%s\n' "$*" >>"$FAKE_STATE_DIR/cli-queries"
+
+class_objects() {
+    local class_name=$1
+    local name_filter=${2:-}
+    case $class_name in
+        Hosts)
+            command cat <<'JSON' | jq --arg name_filter "$name_filter" '
+                if $name_filter == "" then .
+                else map(select(.name | contains($name_filter)))
+                end
+            '
+[
+  {
+    "id": 1,
+    "name": "primary.example.org",
+    "description": "Primary",
+    "collection": "inventory",
+    "class": "Hosts",
+    "data": {
+      "facts": {
+        "identity": {"hostname": "primary", "fqdn": "primary.example.org"},
+        "hardware": {"serial_number": "SERIAL-1", "processor": {"summary": "Example CPU"}},
+        "network": {
+          "default_ipv4": {"address": "192.0.2.1"},
+          "interfaces": [{"mac_address": "00:11:22:33:44:55"}]
+        }
+      }
+    }
+  },
+  {
+    "id": 2,
+    "name": "other.example.org",
+    "description": "Other",
+    "collection": "inventory",
+    "class": "Hosts",
+    "data": {"facts": {"identity": {"hostname": "other", "fqdn": ""}}}
+  },
+  {"id": 3, "name": "bare.example.org", "class": "Hosts", "data": null}
+]
+JSON
+            ;;
+        Jacks)
+            printf '%s\n' '{"items":[{"id":10,"name":"J-1","data":{"comment":"By the door"}},{"id":11,"name":"J-2"},{"id":12,"name":"J-empty"}]}'
+            ;;
+        Rooms)
+            printf '%s\n' '[{"id":20,"name":"R-1","data":{"comment":"Machine room"}},{"id":21,"name":"R-2"},{"id":22,"name":"R-empty"},{"id":23,"name":"R-duplicate"},{"id":24,"name":"r-duplicate"},{"id":25,"name":"B701"},{"id":26,"name":"B001"},{"id":27,"name":"B20"},{"id":28,"name":"702"},{"id":29,"name":"B702"}]'
+            ;;
+        *) exit 92 ;;
+    esac
+}
 
 if [[ ${1:-} == object && ${2:-} == show ]]; then
     [[ $output_format == text ]] || exit 90
@@ -120,51 +172,48 @@ elif [[ ${1:-} == object && ${2:-} == list ]]; then
     printf '%s\t%s\n' "$class_name" "$name_filter" \
         >>"$FAKE_STATE_DIR/object-list-queries"
     [[ ${FAKE_FAIL_OBJECT_LIST:-} != "$class_name" ]] || exit 87
-    case $class_name in
-        Hosts)
-            command cat <<'JSON' | jq --arg name_filter "$name_filter" '
-                if $name_filter == "" then .
-                else map(select(.name | contains($name_filter)))
-                end
-            '
-[
-  {
-    "id": 1,
-    "name": "primary.example.org",
-    "description": "Primary",
-    "collection": "inventory",
-    "class": "Hosts",
-    "data": {
-      "facts": {
-        "identity": {"hostname": "primary", "fqdn": "primary.example.org"},
-        "hardware": {"serial_number": "SERIAL-1", "processor": {"summary": "Example CPU"}},
-        "network": {
-          "default_ipv4": {"address": "192.0.2.1"},
-          "interfaces": [{"mac_address": "00:11:22:33:44:55"}]
+    class_objects "$class_name" "$name_filter"
+elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == graph ]]; then
+    [[ ${FAKE_FAIL_GRAPH:-0} -eq 0 ]] || exit 88
+    shift 3
+    [[ $1 == --root-class && $2 == Rooms && $3 == --root-object \
+        && $5 == --max-depth && $6 == 2 && $7 == --data && $# -eq 7 ]] || exit 93
+    if [[ ${FAKE_MALFORMED_GRAPH:-0} -eq 1 ]]; then
+        printf '%s\n' '{"objects": []}'
+        exit 0
+    fi
+    objects=$(jq -s '
+        [.[0][] | . + {class: "Hosts"}]
+        + [.[1].items[] | . + {class: "Jacks"}]
+        + [.[2][] | . + {class: "Rooms"}]
+        | map({data: null, depth: 2, path: []} + .)
+    ' <(class_objects Hosts) <(class_objects Jacks) <(class_objects Rooms))
+    jq -Rn --argjson objects "$objects" \
+        --argjson host_count "${FAKE_GRAPH_HOST_COUNT:-0}" \
+        --argjson missing_data "${FAKE_GRAPH_MISSING_DATA:-0}" '
+        [range($host_count) | {
+            id: (1000 + .), name: ("host-" + tostring), class: "Hosts",
+            data: {comment: ("x" * 1024)}
+        }] as $extra_hosts
+        | {
+            objects: ($objects + $extra_hosts),
+            relations: (
+                [inputs | split("\t") | select(length == 2) | {
+                    class_a: "Hosts", object_a: .[0], class_b: "Jacks", object_b: .[1]
+                }]
+                + [
+                    {class_a: "Jacks", object_a: "J-1", class_b: "Rooms", object_b: "R-1"},
+                    {class_a: "Rooms", object_a: "R-1", class_b: "Jacks", object_b: "J-empty"},
+                    {class_a: "Jacks", object_a: "J-2", class_b: "Rooms", object_b: "R-2"},
+                    {class_a: "Rooms", object_a: "R-1", class_b: "Hosts", object_b: "bare.example.org"}
+                ]
+                + [$extra_hosts[] | {
+                    class_a: "Jacks", object_a: "J-1", class_b: "Hosts", object_b: .name
+                }]
+            )
         }
-      }
-    }
-  },
-  {
-    "id": 2,
-    "name": "other.example.org",
-    "description": "Other",
-    "collection": "inventory",
-    "class": "Hosts",
-    "data": {"facts": {"identity": {"hostname": "other", "fqdn": ""}}}
-  },
-  {"id": 3, "name": "bare.example.org", "class": "Hosts", "data": null}
-]
-JSON
-            ;;
-        Jacks)
-            printf '%s\n' '{"items":[{"id":10,"name":"J-1","data":{"comment":"By the door"}},{"id":11,"name":"J-2"},{"id":12,"name":"J-empty"}]}'
-            ;;
-        Rooms)
-            printf '%s\n' '[{"id":20,"name":"R-1","data":{"comment":"Machine room"}},{"id":21,"name":"R-2"},{"id":22,"name":"R-empty"},{"id":23,"name":"R-duplicate"},{"id":24,"name":"r-duplicate"},{"id":25,"name":"B701"},{"id":26,"name":"B001"},{"id":27,"name":"B20"},{"id":28,"name":"702"},{"id":29,"name":"B702"}]'
-            ;;
-        *) exit 92 ;;
-    esac
+        | if $missing_data == 1 then del(.objects[].data) else . end
+    ' <"$FAKE_STATE_DIR/edges"
 elif [[ ${1:-} == relation && ${2:-} == object && ${3:-} == list ]]; then
     [[ ${FAKE_FAIL_RELATION_LIST:-0} -eq 0 ]] || exit 88
     shift 3
@@ -319,11 +368,14 @@ jq -e '.host.name == "primary.example.org" and .placement[0].rooms == ["R-1"]' \
     "$TEST_TMP/output" >/dev/null
 
 printf 'primary.example.org\tJ-1\nother.example.org\tJ-1\n' >"$TEST_TMP/edges"
+rm -f "$TEST_TMP/cli-queries"
 "$WRAPPER_DIR/hubuum-room" r-1 >"$TEST_TMP/output"
 output_text=$(<"$TEST_TMP/output")
 expected=$(printf 'R-1 (Machine room)\n\nJacks:\n  J-1 - By the door\n    %-16s %-25s %s\n    %-16s %-25s %s\n  J-empty' \
     other.example.org other '' 192.0.2.1 primary.example.org 'Example CPU')
 [[ $output_text == "$expected" ]]
+queries=$(<"$TEST_TMP/cli-queries")
+[[ $queries == $'object list --class Rooms --limit 250 --all\nrelation object graph --root-class Rooms --root-object R-1 --max-depth 2 --data' ]]
 
 "$WRAPPER_DIR/hubuum-room" --id 20 --json >"$TEST_TMP/output"
 jq -e '
@@ -333,6 +385,23 @@ jq -e '
     and .jacks[0].hosts[1].data.facts.hardware.processor.summary == "Example CPU"
     and .jacks[1].hosts == []
 ' "$TEST_TMP/output" >/dev/null
+
+# Keep every edge for multihomed Hosts, deduplicate repeated edges, and omit
+# Hosts on other Rooms or connected directly to the Room without a Jack.
+printf 'primary.example.org\tJ-1\nprimary.example.org\tJ-1\nprimary.example.org\tJ-empty\nbare.example.org\tJ-2\n' \
+    >"$TEST_TMP/edges"
+"$WRAPPER_DIR/hubuum-room" --json R-1 >"$TEST_TMP/output"
+jq -e '
+    [.jacks[].hosts | map(.name)] == [["primary.example.org"], ["primary.example.org"]]
+    and all(.jacks[].jack, .jacks[].hosts[]; has("data") and (has("path") | not))
+' "$TEST_TMP/output" >/dev/null
+
+# A large room still needs two CLI calls and can exceed the shell argument limit.
+rm -f "$TEST_TMP/cli-queries"
+: >"$TEST_TMP/edges"
+FAKE_GRAPH_HOST_COUNT=300 "$WRAPPER_DIR/hubuum-room" --json R-1 >"$TEST_TMP/output"
+jq -e '.jacks[0].hosts | length == 300' "$TEST_TMP/output" >/dev/null
+[[ $(wc -l <"$TEST_TMP/cli-queries") -eq 2 ]]
 
 # Hosts with no facts still appear under their Jack, using their object name.
 printf 'bare.example.org\tJ-1\n' >"$TEST_TMP/edges"
@@ -347,9 +416,11 @@ output_text=$(<"$TEST_TMP/output")
 jq -e '.room.name == "R-empty" and .jacks == []' "$TEST_TMP/output" >/dev/null
 
 for identifier in 701 B701 b701; do
+    rm -f "$TEST_TMP/cli-queries"
     "$WRAPPER_DIR/hubuum-room" "$identifier" >"$TEST_TMP/output" 2>"$TEST_TMP/error"
     output_text=$(<"$TEST_TMP/output")
     [[ $output_text == $'B701\n\nJacks:' && ! -s $TEST_TMP/error ]]
+    [[ $(wc -l <"$TEST_TMP/cli-queries") -eq 2 ]]
 done
 "$WRAPPER_DIR/hubuum-room" --id 001 --json >"$TEST_TMP/output"
 jq -e '.room.name == "B001"' "$TEST_TMP/output" >/dev/null
@@ -387,12 +458,11 @@ assert_room_error 2 --invalid
 assert_room_error 3 missing-room
 assert_room_error 4 R-DUPLICATE
 FAKE_FAIL_OBJECT_LIST=Rooms assert_room_error 1 R-1
-FAKE_FAIL_OBJECT_LIST=Jacks assert_room_error 1 R-1
-FAKE_FAIL_RELATION_LIST=1 assert_room_error 88 R-1
-FAKE_FAIL_RELATION_ROOT=J-1 assert_room_error 88 R-1
-printf 'primary.example.org\tJ-1\n' >"$TEST_TMP/edges"
-FAKE_FAIL_OBJECT_LIST=Hosts assert_room_error 1 R-1
+FAKE_FAIL_GRAPH=1 assert_room_error 88 R-1
+FAKE_MALFORMED_GRAPH=1 assert_room_error 5 R-1
+FAKE_GRAPH_MISSING_DATA=1 assert_room_error 5 R-1
 
+printf 'primary.example.org\tJ-1\n' >"$TEST_TMP/edges"
 "$WRAPPER_DIR/hubuum-move" primary J-2 --target-type jack --dry-run \
     >"$TEST_TMP/output"
 assert_edges $'primary.example.org\tJ-1'

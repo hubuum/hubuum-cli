@@ -157,6 +157,20 @@ subject to server limits and permissions. The default maximum depth is 2;
 Related class and object queries also accept `--where collection equals Inventory`.
 Class and collection filter values support name completion.
 
+To fetch a neighborhood with object data and all connecting edges, use JSON graph
+output with `--data`:
+
+```sh
+hubuum-cli relation object graph --root-class Rooms --root-object B701 \
+  --max-depth 2 --data --output json
+```
+
+Each entry in `objects` then includes `data` (including explicit `null` values),
+reusing the graph response without further object lookups. Without `--data`, the
+graph keeps its existing metadata-only JSON shape. Use `relations` to find every
+connection; each object's `path` describes only one shortest path. Graph size
+limits return errors instead of partial results.
+
 Object-list text and pipeline output automatically promotes dotted data fields
 referenced by `--where` into explicit columns. This makes the matching value
 visible without separately repeating the path in `--data-columns`:
