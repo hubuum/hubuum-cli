@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-10-23
+
 ### Added
 
 - Add `relation object graph --data` to include object data in JSON graph output
   without additional object lookups.
-
 - Inspect or end an existing rotating session with `auth status` and `auth logout`
   without creating a new login. Status omits credentials; logout clears only its
   matching saved session family.
@@ -43,7 +44,6 @@
   wrapper; it now requires `relation object graph --data` support.
 - Keep object-relation class labels aligned with their objects when object IDs
   and class IDs have different endpoint orderings.
-
 - Fetch `history show --id` directly instead of scanning a bounded history list.
   Accept numeric class/object selectors so retained history remains accessible
   after deletion. History tables show history IDs, revisions, operations, and
@@ -61,13 +61,13 @@
 
 ### Changed
 
-- Pin published `hubuum_client` 0.17.0, replacing the temporary Git dependency.
+- Upgrade published `hubuum_client` from 0.16.0 to 0.17.0.
   The Hubuum server v0.0.20 target, pinned server image, blocking-only client
   features, and backup format 10 remain unchanged. No cache migration is required.
 - Move persistent session storage into the `hubuum-session` workspace crate,
   retaining cache formats, keychain identifiers, and process coordination.
   The crate declares Rust 1.89 for filesystem locking; the CLI still has no
-  declared MSRV. Separate REPL state and history/resource selection into modules.
+  declared MSRV.
 
 ## [0.0.18] - 2026-10-22
 

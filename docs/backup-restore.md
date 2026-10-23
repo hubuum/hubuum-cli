@@ -1,6 +1,6 @@
 # Backup and restore
 
-CLI v0.0.18 uses `hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
+CLI v0.0.19 uses `hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server

@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
-`hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
+`hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Unreleased | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
+| 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
@@ -32,11 +32,11 @@ against other server versions is not guaranteed.
 
 ## Before upgrading
 
-CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
-workers, and restore executors together before using the new versioned login.
-The unreleased build pins published SDK 0.17.0 and restores password-session
-persistence through its storage API.
-Released v0.0.18 kept sessions only in memory; the fix stores rotating credentials
+CLI v0.0.19 targets server v0.0.20 through client 0.17.0. Upgrading from CLI
+v0.0.18 requires no server upgrade. When upgrading older installations, upgrade
+server API, workers, and restore executors together before using versioned login.
+CLI v0.0.19 restores password-session persistence through the SDK's storage API.
+Released v0.0.18 kept sessions only in memory; v0.0.19 stores rotating credentials
 and coordinates their refresh across CLI processes. Explicit PAT files remain
 available for unattended automation. The server target and API routes are unchanged.
 The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
@@ -55,7 +55,11 @@ storage and reject explicit keychain selection. See the
 See [authentication](docs/authentication.md) and
 [credential approvals](docs/credential-approvals.md).
 
-The server requires an offline migration and emits backup format 10. Keep a
+**Breaking for wrapper-only upgrades:** upgrade `hubuum-room` together with
+CLI v0.0.19. The wrapper requires `relation object graph --data`; older CLIs
+do not support the flag.
+
+Upgrading to server v0.0.20 requires an offline migration. It emits backup format 10. Keep a
 pre-upgrade PostgreSQL snapshot and matching binaries for rollback. Restore
 accepts formats 6–10; older servers cannot restore the new output. Follow the
 [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.20)
@@ -68,6 +72,14 @@ aliased as `--debug`; the host now reserves this flag for command diagnostics.
 
 [Detailed evidence and historical migrations](docs/compatibility-evidence.md) retain tested
 image identities, dates, suite results, and earlier compatibility limits.
+
+## CLI v0.0.19: client v0.17.0
+
+See [CLI v0.0.19 evidence](docs/compatibility-evidence.md#cli-v0019-client-v0170)
+for persistent sessions, historical views, the room graph wrapper, and pinned
+live integration checks. Backup output remains format 10, with restore input
+formats 6–10. No cache migration is required; sign in once to save a session
+if you previously used v0.0.18's memory-only login.
 
 ## CLI v0.0.18: client v0.16.0
 
