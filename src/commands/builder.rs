@@ -355,7 +355,7 @@ mod tests {
             ),
         );
         let catalog = builder.build();
-        let line = "offline-probe --output json | select name";
+        let line = "offline-probe --output json | columns name";
         assert!(can_execute_offline(&catalog, line));
         let result = execute_offline_line(Arc::new(CatalogStore::new(catalog)), line)
             .await
