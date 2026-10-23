@@ -4,6 +4,9 @@
 
 ### Added
 
+- Disable persistent password-session storage with `--session-storage none` or
+  `server.session_storage = "none"`. Rotate credentials only in memory, ignore
+  saved sessions and legacy token caches, and leave existing credentials intact.
 - Opt into macOS Keychain or Linux Secret Service for rotating login sessions with
   `--session-storage keychain` or `server.session_storage = "keychain"`.
   File storage remains the default. Existing matching sessions move to the

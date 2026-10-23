@@ -104,7 +104,7 @@ pub fn build_cli() -> Command {
                 .value_name("BACKEND")
                 .value_parser(value_parser!(SessionStorage))
                 .env("HUBUUM_CLI__SERVER__SESSION_STORAGE")
-                .help("Store password sessions in file (default) or keychain (macOS/Linux)"),
+                .help("Store password sessions in file (default), keychain (macOS/Linux), or none (memory only)"),
         )
         .arg(
             Arg::new("cache_time")
@@ -633,11 +633,17 @@ mod tests {
     fn session_storage_is_explicit_and_validated() {
         let mut config = AppConfig::default();
         assert_eq!(config.server.session_storage, SessionStorage::File);
-        let matches = build_cli()
-            .try_get_matches_from(["hubuum-cli", "--session-storage", "keychain"])
-            .unwrap();
-        update_config_from_cli(&mut config, &matches);
-        assert_eq!(config.server.session_storage, SessionStorage::Keychain);
+        for (name, expected) in [
+            ("keychain", SessionStorage::Keychain),
+            ("none", SessionStorage::None),
+            ("file", SessionStorage::File),
+        ] {
+            let matches = build_cli()
+                .try_get_matches_from(["hubuum-cli", "--session-storage", name])
+                .unwrap();
+            update_config_from_cli(&mut config, &matches);
+            assert_eq!(config.server.session_storage, expected);
+        }
         assert!(build_cli()
             .try_get_matches_from(["hubuum-cli", "--session-storage", "unknown",])
             .is_err());

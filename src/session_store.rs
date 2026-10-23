@@ -20,11 +20,12 @@ pub(crate) fn session_store(
     base_url: &BaseUrl,
     identity_scope: Option<&str>,
     username: &str,
-) -> Result<Arc<dyn SessionStore>, AppError> {
-    let files = SessionFileStore::new(base_url, identity_scope, username)?;
+) -> Result<Option<Arc<dyn SessionStore>>, AppError> {
+    let files = || SessionFileStore::new(base_url, identity_scope, username);
     Ok(match storage {
-        SessionStorage::File => Arc::new(files),
-        SessionStorage::Keychain => Arc::new(keychain::KeychainStore::new(files)?),
+        SessionStorage::File => Some(Arc::new(files()?)),
+        SessionStorage::Keychain => Some(Arc::new(keychain::KeychainStore::new(files()?)?)),
+        SessionStorage::None => None,
     })
 }
 

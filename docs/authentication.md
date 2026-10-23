@@ -48,7 +48,7 @@ hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token obj
 The CLI uses the server v0.0.20 `/api/v1/auth` contract. Password login creates
 an automatically rotating session with client ID `hubuum-cli`.
 
-After the first login, the CLI saves the access and refresh credentials and their
+With the default file storage, the CLI saves the access and refresh credentials and their
 server deadlines in `sessions.json` under its data directory (on Linux,
 `$XDG_DATA_HOME/hubuum_cli`, or `~/.local/share/hubuum_cli`). The directory and
 credential files have owner-only permissions on Unix. Passwords are never saved.
@@ -75,6 +75,29 @@ session cache and remains suitable for PATs and service accounts.
 
 Upgrade server API, workers, and restore executors together before using this
 CLI. The CLI does not downgrade password login to the removed legacy API.
+
+## Disable persistent session storage
+
+Select `none` to keep rotating password-session credentials only in memory:
+
+```sh
+hubuum-cli config set --key server.session_storage --value none
+# Or select it for one invocation:
+hubuum-cli --session-storage none object list
+# Or configure the environment, including wrapper subprocesses:
+export HUBUUM_CLI__SERVER__SESSION_STORAGE=none
+```
+
+Each new CLI process signs in again using the configured password or a prompt.
+The REPL still reuses and rotates its session until it exits. Wrappers that start
+multiple CLI processes, such as `hubuum-room`, may prompt more than once.
+
+This mode does not open the keychain, read either `sessions.json` or legacy
+`token.json`, or create session cache/lock files. It leaves previously saved
+credentials intact; selecting `none` does not delete them or revoke server
+sessions. Close existing CLI sessions before changing modes. Explicit
+`--token-file` authentication still uses the file you provide, and ordinary
+configuration, history, and logging behavior is unaffected.
 
 ## Optional keychain storage
 

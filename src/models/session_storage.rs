@@ -10,6 +10,7 @@ pub enum SessionStorage {
     #[default]
     File,
     Keychain,
+    None,
 }
 
 impl FromStr for SessionStorage {
@@ -19,7 +20,8 @@ impl FromStr for SessionStorage {
         match value.to_ascii_lowercase().as_str() {
             "file" => Ok(Self::File),
             "keychain" => Ok(Self::Keychain),
-            _ => Err("Session storage must be 'file' or 'keychain'".into()),
+            "none" => Ok(Self::None),
+            _ => Err("Session storage must be 'file', 'keychain', or 'none'".into()),
         }
     }
 }

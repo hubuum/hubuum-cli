@@ -79,6 +79,10 @@ is stored directly in the native store, with the same exclusive process lock.
 File-to-keychain migration preserves unrelated accounts and stops on storage
 failure. Existing Unix cache and lock-file permissions are repaired before use.
 No password or plaintext fallback is stored by the keychain backend.
+Selecting `none` instead uses the SDK's existing in-memory login API and skips
+both persistent stores and legacy-token reuse. It introduces no dependencies or
+server API changes. Regressions verify fresh logins, preservation of existing
+caches, absence of session files, and explicit token-file precedence.
 
 Verification uses the immutable server image
 `ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
@@ -97,6 +101,13 @@ refresh credential is absent from the native store before exchange and that the
 plaintext session entry was removed. macOS native validation is included in CI;
 it was not run on this Linux workstation. Strict Clippy, formatting, Markdown,
 wrapper and CI-policy checks, dependency audit, and a musl compile check passed.
+
+The memory-only follow-up passed 832 workspace tests, strict Clippy, formatting,
+Markdown lint, and CI-policy checks. The full pinned live suite passed again,
+including fresh memory-only logins both beside an existing cache and in an empty
+data directory; existing credentials remained unchanged and no session files
+were created. The preceding keychain commit also passed native macOS and Linux
+CI validation.
 
 ## CLI v0.0.18: client v0.16.0
 

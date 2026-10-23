@@ -786,7 +786,7 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
     match descriptor.value_kind {
         ConfigValueKind::Bool => strings(&["true", "false"]),
         ConfigValueKind::Protocol => strings(&["http", "https"]),
-        ConfigValueKind::SessionStorage => strings(&["file", "keychain"]),
+        ConfigValueKind::SessionStorage => strings(&["file", "keychain", "none"]),
         ConfigValueKind::OutputFormat => strings(&["text", "json"]),
         ConfigValueKind::OutputColor => strings(&["auto", "always", "never"]),
         ConfigValueKind::ThemeName => theme_value_candidates(),

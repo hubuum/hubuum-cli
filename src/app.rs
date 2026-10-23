@@ -347,13 +347,15 @@ fn authenticate(
         username,
     )?;
     if matches!(cached_token, CachedToken::Allow) {
-        match client_call("client.resume_session", || {
-            client.resume_session(client_id.clone(), store.clone())
-        }) {
-            Ok(Some(client)) => return Ok(client),
-            Ok(None) | Err(ApiError::SessionExpired) => {}
-            Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => {}
-            Err(error) => return Err(error.into()),
+        if let Some(store) = &store {
+            match client_call("client.resume_session", || {
+                client.resume_session(client_id.clone(), store.clone())
+            }) {
+                Ok(Some(client)) => return Ok(client),
+                Ok(None) | Err(ApiError::SessionExpired) => {}
+                Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         let token = if config.session_storage == SessionStorage::File {
             get_token_from_tokenfile(hostname, identity_scope, username)?
@@ -386,8 +388,9 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    client_call("client.login_session", || {
-        client.login_session_with_store(credentials, client_id, store)
+    client_call("client.login_session", || match store {
+        Some(store) => client.login_session_with_store(credentials, client_id, store),
+        None => client.login_session(credentials, client_id),
     })
     .map_err(AppError::from)
 }
@@ -613,6 +616,7 @@ mod tests {
 mod authentication_cache_tests {
     use std::env::{remove_var, set_var, var_os};
     use std::ffi::OsString;
+    use std::fs::{create_dir_all, read, read_dir, write};
     use std::sync::Arc;
 
     use hubuum_client::{blocking::Client, MockTransport, TransportResponse};
@@ -622,7 +626,9 @@ mod authentication_cache_tests {
     use tempfile::tempdir;
 
     use super::{authenticate, CachedToken};
+    use crate::config::AppConfig;
     use crate::files::{get_token_file, get_token_from_tokenfile};
+    use crate::models::SessionStorage;
 
     // dirs uses XDG_DATA_HOME on Linux. Restore it even if an assertion fails.
     struct DataDirectory(Option<OsString>);
@@ -687,7 +693,7 @@ mod authentication_cache_tests {
                 .build()
                 .unwrap();
             let password = format!("fixture-{}", rand::random::<u64>());
-            let mut config = crate::config::AppConfig::default().server;
+            let mut config = AppConfig::default().server;
             config.hostname = "example.invalid".into();
             config.identity_scope = Some("corp".into());
             config.username = "alice".into();
@@ -721,5 +727,93 @@ mod authentication_cache_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[serial]
+    fn memory_only_logins_ignore_existing_caches_and_never_create_session_files() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        for existing_cache in [false, true] {
+            let directory = tempdir().unwrap();
+            set_var("XDG_DATA_HOME", directory.path());
+            let root = directory.path().join("hubuum_cli");
+            if existing_cache {
+                create_dir_all(&root).unwrap();
+                // Reading either cache would fail. Disabling storage must ignore
+                // both without deleting them or acquiring a session lock.
+                for name in ["token.json", "sessions.json"] {
+                    write(root.join(name), b"untouched-invalid-cache").unwrap();
+                }
+            }
+            let transport = MockTransport::default();
+            let mut config = AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.username = "alice".into();
+            config.password = Some(format!("fixture-{}", rand::random::<u64>()));
+            config.session_storage = SessionStorage::None;
+            for index in 0..2 {
+                let access = format!("memory-access-{index}");
+                transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+                    "session_id":format!("memory-session-{index}"), "token_type":"Bearer",
+                    "access_token":access, "refresh_token":format!("memory-refresh-{index}"),
+                    "access_expires_at":chrono::Utc::now()+chrono::Duration::minutes(15),
+                    "refresh_expires_at":chrono::Utc::now()+chrono::Duration::days(7),
+                    "absolute_expires_at":chrono::Utc::now()+chrono::Duration::days(30)
+                })).unwrap());
+                let client = Client::builder_from_url("https://example.invalid")
+                    .unwrap()
+                    .with_transport(Arc::new(transport.clone()))
+                    .build()
+                    .unwrap();
+                let authenticated = authenticate(client, &config, CachedToken::Allow).unwrap();
+                assert_eq!(authenticated.token().unwrap().as_str(), access);
+            }
+            let requests = transport.requests();
+            assert_eq!(requests.len(), 2);
+            assert!(requests
+                .iter()
+                .all(|request| request.url.path() == "/api/v1/auth/login"));
+            if existing_cache {
+                assert_eq!(read_dir(&root).unwrap().count(), 2);
+                for name in ["token.json", "sessions.json"] {
+                    assert_eq!(read(root.join(name)).unwrap(), b"untouched-invalid-cache");
+                }
+            } else {
+                assert!(!root.exists());
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn memory_only_setting_preserves_explicit_token_file_authentication() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        let directory = tempdir().unwrap();
+        set_var("XDG_DATA_HOME", directory.path());
+        let path = directory.path().join("explicit-token");
+        write(&path, "explicit-service-token").unwrap();
+        let transport = MockTransport::default();
+        transport.push_response(TransportResponse::empty(StatusCode::OK));
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap();
+        let mut config = AppConfig::default().server;
+        config.session_storage = SessionStorage::None;
+        config.token_file = Some(path.to_str().unwrap().into());
+        let authenticated = authenticate(client, &config, CachedToken::Allow).unwrap();
+        assert_eq!(
+            authenticated.token().unwrap().as_str(),
+            "explicit-service-token"
+        );
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::GET);
+        assert_eq!(
+            requests[0].headers[AUTHORIZATION],
+            "Bearer explicit-service-token"
+        );
+        assert!(!directory.path().join("hubuum_cli").exists());
     }
 }

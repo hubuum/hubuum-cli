@@ -161,6 +161,21 @@ def main():
                 assert json.loads(cache.read_text())[0]["session"]["pair"]["refresh_token"] != original_refresh
                 print("PASS: CLI sessions survive restarts and coordinate refresh across processes", flush=True)
 
+                before_memory_login = cache.read_bytes()
+                memory_env = dict(env, HUBUUM_CLI__SERVER__SESSION_STORAGE="none",
+                                  HUBUUM_CLI__SERVER__PASSWORD=password)
+                for memory_directory in [directory, directory / "memory-only"]:
+                    memory_login = subprocess.run(session_args, text=True, capture_output=True,
+                                                  timeout=60, env=dict(memory_env, XDG_DATA_HOME=str(memory_directory)))
+                    assert memory_login.returncode == 0, "Memory-only CLI login failed"
+                    assert json.loads(memory_login.stdout)
+                    assert password not in memory_login.stdout + memory_login.stderr
+                    assert cache.read_bytes() == before_memory_login
+                    if memory_directory != directory:
+                        for name in ["sessions.json", "sessions.lock", "token.json"]:
+                            assert not (memory_directory / "hubuum_cli" / name).exists()
+                print("PASS: memory-only CLI logins preserve existing caches and create no session files", flush=True)
+
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
                 command = list(command)
