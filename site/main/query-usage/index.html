@@ -721,6 +721,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  History and historical views
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../updates/" class="md-nav__link">
         
   
@@ -1886,6 +1913,16 @@ sampled, bounded, value-free, process-local evidence and disappear on restart.
 Durations measure whole queries, including other predicates and authorization;
 they do not measure one predicate's cost. Read the effective observation
 settings and report limitations before interpreting the result.</p>
+<p>An unscoped human administrator can inspect or change the shared runtime override:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>query-observations<span class="w"> </span>show
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>query-observations<span class="w"> </span><span class="nb">enable</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>query-observations<span class="w"> </span>disable
+</code></pre></div>
+<p>The override propagates asynchronously across server instances. Disabling new
+collection leaves retained local evidence intact until expiry or restart.
+<code>show</code> returns effective state, override, sampling frequency, retention, pattern
+caps, and predicate limits. <code>admin config</code> also exposes the effective observation,
+session-lifetime, and credential-activity settings provided by the server.</p>
 <p>Text output summarizes assessments, suggestions, native resource references,
 ownership, size, scan counts, cleanup eligibility, and adapter progress. JSON
 preserves all returned details. An absent scan count means unknown, and a zero

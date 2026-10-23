@@ -716,6 +716,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  History and historical views
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../updates/" class="md-nav__link">
         
   
@@ -1703,6 +1730,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1721,7 +1759,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1782,7 +1820,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1821,7 +1859,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_2" class="md-nav__link">
+  <a href="#changed_3" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1871,7 +1909,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_3" class="md-nav__link">
+  <a href="#changed_4" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1932,7 +1970,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_4" class="md-nav__link">
+  <a href="#changed_5" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -1960,7 +1998,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_5" class="md-nav__link">
+  <a href="#changed_6" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2236,6 +2274,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Changed
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2254,7 +2303,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2315,7 +2364,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2354,7 +2403,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_2" class="md-nav__link">
+  <a href="#changed_3" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2404,7 +2453,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_3" class="md-nav__link">
+  <a href="#changed_4" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2465,7 +2514,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_4" class="md-nav__link">
+  <a href="#changed_5" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2493,7 +2542,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#changed_5" class="md-nav__link">
+  <a href="#changed_6" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Changed
@@ -2673,6 +2722,20 @@
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Inspect or end an existing rotating session with <code>auth status</code> and <code>auth logout</code>
+  without creating a new login. Status omits credentials; logout clears only its
+  matching saved session family.</li>
+<li>Add history timelines, exact historical object-name lookup, as-of object
+  populations, direct relationship history, and historical shared computed
+  values. Preserve retained-history coverage, unavailable endpoint context, and
+  pagination metadata in JSON and pipelines.</li>
+<li>Add <code>me token activity</code>, <code>user token activity</code>, and <code>service-account token activity</code>
+  with offset pagination and complete issuance, source, retention, and overflow evidence.</li>
+<li>Add <code>object hydrate</code> for bounded paths to a target class and
+  <code>admin query-observations show|enable|disable</code> for the shared runtime override.</li>
+<li>Accept and display directional class-relation labels, preserving their meaning
+  when class IDs are reordered. Include session and credential-activity settings
+  in <code>admin config</code>.</li>
 <li>Disable persistent password-session storage with <code>--session-storage none</code> or
   <code>server.session_storage = "none"</code>. Rotate credentials only in memory, ignore
   saved sessions and legacy token caches, and leave existing credentials intact.</li>
@@ -2689,6 +2752,13 @@
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Fetch <code>history show --id</code> directly instead of scanning a bounded history list.
+  Accept numeric class/object selectors so retained history remains accessible
+  after deletion. History tables show history IDs, revisions, operations, and
+  validity intervals while existing JSON snapshots retain their fields.</li>
+<li>Honor positional object names after history class selectors and positional
+  token IDs after credential-owner options. Suppress activity pagination hints
+  for summary pipelines while retaining warnings about partial evidence.</li>
 <li>Coordinate concurrent cache-miss logins so processes starting with empty or
   expired caches reuse one session instead of replacing each other's credentials.
   Recheck storage after password entry under a cross-process login lock.</li>
@@ -2696,11 +2766,19 @@
   Save rotating sessions in <code>sessions.json</code>, isolate server/provider/user identities,
   and coordinate refresh across processes with an exclusive lock and atomic writes.
   Passwords are never stored. Expired, revoked, or uncertain sessions require login.</li>
-<li>Use the companion SDK session-storage API from a pinned Git revision until it
-  is released. The Hubuum Server v0.0.20 target and OpenAPI contract are unchanged.</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Pin published <code>hubuum_client</code> 0.17.0, replacing the temporary Git dependency.
+  The Hubuum server v0.0.20 target, pinned server image, blocking-only client
+  features, and backup format 10 remain unchanged. No cache migration is required.</li>
+<li>Move persistent session storage into the <code>hubuum-session</code> workspace crate,
+  retaining cache formats, keychain identifiers, and process coordination.
+  The crate declares Rust 1.89 for filesystem locking; the CLI still has no
+  declared MSRV. Separate REPL state and history/resource selection into modules.</li>
 </ul>
 <h2 id="0018-2026-10-22">[0.0.18] - 2026-10-22<a class="headerlink" href="#0018-2026-10-22" title="Permanent link">&para;</a></h2>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Breaking server target:</strong> pin published Rust SDK 0.16.0 and require Hubuum
   server v0.0.20. Password login and provider discovery use <code>/api/v1/auth</code>.
@@ -2743,7 +2821,7 @@
   Direct commands, scripts, the REPL, pipelines, and file redirects share this
   behavior. JSON warnings and errors are included as arrays in the response.</li>
 </ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Breaking for JSON debug consumers:</strong> <code>--debug --output json</code> now returns
   <code>{"data": ..., "debug": ...}</code> instead of a raw result with a text debug report
@@ -2761,7 +2839,7 @@
   HTTP attempts include status codes and are counted separately from client calls.
   Reports go to stderr and work with direct commands, scripts, the REPL, and workflows.</li>
 </ul>
-<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Declare <code>tracing</code> 0.1 as a direct dependency for command diagnostics, using the
   version already present in the lockfile. Upgrade the pinned client from 0.15.0
@@ -2825,7 +2903,7 @@
   Room names may omit an initial <code>B</code> when no name or ID matches directly.</p>
 </li>
 </ul>
-<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
 <p>Use the client's typed structured-search requests, responses, and SSE decoder.
@@ -2899,7 +2977,7 @@
   literal destination URLs are no longer accepted as preset arguments. Tokenizer
   trace logs record token counts rather than argument contents.</li>
 </ul>
-<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
+<h3 id="changed_5">Changed<a class="headerlink" href="#changed_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Refresh compatible Rust dependencies, including Hyper 1.12, h2 0.4.20,
   Jiff 0.2.38, and Zeroize 1.9.1.</li>
@@ -2946,7 +3024,7 @@
 </tr>
 </tbody>
 </table>
-<h3 id="changed_5">Changed<a class="headerlink" href="#changed_5" title="Permanent link">&para;</a></h3>
+<h3 id="changed_6">Changed<a class="headerlink" href="#changed_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Document compatibility through the pinned client library, generic webhook
   setup, and equivalent full commands for the Slack, Mattermost, and Discord
