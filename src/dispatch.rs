@@ -214,6 +214,11 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
             .is_some_and(|part| part == "help" || part == "?")
         || extension_offline
         || catalog.resolve_command(&[], &parts).is_ok_and(|resolved| {
+            // Classify unconditional offline commands before parsing their pipeline,
+            // so syntax errors are reported without attempting authentication.
+            if !resolved.command.handler.requires_authentication() {
+                return true;
+            }
             let Ok((line, _)) = split_pipeline(&line) else {
                 return false;
             };
