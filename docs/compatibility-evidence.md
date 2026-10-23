@@ -56,6 +56,24 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
+## Unreleased: room graph wrapper
+
+The room wrapper resolves the Room and fetches a depth-two graph with
+`relation object graph --data`. On 2026-10-23, the live CLI suite verified
+the wrapper against the same immutable server v0.0.20 image recorded below.
+Fixtures create class and object IDs in opposite orders, connect one Host to
+two Jacks, and include an empty Jack and null object data. JSON and text output
+preserve placement and facts. Room name, numeric ID, and the optional `B` prefix
+each require two CLI invocations; this is not a claim of two HTTP requests or
+a measured latency improvement. Graph JSON without `--data` retains its shape.
+
+All 852 workspace tests passed, along with strict Clippy, rustfmt, wrapper tests,
+ShellCheck, Markdown lint, extension-schema validation, the strict documentation
+build and rendered-link checks, and 18 CI-policy tests. The session crate passed
+its Rust 1.89 check, and the dependency audit passed. The SDK pin, server target,
+OpenAPI surface, dependencies, feature combinations, and MSRV declarations are
+unchanged. Upgrade the wrapper together with a CLI supporting `--data`.
+
 ## Unreleased: client v0.17.0
 
 The development build pins published crates.io `hubuum_client` 0.17.0 with checksum

@@ -4,6 +4,9 @@
 
 ### Added
 
+- Add `relation object graph --data` to include object data in JSON graph output
+  without additional object lookups.
+
 - Inspect or end an existing rotating session with `auth status` and `auth logout`
   without creating a new login. Status omits credentials; logout clears only its
   matching saved session family.
@@ -33,6 +36,13 @@
   use, including caches restored or copied with broader permissions.
 
 ### Fixed
+
+- Fetch `hubuum-room` placement and object data in one depth-two graph after
+  resolving the Room, replacing per-Jack relation and per-Host object lookups.
+  **Breaking for wrapper-only upgrades:** upgrade `hubuum-cli` together with the
+  wrapper; it now requires `relation object graph --data` support.
+- Keep object-relation class labels aligned with their objects when object IDs
+  and class IDs have different endpoint orderings.
 
 - Fetch `history show --id` directly instead of scanning a bounded history list.
   Accept numeric class/object selectors so retained history remains accessible

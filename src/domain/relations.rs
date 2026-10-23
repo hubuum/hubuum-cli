@@ -5,6 +5,7 @@ use hubuum_client::{
     Class, ClassRelation, ClassWithPath, Collection, Object, ObjectRelation, ObjectWithPath,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedClassRelationRecord {
@@ -72,20 +73,27 @@ impl ResolvedObjectRelationRecord {
         objectmap: &HashMap<i32, Object>,
         classmap: &HashMap<i32, Class>,
     ) -> Self {
+        let from_object = objectmap.get(&object_relation.from_hubuum_object_id.into());
+        let to_object = objectmap.get(&object_relation.to_hubuum_object_id.into());
+        // Object endpoints are ordered by object ID, independently of class IDs.
+        let from_class = from_object
+            .map(|object| object.hubuum_class_id)
+            .unwrap_or(class_relation.from_hubuum_class_id);
+        let to_class = to_object
+            .map(|object| object.hubuum_class_id)
+            .unwrap_or(class_relation.to_hubuum_class_id);
         let class_a = classmap
-            .get(&class_relation.from_hubuum_class_id.into())
+            .get(&from_class.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
         let class_b = classmap
-            .get(&class_relation.to_hubuum_class_id.into())
+            .get(&to_class.into())
             .map(|class| class.name.clone())
             .unwrap_or_default();
-        let object_a = objectmap
-            .get(&object_relation.from_hubuum_object_id.into())
+        let object_a = from_object
             .map(|object| object.name.clone())
             .unwrap_or_default();
-        let object_b = objectmap
-            .get(&object_relation.to_hubuum_object_id.into())
+        let object_b = to_object
             .map(|object| object.name.clone())
             .unwrap_or_default();
 
@@ -146,6 +154,8 @@ pub struct ResolvedRelatedObjectRecord {
     pub class: String,
     pub depth: usize,
     pub path: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data: Option<Value>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -174,9 +184,15 @@ impl ResolvedRelatedObjectRecord {
             class,
             depth: object.path.len().saturating_sub(1),
             path: path_labels,
+            data: None,
             created_at: object.created_at.to_string(),
             updated_at: object.updated_at.to_string(),
         }
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
+        self
     }
 }
 

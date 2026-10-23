@@ -383,6 +383,82 @@ fn related_object_output_reuses_embedded_collections_and_keeps_paths() {
     assert_eq!(page.items[2].collection, "Facilities");
     assert_eq!(page.items[2].path, ["BL14=521.A7-UD7056", "B701"]);
     assert_eq!(transport.requests().len(), 4);
+    assert!(to_value(page.items).unwrap()[0].get("data").is_none());
+}
+
+#[test]
+fn related_object_graph_includes_data_only_when_requested_without_extra_lookups() {
+    let mut f = fixture();
+    // The Host has a higher object ID than the Jack, but a lower class ID.
+    f["graph"]["objects"][0]["id"] = json!(60);
+    for object in f["graph"]["objects"].as_array_mut().unwrap() {
+        object["path"][0] = json!(60);
+    }
+    f["graph"]["relations"] = json!([{
+        "id": 5, "class_relation_id": 7, "revision": 1,
+        "from_hubuum_object_id": 44, "to_hubuum_object_id": 60,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2020-07-30T11:46:02+00:00"
+    }]);
+    let class_relations = json!([{
+        "id": 7, "from_hubuum_class_id": 9, "to_hubuum_class_id": 11, "revision": 1,
+        "created_at": "2020-07-30T11:46:02+00:00",
+        "updated_at": "2020-07-30T11:46:02+00:00"
+    }]);
+    let mut classes = f["classes"].as_array().unwrap().clone();
+    let mut root_class = f["root_class"].clone();
+    root_class["collection"] = f["collections"][0].clone();
+    classes.push(root_class.clone());
+    let query = list_query_from_raw(&["depth lte 2".to_string()], &[], None, None).unwrap();
+    for include_data in [false, true] {
+        let (gateway, transport) = gateway([
+            root_class.clone(),
+            json!([f["graph"]["objects"][0]]),
+            f["graph"].clone(),
+            json!(classes),
+            class_relations.clone(),
+        ]);
+        let graph = gateway
+            .related_object_graph(
+                &RelationRoot {
+                    root_class: "Hosts".to_string(),
+                    root_object: "nommo.uio.no".to_string(),
+                },
+                &query.filters,
+                Some(RelatedGraphLimit::new(250).unwrap()),
+                include_data,
+            )
+            .unwrap();
+        let graph = to_value(graph).unwrap();
+        let objects = graph["objects"].as_array().unwrap();
+        assert_eq!(objects.len(), 4);
+        for (actual, source) in objects
+            .iter()
+            .zip(f["graph"]["objects"].as_array().unwrap())
+        {
+            if include_data {
+                assert_eq!(actual.get("data"), Some(&source["data"]));
+            } else {
+                assert!(actual.get("data").is_none());
+            }
+        }
+        assert_eq!(objects[3]["path"], json!(["BL14=521.A7-UD7056", "B701"]));
+        assert_eq!(graph["relations"][0]["class_a"], "Jacks");
+        assert_eq!(graph["relations"][0]["object_a"], "BL14=521.A7-UD7056");
+        assert_eq!(graph["relations"][0]["class_b"], "Hosts");
+        assert_eq!(graph["relations"][0]["object_b"], "nommo.uio.no");
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[2].url.path().ends_with("/related/graph"));
+        assert!(requests[2]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "depth__lte" && value == "2"));
+        assert!(requests[2]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "limit" && value == "250"));
+    }
 }
 
 #[test]
