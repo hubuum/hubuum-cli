@@ -1,6 +1,6 @@
 # Schema evolution and task cancellation
 
-CLI v0.0.18 uses `hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
+CLI v0.0.19 uses `hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
 The schema lifecycle below was introduced in server v0.0.15.
 All schema policy writes use `class schema`. The old `--schema`/`-s` and
 `--validate`/`-v` flags on `class create` and `class modify` are removed.

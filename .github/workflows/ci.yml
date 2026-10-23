@@ -157,9 +157,12 @@ jobs:
 
       - name: Install Linux keychain test service
         if: matrix.platform.os_name == 'Linux-x86_64' && matrix.toolchain == 'stable'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+            -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            install --yes --no-install-recommends dbus-x11 gnome-keyring
 
       - name: Test Linux Secret Service
         if: matrix.platform.os_name == 'Linux-x86_64' && matrix.toolchain == 'stable'
@@ -173,6 +176,35 @@ jobs:
       - name: Test macOS Keychain
         if: matrix.platform.os_name == 'macOS-aarch64' && matrix.toolchain == 'stable'
         run: cargo test --locked --release -p hubuum-session keychain::tests::native_keychain_round_trip -- --ignored --exact
+
+  static-linux:
+    needs: changes
+    name: ARM64 Linux static build
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build static ARM64 binary
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          target: release-artifacts
+          platforms: linux/arm64
+          outputs: type=local,dest=dist/bin
+          cache-from: type=gha,scope=static-linux-aarch64-musl
+          cache-to: type=gha,mode=max,scope=static-linux-aarch64-musl
+
+      - name: Verify static linkage and startup
+        run: |
+          if readelf --dynamic dist/bin/hubuum-cli | grep --quiet '(NEEDED)'; then
+            echo 'ARM64 binary unexpectedly has dynamic runtime dependencies' >&2
+            exit 1
+          fi
+          dist/bin/hubuum-cli --version
 
   backup-restore:
     needs: changes
@@ -562,7 +594,7 @@ jobs:
     # Preserve the existing required check name while aggregating every CI job.
     name: Lint
     if: always() && !startsWith(github.ref, 'refs/tags/')
-    needs: [changes, markdown, lint, test, backup-restore]
+    needs: [changes, markdown, lint, test, static-linux, backup-restore]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -574,5 +606,5 @@ jobs:
       - name: Require every selected check to pass
         env:
           JOB_RESULTS: ${{ toJSON(needs) }}
-          CODE_JOBS: lint test backup-restore
+          CODE_JOBS: lint test static-linux backup-restore
         run: python3 scripts/ci-policy.py --gate

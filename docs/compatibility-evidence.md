@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
-`hubuum_client` 0.16.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
+`hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,7 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Unreleased | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
+| 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
@@ -56,7 +56,20 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
-## Unreleased: room graph wrapper
+## CLI v0.0.19: client v0.17.0
+
+ARM64 musl builds compile vendored C atomic operations inline with
+`CFLAGS_aarch64_unknown_linux_musl=-mno-outline-atomics`, avoiding unresolved
+GCC outlined-atomic helpers from D-Bus while retaining baseline ARMv8 support.
+The pinned Docker build supplies this setting. The required CI gate includes
+a native ARM64 static build, linkage inspection, and binary startup check.
+Linux keychain test setup installs only required packages noninteractively,
+with download retries, network timeouts, and a ten-minute step limit.
+
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="unreleased-room-graph-wrapper"></span>
+
+### Room graph verification
 
 The room wrapper resolves the Room and fetches a depth-two graph with
 `relation object graph --data`. On 2026-10-23, the live CLI suite verified
@@ -74,9 +87,12 @@ its Rust 1.89 check, and the dependency audit passed. The SDK pin, server target
 OpenAPI surface, dependencies, feature combinations, and MSRV declarations are
 unchanged. Upgrade the wrapper together with a CLI supporting `--data`.
 
-## Unreleased: client v0.17.0
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="unreleased-client-v0170"></span>
 
-The development build pins published crates.io `hubuum_client` 0.17.0 with checksum
+### Session and client verification
+
+CLI v0.0.19 pins published crates.io `hubuum_client` 0.17.0 with checksum
 `f61d6e73094a5b698cc2bad0e4c86ef1f024cf945608ae196269b281ea210c7b`.
 It replaces the temporary Git dependency described below. The server v0.0.20
 target and immutable image remain
