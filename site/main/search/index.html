@@ -2058,7 +2058,7 @@ redirection simply captures stdout as usual. <code>--all</code> and <code>--stre
 exclusive. Server error events and a connection ending before <code>done</code> exit with
 an error; already emitted terminal batches remain visible and are not replayed.</p>
 <h2 id="stream-a-structured-search">Stream a structured search<a class="headerlink" href="#stream-a-structured-search" title="Permanent link">&para;</a></h2>
-<p>Structured searches use the typed client 0.16.0 API and require the supported server v0.0.20:</p>
+<p>Structured searches use the typed client 0.17.0 API and require the supported server v0.0.20:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>search --target object --class Hosts --where 'data.cpu.cores &gt;= 8' --stream
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>search --query-file search.json --stream --output jsonl
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>search --target object --class Hosts --stream | P name

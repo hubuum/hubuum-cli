@@ -619,6 +619,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0019-client-v0170" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.19: client v0.17.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0018-client-v0160" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1924,6 +1935,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0019-client-v0170" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.19: client v0.17.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0018-client-v0160" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2043,8 +2065,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
-<code>hubuum_client</code> 0.16.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
+<code>hubuum_client</code> 0.17.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2060,7 +2082,7 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
-<td>Unreleased</td>
+<td>0.0.19</td>
 <td>0.17.0</td>
 <td>0.0.20</td>
 <td>Persistent sessions, historical views, credential activity, hydration, and query observation controls</td>
@@ -2164,11 +2186,11 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
-workers, and restore executors together before using the new versioned login.
-The unreleased build pins published SDK 0.17.0 and restores password-session
-persistence through its storage API.
-Released v0.0.18 kept sessions only in memory; the fix stores rotating credentials
+<p>CLI v0.0.19 targets server v0.0.20 through client 0.17.0. Upgrading from CLI
+v0.0.18 requires no server upgrade. When upgrading older installations, upgrade
+server API, workers, and restore executors together before using versioned login.
+CLI v0.0.19 restores password-session persistence through the SDK's storage API.
+Released v0.0.18 kept sessions only in memory; v0.0.19 stores rotating credentials
 and coordinates their refresh across CLI processes. Explicit PAT files remain
 available for unattended automation. The server target and API routes are unchanged.
 The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
@@ -2186,7 +2208,10 @@ storage and reject explicit keychain selection. See the
 <a href="../authentication/#optional-keychain-storage">keychain configuration</a>.
 See <a href="../authentication/">authentication</a> and
 <a href="../credential-approvals/">credential approvals</a>.</p>
-<p>The server requires an offline migration and emits backup format 10. Keep a
+<p><strong>Breaking for wrapper-only upgrades:</strong> upgrade <code>hubuum-room</code> together with
+CLI v0.0.19. The wrapper requires <code>relation object graph --data</code>; older CLIs
+do not support the flag.</p>
+<p>Upgrading to server v0.0.20 requires an offline migration. It emits backup format 10. Keep a
 pre-upgrade PostgreSQL snapshot and matching binaries for rollback. Restore
 accepts formats 6–10; older servers cannot restore the new output. Follow the
 <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.20">server release notes</a>
@@ -2196,6 +2221,12 @@ aliased as <code>--debug</code>; the host now reserves this flag for command dia
 <h2 id="verification-evidence">Verification evidence<a class="headerlink" href="#verification-evidence" title="Permanent link">&para;</a></h2>
 <p><a href="../compatibility-evidence/">Detailed evidence and historical migrations</a> retain tested
 image identities, dates, suite results, and earlier compatibility limits.</p>
+<h2 id="cli-v0019-client-v0170">CLI v0.0.19: client v0.17.0<a class="headerlink" href="#cli-v0019-client-v0170" title="Permanent link">&para;</a></h2>
+<p>See <a href="../compatibility-evidence/#cli-v0019-client-v0170">CLI v0.0.19 evidence</a>
+for persistent sessions, historical views, the room graph wrapper, and pinned
+live integration checks. Backup output remains format 10, with restore input
+formats 6–10. No cache migration is required; sign in once to save a session
+if you previously used v0.0.18's memory-only login.</p>
 <h2 id="cli-v0018-client-v0160">CLI v0.0.18: client v0.16.0<a class="headerlink" href="#cli-v0018-client-v0160" title="Permanent link">&para;</a></h2>
 <p>See <a href="../compatibility-evidence/#cli-v0018-client-v0160">CLI v0.0.18 evidence</a>
 for the published SDK checksum, immutable server image, session behavior, and

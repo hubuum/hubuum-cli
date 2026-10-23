@@ -1694,7 +1694,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[Unreleased]">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0019-2026-10-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.19] - 2026-10-23
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.19] - 2026-10-23">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2238,7 +2249,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[Unreleased]">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0019-2026-10-23" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.19] - 2026-10-23
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.19] - 2026-10-23">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2720,17 +2742,14 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="0019-2026-10-23">[0.0.19] - 2026-10-23<a class="headerlink" href="#0019-2026-10-23" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
-<li>
-<p>Add <code>relation object graph --data</code> to include object data in JSON graph output
-  without additional object lookups.</p>
-</li>
-<li>
-<p>Inspect or end an existing rotating session with <code>auth status</code> and <code>auth logout</code>
+<li>Add <code>relation object graph --data</code> to include object data in JSON graph output
+  without additional object lookups.</li>
+<li>Inspect or end an existing rotating session with <code>auth status</code> and <code>auth logout</code>
   without creating a new login. Status omits credentials; logout clears only its
-  matching saved session family.</p>
-</li>
+  matching saved session family.</li>
 <li>Add history timelines, exact historical object-name lookup, as-of object
   populations, direct relationship history, and historical shared computed
   values. Preserve retained-history coverage, unavailable endpoint context, and
@@ -2758,20 +2777,18 @@
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Fix Linux ARM64 static binary linking with native keychain support, keeping
+  release archives self-contained.</li>
 <li>Fetch <code>hubuum-room</code> placement and object data in one depth-two graph after
   resolving the Room, replacing per-Jack relation and per-Host object lookups.
   <strong>Breaking for wrapper-only upgrades:</strong> upgrade <code>hubuum-cli</code> together with the
   wrapper; it now requires <code>relation object graph --data</code> support.</li>
-<li>
-<p>Keep object-relation class labels aligned with their objects when object IDs
-  and class IDs have different endpoint orderings.</p>
-</li>
-<li>
-<p>Fetch <code>history show --id</code> directly instead of scanning a bounded history list.
+<li>Keep object-relation class labels aligned with their objects when object IDs
+  and class IDs have different endpoint orderings.</li>
+<li>Fetch <code>history show --id</code> directly instead of scanning a bounded history list.
   Accept numeric class/object selectors so retained history remains accessible
   after deletion. History tables show history IDs, revisions, operations, and
-  validity intervals while existing JSON snapshots retain their fields.</p>
-</li>
+  validity intervals while existing JSON snapshots retain their fields.</li>
 <li>Honor positional object names after history class selectors and positional
   token IDs after credential-owner options. Suppress activity pagination hints
   for summary pipelines while retaining warnings about partial evidence.</li>
@@ -2785,13 +2802,13 @@
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Pin published <code>hubuum_client</code> 0.17.0, replacing the temporary Git dependency.
+<li>Upgrade published <code>hubuum_client</code> from 0.16.0 to 0.17.0.
   The Hubuum server v0.0.20 target, pinned server image, blocking-only client
   features, and backup format 10 remain unchanged. No cache migration is required.</li>
 <li>Move persistent session storage into the <code>hubuum-session</code> workspace crate,
   retaining cache formats, keychain identifiers, and process coordination.
   The crate declares Rust 1.89 for filesystem locking; the CLI still has no
-  declared MSRV. Separate REPL state and history/resource selection into modules.</li>
+  declared MSRV.</li>
 </ul>
 <h2 id="0018-2026-10-22">[0.0.18] - 2026-10-22<a class="headerlink" href="#0018-2026-10-22" title="Permanent link">&para;</a></h2>
 <h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>

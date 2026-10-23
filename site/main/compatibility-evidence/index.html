@@ -1616,24 +1616,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#unreleased-room-graph-wrapper" class="md-nav__link">
+  <a href="#cli-v0019-client-v0170" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: room graph wrapper
+        CLI v0.0.19: client v0.17.0
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI v0.0.19: client v0.17.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#room-graph-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Room graph verification
       </span>
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#unreleased-client-v0170" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#session-and-client-verification" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: client v0.17.0
+        Session and client verification
       </span>
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1913,24 +1930,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#unreleased-room-graph-wrapper" class="md-nav__link">
+  <a href="#cli-v0019-client-v0170" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: room graph wrapper
+        CLI v0.0.19: client v0.17.0
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI v0.0.19: client v0.17.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#room-graph-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Room graph verification
       </span>
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#unreleased-client-v0170" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#session-and-client-verification" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: client v0.17.0
+        Session and client verification
       </span>
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2065,8 +2099,8 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.18 uses
-<code>hubuum_client</code> 0.16.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
+<code>hubuum_client</code> 0.17.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2082,7 +2116,7 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
-<td>Unreleased</td>
+<td>0.0.19</td>
 <td>0.17.0</td>
 <td>0.0.20</td>
 <td>Persistent sessions, historical views, credential activity, hydration, and observation controls</td>
@@ -2209,7 +2243,17 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
-<h2 id="unreleased-room-graph-wrapper">Unreleased: room graph wrapper<a class="headerlink" href="#unreleased-room-graph-wrapper" title="Permanent link">&para;</a></h2>
+<h2 id="cli-v0019-client-v0170">CLI v0.0.19: client v0.17.0<a class="headerlink" href="#cli-v0019-client-v0170" title="Permanent link">&para;</a></h2>
+<p>ARM64 musl builds compile vendored C atomic operations inline with
+<code>CFLAGS_aarch64_unknown_linux_musl=-mno-outline-atomics</code>, avoiding unresolved
+GCC outlined-atomic helpers from D-Bus while retaining baseline ARMv8 support.
+The pinned Docker build supplies this setting. The required CI gate includes
+a native ARM64 static build, linkage inspection, and binary startup check.
+Linux keychain test setup installs only required packages noninteractively,
+with download retries, network timeouts, and a ten-minute step limit.</p>
+<!-- markdownlint-disable-next-line MD033 -->
+<p><span id="unreleased-room-graph-wrapper"></span></p>
+<h3 id="room-graph-verification">Room graph verification<a class="headerlink" href="#room-graph-verification" title="Permanent link">&para;</a></h3>
 <p>The room wrapper resolves the Room and fetches a depth-two graph with
 <code>relation object graph --data</code>. On 2026-10-23, the live CLI suite verified
 the wrapper against the same immutable server v0.0.20 image recorded below.
@@ -2224,8 +2268,10 @@ build and rendered-link checks, and 18 CI-policy tests. The session crate passed
 its Rust 1.89 check, and the dependency audit passed. The SDK pin, server target,
 OpenAPI surface, dependencies, feature combinations, and MSRV declarations are
 unchanged. Upgrade the wrapper together with a CLI supporting <code>--data</code>.</p>
-<h2 id="unreleased-client-v0170">Unreleased: client v0.17.0<a class="headerlink" href="#unreleased-client-v0170" title="Permanent link">&para;</a></h2>
-<p>The development build pins published crates.io <code>hubuum_client</code> 0.17.0 with checksum
+<!-- markdownlint-disable-next-line MD033 -->
+<p><span id="unreleased-client-v0170"></span></p>
+<h3 id="session-and-client-verification">Session and client verification<a class="headerlink" href="#session-and-client-verification" title="Permanent link">&para;</a></h3>
+<p>CLI v0.0.19 pins published crates.io <code>hubuum_client</code> 0.17.0 with checksum
 <code>f61d6e73094a5b698cc2bad0e4c86ef1f024cf945608ae196269b281ea210c7b</code>.
 It replaces the temporary Git dependency described below. The server v0.0.20
 target and immutable image remain

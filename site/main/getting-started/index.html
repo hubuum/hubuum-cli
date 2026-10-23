@@ -1946,15 +1946,16 @@
 <!-- markdownlint-disable-next-line MD033 -->
 <p><span id="a-cli-for-hubuum"></span></p>
 <p>Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI <strong>v0.0.18</strong> (2026-10-22) uses Rust client <strong>0.16.0</strong> and targets server
+CLI <strong>v0.0.19</strong> (2026-10-23) uses Rust client <strong>0.17.0</strong> and targets server
 <strong>v0.0.20</strong>. Hubuum is under active development before 1.0.</p>
-<p>The development build pins client <strong>0.17.0</strong> with persistent sessions,
+<p>This release restores persistent logins and adds
 <a href="../history/">historical views</a>, credential activity, hydration, and query
-observation controls. It retains the <strong>v0.0.20</strong> server target.</p>
+observation controls. The room wrapper now fetches placement and object data
+with a depth-two graph.</p>
 <p><a href="https://hubuum.github.io/hubuum-cli/">Documentation</a> · <a href="https://hubuum.github.io/">Hubuum ecosystem</a></p>
 <h2 id="release-binaries">Release binaries<a class="headerlink" href="#release-binaries" title="Permanent link">&para;</a></h2>
 <p>Download and extract the archive for your platform from
-<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.18">release v0.0.18</a>.
+<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.19">release v0.0.19</a>.
 Verify its published SHA-256 checksum and place <code>hubuum-cli</code> (<code>hubuum-cli.exe</code>
 on Windows) on your <code>PATH</code>. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
@@ -1965,14 +1966,16 @@ x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
 See <a href="../updates/#updating-in-place">update and restart instructions</a> before
 installing it, including package-manager and platform restrictions.</p>
 <h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.18 uses client <strong>0.16.0</strong> and targets server <strong>v0.0.20</strong>.
+<p>CLI v0.0.19 uses client <strong>0.17.0</strong> and targets server <strong>v0.0.20</strong>.
 Check the <a href="../compatibility/">compatibility matrix</a> for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see <a href="../backup-restore/">backup and restore</a>.</p>
-<p>This release uses rotating interactive sessions, refreshes dependencies and
-GitHub Actions, and supports backup format 10. <strong>Breaking:</strong> new password
-sessions remain in memory; each new CLI process needs credentials unless using
-an explicit PAT file. See <a href="../authentication/">authentication migration</a>.</p>
+<p>Password sessions persist in files by default; select <code>--session-storage none</code>
+for memory-only use or opt into macOS Keychain/Linux Secret Service. The server
+target and backup format 10 are unchanged from v0.0.18. See
+<a href="../authentication/">authentication migration</a>.
+<strong>Breaking for wrapper-only upgrades:</strong> upgrade <code>hubuum-room</code> together with
+CLI v0.0.19; the wrapper requires <code>relation object graph --data</code>.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <p>You need a server URL and a human account with permission to read its data.
 Connect to a TLS-enabled server; the CLI prompts for the password:</p>
