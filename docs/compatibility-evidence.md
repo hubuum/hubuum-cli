@@ -58,6 +58,14 @@ warnings, but they do not change the server target of a published client version
 
 ## CLI v0.0.19: client v0.17.0
 
+ARM64 musl builds compile vendored C atomic operations inline with
+`CFLAGS_aarch64_unknown_linux_musl=-mno-outline-atomics`, avoiding unresolved
+GCC outlined-atomic helpers from D-Bus while retaining baseline ARMv8 support.
+The pinned Docker build supplies this setting. The required CI gate includes
+a native ARM64 static build, linkage inspection, and binary startup check.
+Linux keychain test setup installs only required packages noninteractively,
+with download retries, network timeouts, and a ten-minute step limit.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="unreleased-room-graph-wrapper"></span>
 

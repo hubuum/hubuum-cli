@@ -11,6 +11,10 @@ WORKDIR /usr/src/hubuum-cli
 # statically linked cryptography used by rustls.
 RUN apk add --no-cache build-base cmake
 
+# Rust's musl runtime does not provide GCC's outlined atomic helpers used by
+# vendored D-Bus. Keep its atomics inline on the baseline ARMv8 instruction set.
+ENV CFLAGS_aarch64_unknown_linux_musl="-mno-outline-atomics"
+
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

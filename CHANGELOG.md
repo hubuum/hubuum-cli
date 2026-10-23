@@ -38,6 +38,8 @@
 
 ### Fixed
 
+- Fix Linux ARM64 static binary linking with native keychain support, keeping
+  release archives self-contained.
 - Fetch `hubuum-room` placement and object data in one depth-two graph after
   resolving the Room, replacing per-Jack relation and per-Host object lookups.
   **Breaking for wrapper-only upgrades:** upgrade `hubuum-cli` together with the
