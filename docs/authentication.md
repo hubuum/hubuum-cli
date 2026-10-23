@@ -43,7 +43,42 @@ chmod 600 /run/secrets/hubuum.token
 hubuum-cli --hostname api.example.com --token-file /run/secrets/hubuum.token object list --class Hosts
 ```
 
+## Credential activity
+
+Inspect issuance provenance and recent source addresses for a credential:
+
+```sh
+hubuum-cli me token activity --token-id 42 --limit 25
+hubuum-cli user token activity --username alice --token-id 42 --all --output json
+hubuum-cli service-account token activity --name inventory --token-id 42 --offset 0
+```
+
+These commands require token-management authority for the owner. Rotating access
+tokens share their session family's evidence. Pagination uses `--offset` (0–256)
+and `--limit` (1–100); `--all` follows advancing offsets. JSON and pipelines keep
+the complete envelope, including creation provenance, collection status,
+retention, source cap, and `overflow_since`. Collection being disabled does not
+erase already retained evidence. Activity is best-effort and includes successful
+authentication followed by authorization denial; it is not a complete request
+ledger or proof that an operation was authorized.
+
 ## Rotating sessions and upgrade
+
+Inspect or end an existing session without starting a fresh login:
+
+```sh
+hubuum-cli auth status --output json
+hubuum-cli auth logout
+```
+
+Status reports storage mode, session ID, and access/refresh/absolute deadlines;
+it never prints credentials. Outside the REPL, both commands resume only saved
+rotating sessions, which may validate or refresh them. A missing or expired
+session never prompts for a password. With `--session-storage none`, only an
+existing REPL session can be inspected or logged out. Logout revokes that session
+and clears only its matching saved family, preserving a newer login from another
+process. Explicit token-file configuration is reported without reading the file;
+use token revoke commands to revoke PATs and service tokens.
 
 The CLI uses the server v0.0.20 `/api/v1/auth` contract. Password login creates
 an automatically rotating session with client ID `hubuum-cli`.

@@ -2,6 +2,7 @@
 """Exercise the CLI against a pinned, disposable server; requires Python 3.11+."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -198,6 +199,20 @@ def main():
                             assert not (memory_directory / "hubuum_cli" / name).exists()
                 print("PASS: memory-only CLI logins preserve existing caches and create no session files", flush=True)
 
+                def session_command(action):
+                    result = subprocess.run(session_args[:-4] + ["auth", action, "--output", "json"],
+                                            text=True, capture_output=True, timeout=60, env=env)
+                    assert result.returncode == 0, (action, result.stderr)
+                    assert password not in result.stdout + result.stderr
+                    return json.loads(result.stdout)
+
+                assert session_command("status")["status"] == "active"
+                assert session_command("logout")["status"] == "logged_out"
+                assert json.loads(cache.read_text()) == []
+                assert session_command("status")["status"] == "no_saved_session"
+                assert session_command("logout")["status"] == "no_saved_session"
+                print("PASS: saved-session inspection and logout never create a fresh login", flush=True)
+
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
                 command = list(command)
@@ -227,7 +242,19 @@ def main():
             object_path = f'{objects_path}{obj["id"]}'
             obj = api("PATCH", object_path, {"description": "recover an advanced revision"}, token)
             assert obj["revision"] > 1
-            assert cli("admin", "config")
+            config_snapshot = cli("admin", "config")
+            assert config_snapshot
+            observed = cli("admin", "query-observations", "show")
+            assert cli("admin", "query-observations", "enable")["runtime_override"] is True
+            assert cli("admin", "query-observations", "disable")["runtime_override"] is False
+            cli("admin", "query-observations", "enable" if observed["enabled"] else "disable")
+            mine = cli("me", "show")
+            for owner in [("me",), ("user", "--username", "admin")]:
+                arguments = [owner[0], "token", "activity", *owner[1:], "--token-id", str(mine["token"]["id"]), "--all"]
+                activity = cli(*arguments)
+                assert {"session_id", "creation", "sources", "best_effort", "collection_enabled", "retention_days", "source_cap", "overflow_since"} <= activity.keys(), activity
+                assert activity["best_effort"] is True
+            print("PASS: shared query-observation controls and current/user credential activity", flush=True)
 
             # Provider presets remain ordinary webhooks. Preview through the
             # real server renderer without resolving secrets or sending chat.
@@ -299,9 +326,49 @@ def main():
                 "collection_id": related_collection["id"], "hubuum_class_id": related_class["id"],
                 "data": None,
             }, token)
-            cli("relation", "class", "create", "--class-a", prefix, "--class-b", related_name)
+            relation = cli("relation", "class", "create", "--class-a", related_name, "--class-b", prefix,
+                           "--forward-label", "contains", "--reverse-label", "located in")
+            assert relation["forward_label"] == "located in" and relation["reverse_label"] == "contains", relation
             cli("relation", "object", "create", "--class-a", prefix, "--object-a", prefix,
                 "--class-b", related_name, "--object-b", "neighbor")
+            hydrated = cli("object", "hydrate", "--class-id", str(cls["id"]), "--object-id", str(obj["id"]),
+                           "--target-class-id", str(related_class["id"]), "--max-depth", "1", "--path-limit", "1")
+            assert hydrated["root_object_id"] == obj["id"] and hydrated["paths"], hydrated
+            assert "truncated" in hydrated and "next_cursor" not in hydrated
+            historical_at = datetime.now(timezone.utc).isoformat()
+            scope = ["--class-id", str(cls["id"])]
+            object_scope = scope + ["--object-id", str(obj["id"])]
+            timeline = cli("history", "timeline", "object", *object_scope, "--limit", "1", "--all")
+            assert len(timeline["items"]) >= 2 and timeline["next_cursor"] is None, timeline
+            marker = timeline["items"][0]
+            snapshot = cli("history", "show", *object_scope, "--id", str(marker["history_id"]))
+            assert snapshot["history_id"] == marker["history_id"] and "data" in snapshot
+            assert cli("history", "timeline", "class", *scope)["items"]
+            population = cli("history", "objects", *scope, "--at", historical_at, "--all")
+            assert population["coverage"] == "retained_history" and population["class"]["id"] == cls["id"]
+            assert any(item["id"] == obj["id"] for item in population["objects"])
+            for selected in [scope, object_scope]:
+                for at_args in [[], ["--at", historical_at]]:
+                    relationships = cli("history", "relations", *selected, *at_args, "--all")
+                    assert relationships["coverage"] == "retained_history" and relationships["relations"]
+            computed = cli("history", "computed", *object_scope, "--at", historical_at)
+            assert computed["mode"] == "historical_recomputation" and computed["personal"] == "unsupported"
+            retired = api("POST", objects_path, {
+                "name": "123", "description": "history identity fixture", "collection_id": collection["id"],
+                "hubuum_class_id": cls["id"], "data": None,
+            }, token)
+            api("DELETE", f'{objects_path}{retired["id"]}', token=token)
+            replacement = api("POST", objects_path, {
+                "name": "123", "description": "replacement identity fixture", "collection_id": collection["id"],
+                "hubuum_class_id": cls["id"], "data": None,
+            }, token)
+            named = cli("history", "object-name", *scope, "--name", "123", "--limit", "1", "--all")
+            assert {retired["id"], replacement["id"]} <= {item["id"] for item in named["items"]}
+            deleted_marker = next(item for item in named["items"] if item["id"] == retired["id"])
+            deleted = cli("history", "show", *scope, "--object-id", str(retired["id"]), "--id", str(deleted_marker["history_id"]))
+            assert deleted["id"] == retired["id"] and deleted["history_id"] == deleted_marker["history_id"]
+            api("DELETE", f'{objects_path}{replacement["id"]}', token=token)
+            print("PASS: history timelines, direct/deleted snapshots, literal names, populations, relations, computed values, labels, and hydration", flush=True)
             shown = cli("object", "show", "--class", prefix, "--name", prefix, "--data", "--json")
             assert shown["id"] == obj["id"] and shown["data"] == obj["data"]
             assert shown["description"] == obj["description"] and shown["collection"] == prefix
@@ -433,6 +500,10 @@ def main():
             account = prefix + "-service"
             cli("service-account", "create", "--name", account, "--owner-group", groups[0]["groupname"])
             assert cli("service-account", "token", "create", "--name", account, "--token-name", prefix)
+            service_tokens = cli("service-account", "token", "list", "--name", account)
+            service_activity = cli("service-account", "token", "activity", "--name", account,
+                                   "--token-id", str(service_tokens[0]["id"]), "--all")
+            assert service_activity["creation"] is not None and service_activity["best_effort"]
             credential_import = directory / "credential-import.json"
             credential_import.write_text(json.dumps({
                 "version": 2, "dry_run": True, "graph": {"principals": [{

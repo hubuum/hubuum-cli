@@ -4,6 +4,20 @@
 
 ### Added
 
+- Inspect or end an existing rotating session with `auth status` and `auth logout`
+  without creating a new login. Status omits credentials; logout clears only its
+  matching saved session family.
+- Add history timelines, exact historical object-name lookup, as-of object
+  populations, direct relationship history, and historical shared computed
+  values. Preserve retained-history coverage, unavailable endpoint context, and
+  pagination metadata in JSON and pipelines.
+- Add `me token activity`, `user token activity`, and `service-account token activity`
+  with offset pagination and complete issuance, source, retention, and overflow evidence.
+- Add `object hydrate` for bounded paths to a target class and
+  `admin query-observations show|enable|disable` for the shared runtime override.
+- Accept and display directional class-relation labels, preserving their meaning
+  when class IDs are reordered. Include session and credential-activity settings
+  in `admin config`.
 - Disable persistent password-session storage with `--session-storage none` or
   `server.session_storage = "none"`. Rotate credentials only in memory, ignore
   saved sessions and legacy token caches, and leave existing credentials intact.
@@ -20,6 +34,10 @@
 
 ### Fixed
 
+- Fetch `history show --id` directly instead of scanning a bounded history list.
+  Accept numeric class/object selectors so retained history remains accessible
+  after deletion. History tables show history IDs, revisions, operations, and
+  validity intervals while existing JSON snapshots retain their fields.
 - Coordinate concurrent cache-miss logins so processes starting with empty or
   expired caches reuse one session instead of replacing each other's credentials.
   Recheck storage after password entry under a cross-process login lock.
@@ -27,8 +45,16 @@
   Save rotating sessions in `sessions.json`, isolate server/provider/user identities,
   and coordinate refresh across processes with an exclusive lock and atomic writes.
   Passwords are never stored. Expired, revoked, or uncertain sessions require login.
-- Use the companion SDK session-storage API from a pinned Git revision until it
-  is released. The Hubuum Server v0.0.20 target and OpenAPI contract are unchanged.
+
+### Changed
+
+- Pin published `hubuum_client` 0.17.0, replacing the temporary Git dependency.
+  The Hubuum server v0.0.20 target, pinned server image, blocking-only client
+  features, and backup format 10 remain unchanged. No cache migration is required.
+- Move persistent session storage into the `hubuum-session` workspace crate,
+  retaining cache formats, keychain identifiers, and process coordination.
+  The crate declares Rust 1.89 for filesystem locking; the CLI still has no
+  declared MSRV. Separate REPL state and history/resource selection into modules.
 
 ## [0.0.18] - 2026-10-22
 

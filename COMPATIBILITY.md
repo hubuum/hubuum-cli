@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| Unreleased | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
@@ -33,13 +34,15 @@ against other server versions is not guaranteed.
 
 CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
 workers, and restore executors together before using the new versioned login.
-The next unreleased build restores password-session persistence through the
-companion SDK storage API, temporarily pinned to an immutable Git revision.
+The unreleased build pins published SDK 0.17.0 and restores password-session
+persistence through its storage API.
 Released v0.0.18 kept sessions only in memory; the fix stores rotating credentials
 and coordinates their refresh across CLI processes. Explicit PAT files remain
 available for unattended automation. The server target and API routes are unchanged.
 The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
-while the SDK retains its declared Rust 1.88 MSRV.
+while the SDK retains its declared Rust 1.88 MSRV. The extracted `hubuum-session`
+workspace crate declares Rust 1.89. Existing cache formats and keychain account
+identifiers are preserved, so this extraction requires no migration.
 Session storage defaults to files. `none` uses the SDK's existing in-memory session
 API without accessing persistent credential stores. Opt-in `keychain` storage is
 available on macOS and Linux; Linux requires a Secret Service on the user's D-Bus session.

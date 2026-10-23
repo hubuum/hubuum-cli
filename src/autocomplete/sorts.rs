@@ -67,6 +67,34 @@ pub fn class_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> V
     complete_for_path(ctx, &["class", "list"], prefix)
 }
 
+pub fn history_direction(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    ["older", "newer"]
+        .into_iter()
+        .filter(|value| value.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
+}
+
+pub fn history_sort(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    ["history_id", "-history_id", "revision", "-revision"]
+        .into_iter()
+        .filter(|value| value.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
+}
+
+pub fn relation_history_sort(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    ["history_id", "-history_id"]
+        .into_iter()
+        .filter(|value| value.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn group_sort(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_for_path(ctx, &["group", "list"], prefix)
 }

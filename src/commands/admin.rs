@@ -13,6 +13,31 @@ use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder
+        .add_command(
+            &["admin", "query-observations"],
+            catalog_command(
+                "show",
+                QueryObservationsShow::default(),
+                observation_docs("Show effective query-observation settings"),
+            ),
+        )
+        .add_command(
+            &["admin", "query-observations"],
+            catalog_command(
+                "enable",
+                QueryObservationsEnable::default(),
+                observation_docs("Enable shared query-observation collection"),
+            ),
+        )
+        .add_command(
+            &["admin", "query-observations"],
+            catalog_command(
+                "disable",
+                QueryObservationsDisable::default(),
+                observation_docs("Disable shared query-observation collection"),
+            ),
+        );
     builder.add_command(
         &["admin"],
         catalog_command(
@@ -28,6 +53,47 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
         ),
     );
 }
+
+fn observation_docs(about: &'static str) -> CommandDocs {
+    CommandDocs { about: Some(about), long_about: Some("Requires an unscoped human administrator. Enable/disable sets a shared runtime override; other replicas apply it asynchronously. Existing observations remain retained. The response includes the effective configuration and runtime_override."), ..Default::default() }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct QueryObservationsShow {}
+
+impl CliCommand for QueryObservationsShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        Self::parse_tokens(tokens)?;
+        render_structured_value(
+            services.gateway().query_observations()?,
+            desired_format(tokens)?,
+        )
+    }
+}
+
+macro_rules! observation_update {
+    ($name:ident, $enabled:expr) => {
+        #[derive(Clone, Default, CommandArgs)]
+        struct $name {}
+        impl CliCommand for $name {
+            fn execute(
+                &self,
+                services: &AppServices,
+                tokens: &CommandTokenizer,
+            ) -> Result<(), AppError> {
+                Self::parse_tokens(tokens)?;
+                render_structured_value(
+                    services.gateway().set_query_observations($enabled)?,
+                    desired_format(tokens)?,
+                )
+            }
+        }
+    };
+}
+observation_update!(QueryObservationsEnable, true);
+observation_update!(QueryObservationsDisable, false);
 
 #[derive(Debug, Serialize, Clone, CommandArgs, Default)]
 pub struct AdminConfig {}

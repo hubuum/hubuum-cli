@@ -5,6 +5,7 @@ use std::str::ParseBoolError;
 use config::ConfigError;
 use hubuum_client::ApiError;
 use hubuum_filter::PipelineError as FilterPipelineError;
+use hubuum_session::SessionError;
 use jqesque::JqesqueError;
 use regex::Error as RegexError;
 use serde_json::Error as JsonError;
@@ -91,6 +92,9 @@ pub enum AppError {
 
     #[error("API error: {0}")]
     ApiError(#[from] ApiError),
+
+    #[error(transparent)]
+    SessionStorage(#[from] SessionError),
 
     #[error("{source}")]
     UnauthorizedCommand {

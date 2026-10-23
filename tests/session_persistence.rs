@@ -99,6 +99,64 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
 }
 
 #[test]
+fn session_inspection_and_logout_never_create_a_login() {
+    let directory = tempdir().unwrap();
+    for storage in ["file", "none"] {
+        for action in ["status", "logout"] {
+            let result = cargo_bin_cmd!("hubuum-cli")
+                .env("XDG_CONFIG_HOME", directory.path())
+                .env("XDG_DATA_HOME", directory.path())
+                .env("HUBUUM_CLI__SERVER__PASSWORD", "must-not-be-used")
+                .env_remove("HUBUUM_CLI__SERVER__TOKEN_FILE")
+                .args([
+                    "--hostname",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                    "--protocol",
+                    "http",
+                    "--username",
+                    "alice",
+                    "--session-storage",
+                    storage,
+                    "auth",
+                    action,
+                    "--output",
+                    "json",
+                ])
+                .timeout(Duration::from_secs(10))
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(value["status"], "no_saved_session");
+        }
+    }
+    assert!(!directory.path().join("hubuum_cli/sessions.json").exists());
+    let result = cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .env("XDG_DATA_HOME", directory.path())
+        .args([
+            "--token-file",
+            "/nonexistent-token-for-status",
+            "auth",
+            "status",
+            "--output",
+            "json",
+        ])
+        .timeout(Duration::from_secs(10))
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["status"], "token_file_configured");
+}
+
+#[test]
 #[ignore = "requires an unlocked native Secret Service"]
 fn native_keychain_processes_migrate_reuse_and_coordinate() {
     process_scenario(true);

@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| Unreleased | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
 | 0.0.16 | 0.15.1 | 0.0.19 | Previous CLI release; command tracing and adaptive grouped table headers |
@@ -55,13 +56,55 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
-## Unreleased: persistent password sessions
+## Unreleased: client v0.17.0
 
-The session-persistence fix pins SDK commit
+The development build pins published crates.io `hubuum_client` 0.17.0 with checksum
+`f61d6e73094a5b698cc2bad0e4c86ef1f024cf945608ae196269b281ea210c7b`.
+It replaces the temporary Git dependency described below. The server v0.0.20
+target and immutable image remain
+`ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
+Client features remain blocking-only, and backup output remains format 10.
+The new commands expose additional existing server v0.0.20 routes; this change
+does not require a server upgrade or a cache migration from the preceding
+development build.
+
+Persistent stores now live in `crates/hubuum-session`, with explicit identity and
+storage options and no application configuration dependency. The crate declares
+and passes a Rust 1.89 compile check. It preserves file layouts, native keychain
+identifiers, login/refresh locks, permissions, and durable writes. The SDK retains
+its Rust 1.88 requirement; the application still declares no MSRV.
+
+On 2026-10-23, all 848 workspace tests passed. Strict workspace/all-target Clippy,
+rustfmt, Markdown lint, 18 CI-policy tests, wrapper tests, extension-schema
+validation, and the strict documentation build/link check passed. The updated
+lockfile passed the RustSec vulnerability audit. Regression coverage includes
+direct/deleted-resource history, literal numeric names, complete historical
+envelopes through pagination and pipelines, rejected cursor/offset cycles,
+directional label reordering, bounded hydration, observation controls, and
+logout preserving a newer saved session family.
+
+The expanded live CLI suite passed against the pinned image above, including
+session inspection/logout without fresh login, current/user/service-account
+credential activity, shared observation controls, all new historical views,
+directional labels, hydration, and all three existing backup/restore cycles.
+The deleted-object check fetches a retained snapshot after deletion without
+assuming the server emits a separate deletion row. Retained history is not a
+complete event ledger.
+
+Both native Linux keychain tests passed in an isolated D-Bus/GNOME Keyring
+container: store recreation and concurrent CLI migration/resume/refresh.
+The session crate also passed a native musl compile check in Alpine. Native
+macOS keychain testing remains configured in CI and was not run on this Linux
+workstation. The host lacked a musl C compiler; the Alpine check covered the
+extracted crate, while the complete workspace was checked and tested on GNU/Linux.
+
+## Earlier development builds: persistent password sessions
+
+The initial session-persistence fix pinned SDK commit
 `ad4bde4fa88a34fc2373ef232bd6cd64d237cea7` from
 [SDK PR #124](https://github.com/hubuum/hubuum-client-rust/pull/124).
-This temporarily replaces the published 0.16.0 dependency with an immutable Git
-source providing the storage interface. It includes the SDK main-branch additions
+This temporarily replaced the published 0.16.0 dependency with an immutable Git
+source providing the storage interface. It included the SDK main-branch additions
 already merged before that fix. The server v0.0.20 target, OpenAPI routes, and
 blocking-only feature selection remain unchanged. The SDK keeps Rust 1.88;
 the CLI declares no MSRV and uses Rust 1.89's standard filesystem locking API.

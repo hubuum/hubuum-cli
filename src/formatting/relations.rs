@@ -13,6 +13,14 @@ impl DetailRenderable for ResolvedClassRelationRecord {
             ("ClassA", self.class_a.clone()),
             ("ClassB", self.class_b.clone()),
             (
+                "Forward Label",
+                display_or_empty(self.forward_label.as_deref()),
+            ),
+            (
+                "Reverse Label",
+                display_or_empty(self.reverse_label.as_deref()),
+            ),
+            (
                 "Forward Alias",
                 display_or_empty(self.forward_template_alias.as_deref()),
             ),
@@ -37,6 +45,8 @@ impl TableRenderable for ResolvedClassRelationRecord {
             "id",
             "ClassA",
             "ClassB",
+            "Forward Label",
+            "Reverse Label",
             "Forward Alias",
             "Reverse Alias",
             "From Max",
@@ -51,6 +61,8 @@ impl TableRenderable for ResolvedClassRelationRecord {
             self.id.to_string(),
             self.class_a.clone(),
             self.class_b.clone(),
+            display_or_empty(self.forward_label.as_deref()),
+            display_or_empty(self.reverse_label.as_deref()),
             display_or_empty(self.forward_template_alias.as_deref()),
             display_or_empty(self.reverse_template_alias.as_deref()),
             display_or_empty(self.from_max_relations),

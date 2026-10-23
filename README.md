@@ -7,6 +7,10 @@ Run commands, explore interactively, or automate Hubuum from a terminal.
 CLI **v0.0.18** (2026-10-22) uses Rust client **0.16.0** and targets server
 **v0.0.20**. Hubuum is under active development before 1.0.
 
+The development build pins client **0.17.0** with persistent sessions,
+[historical views](docs/history.md), credential activity, hydration, and query
+observation controls. It retains the **v0.0.20** server target.
+
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
 
 ## Release binaries

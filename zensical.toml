@@ -18,6 +18,7 @@ nav = [
     { "Commands and scripts" = "commands.md" },
     { "Object workflows" = "object-workflows.md" },
     { "Pagination" = "pagination.md" },
+    { "History and historical views" = "history.md" },
     { "Install and update binaries" = "updates.md" },
     { "Search" = "search.md" },
     { "Output pipelines" = "output-pipeline.md" },

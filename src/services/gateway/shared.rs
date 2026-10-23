@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use hubuum_client::{
     client::{sync::Handle as SyncHandle, sync::Resource, GetID},
+    types::SortDirection,
     ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, CollectionId,
     EntityTag, FilterOperator, Object, ObjectRelation, ObjectWithPath, QueryFilter, ResourceId,
 };
@@ -15,6 +16,26 @@ use crate::list_query::{
 use super::HubuumGateway;
 
 const MAX_EQUALS_FILTER_VALUES: usize = 50;
+
+pub(super) fn parse_single_sort(
+    sort: Option<&str>,
+) -> Result<Option<(&str, SortDirection)>, AppError> {
+    let Some(sort) = sort.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if sort.contains(',') {
+        return Err(AppError::InvalidOption(
+            "only one sort field is supported by the official hubuum_client request type"
+                .to_string(),
+        ));
+    }
+    let sort = sort.trim();
+    if let Some(field) = sort.strip_prefix('-') {
+        Ok(Some((field, SortDirection::Desc)))
+    } else {
+        Ok(Some((sort, SortDirection::Asc)))
+    }
+}
 
 pub(super) fn class_collection_id(class: &Class) -> Option<CollectionId> {
     class

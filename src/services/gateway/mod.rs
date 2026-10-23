@@ -3,10 +3,13 @@ mod backups;
 mod classes;
 mod collections;
 mod computed;
+mod credential_activity;
 mod credential_approvals;
 mod events;
 mod exports;
 mod groups;
+mod history;
+mod hydration;
 mod identity;
 mod imports;
 #[cfg(test)]
@@ -19,9 +22,11 @@ mod query_usage;
 mod read_resolution_tests;
 mod relations;
 mod remote_targets;
+mod resource_scope;
 mod schema;
 mod search;
 mod service_accounts;
+mod sessions;
 mod settings;
 mod shared;
 mod structured_search;
@@ -52,13 +57,16 @@ pub use computed::{
     ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
     ComputedPreviewTarget, ComputedResultKind,
 };
+pub use credential_activity::{CredentialActivityInput, CredentialOwner};
 pub(crate) use credential_approvals::CredentialApprovalSource;
 pub use events::{
     AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, EventSubscriptionScope,
-    HistoryInput, HistoryScope,
 };
 pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
+pub(crate) use history::parse_timestamp;
+pub use history::{HistoricalQuery, HistoryInput};
+pub use hydration::HydrationOptions;
 pub use imports::SubmitImportInput;
 pub use object_aggregates::{
     ObjectAggregateDimensionInput, ObjectAggregateInput, ObjectAggregateMeasureInput,
@@ -78,9 +86,11 @@ pub use remote_targets::{
     CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,
 };
+pub use resource_scope::ResourceScope;
 pub use schema::SchemaOperation;
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;
+pub(crate) use sessions::logout_session_client;
 pub use tasks::{ListTasksInput, TaskLookupInput};
 pub use users::{CreateUserInput, UserFilter, UserUpdateInput};
 
