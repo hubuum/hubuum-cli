@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -407,6 +408,80 @@ def main():
             assert any("relation" in event["entity_type"] for event in relation_events)
             assert "requires" in cli("audit", "resource", "--resource", "collection", "--name", prefix, "--include-relations", success=False)
             print("PASS: object detail text/JSON/pipeline, object lists, class details, and relation reads", flush=True)
+
+            # Create classes and objects in opposite orders to exercise endpoint
+            # labels, with one Host connected to two Jacks and an empty Jack.
+            room_classes = {}
+            for kind in ["Rooms", "Jacks", "Hosts"]:
+                room_classes[kind] = api("POST", "/api/v1/classes", {
+                    "name": prefix + "-" + kind, "description": "Room graph fixture",
+                    "collection_id": collection["id"], "json_schema": None, "validate_schema": False,
+                }, token)
+            room_objects = {}
+            for kind, name, data in [
+                ("Hosts", "host.example", {"facts": {
+                    "network": {"default_ipv4": {"address": "192.0.2.10"}},
+                    "identity": {"fqdn": "host.example"},
+                    "hardware": {"processor": {"summary": "Fixture CPU"}},
+                }}),
+                ("Jacks", "jack-a", {"comment": "first jack"}),
+                ("Jacks", "jack-b", None),
+                ("Jacks", "jack-empty", {}),
+                ("Rooms", "B701", {"comment": "fixture room"}),
+            ]:
+                fixture_class = room_classes[kind]
+                room_objects[name] = api("POST", f'/api/v1/classes/{fixture_class["id"]}/', {
+                    "name": name, "description": "Room graph fixture",
+                    "collection_id": collection["id"], "hubuum_class_id": fixture_class["id"],
+                    "data": data,
+                }, token)
+            for left, right in [("Rooms", "Jacks"), ("Jacks", "Hosts")]:
+                cli("relation", "class", "create", "--class-a", room_classes[left]["name"],
+                    "--class-b", room_classes[right]["name"])
+            for jack in ["jack-a", "jack-b", "jack-empty"]:
+                cli("relation", "object", "create", "--class-a", room_classes["Rooms"]["name"],
+                    "--object-a", "B701", "--class-b", room_classes["Jacks"]["name"], "--object-b", jack)
+                if jack != "jack-empty":
+                    cli("relation", "object", "create", "--class-a", room_classes["Jacks"]["name"],
+                        "--object-a", jack, "--class-b", room_classes["Hosts"]["name"],
+                        "--object-b", "host.example")
+            graph_args = ["relation", "object", "graph", "--root-class", room_classes["Rooms"]["name"],
+                          "--root-object", "B701", "--max-depth", "2"]
+            plain_graph = cli(*graph_args)
+            data_graph = cli(*graph_args, "--data")
+            assert all("data" not in item for item in plain_graph["objects"])
+            graph_names = {item["name"] for item in data_graph["objects"]}
+            assert set(room_objects) - {"B701"} <= graph_names <= set(room_objects)
+            for item in data_graph["objects"]:
+                assert item["data"] == room_objects[item["name"]]["data"], item
+            calls = directory / "room-cli-calls"
+            shim = directory / "room-cli"
+            shim.write_text("#!/bin/sh\n" + "printf 'call\\n' >> " + shlex.quote(str(calls)) + "\nexec " +
+                            shlex.join([binary, "--config", str(config), "--hostname", "127.0.0.1",
+                                        "--port", port, "--protocol", "http", "--token-file", str(token_file)]) +
+                            ' "$@"\n')
+            shim.chmod(0o700)
+            wrapper_env = dict(env, HUBUUM_CLI_BIN=str(shim),
+                               **{f"HUBUUM_{kind.upper()}_CLASS": value["name"]
+                                  for kind, value in room_classes.items()})
+            wrapper = str(ROOT / "examples/hubuum-wrappers/hubuum-room")
+            for identifier in ["B701", "701", str(room_objects["B701"]["id"])]:
+                calls.write_text("")
+                placement = json.loads(run(wrapper, identifier, "--json", env=wrapper_env))
+                assert len(calls.read_text().splitlines()) == 2
+                assert placement["room"]["data"] == {"comment": "fixture room"}
+                assert [item["jack"]["name"] for item in placement["jacks"]] == ["jack-a", "jack-b", "jack-empty"]
+                for item in placement["jacks"]:
+                    assert item["jack"]["data"] == room_objects[item["jack"]["name"]]["data"]
+                    expected = [] if item["jack"]["name"] == "jack-empty" else ["host.example"]
+                    assert [host["name"] for host in item["hosts"]] == expected
+                    for host in item["hosts"]:
+                        assert host["data"] == room_objects[host["name"]]["data"]
+            room_text = run(wrapper, "B701", env=wrapper_env)
+            assert "B701 (fixture room)" in room_text and "jack-empty" in room_text
+            assert room_text.count("192.0.2.10") == 2 and room_text.count("Fixture CPU") == 2
+            print("PASS: room graph data, reversed endpoint ordering, multihomed Hosts, empty Jacks, and two CLI calls", flush=True)
+
             # Graph limits are server-side guards, not list pagination or truncation.
             # The root is excluded from the related-entry count, so two neighbors
             # are needed to exercise a limit of one for both graph types.
