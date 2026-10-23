@@ -222,10 +222,10 @@ fn complete_field(
 ) -> Vec<SortCompletion> {
     let mut completions = specs
         .iter()
-        .filter(|spec| spec.public_name.starts_with(prefix))
+        .filter(|spec| spec.public_name().starts_with(prefix))
         .map(|spec| SortCompletion {
-            value: spec.public_name.to_string(),
-            description: Some(format!("sort field {}", spec.public_name)),
+            value: spec.public_name().to_string(),
+            description: Some(format!("sort field {}", spec.public_name())),
             append_whitespace: true,
         })
         .collect::<Vec<_>>();

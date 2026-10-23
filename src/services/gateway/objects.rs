@@ -1,7 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use hubuum_client::{FilterOperator, ObjectDataPatchDocument, ObjectPatch, ObjectPost};
+use hubuum_client::{
+    Class, ClassId, Collection, CollectionId, ComputedObject, FilterOperator, Object,
+    ObjectDataPatchDocument, ObjectPatch, ObjectPost, QueryFilter,
+};
 use json_patch::{patch as apply_json_patch, Patch};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -22,6 +25,23 @@ use crate::list_query::{
 use super::{
     apply_related_graph_limit, shared::object_from_path, HubuumGateway, RelationTraversalOptions,
 };
+
+struct ObjectLabels {
+    classes: HashMap<ClassId, Class>,
+    collections: HashMap<CollectionId, Collection>,
+}
+
+impl ObjectLabels {
+    fn object(&self, object: &Object) -> ResolvedObjectRecord {
+        ResolvedObjectRecord::new(object, &self.classes, &self.collections)
+    }
+
+    fn computed(&self, object: ComputedObject) -> Result<ResolvedObjectRecord, AppError> {
+        Ok(self
+            .object(&object.object)
+            .with_computed(serde_json::to_value(object.computed)?))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CreateObjectInput {
@@ -384,125 +404,110 @@ impl HubuumGateway {
             .collect::<Vec<_>>();
         let class_filter = validated
             .iter()
-            .find(|clause| clause.spec.public_name == "class")
+            .find(|clause| clause.spec().public_name() == "class")
             .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
         let class = client_call("classes.get_by_name", || {
-            self.client().classes().get_by_name(&class_filter.value)
+            self.client().classes().get_by_name(class_filter.value())
         })?;
 
         let filters = validated
             .iter()
-            .filter(|clause| clause.spec.public_name != "class")
+            .filter(|clause| clause.spec().public_name() != "class")
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
-        let with_schema = |page| ObjectListPage::new(page, class.resource().json_schema.clone());
+        let page = if has_computed_sort {
+            self.list_objects_sorted_locally(class.resource(), filters, query, &object_sorts)?
+        } else if include_computed {
+            self.list_computed_objects(class.resource(), filters, query, &validated_sorts)?
+        } else {
+            self.list_plain_objects(class.resource(), filters, query, &validated_sorts)?
+        };
+        Ok(ObjectListPage::new(
+            page,
+            class.resource().json_schema.clone(),
+        ))
+    }
 
-        if has_computed_sort {
-            let fetched = client_call("computed_objects.all", || {
-                self.client()
-                    .computed_objects(class.id())
-                    .filters(filters)
-                    .all()
-            })?;
-            let classmap = self.class_map_with_known(
-                fetched.iter().map(|object| object.object.hubuum_class_id),
-                [class.resource()],
-            )?;
-            let collectionmap = self.collection_map_with_classes(
-                fetched.iter().map(|object| object.object.collection_id),
-                classmap.values(),
-            )?;
-            let mut items = fetched
-                .into_iter()
-                .map(|object| {
-                    Ok(
-                        ResolvedObjectRecord::new(&object.object, &classmap, &collectionmap)
-                            .with_computed(serde_json::to_value(object.computed)?),
-                    )
-                })
-                .collect::<Result<Vec<_>, AppError>>()?;
-            sort_objects_locally(&mut items, &object_sorts);
-            let total_count = query.include_total.then_some(items.len() as u64);
-            if !query.fetches_all() {
-                if let Some(limit) = query.limit {
-                    items.truncate(limit.effective());
-                }
+    fn list_objects_sorted_locally(
+        &self,
+        class: &Class,
+        filters: Vec<QueryFilter>,
+        query: &ListQuery,
+        sorts: &[ObjectSortClause],
+    ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
+        let fetched = client_call("computed_objects.all", || {
+            self.client()
+                .computed_objects(class.id)
+                .filters(filters)
+                .all()
+        })?;
+        let labels = self.object_labels(class, fetched.iter().map(|item| &item.object))?;
+        let mut items = fetched
+            .into_iter()
+            .map(|item| labels.computed(item))
+            .collect::<Result<Vec<_>, _>>()?;
+        sort_objects_locally(&mut items, sorts);
+        let total_count = query.include_total.then_some(items.len() as u64);
+        if !query.fetches_all() {
+            if let Some(limit) = query.limit {
+                items.truncate(limit.effective());
             }
-            let returned_count = items.len();
-            return Ok(with_schema(PagedResult {
-                items,
-                next_cursor: None,
-                returned_count,
-                total_count,
-            }));
         }
+        Ok(PagedResult {
+            returned_count: items.len(),
+            items,
+            next_cursor: None,
+            total_count,
+        })
+    }
 
-        if include_computed {
-            let page = fetch_cursor_results(
-                self.client().computed_objects(class.id()).filters(filters),
-                query,
-                &validated_sorts,
-            )?;
-            if page.items.is_empty() {
-                return Ok(with_schema(PagedResult::empty(
-                    page.next_cursor,
-                    page.total_count,
-                )));
-            }
-
-            let classmap = self.class_map_with_known(
-                page.items
-                    .iter()
-                    .map(|object| object.object.hubuum_class_id),
-                [class.resource()],
-            )?;
-            let collectionmap = self.collection_map_with_classes(
-                page.items.iter().map(|object| object.object.collection_id),
-                classmap.values(),
-            )?;
-            let returned_count = page.items.len();
-            let items = page
-                .items
-                .into_iter()
-                .map(|object| {
-                    Ok(
-                        ResolvedObjectRecord::new(&object.object, &classmap, &collectionmap)
-                            .with_computed(serde_json::to_value(object.computed)?),
-                    )
-                })
-                .collect::<Result<Vec<_>, AppError>>()?;
-            return Ok(with_schema(PagedResult {
-                items,
-                next_cursor: page.next_cursor,
-                returned_count,
-                total_count: page.total_count,
-            }));
-        }
-
-        let page = fetch_query_results(
-            self.client().objects(class.id()).query().filters(filters),
+    fn list_computed_objects(
+        &self,
+        class: &Class,
+        filters: Vec<QueryFilter>,
+        query: &ListQuery,
+        sorts: &[ValidatedSortClause],
+    ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
+        let page = fetch_cursor_results(
+            self.client().computed_objects(class.id).filters(filters),
             query,
-            &validated_sorts,
+            sorts,
         )?;
-        if page.items.is_empty() {
-            return Ok(with_schema(PagedResult::empty(
-                page.next_cursor,
-                page.total_count,
-            )));
-        }
+        let labels = self.object_labels(class, page.items.iter().map(|item| &item.object))?;
+        page.try_map(|item| labels.computed(item))
+    }
 
-        let classmap = self.class_map_with_known(
-            page.items.iter().map(|object| object.hubuum_class_id),
-            [class.resource()],
+    fn list_plain_objects(
+        &self,
+        class: &Class,
+        filters: Vec<QueryFilter>,
+        query: &ListQuery,
+        sorts: &[ValidatedSortClause],
+    ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
+        let page = fetch_query_results(
+            self.client().objects(class.id).query().filters(filters),
+            query,
+            sorts,
         )?;
-        let collectionmap = self.collection_map_with_classes(
-            page.items.iter().map(|object| object.collection_id),
-            classmap.values(),
-        )?;
+        let labels = self.object_labels(class, page.items.iter())?;
+        Ok(page.map(|item| labels.object(&item)))
+    }
 
-        Ok(with_schema(page.map(|object| {
-            ResolvedObjectRecord::new(&object, &classmap, &collectionmap)
-        })))
+    fn object_labels<'a>(
+        &self,
+        class: &Class,
+        objects: impl Iterator<Item = &'a Object> + Clone,
+    ) -> Result<ObjectLabels, AppError> {
+        let classes =
+            self.class_map_with_known(objects.clone().map(|item| item.hubuum_class_id), [class])?;
+        let collections = self.collection_map_with_classes(
+            objects.map(|item| item.collection_id),
+            classes.values(),
+        )?;
+        Ok(ObjectLabels {
+            classes,
+            collections,
+        })
     }
 
     pub fn update_object(
@@ -662,8 +667,8 @@ fn sort_objects_locally(objects: &mut [ResolvedObjectRecord], sorts: &[ObjectSor
         for sort in sorts {
             let (ordering, direction) = match sort {
                 ObjectSortClause::Standard(sort) => (
-                    compare_standard_object_field(sort.spec.public_name, left, right),
-                    sort.direction,
+                    compare_standard_object_field(sort.spec().public_name(), left, right),
+                    sort.direction(),
                 ),
                 ObjectSortClause::Computed { field, direction } => (
                     compare_json_sort_values(field.value(left), field.value(right)),
@@ -1162,8 +1167,8 @@ mod tests {
         let (spec, json_path) = resolve_filter_field_spec(OBJECT_FILTER_SPECS, "json_data.contact")
             .expect("json_data path should resolve");
 
-        assert_eq!(spec.public_name, "json_data");
-        assert_eq!(spec.backend_field, "json_data");
+        assert_eq!(spec.public_name(), "json_data");
+        assert_eq!(spec.backend_field(), "json_data");
         assert_eq!(json_path, vec!["contact"]);
     }
 
@@ -1172,8 +1177,8 @@ mod tests {
         let (spec, json_path) = resolve_filter_field_spec(OBJECT_FILTER_SPECS, "data.contact")
             .expect("data alias path should resolve");
 
-        assert_eq!(spec.public_name, "data");
-        assert_eq!(spec.backend_field, "json_data");
+        assert_eq!(spec.public_name(), "data");
+        assert_eq!(spec.backend_field(), "json_data");
         assert_eq!(json_path, vec!["contact"]);
     }
 

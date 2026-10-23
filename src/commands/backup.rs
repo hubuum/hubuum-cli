@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use std::fs::{read_to_string, symlink_metadata};
 use std::io::ErrorKind;
 use std::io::Write;
@@ -308,6 +309,8 @@ pub struct RestoreStatus {
 }
 
 impl CliCommand for RestoreStatus {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_restore_status);
+
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
@@ -341,6 +344,8 @@ pub struct RestoreWait {
 }
 
 impl CliCommand for RestoreWait {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_restore_wait);
+
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {

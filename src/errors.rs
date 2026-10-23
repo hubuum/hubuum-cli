@@ -5,6 +5,7 @@ use std::str::ParseBoolError;
 use config::ConfigError;
 use hubuum_client::ApiError;
 use hubuum_filter::PipelineError as FilterPipelineError;
+use hubuum_query::QueryError;
 use hubuum_session::SessionError;
 use jqesque::JqesqueError;
 use regex::Error as RegexError;
@@ -247,6 +248,15 @@ fn redacted_request_target(url: &str) -> String {
         |_| url.split('?').next().unwrap_or(url).to_string(),
         |url| url.path().to_string(),
     )
+}
+
+impl From<QueryError> for AppError {
+    fn from(error: QueryError) -> Self {
+        match error {
+            QueryError::ParseError(message) => Self::ParseError(message),
+            QueryError::InvalidOption(message) => Self::InvalidOption(message),
+        }
+    }
 }
 
 #[cfg(test)]

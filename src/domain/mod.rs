@@ -29,6 +29,7 @@ mod groups;
 mod history;
 mod identity;
 mod imports;
+mod json_record;
 mod object_aggregates;
 mod object_fields;
 mod objects;
@@ -61,7 +62,7 @@ pub use computed::{
     ComputedFieldPreviewRecord, ComputedFieldRecord, ComputedFieldSelector, ComputedFieldSet,
     SharedComputedFieldListRecord,
 };
-pub use events::{AuditEventId, AuditEventRecord, EventUuid, JsonRecord};
+pub use events::{AuditEventId, AuditEventRecord, EventUuid};
 pub use exports::{ExportOutput, ExportTemplateRecord};
 pub use groups::{GroupDetails, GroupRecord, PrincipalMemberRecord};
 pub use identity::{
@@ -70,6 +71,7 @@ pub use identity::{
 };
 pub(crate) use identity::{ResolvedTokenResource, TokenResourceParent};
 pub use imports::ImportResultRecord;
+pub use json_record::JsonRecord;
 pub use object_aggregates::ObjectAggregateRecord;
 pub use object_fields::{
     observed_object_data_fields, visit_observed_data_fields, ObservedObjectDataFields,
@@ -96,4 +98,4 @@ pub use task_output::TaskOutput;
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};
 
-pub(crate) use history::{HistoryPageRecord, HistoryRecord};
+pub(crate) use history::{HistoricalRelationRecord, HistoryPageRecord, HistoryRecord};

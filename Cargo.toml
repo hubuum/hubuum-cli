@@ -9,6 +9,7 @@ members = [
     "crates/hubuum-extension-protocol",
     "crates/hubuum-filter",
     "crates/hubuum-search",
+    "crates/hubuum-query",
     "crates/hubuum-session",
     "crates/hubuum-theme",
     "crates/hubuum-update",
@@ -29,6 +30,7 @@ semver = "1"
 cli_command_derive = { path = "./cli_command_derive" }
 hubuum-filter = { path = "./crates/hubuum-filter" }
 hubuum-search = { path = "./crates/hubuum-search" }
+hubuum-query = { path = "./crates/hubuum-query" }
 hubuum-session = { path = "./crates/hubuum-session" }
 hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }

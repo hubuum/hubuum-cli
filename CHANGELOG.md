@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Apply pipelines consistently to offline commands, including configuration and
+  theme inspection, through the shared catalog command handler.
 - Validate task IDs, page sizes, computed-field revisions and patches, export
   scopes, remote-call subjects, and history timestamps before resource lookup.
 - Enforce semantic output and extension failure validation during direct JSON

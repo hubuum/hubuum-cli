@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::diagnostics::{self, spawn_blocking};
+use crate::diagnostics;
 use hubuum_client::ApiError;
 use hubuum_filter::{split_pipeline, PipeStage};
 use shlex::split;
@@ -10,16 +10,6 @@ use crate::catalog::{
     CatalogStore, CommandCatalog, CommandContext, CommandInvocation, CommandOutcome,
     ResolvedCommand, ScopeAction,
 };
-use crate::commands::auth::{render_auth_providers, render_saved_session};
-use crate::commands::backup::{render_restore_status, render_restore_wait};
-use crate::commands::config::{
-    is_self_update_config_key, render_config_paths, render_config_set, render_config_show,
-    render_config_unset, ConfigSet, ConfigUnset,
-};
-use crate::commands::metrics::render_metrics;
-use crate::commands::self_update::render_self_update;
-use crate::commands::theme::{render_theme_list, render_theme_preview, render_theme_show};
-use crate::commands::version::render_version;
 use crate::commands::{render_format, table_headers};
 use crate::config::get_config;
 use crate::domain::expand_command_aliases;
@@ -219,53 +209,17 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
                 !resolved.command.handler.requires_authentication()
             });
     scope_help_path(catalog, &[], &parts).is_some()
-        || is_offline_builtin_command(&parts)
-        || can_mutate_self_update_config(catalog, &line, &parts)
+        || parts
+            .first()
+            .is_some_and(|part| part == "help" || part == "?")
         || extension_offline
-        || catalog
-            .resolve_command(&[], &parts)
-            .is_ok_and(|resolved| !resolved.command.handler.requires_authentication())
-}
-
-fn can_mutate_self_update_config(catalog: &CommandCatalog, line: &str, parts: &[String]) -> bool {
-    if !command_path_is(parts, &["config", "set"]) && !command_path_is(parts, &["config", "unset"])
-    {
-        return false;
-    }
-    let Ok((line, _)) = split_pipeline(line) else {
-        return false;
-    };
-    let Ok(resolved) = catalog.resolve_command(&[], parts) else {
-        return false;
-    };
-    let Ok(tokens) = tokenizer_for_resolved(&line, &resolved) else {
-        return false;
-    };
-    let key = if command_path_is(parts, &["config", "set"]) {
-        ConfigSet::parse_tokens(&tokens).map(|query| query.key)
-    } else {
-        ConfigUnset::parse_tokens(&tokens).map(|query| query.key)
-    };
-    key.is_ok_and(|key| is_self_update_config_key(&key))
-}
-
-pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
-    parts
-        .first()
-        .is_some_and(|part| part == "help" || part == "?")
-        || command_path_is(parts, &["config", "show"])
-        || command_path_is(parts, &["config", "paths"])
-        || command_path_is(parts, &["theme", "list"])
-        || command_path_is(parts, &["theme", "show"])
-        || command_path_is(parts, &["theme", "preview"])
-        || command_path_is(parts, &["auth", "providers"])
-        || command_path_is(parts, &["auth", "status"])
-        || command_path_is(parts, &["auth", "logout"])
-        || command_path_is(parts, &["metrics"])
-        || command_path_is(parts, &["restore", "status"])
-        || command_path_is(parts, &["restore", "wait"])
-        || command_path_is(parts, &["version"])
-        || command_path_is(parts, &["self-update"])
+        || catalog.resolve_command(&[], &parts).is_ok_and(|resolved| {
+            let Ok((line, _)) = split_pipeline(&line) else {
+                return false;
+            };
+            tokenizer_for_resolved(&line, &resolved)
+                .is_ok_and(|tokens| resolved.command.handler.can_execute_offline(&tokens))
+        })
 }
 
 pub async fn execute_offline_line(
@@ -347,136 +301,25 @@ async fn execute_offline_line_inner(
         }
     }
 
-    if command_path_is(&parts, &["config", "show"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_config_show(&tokens)?;
-    } else if command_path_is(&parts, &["config", "paths"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_config_paths(&tokens)?;
-    } else if command_path_is(&parts, &["config", "set"])
-        || command_path_is(&parts, &["config", "unset"])
-    {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        if command_path_is(&parts, &["config", "set"]) {
-            render_config_set(&tokens, None)?;
-        } else {
-            render_config_unset(&tokens, None)?;
-        }
-    } else if command_path_is(&parts, &["theme", "list"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_theme_list(&tokens)?;
-    } else if command_path_is(&parts, &["theme", "show"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_theme_show(&tokens)?;
-    } else if command_path_is(&parts, &["theme", "preview"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_theme_preview(&tokens)?;
-    } else if command_path_is(&parts, &["auth", "providers"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_auth_providers(&tokens)?;
-    } else if command_path_is(&parts, &["auth", "status"])
-        || command_path_is(&parts, &["auth", "logout"])
-    {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        set_pipeline(pipeline)?;
-        set_pipeline_suffix(pipeline_suffix)?;
-        let logout = command_path_is(&parts, &["auth", "logout"]);
-        spawn_blocking(move || render_saved_session(&tokens, logout))
-            .await
-            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
-    } else if command_path_is(&parts, &["metrics"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        spawn_blocking(move || render_metrics(&tokens))
-            .await
-            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
-    } else if command_path_is(&parts, &["restore", "status"])
-        || command_path_is(&parts, &["restore", "wait"])
-    {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        set_pipeline(pipeline)?;
-        set_pipeline_suffix(pipeline_suffix)?;
-        let wait = command_path_is(&parts, &["restore", "wait"]);
-        spawn_blocking(move || {
-            if wait {
-                render_restore_wait(&tokens)
-            } else {
-                render_restore_status(&tokens)
-            }
-        })
-        .await
-        .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
-    } else if command_path_is(&parts, &["self-update"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        set_pipeline(pipeline)?;
-        set_pipeline_suffix(pipeline_suffix)?;
-        spawn_blocking(move || render_self_update(&tokens))
-            .await
-            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
-    } else if command_path_is(&parts, &["version"]) {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        let tokens = tokenizer_for_resolved(&line, &resolved)?;
-        set_render_format(render_format(&tokens)?)?;
-        set_table_headers(table_headers(&tokens)?)?;
-        render_version(&tokens)?;
-    } else {
-        let resolved = catalog.resolve_command(&[], &parts)?;
-        if resolved.command.handler.requires_authentication() {
-            return Err(AppError::CommandNotFound(parts.join(" ")));
-        }
-        let invocation = CommandInvocation {
-            stream_output: false,
-            raw_line: line,
-            command_index: resolved.command_index,
-            command_path: resolved.command_path,
-            pipeline,
-            pipeline_suffix,
-        };
-        let ctx = CommandContext {
-            config: get_config(),
-            services: None,
-            catalog: catalog_store,
-        };
-        return resolved.command.handler.execute(ctx, invocation).await;
+    let resolved = catalog.resolve_command(&[], &parts)?;
+    let tokens = tokenizer_for_resolved(&line, &resolved)?;
+    if !resolved.command.handler.can_execute_offline(&tokens) {
+        return Err(AppError::CommandNotFound(parts.join(" ")));
     }
-
-    Ok(CommandOutcome {
-        output: take_output()?,
-        scope_action: ScopeAction::None,
-        ..Default::default()
-    })
+    let invocation = CommandInvocation {
+        stream_output: false,
+        raw_line: line,
+        command_index: resolved.command_index,
+        command_path: resolved.command_path,
+        pipeline,
+        pipeline_suffix,
+    };
+    let ctx = CommandContext {
+        config: get_config(),
+        services: None,
+        catalog: catalog_store,
+    };
+    resolved.command.handler.execute(ctx, invocation).await
 }
 
 pub fn apply_scope_action(session: &SharedReplState, action: &ScopeAction) {
@@ -677,14 +520,6 @@ fn process_filter(line: &str) -> Result<(String, Vec<PipeStage>, Option<String>)
 
 fn invocation_parts(line: &str) -> Result<Vec<String>, AppError> {
     split(line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))
-}
-
-fn command_path_is(parts: &[String], expected: &[&str]) -> bool {
-    parts.len() >= expected.len()
-        && parts
-            .iter()
-            .zip(expected.iter())
-            .all(|(part, expected)| part == expected)
 }
 
 fn tokenizer_for_resolved(
