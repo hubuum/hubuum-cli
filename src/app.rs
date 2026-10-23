@@ -1,6 +1,7 @@
 use std::error::Error as StdError;
 use std::fs::read_to_string;
 use std::fs::File;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -9,8 +10,8 @@ use std::time::Duration;
 use crate::diagnostics::{self, client_call, spawn_blocking};
 use clap::ArgMatches;
 use hubuum_client::{
-    blocking::Client as BlockingClient, Authenticated, BaseUrl, Credentials, SessionClientId,
-    Token, Unauthenticated,
+    blocking::Client as BlockingClient, ApiError, Authenticated, BaseUrl, Credentials,
+    SessionClientId, Token, Unauthenticated,
 };
 use log::debug;
 use rpassword::prompt_password;
@@ -22,12 +23,14 @@ use crate::catalog::CatalogStore;
 use crate::cli::{get_cli_config_path, update_config_from_cli};
 use crate::config::{
     get_config, get_config_state, init_config, init_config_state, inspect_config_state,
-    load_config, update_runtime_server_port, AppConfig, ConfigSource,
+    load_config, update_runtime_server_port, AppConfig, ConfigSource, ServerConfig,
 };
 use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_log_file, get_token_from_tokenfile};
+use crate::models::SessionStorage;
 use crate::services::AppServices;
+use crate::session_store::SessionCache;
 use crate::theme::{paint, ThemeRole};
 
 const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -166,15 +169,7 @@ async fn login_with_cached_token(
         let config = reachable_server_config_on_ports(config, &ports)?;
         let client = build_client(&config)?;
 
-        let client = authenticate(
-            client,
-            config.server.hostname.as_str(),
-            config.server.identity_scope.as_deref(),
-            config.server.username.as_str(),
-            config.server.password.clone(),
-            config.server.token_file.as_deref(),
-            cached_token,
-        )?;
+        let client = authenticate(client, &config.server, cached_token)?;
 
         Ok(LoginSession {
             config,
@@ -333,21 +328,45 @@ fn try_server_configs<T>(
 
 fn authenticate(
     client: BlockingClient<Unauthenticated>,
-    hostname: &str,
-    identity_scope: Option<&str>,
-    username: &str,
-    password: Option<String>,
-    token_file: Option<&str>,
+    config: &ServerConfig,
     cached_token: CachedToken,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
-    if let Some(token_file) = token_file {
+    authenticate_with_prompt(client, config, cached_token, prompt_password)
+}
+
+fn authenticate_with_prompt(
+    client: BlockingClient<Unauthenticated>,
+    config: &ServerConfig,
+    cached_token: CachedToken,
+    prompt: impl FnOnce(String) -> io::Result<String>,
+) -> Result<BlockingClient<Authenticated>, AppError> {
+    let hostname = config.hostname.as_str();
+    let identity_scope = config.identity_scope.as_deref();
+    let username = config.username.as_str();
+    if let Some(token_file) = config.token_file.as_deref() {
         let token = BearerTokenFile::new(token_file)?.read()?;
         return client_call("client.login_with_token", || client.login_with_token(token))
             .map_err(AppError::from);
     }
 
+    let client_id = SessionClientId::new("hubuum-cli")?;
+    let cache = SessionCache::new(
+        config.session_storage,
+        client.base_url(),
+        identity_scope,
+        username,
+    )?;
     if matches!(cached_token, CachedToken::Allow) {
-        let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
+        if let Some(cache) = &cache {
+            if let Some(client) = resume_session(&client, &client_id, cache)? {
+                return Ok(client);
+            }
+        }
+        let token = if config.session_storage == SessionStorage::File {
+            get_token_from_tokenfile(hostname, identity_scope, username)?
+        } else {
+            None
+        };
         if let Some(token) = token {
             debug!("Found existing token, testing validity...");
             if let Ok(client) = client_call("client.login_with_token", || {
@@ -358,13 +377,13 @@ fn authenticate(
         }
     }
 
-    let password = match password {
+    let password = match config.password.clone() {
         Some(password) => password,
         None => {
             let scope = identity_scope
                 .map(|scope| format!(" via {scope}"))
                 .unwrap_or_default();
-            prompt_password(format!("Password for {username}{scope} @ {hostname}: "))?
+            prompt(format!("Password for {username}{scope} @ {hostname}: "))?
         }
     };
 
@@ -374,11 +393,39 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    let client_id = SessionClientId::new("hubuum-cli")?;
-    client_call("client.login_session", || {
-        client.login_session(credentials, client_id)
-    })
+    if let Some(cache) = cache {
+        let _login = cache.lock_login()?;
+        // Another process may have signed in while we were prompting or waiting
+        // for the login lock. Keep the recheck and login/save in one transaction.
+        if matches!(cached_token, CachedToken::Allow) {
+            if let Some(client) = resume_session(&client, &client_id, &cache)? {
+                return Ok(client);
+            }
+        }
+        client_call("client.login_session", || {
+            client.login_session_with_store(credentials, client_id, cache.store())
+        })
+    } else {
+        client_call("client.login_session", || {
+            client.login_session(credentials, client_id)
+        })
+    }
     .map_err(AppError::from)
+}
+
+fn resume_session(
+    client: &BlockingClient<Unauthenticated>,
+    client_id: &SessionClientId,
+    cache: &SessionCache,
+) -> Result<Option<BlockingClient<Authenticated>>, AppError> {
+    match client_call("client.resume_session", || {
+        client.resume_session(client_id.clone(), cache.store())
+    }) {
+        Ok(client) => Ok(client),
+        Err(ApiError::SessionExpired) => Ok(None),
+        Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -602,7 +649,10 @@ mod tests {
 mod authentication_cache_tests {
     use std::env::{remove_var, set_var, var_os};
     use std::ffi::OsString;
-    use std::sync::Arc;
+    use std::fs::{create_dir_all, read, read_dir, write};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
 
     use hubuum_client::{blocking::Client, MockTransport, TransportResponse};
     use reqwest::{header::AUTHORIZATION, Method, StatusCode};
@@ -610,8 +660,10 @@ mod authentication_cache_tests {
     use serial_test::serial;
     use tempfile::tempdir;
 
-    use super::{authenticate, CachedToken};
+    use super::{authenticate, authenticate_with_prompt, CachedToken};
+    use crate::config::AppConfig;
     use crate::files::{get_token_file, get_token_from_tokenfile};
+    use crate::models::SessionStorage;
 
     // dirs uses XDG_DATA_HOME on Linux. Restore it even if an assertion fails.
     struct DataDirectory(Option<OsString>);
@@ -627,7 +679,7 @@ mod authentication_cache_tests {
 
     #[test]
     #[serial]
-    fn authentication_reuses_legacy_tokens_but_keeps_new_sessions_in_memory() {
+    fn authentication_reuses_legacy_tokens_and_persists_new_sessions() {
         let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
         for (cached, valid, policy) in [
             (true, true, CachedToken::Allow),
@@ -676,16 +728,12 @@ mod authentication_cache_tests {
                 .build()
                 .unwrap();
             let password = format!("fixture-{}", rand::random::<u64>());
-            let client = authenticate(
-                client,
-                "example.invalid",
-                Some("corp"),
-                "alice",
-                Some(password.clone()),
-                None,
-                policy,
-            )
-            .unwrap();
+            let mut config = AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.identity_scope = Some("corp".into());
+            config.username = "alice".into();
+            config.password = Some(password.clone());
+            let client = authenticate(client, &config, policy).unwrap();
             let expected = if reuse { "cached-token" } else { "fresh-token" };
             assert_eq!(client.token().unwrap().as_str(), expected);
             assert_eq!(
@@ -714,5 +762,203 @@ mod authentication_cache_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    #[serial]
+    fn concurrent_cache_misses_reuse_the_first_login_after_prompting() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        for expired_cache in [false, true] {
+            let directory = tempdir().unwrap();
+            set_var("XDG_DATA_HOME", directory.path());
+            let now = chrono::Utc::now();
+            let pair = json!({
+                "session_id":"shared-cold-start", "token_type":"Bearer",
+                "access_token":"shared-access", "refresh_token":"shared-refresh",
+                "access_expires_at":now + chrono::Duration::minutes(15),
+                "refresh_expires_at":now + chrono::Duration::days(7),
+                "absolute_expires_at":now + chrono::Duration::days(30)
+            });
+            if expired_cache {
+                let root = directory.path().join("hubuum_cli");
+                create_dir_all(&root).unwrap();
+                let mut expired = pair.clone();
+                expired["session_id"] = json!("expired-session");
+                for key in [
+                    "access_expires_at",
+                    "refresh_expires_at",
+                    "absolute_expires_at",
+                ] {
+                    expired[key] = json!(now - chrono::Duration::minutes(1));
+                }
+                write(root.join("sessions.json"), json!([{
+                    "identity": {"base_url":"https://example.invalid/", "identity_scope":null, "username":"alice"},
+                    "session": {"base_url":"https://example.invalid/", "client_id":"hubuum-cli",
+                        "refresh_at":expired["access_expires_at"], "pair":expired}
+                }]).to_string()).unwrap();
+            }
+            let transport = MockTransport::default();
+            transport.push_response(TransportResponse::json(StatusCode::OK, &pair).unwrap());
+            // Validation only requires a successful response. If the second
+            // caller logs in instead, let it succeed with a different family
+            // so the first client's next request reproduces SessionExpired.
+            let mut other_pair = pair.clone();
+            other_pair["session_id"] = json!("uncoordinated-second-login");
+            other_pair["access_token"] = json!("other-access");
+            other_pair["refresh_token"] = json!("other-refresh");
+            transport.push_response(TransportResponse::json(StatusCode::OK, &other_pair).unwrap());
+            for _ in 0..2 {
+                transport
+                    .push_response(TransportResponse::json(StatusCode::OK, &json!([])).unwrap());
+            }
+            let mut config = AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.username = "alice".into();
+            let clients = thread::scope(|scope| {
+                let (ready, prompts) = mpsc::channel();
+                let mut starts = Vec::new();
+                let mut handles = Vec::new();
+                for _ in 0..2 {
+                    let (start, wait) = mpsc::channel();
+                    starts.push(start);
+                    let ready = ready.clone();
+                    let config = &config;
+                    let transport = transport.clone();
+                    handles.push(scope.spawn(move || {
+                        let client = Client::builder_from_url("https://example.invalid")
+                            .unwrap()
+                            .with_transport(Arc::new(transport))
+                            .build()
+                            .unwrap();
+                        authenticate_with_prompt(client, config, CachedToken::Allow, |_| {
+                            ready.send(()).unwrap();
+                            wait.recv_timeout(Duration::from_secs(10)).unwrap();
+                            Ok("fixture-password".into())
+                        })
+                    }));
+                }
+                // Both independent stores must miss before either password is
+                // supplied, forcing both callers through the cold-start path.
+                for _ in 0..2 {
+                    prompts.recv_timeout(Duration::from_secs(10)).unwrap();
+                }
+                for start in starts {
+                    start.send(()).unwrap();
+                }
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            // Exercise both clients after both logins finish: replacing either
+            // session family would now fail the SDK's reload before the request.
+            for client in clients {
+                assert_eq!(client.token().unwrap().as_str(), "shared-access");
+                assert!(client.classes().query().list().unwrap().is_empty());
+            }
+            let paths = transport
+                .requests()
+                .into_iter()
+                .map(|request| request.url.path().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(paths.len(), 4);
+            assert_eq!(paths[0], "/api/v1/auth/login");
+            assert_eq!(paths[1], "/api/v1/auth/validate");
+            assert_eq!(
+                paths
+                    .iter()
+                    .filter(|path| *path == "/api/v1/auth/login")
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn memory_only_logins_ignore_existing_caches_and_never_create_session_files() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        for existing_cache in [false, true] {
+            let directory = tempdir().unwrap();
+            set_var("XDG_DATA_HOME", directory.path());
+            let root = directory.path().join("hubuum_cli");
+            if existing_cache {
+                create_dir_all(&root).unwrap();
+                // Reading either cache would fail. Disabling storage must ignore
+                // both without deleting them or acquiring a session lock.
+                for name in ["token.json", "sessions.json"] {
+                    write(root.join(name), b"untouched-invalid-cache").unwrap();
+                }
+            }
+            let transport = MockTransport::default();
+            let mut config = AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.username = "alice".into();
+            config.password = Some(format!("fixture-{}", rand::random::<u64>()));
+            config.session_storage = SessionStorage::None;
+            for index in 0..2 {
+                let access = format!("memory-access-{index}");
+                transport.push_response(TransportResponse::json(StatusCode::OK, &json!({
+                    "session_id":format!("memory-session-{index}"), "token_type":"Bearer",
+                    "access_token":access, "refresh_token":format!("memory-refresh-{index}"),
+                    "access_expires_at":chrono::Utc::now()+chrono::Duration::minutes(15),
+                    "refresh_expires_at":chrono::Utc::now()+chrono::Duration::days(7),
+                    "absolute_expires_at":chrono::Utc::now()+chrono::Duration::days(30)
+                })).unwrap());
+                let client = Client::builder_from_url("https://example.invalid")
+                    .unwrap()
+                    .with_transport(Arc::new(transport.clone()))
+                    .build()
+                    .unwrap();
+                let authenticated = authenticate(client, &config, CachedToken::Allow).unwrap();
+                assert_eq!(authenticated.token().unwrap().as_str(), access);
+            }
+            let requests = transport.requests();
+            assert_eq!(requests.len(), 2);
+            assert!(requests
+                .iter()
+                .all(|request| request.url.path() == "/api/v1/auth/login"));
+            if existing_cache {
+                assert_eq!(read_dir(&root).unwrap().count(), 2);
+                for name in ["token.json", "sessions.json"] {
+                    assert_eq!(read(root.join(name)).unwrap(), b"untouched-invalid-cache");
+                }
+            } else {
+                assert!(!root.exists());
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn memory_only_setting_preserves_explicit_token_file_authentication() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        let directory = tempdir().unwrap();
+        set_var("XDG_DATA_HOME", directory.path());
+        let path = directory.path().join("explicit-token");
+        write(&path, "explicit-service-token").unwrap();
+        let transport = MockTransport::default();
+        transport.push_response(TransportResponse::empty(StatusCode::OK));
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap();
+        let mut config = AppConfig::default().server;
+        config.session_storage = SessionStorage::None;
+        config.token_file = Some(path.to_str().unwrap().into());
+        let authenticated = authenticate(client, &config, CachedToken::Allow).unwrap();
+        assert_eq!(
+            authenticated.token().unwrap().as_str(),
+            "explicit-service-token"
+        );
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::GET);
+        assert_eq!(
+            requests[0].headers[AUTHORIZATION],
+            "Bearer explicit-service-token"
+        );
+        assert!(!directory.path().join("hubuum_cli").exists());
     }
 }

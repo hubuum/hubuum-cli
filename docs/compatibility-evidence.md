@@ -55,6 +55,71 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
+## Unreleased: persistent password sessions
+
+The session-persistence fix pins SDK commit
+`ad4bde4fa88a34fc2373ef232bd6cd64d237cea7` from
+[SDK PR #124](https://github.com/hubuum/hubuum-client-rust/pull/124).
+This temporarily replaces the published 0.16.0 dependency with an immutable Git
+source providing the storage interface. It includes the SDK main-branch additions
+already merged before that fix. The server v0.0.20 target, OpenAPI routes, and
+blocking-only feature selection remain unchanged. The SDK keeps Rust 1.88;
+the CLI declares no MSRV and uses Rust 1.89's standard filesystem locking API.
+
+The CLI stores rotating sessions in an identity-scoped cache and coordinates
+refresh through a stable lock file and atomic durable replacement. Passwords are
+not stored. Existing legacy-token migration and explicit PAT/service-token files
+remain supported. The SDK validates stored server/client bindings and invalidates
+consumed refresh credentials before exchange.
+
+File storage remains the default. Runtime opt-in keychain storage adds
+`keyring-core` 1.0.1 and the target-specific Apple Keychain 1.0.2 and D-Bus Secret
+Service 1.0.1 stores, using Rust cryptography and vendored libdbus on Linux. The credential pair
+is stored directly in the native store, with the same exclusive process lock.
+File-to-keychain migration preserves unrelated accounts and stops on storage
+failure. Existing Unix cache and lock-file permissions are repaired before use.
+No password or plaintext fallback is stored by the keychain backend.
+Selecting `none` instead uses the SDK's existing in-memory login API and skips
+both persistent stores and legacy-token reuse. It introduces no dependencies or
+server API changes. Regressions verify fresh logins, preservation of existing
+caches, absence of session files, and explicit token-file precedence.
+
+Verification uses the immutable server image
+`ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
+The live CLI driver covers password login, restart without credentials, and two
+concurrent processes refreshing a saved session, alongside the complete existing
+integration and restore/recovery suite. The companion SDK's complete pinned
+library/consumer suite also verifies client recreation after real access-token
+expiry. Workspace regressions cover independent processes, identity isolation,
+cache permissions, redaction, malformed caches, and preservation of other accounts.
+
+The keychain follow-up passed 830 workspace tests plus two native Linux tests in
+an isolated D-Bus/GNOME Keyring container: credential persistence across recreated
+stores, and four CLI processes migrating a file session, resuming without a
+password, and coordinating exactly one refresh. The latter verifies the consumed
+refresh credential is absent from the native store before exchange and that the
+plaintext session entry was removed. macOS native validation is included in CI;
+it was not run on this Linux workstation. Strict Clippy, formatting, Markdown,
+wrapper and CI-policy checks, dependency audit, and a musl compile check passed.
+
+The memory-only follow-up passed 832 workspace tests, strict Clippy, formatting,
+Markdown lint, and CI-policy checks. The full pinned live suite passed again,
+including fresh memory-only logins both beside an existing cache and in an empty
+data directory; existing credentials remained unchanged and no session files
+were created. The preceding keychain commit also passed native macOS and Linux
+CI validation.
+
+Concurrent cache-miss login coverage forces two clients to finish their initial
+cache checks before either receives a password, for both empty and expired
+caches. A stable login lock coordinates the subsequent recheck and login/save;
+the regression requires exactly one login and successful requests from both
+clients after authentication completes. Separate CLI subprocesses also share
+one cold-start login. The pinned live driver covers concurrent empty/expired
+cache recovery alongside refresh coordination and memory-only authentication.
+All 833 workspace tests passed, as did strict Clippy, formatting, Markdown lint,
+18 CI-policy tests, and the complete pinned live suite with three restore cycles.
+This changes no dependencies, server API, or MSRV requirements.
+
 ## CLI v0.0.18: client v0.16.0
 
 Verified on 2026-10-22 using the published crates.io `hubuum_client` 0.16.0,

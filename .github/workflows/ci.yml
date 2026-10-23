@@ -150,6 +150,25 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release -p hubuum-update"
 
+      - name: Install Linux keychain test service
+        if: matrix.platform.os_name == 'Linux-x86_64' && matrix.toolchain == 'stable'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes dbus-x11 gnome-keyring
+
+      - name: Test Linux Secret Service
+        if: matrix.platform.os_name == 'Linux-x86_64' && matrix.toolchain == 'stable'
+        run: |
+          dbus-run-session -- bash -euc '
+            head -c 32 /dev/urandom | base64 | gnome-keyring-daemon --unlock
+            cargo test --locked --release --bin hubuum-cli session_store::keychain::tests::native_keychain_round_trip -- --ignored --exact
+            cargo test --locked --release --test session_persistence native_keychain_processes_migrate_reuse_and_coordinate -- --ignored --exact
+          '
+
+      - name: Test macOS Keychain
+        if: matrix.platform.os_name == 'macOS-aarch64' && matrix.toolchain == 'stable'
+        run: cargo test --locked --release --bin hubuum-cli session_store::keychain::tests::native_keychain_round_trip -- --ignored --exact
+
   backup-restore:
     needs: changes
     name: Pinned backup and restore integration

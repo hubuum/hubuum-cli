@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- Disable persistent password-session storage with `--session-storage none` or
+  `server.session_storage = "none"`. Rotate credentials only in memory, ignore
+  saved sessions and legacy token caches, and leave existing credentials intact.
+- Opt into macOS Keychain or Linux Secret Service for rotating login sessions with
+  `--session-storage keychain` or `server.session_storage = "keychain"`.
+  File storage remains the default. Existing matching sessions move to the
+  keychain only after a successful secure write; keychain errors never fall back
+  to file credentials. Add the platform-specific keyring credential-store crates.
+
+### Security
+
+- Restore owner-only permissions on existing session caches and lock files before
+  use, including caches restored or copied with broader permissions.
+
+### Fixed
+
+- Coordinate concurrent cache-miss logins so processes starting with empty or
+  expired caches reuse one session instead of replacing each other's credentials.
+  Recheck storage after password entry under a cross-process login lock.
+- Restore remembered password logins across CLI restarts and wrapper subprocesses.
+  Save rotating sessions in `sessions.json`, isolate server/provider/user identities,
+  and coordinate refresh across processes with an exclusive lock and atomic writes.
+  Passwords are never stored. Expired, revoked, or uncertain sessions require login.
+- Use the companion SDK session-storage API from a pinned Git revision until it
+  is released. The Hubuum Server v0.0.20 target and OpenAPI contract are unchanged.
+
 ## [0.0.18] - 2026-10-22
 
 ### Changed

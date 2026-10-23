@@ -33,8 +33,22 @@ against other server versions is not guaranteed.
 
 CLI v0.0.18 targets server v0.0.20 through client 0.16.0. Upgrade server API,
 workers, and restore executors together before using the new versioned login.
-New password sessions remain in memory and rotate automatically. Each new CLI
-process needs credentials; use an explicit PAT file for unattended automation.
+The next unreleased build restores password-session persistence through the
+companion SDK storage API, temporarily pinned to an immutable Git revision.
+Released v0.0.18 kept sessions only in memory; the fix stores rotating credentials
+and coordinates their refresh across CLI processes. Explicit PAT files remain
+available for unattended automation. The server target and API routes are unchanged.
+The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
+while the SDK retains its declared Rust 1.88 MSRV.
+Session storage defaults to files. `none` uses the SDK's existing in-memory session
+API without accessing persistent credential stores. Opt-in `keychain` storage is
+available on macOS and Linux; Linux requires a Secret Service on the user's D-Bus session.
+This adds `keyring-core` 1.0.1, macOS `apple-native-keyring-store` 1.0.2, and Linux
+`dbus-secret-service-keyring-store` 1.0.1 with Rust cryptography and vendored D-Bus.
+Linux builds compile bundled libdbus with a C toolchain; no system libdbus or
+OpenSSL development package is required. Other platforms retain file
+storage and reject explicit keychain selection. See the
+[keychain configuration](docs/authentication.md#optional-keychain-storage).
 See [authentication](docs/authentication.md) and
 [credential approvals](docs/credential-approvals.md).
 

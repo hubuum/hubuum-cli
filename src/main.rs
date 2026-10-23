@@ -43,6 +43,7 @@ mod presentation;
 mod redirection;
 mod repl;
 mod services;
+mod session_store;
 mod suggestions;
 mod terminal;
 mod theme;
