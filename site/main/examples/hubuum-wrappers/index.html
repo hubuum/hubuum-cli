@@ -2070,8 +2070,13 @@ address, FQDN, and processor summary from <code>data.facts</code>. Missing FQDNs
 to the hostname, then the Host object name; missing addresses also use the object
 name. Empty Jacks are included.
 <code>--json</code> emits <code>{room, jacks: [{jack, hosts}]}</code> with complete objects.
+The wrapper resolves the Room once, then fetches a depth-two graph with object
+data. This uses two CLI invocations regardless of the number of Jacks and Hosts
+(Room-list pagination and graph metadata resolution can require multiple HTTP
+requests). Hosts connected to multiple Jacks appear under each one.
 This standalone wrapper uses the same common file and class configuration as
-<code>hubuum-host</code>; copy <code>hubuum-room</code> beside it when updating an existing installation.</p>
+<code>hubuum-host</code>; copy <code>hubuum-room</code> beside it when updating an existing installation
+and update <code>hubuum-cli</code> to a build supporting <code>relation object graph --data</code>.</p>
 <h2 id="hubuum-move"><code>hubuum-move</code><a class="headerlink" href="#hubuum-move" title="Permanent link">&para;</a></h2>
 <p>A destination may be a Jack, Room, or Host. A Room with multiple Jacks prompts
 for a choice; automation must select one with <code>--jack</code>. A Host destination uses
