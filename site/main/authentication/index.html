@@ -682,6 +682,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#disable-persistent-session-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Disable persistent session storage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-keychain-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Optional keychain storage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1764,6 +1786,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#disable-persistent-session-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Disable persistent session storage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-keychain-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Optional keychain storage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1826,19 +1870,89 @@ the CLI token cache:</p>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>hubuum-cli<span class="w"> </span>--hostname<span class="w"> </span>api.example.com<span class="w"> </span>--token-file<span class="w"> </span>/run/secrets/hubuum.token<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
 </code></pre></div>
 <h2 id="rotating-sessions-and-upgrade">Rotating sessions and upgrade<a class="headerlink" href="#rotating-sessions-and-upgrade" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.18 uses Rust SDK 0.16.0 and the server v0.0.20 <code>/api/v1/auth</code> contract.
-Password login creates a session with client ID <code>hubuum-cli</code>. The SDK rotates
-access and refresh credentials automatically before API requests; the REPL and
-scripts reuse the same in-memory session. The server configures access, idle,
-and absolute lifetimes. Refresh failure or uncertain exchange requires sign-in.</p>
-<p><strong>Breaking:</strong> new interactive sessions are not written to <code>token.json</code>.
-Every new CLI process therefore needs a password (prompted or configured), or an
-explicit PAT/service token file. Existing cache entries are read for migration
-and validated by the server; invalid old interactive tokens require sign-in.
-No refresh secret is persisted or shared between processes. Use the REPL for
-interactive reuse and an owner-only <code>--token-file</code> for unattended automation.</p>
+<p>The CLI uses the server v0.0.20 <code>/api/v1/auth</code> contract. Password login creates
+an automatically rotating session with client ID <code>hubuum-cli</code>.</p>
+<p>With the default file storage, the CLI saves the access and refresh credentials and their
+server deadlines in <code>sessions.json</code> under its data directory (on Linux,
+<code>$XDG_DATA_HOME/hubuum_cli</code>, or <code>~/.local/share/hubuum_cli</code>). The directory and
+credential files have owner-only permissions on Unix. Passwords are never saved.
+Existing cache and lock-file permissions are tightened before use as well.
+The cache separates identities by normalized server URL (including protocol,
+port, and base path), identity provider, and username.</p>
+<p>New CLI processes resume and validate the saved session. This also lets wrapper
+commands such as <code>hubuum-room</code> reuse one login across their CLI subprocesses.
+An open REPL and other CLI processes share the latest credentials through a
+<code>sessions.lock</code> sidecar. A separate <code>sessions.login.lock</code> coordinates cache-miss
+logins: after password entry, a process rechecks storage under this lock and
+reuses any session created by another process before creating its own. The lock
+remains held through login and saving; password prompts never hold either lock.
+Updates atomically replace the cache. The refresh
+credential is removed durably before exchange and its successor is saved before
+use, so a crash or lost refresh response requires a new login instead of replaying
+a consumed credential. Server idle and absolute expiry limits still apply.</p>
+<p>A revoked session or an expired refresh lifetime requires sign-in again. Network
+failures during validation retain the saved session and report the error. A failed
+or uncertain refresh discards that session. To forget local sessions, close
+running clients and remove <code>sessions.json</code>; this does not revoke them at the server.</p>
+<p>This restores persistence lost in v0.0.18. Legacy <code>token.json</code> entries remain
+readable for migration. Explicit <code>--token-file</code> authentication bypasses this
+session cache and remains suitable for PATs and service accounts.</p>
 <p>Upgrade server API, workers, and restore executors together before using this
 CLI. The CLI does not downgrade password login to the removed legacy API.</p>
+<h2 id="disable-persistent-session-storage">Disable persistent session storage<a class="headerlink" href="#disable-persistent-session-storage" title="Permanent link">&para;</a></h2>
+<p>Select <code>none</code> to keep rotating password-session credentials only in memory:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>server.session_storage<span class="w"> </span>--value<span class="w"> </span>none
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># Or select it for one invocation:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>--session-storage<span class="w"> </span>none<span class="w"> </span>object<span class="w"> </span>list
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Or configure the environment, including wrapper subprocesses:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HUBUUM_CLI__SERVER__SESSION_STORAGE</span><span class="o">=</span>none
+</code></pre></div>
+<p>Each new CLI process signs in again using the configured password or a prompt.
+The REPL still reuses and rotates its session until it exits. Wrappers that start
+multiple CLI processes, such as <code>hubuum-room</code>, may prompt more than once.</p>
+<p>This mode does not open the keychain, read either <code>sessions.json</code> or legacy
+<code>token.json</code>, or create session cache/lock files. It leaves previously saved
+credentials intact; selecting <code>none</code> does not delete them or revoke server
+sessions. Close existing CLI sessions before changing modes. Explicit
+<code>--token-file</code> authentication still uses the file you provide, and ordinary
+configuration, history, and logging behavior is unaffected.</p>
+<h2 id="optional-keychain-storage">Optional keychain storage<a class="headerlink" href="#optional-keychain-storage" title="Permanent link">&para;</a></h2>
+<p>File storage is the default. On macOS and Linux, explicitly select the operating
+system's credential store to keep the access and refresh tokens there:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>server.session_storage<span class="w"> </span>--value<span class="w"> </span>keychain
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># Or select it for one invocation:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>hubuum-cli<span class="w"> </span>--session-storage<span class="w"> </span>keychain<span class="w"> </span>object<span class="w"> </span>list
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Or configure the environment (also inherited by wrapper subprocesses):</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HUBUUM_CLI__SERVER__SESSION_STORAGE</span><span class="o">=</span>keychain
+</code></pre></div>
+<p>Close existing CLI sessions before changing the storage backend.</p>
+<p>macOS uses Keychain. Linux requires a running Secret Service, such as GNOME
+Keyring or a compatible KWallet, reachable through the user's D-Bus session.
+The store may prompt to unlock or authorize access. SSH sessions need access to
+that service; the CLI does not create or unlock a desktop keyring itself.
+Unavailable, locked, or unsupported stores report an error. The CLI never
+silently switches back to file credentials when keychain storage is selected.
+Explicit <code>--token-file</code> authentication still bypasses session storage.</p>
+<p>The first use moves the matching <code>sessions.json</code> entry into the keychain while
+holding the shared process lock. It writes the keychain entry successfully before
+removing the plaintext entry, and preserves other accounts. A failed migration
+stops authentication and can be retried. Subsequent logins and refreshes write
+credentials only to the keychain. The <code>sessions.lock</code> file remains for process
+coordination. Keychain storage does not reuse or migrate legacy <code>token.json</code>
+credentials; remove obsolete legacy entries separately when no longer needed.
+Existing backups or filesystem snapshots may still contain old plaintext copies.</p>
+<p>Entries use the service name <code>org.hubuum.cli.sessions</code>, scoped by server URL,
+provider, username, and canonical data directory. Changing the data directory
+uses a different entry and requires login again. Lookup identifiers are metadata,
+not secrets, and may be visible in the keychain UI. Passwords are never stored.</p>
+<p>Encryption and access control are supplied by Keychain or the Secret Service
+provider. This protects credentials at rest according to that provider's policy;
+it does not prevent software running as your user from accessing an unlocked
+store. Refresh coordination and server expiry limits are unchanged.</p>
+<p>To forget a keychain session locally, close running clients and delete its Hubuum
+CLI entry using the platform's keychain manager. Local deletion does not revoke
+the server session. Selecting <code>file</code> again explicitly returns to file storage;
+keychain credentials are not exported back into the plaintext cache.</p>
 
 
 
