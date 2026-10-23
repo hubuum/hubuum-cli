@@ -20,6 +20,9 @@
 
 ### Fixed
 
+- Coordinate concurrent cache-miss logins so processes starting with empty or
+  expired caches reuse one session instead of replacing each other's credentials.
+  Recheck storage after password entry under a cross-process login lock.
 - Restore remembered password logins across CLI restarts and wrapper subprocesses.
   Save rotating sessions in `sessions.json`, isolate server/provider/user identities,
   and coordinate refresh across processes with an exclusive lock and atomic writes.

@@ -15,18 +15,41 @@ use crate::models::SessionStorage;
 
 mod keychain;
 
-pub(crate) fn session_store(
-    storage: SessionStorage,
-    base_url: &BaseUrl,
-    identity_scope: Option<&str>,
-    username: &str,
-) -> Result<Option<Arc<dyn SessionStore>>, AppError> {
-    let files = || SessionFileStore::new(base_url, identity_scope, username);
-    Ok(match storage {
-        SessionStorage::File => Some(Arc::new(files()?)),
-        SessionStorage::Keychain => Some(Arc::new(keychain::KeychainStore::new(files()?)?)),
-        SessionStorage::None => None,
-    })
+pub(crate) struct SessionCache {
+    store: Arc<dyn SessionStore>,
+    login_lock: PathBuf,
+}
+
+impl SessionCache {
+    pub(crate) fn new(
+        storage: SessionStorage,
+        base_url: &BaseUrl,
+        identity_scope: Option<&str>,
+        username: &str,
+    ) -> Result<Option<Self>, AppError> {
+        if storage == SessionStorage::None {
+            return Ok(None);
+        }
+        let files = SessionFileStore::new(base_url, identity_scope, username)?;
+        let login_lock = files.directory.join("sessions.login.lock");
+        let store: Arc<dyn SessionStore> = match storage {
+            SessionStorage::File => Arc::new(files),
+            SessionStorage::Keychain => Arc::new(keychain::KeychainStore::new(files)?),
+            SessionStorage::None => unreachable!(),
+        };
+        Ok(Some(Self { store, login_lock }))
+    }
+
+    pub(crate) fn store(&self) -> Arc<dyn SessionStore> {
+        self.store.clone()
+    }
+
+    /// Serialize the cache recheck and login/save across processes. Acquire this
+    /// only after prompting, and before the SDK acquires its session-store lock.
+    /// Refreshes keep using the SDK lock and never acquire this login lock.
+    pub(crate) fn lock_login(&self) -> Result<File, ApiError> {
+        lock_file(&self.login_lock)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,22 +103,26 @@ impl SessionFileStore {
     }
     fn lock_guard(&self) -> Result<FileGuard, ApiError> {
         // Lock a stable sidecar, never the atomically replaced data inode.
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let lock = options.open(self.directory.join("sessions.lock"))?;
-        secure_file(&lock)?;
-        lock.lock()?;
         Ok(FileGuard {
-            _lock: lock,
+            _lock: lock_file(&self.directory.join("sessions.lock"))?,
             path: self.directory.join("sessions.json"),
             identity: self.identity.clone(),
         })
     }
+}
+
+fn lock_file(path: &Path) -> Result<File, ApiError> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options.open(path)?;
+    secure_file(&lock)?;
+    lock.lock()?;
+    Ok(lock)
 }
 
 impl SessionStore for SessionFileStore {

@@ -1,6 +1,7 @@
 use std::error::Error as StdError;
 use std::fs::read_to_string;
 use std::fs::File;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -29,7 +30,7 @@ use crate::errors::AppError;
 use crate::files::{get_log_file, get_token_from_tokenfile};
 use crate::models::SessionStorage;
 use crate::services::AppServices;
-use crate::session_store::session_store;
+use crate::session_store::SessionCache;
 use crate::theme::{paint, ThemeRole};
 
 const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -330,6 +331,15 @@ fn authenticate(
     config: &ServerConfig,
     cached_token: CachedToken,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
+    authenticate_with_prompt(client, config, cached_token, prompt_password)
+}
+
+fn authenticate_with_prompt(
+    client: BlockingClient<Unauthenticated>,
+    config: &ServerConfig,
+    cached_token: CachedToken,
+    prompt: impl FnOnce(String) -> io::Result<String>,
+) -> Result<BlockingClient<Authenticated>, AppError> {
     let hostname = config.hostname.as_str();
     let identity_scope = config.identity_scope.as_deref();
     let username = config.username.as_str();
@@ -340,21 +350,16 @@ fn authenticate(
     }
 
     let client_id = SessionClientId::new("hubuum-cli")?;
-    let store = session_store(
+    let cache = SessionCache::new(
         config.session_storage,
         client.base_url(),
         identity_scope,
         username,
     )?;
     if matches!(cached_token, CachedToken::Allow) {
-        if let Some(store) = &store {
-            match client_call("client.resume_session", || {
-                client.resume_session(client_id.clone(), store.clone())
-            }) {
-                Ok(Some(client)) => return Ok(client),
-                Ok(None) | Err(ApiError::SessionExpired) => {}
-                Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => {}
-                Err(error) => return Err(error.into()),
+        if let Some(cache) = &cache {
+            if let Some(client) = resume_session(&client, &client_id, cache)? {
+                return Ok(client);
             }
         }
         let token = if config.session_storage == SessionStorage::File {
@@ -378,7 +383,7 @@ fn authenticate(
             let scope = identity_scope
                 .map(|scope| format!(" via {scope}"))
                 .unwrap_or_default();
-            prompt_password(format!("Password for {username}{scope} @ {hostname}: "))?
+            prompt(format!("Password for {username}{scope} @ {hostname}: "))?
         }
     };
 
@@ -388,11 +393,39 @@ fn authenticate(
         }
         None => Credentials::new(username.to_string(), password),
     };
-    client_call("client.login_session", || match store {
-        Some(store) => client.login_session_with_store(credentials, client_id, store),
-        None => client.login_session(credentials, client_id),
-    })
+    if let Some(cache) = cache {
+        let _login = cache.lock_login()?;
+        // Another process may have signed in while we were prompting or waiting
+        // for the login lock. Keep the recheck and login/save in one transaction.
+        if matches!(cached_token, CachedToken::Allow) {
+            if let Some(client) = resume_session(&client, &client_id, &cache)? {
+                return Ok(client);
+            }
+        }
+        client_call("client.login_session", || {
+            client.login_session_with_store(credentials, client_id, cache.store())
+        })
+    } else {
+        client_call("client.login_session", || {
+            client.login_session(credentials, client_id)
+        })
+    }
     .map_err(AppError::from)
+}
+
+fn resume_session(
+    client: &BlockingClient<Unauthenticated>,
+    client_id: &SessionClientId,
+    cache: &SessionCache,
+) -> Result<Option<BlockingClient<Authenticated>>, AppError> {
+    match client_call("client.resume_session", || {
+        client.resume_session(client_id.clone(), cache.store())
+    }) {
+        Ok(client) => Ok(client),
+        Err(ApiError::SessionExpired) => Ok(None),
+        Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -617,7 +650,9 @@ mod authentication_cache_tests {
     use std::env::{remove_var, set_var, var_os};
     use std::ffi::OsString;
     use std::fs::{create_dir_all, read, read_dir, write};
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
 
     use hubuum_client::{blocking::Client, MockTransport, TransportResponse};
     use reqwest::{header::AUTHORIZATION, Method, StatusCode};
@@ -625,7 +660,7 @@ mod authentication_cache_tests {
     use serial_test::serial;
     use tempfile::tempdir;
 
-    use super::{authenticate, CachedToken};
+    use super::{authenticate, authenticate_with_prompt, CachedToken};
     use crate::config::AppConfig;
     use crate::files::{get_token_file, get_token_from_tokenfile};
     use crate::models::SessionStorage;
@@ -726,6 +761,116 @@ mod authentication_cache_tests {
                     json!({"identity_scope":"corp", "name":"alice", "password":password, "client_id":"hubuum-cli"})
                 );
             }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn concurrent_cache_misses_reuse_the_first_login_after_prompting() {
+        let _restore = DataDirectory(var_os("XDG_DATA_HOME"));
+        for expired_cache in [false, true] {
+            let directory = tempdir().unwrap();
+            set_var("XDG_DATA_HOME", directory.path());
+            let now = chrono::Utc::now();
+            let pair = json!({
+                "session_id":"shared-cold-start", "token_type":"Bearer",
+                "access_token":"shared-access", "refresh_token":"shared-refresh",
+                "access_expires_at":now + chrono::Duration::minutes(15),
+                "refresh_expires_at":now + chrono::Duration::days(7),
+                "absolute_expires_at":now + chrono::Duration::days(30)
+            });
+            if expired_cache {
+                let root = directory.path().join("hubuum_cli");
+                create_dir_all(&root).unwrap();
+                let mut expired = pair.clone();
+                expired["session_id"] = json!("expired-session");
+                for key in [
+                    "access_expires_at",
+                    "refresh_expires_at",
+                    "absolute_expires_at",
+                ] {
+                    expired[key] = json!(now - chrono::Duration::minutes(1));
+                }
+                write(root.join("sessions.json"), json!([{
+                    "identity": {"base_url":"https://example.invalid/", "identity_scope":null, "username":"alice"},
+                    "session": {"base_url":"https://example.invalid/", "client_id":"hubuum-cli",
+                        "refresh_at":expired["access_expires_at"], "pair":expired}
+                }]).to_string()).unwrap();
+            }
+            let transport = MockTransport::default();
+            transport.push_response(TransportResponse::json(StatusCode::OK, &pair).unwrap());
+            // Validation only requires a successful response. If the second
+            // caller logs in instead, let it succeed with a different family
+            // so the first client's next request reproduces SessionExpired.
+            let mut other_pair = pair.clone();
+            other_pair["session_id"] = json!("uncoordinated-second-login");
+            other_pair["access_token"] = json!("other-access");
+            other_pair["refresh_token"] = json!("other-refresh");
+            transport.push_response(TransportResponse::json(StatusCode::OK, &other_pair).unwrap());
+            for _ in 0..2 {
+                transport
+                    .push_response(TransportResponse::json(StatusCode::OK, &json!([])).unwrap());
+            }
+            let mut config = AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.username = "alice".into();
+            let clients = thread::scope(|scope| {
+                let (ready, prompts) = mpsc::channel();
+                let mut starts = Vec::new();
+                let mut handles = Vec::new();
+                for _ in 0..2 {
+                    let (start, wait) = mpsc::channel();
+                    starts.push(start);
+                    let ready = ready.clone();
+                    let config = &config;
+                    let transport = transport.clone();
+                    handles.push(scope.spawn(move || {
+                        let client = Client::builder_from_url("https://example.invalid")
+                            .unwrap()
+                            .with_transport(Arc::new(transport))
+                            .build()
+                            .unwrap();
+                        authenticate_with_prompt(client, config, CachedToken::Allow, |_| {
+                            ready.send(()).unwrap();
+                            wait.recv_timeout(Duration::from_secs(10)).unwrap();
+                            Ok("fixture-password".into())
+                        })
+                    }));
+                }
+                // Both independent stores must miss before either password is
+                // supplied, forcing both callers through the cold-start path.
+                for _ in 0..2 {
+                    prompts.recv_timeout(Duration::from_secs(10)).unwrap();
+                }
+                for start in starts {
+                    start.send(()).unwrap();
+                }
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            // Exercise both clients after both logins finish: replacing either
+            // session family would now fail the SDK's reload before the request.
+            for client in clients {
+                assert_eq!(client.token().unwrap().as_str(), "shared-access");
+                assert!(client.classes().query().list().unwrap().is_empty());
+            }
+            let paths = transport
+                .requests()
+                .into_iter()
+                .map(|request| request.url.path().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(paths.len(), 4);
+            assert_eq!(paths[0], "/api/v1/auth/login");
+            assert_eq!(paths[1], "/api/v1/auth/validate");
+            assert_eq!(
+                paths
+                    .iter()
+                    .filter(|path| *path == "/api/v1/auth/login")
+                    .count(),
+                1
+            );
         }
     }
 

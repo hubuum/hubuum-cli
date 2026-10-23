@@ -137,6 +137,7 @@ fn process_scenario(keychain: bool) {
             "absolute_expires_at":now + chrono::Duration::days(30)
         });
         let mut paths = Vec::new();
+        let mut login_count = 0;
         while !stopped.load(Ordering::Acquire) {
             let mut stream = match listener.accept() {
                 Ok((stream, _)) => stream,
@@ -152,6 +153,8 @@ fn process_scenario(keychain: bool) {
                 "/api/v1/auth/login" => {
                     assert_eq!(body["name"], "alice");
                     assert_eq!(body["client_id"], "hubuum-cli");
+                    login_count += 1;
+                    pair["session_id"] = json!(format!("persistent-process-test-{login_count}"));
                     pair.clone()
                 }
                 "/api/v1/auth/refresh" => {
@@ -206,16 +209,25 @@ fn process_scenario(keychain: bool) {
         command
     };
     let password = format!("fixture-{}", rand::random::<u64>());
-    let first = command()
-        .env("HUBUUM_CLI__SERVER__SESSION_STORAGE", "file")
-        .env("HUBUUM_CLI__SERVER__PASSWORD", &password)
-        .output()
-        .unwrap();
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stderr)
-    );
+    let first = thread::scope(|scope| {
+        let login = || {
+            command()
+                .env("HUBUUM_CLI__SERVER__SESSION_STORAGE", "file")
+                .env("HUBUUM_CLI__SERVER__PASSWORD", &password)
+                .output()
+                .unwrap()
+        };
+        let one = scope.spawn(login);
+        let two = scope.spawn(login);
+        [one.join().unwrap(), two.join().unwrap()]
+    });
+    for result in &first {
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
     let saved: Value = serde_json::from_str(&read_to_string(&cache_path).unwrap()).unwrap();
     assert!(!saved.to_string().contains(&password));
     // Exercise another process while the access token is still current.
@@ -240,7 +252,7 @@ fn process_scenario(keychain: bool) {
     });
     stop.store(true, Ordering::Release);
     let paths = server.join().unwrap();
-    for result in [first, second].into_iter().chain(results) {
+    for result in first.into_iter().chain([second]).chain(results) {
         assert!(
             result.status.success(),
             "{}",

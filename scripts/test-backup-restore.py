@@ -161,6 +161,28 @@ def main():
                 assert json.loads(cache.read_text())[0]["session"]["pair"]["refresh_token"] != original_refresh
                 print("PASS: CLI sessions survive restarts and coordinate refresh across processes", flush=True)
 
+                # Concurrent cache misses must join one new session rather than
+                # replace the session another process has just begun using.
+                cold_directory = directory / "cold-start"
+                cold_env = dict(env, XDG_DATA_HOME=str(cold_directory),
+                                HUBUUM_CLI__SERVER__PASSWORD=password)
+                for expired in [False, True]:
+                    cold_cache = cold_directory / "hubuum_cli/sessions.json"
+                    if expired:
+                        saved = json.loads(cold_cache.read_text())
+                        saved[0]["session"]["refresh_at"] = "2020-01-01T00:00:00Z"
+                        for key in ["access_expires_at", "refresh_expires_at", "absolute_expires_at"]:
+                            saved[0]["session"]["pair"][key] = "2020-01-01T00:00:00Z"
+                        cold_cache.write_text(json.dumps(saved))
+                    processes = [subprocess.Popen(session_args, text=True, stdout=subprocess.PIPE,
+                                                  stderr=subprocess.PIPE, env=cold_env) for _ in range(2)]
+                    for process in processes:
+                        stdout, stderr = process.communicate(timeout=60)
+                        assert process.returncode == 0, "Concurrent cold-start CLI login failed"
+                        assert json.loads(stdout) and password not in stdout + stderr
+                    assert len(json.loads(cold_cache.read_text())) == 1
+                print("PASS: concurrent CLI cold starts recover from empty and expired caches", flush=True)
+
                 before_memory_login = cache.read_bytes()
                 memory_env = dict(env, HUBUUM_CLI__SERVER__SESSION_STORAGE="none",
                                   HUBUUM_CLI__SERVER__PASSWORD=password)
@@ -172,7 +194,7 @@ def main():
                     assert password not in memory_login.stdout + memory_login.stderr
                     assert cache.read_bytes() == before_memory_login
                     if memory_directory != directory:
-                        for name in ["sessions.json", "sessions.lock", "token.json"]:
+                        for name in ["sessions.json", "sessions.lock", "sessions.login.lock", "token.json"]:
                             assert not (memory_directory / "hubuum_cli" / name).exists()
                 print("PASS: memory-only CLI logins preserve existing caches and create no session files", flush=True)
 

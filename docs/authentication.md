@@ -59,7 +59,11 @@ port, and base path), identity provider, and username.
 New CLI processes resume and validate the saved session. This also lets wrapper
 commands such as `hubuum-room` reuse one login across their CLI subprocesses.
 An open REPL and other CLI processes share the latest credentials through a
-`sessions.lock` sidecar. Updates atomically replace the cache. The refresh
+`sessions.lock` sidecar. A separate `sessions.login.lock` coordinates cache-miss
+logins: after password entry, a process rechecks storage under this lock and
+reuses any session created by another process before creating its own. The lock
+remains held through login and saving; password prompts never hold either lock.
+Updates atomically replace the cache. The refresh
 credential is removed durably before exchange and its successor is saved before
 use, so a crash or lost refresh response requires a new login instead of replaying
 a consumed credential. Server idle and absolute expiry limits still apply.

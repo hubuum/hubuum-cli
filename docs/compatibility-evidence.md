@@ -109,6 +109,17 @@ data directory; existing credentials remained unchanged and no session files
 were created. The preceding keychain commit also passed native macOS and Linux
 CI validation.
 
+Concurrent cache-miss login coverage forces two clients to finish their initial
+cache checks before either receives a password, for both empty and expired
+caches. A stable login lock coordinates the subsequent recheck and login/save;
+the regression requires exactly one login and successful requests from both
+clients after authentication completes. Separate CLI subprocesses also share
+one cold-start login. The pinned live driver covers concurrent empty/expired
+cache recovery alongside refresh coordination and memory-only authentication.
+All 833 workspace tests passed, as did strict Clippy, formatting, Markdown lint,
+18 CI-policy tests, and the complete pinned live suite with three restore cycles.
+This changes no dependencies, server API, or MSRV requirements.
+
 ## CLI v0.0.18: client v0.16.0
 
 Verified on 2026-10-22 using the published crates.io `hubuum_client` 0.16.0,
