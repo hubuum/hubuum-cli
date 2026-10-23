@@ -1,4 +1,3 @@
-
 use jsonc_parser::parse_to_serde_value;
 use semver::Version;
 use serde_json::{json, Value};
