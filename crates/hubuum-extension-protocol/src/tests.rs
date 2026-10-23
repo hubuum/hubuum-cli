@@ -1,3 +1,4 @@
+
 use jsonc_parser::parse_to_serde_value;
 use semver::Version;
 use serde_json::{json, Value};
@@ -17,109 +18,109 @@ const EXECUTABLE: &str = r#"{
   "protocol": "hubuum-cli.extension/v1",
   "executable": "bin/site-inventory",
   "config": {
-"site": {
-  "type": "string",
-  "required": true,
-},
-  },
-  "commands": {
-"host_show": {
-  "path": ["host", "show"],
-  "arguments": ["host", "show"],
-  "options": {
-    "identifier": {
-      "kind": "string",
-      "position": 1,
+    "site": {
+      "type": "string",
+      "required": true,
     },
   },
-},
+  "commands": {
+    "host_show": {
+      "path": ["host", "show"],
+      "arguments": ["host", "show"],
+      "options": {
+        "identifier": {
+          "kind": "string",
+          "position": 1,
+        },
+      },
+    },
   },
 }"#;
 
 const PORTABLE_BODY: &str = r#"
   "config": {
-"hosts_class": {
-  "type": "string",
-  "default": "Hosts"
-}
+    "hosts_class": {
+      "type": "string",
+      "default": "Hosts"
+    }
   },
   "workflows": {
-"item": {
-  "inputs": {
     "item": {
-      "type": "json",
-      "required": true
+      "inputs": {
+        "item": {
+          "type": "json",
+          "required": true
+        }
+      },
+      "output": {
+        "shape": "values",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "keep",
+          "kind": "let",
+          "expr": ".input.item"
+        }
+      ],
+      "result": "[.input.item]"
+    },
+    "snapshot": {
+      "inputs": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "items": {
+          "type": "json",
+          "default": [1, 2]
+        }
+      },
+      "output": {
+        "shape": "detail",
+        "type": "json"
+      },
+      "steps": [
+        {
+          "id": "hosts",
+          "kind": "run",
+          "run": ["object", "list"],
+          "when": ".input.enabled",
+          "with": {
+            "class": { "config": "hosts_class" },
+            "all": true
+          }
+        },
+        {
+          "id": "selected",
+          "kind": "let",
+          "expr": ".steps.hosts"
+        },
+        {
+          "id": "valid",
+          "kind": "assert",
+          "condition": ".input.enabled == true",
+          "message": "snapshot must be enabled"
+        },
+        {
+          "id": "one",
+          "kind": "call",
+          "call": "item",
+          "when": ".input.enabled",
+          "with": { "item": "one" }
+        },
+        {
+          "id": "many",
+          "kind": "for_each",
+          "items": { "input": "items" },
+          "as": "item",
+          "call": "item",
+          "max_items": 10,
+          "when": ".input.enabled"
+        }
+      ],
+      "result": "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
     }
-  },
-  "output": {
-    "shape": "values",
-    "type": "json"
-  },
-  "steps": [
-    {
-      "id": "keep",
-      "kind": "let",
-      "expr": ".input.item"
-    }
-  ],
-  "result": "[.input.item]"
-},
-"snapshot": {
-  "inputs": {
-    "enabled": {
-      "type": "boolean",
-      "default": true
-    },
-    "items": {
-      "type": "json",
-      "default": [1, 2]
-    }
-  },
-  "output": {
-    "shape": "detail",
-    "type": "json"
-  },
-  "steps": [
-    {
-      "id": "hosts",
-      "kind": "run",
-      "run": ["object", "list"],
-      "when": ".input.enabled",
-      "with": {
-        "class": { "config": "hosts_class" },
-        "all": true
-      }
-    },
-    {
-      "id": "selected",
-      "kind": "let",
-      "expr": ".steps.hosts"
-    },
-    {
-      "id": "valid",
-      "kind": "assert",
-      "condition": ".input.enabled == true",
-      "message": "snapshot must be enabled"
-    },
-    {
-      "id": "one",
-      "kind": "call",
-      "call": "item",
-      "when": ".input.enabled",
-      "with": { "item": "one" }
-    },
-    {
-      "id": "many",
-      "kind": "for_each",
-      "items": { "input": "items" },
-      "as": "item",
-      "call": "item",
-      "max_items": 10,
-      "when": ".input.enabled"
-    }
-  ],
-  "result": "{ hosts: .steps.hosts, selected: .steps.selected, one: .steps.one, many: .steps.many }"
-}
   }
 "#;
 
@@ -212,23 +213,23 @@ fn rejects_forward_references_cross_pack_calls_and_unbounded_iteration() {
     let forward = portable_manifest(
         r#"
   "workflows": {
-"snapshot": {
-  "output": { "shape": "detail", "type": "json" },
-  "steps": [
-    {
-      "id": "first",
-      "kind": "run",
-      "run": ["object", "show"],
-      "with": { "id": { "step": "later" } }
-    },
-    {
-      "id": "later",
-      "kind": "run",
-      "run": ["object", "list"]
+    "snapshot": {
+      "output": { "shape": "detail", "type": "json" },
+      "steps": [
+        {
+          "id": "first",
+          "kind": "run",
+          "run": ["object", "show"],
+          "with": { "id": { "step": "later" } }
+        },
+        {
+          "id": "later",
+          "kind": "run",
+          "run": ["object", "list"]
+        }
+      ],
+      "result": ".steps.first"
     }
-  ],
-  "result": ".steps.first"
-}
   }
 "#,
     );
@@ -353,9 +354,9 @@ fn rejects_contradictory_defaults_and_lossy_flag_inputs() {
     );
 
     let required_input = PORTABLE_BODY.replace(
-        "          \"type\": \"boolean\",\n          \"default\": true",
-        "          \"type\": \"boolean\",\n          \"required\": true,\n          \"default\": true",
-    );
+            "          \"type\": \"boolean\",\n          \"default\": true",
+            "          \"type\": \"boolean\",\n          \"required\": true,\n          \"default\": true",
+        );
     assert!(
         ExtensionManifest::parse(&portable_manifest(&required_input))
             .expect_err("required input default")
@@ -431,10 +432,10 @@ fn validates_semantic_shapes_and_protocol_responses() {
     .is_err());
 
     assert!(ExtensionResponse::parse(
-        r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"done","columns":[]}}"#,
-    )
-    .expect("response")
-    .is_ok());
+            r#"{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"message","value":"done","columns":[]}}"#,
+        )
+        .expect("response")
+        .is_ok());
 }
 
 #[test]
@@ -455,14 +456,14 @@ fn portable_manifest(body: &str) -> String {
   "requires_cli": ">=0.0.9,<0.1",
 {body},
   "commands": {{
-"snapshot": {{
-  "path": ["snapshot"],
-  "workflow": "snapshot",
-  "options": {{
-    "enabled": {{ "kind": "boolean", "long": "enabled" }},
-    "items": {{ "kind": "json", "long": "items" }}
-  }}
-}}
+    "snapshot": {{
+      "path": ["snapshot"],
+      "workflow": "snapshot",
+      "options": {{
+        "enabled": {{ "kind": "boolean", "long": "enabled" }},
+        "items": {{ "kind": "json", "long": "items" }}
+      }}
+    }}
   }}
 }}"#
     )
