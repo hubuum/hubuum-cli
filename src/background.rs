@@ -71,7 +71,8 @@ enum PendingNotice {
 
 impl BackgroundManager {
     pub fn new(runtime: Handle, gateway: Arc<HubuumGateway>, poll_interval: Duration) -> Self {
-        let fetch_task = Arc::new(move |task_id| gateway.task(TaskLookupInput { task_id }));
+        let fetch_task =
+            Arc::new(move |task_id: i32| gateway.task(TaskLookupInput::new(task_id.into())?));
         Self::new_with_fetcher(runtime, poll_interval, fetch_task)
     }
 

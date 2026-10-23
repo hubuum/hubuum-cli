@@ -205,7 +205,7 @@ impl HubuumGateway {
                     .permissions
                     .into_iter()
                     .map(|permission| {
-                        let group_id: i32 = permission.group_id.into();
+                        let group_id = permission.group_id;
                         let group = groups.get(&group_id).ok_or_else(|| {
                             AppError::EntityNotFound(format!(
                                 "group {group_id} referenced by collection permissions"

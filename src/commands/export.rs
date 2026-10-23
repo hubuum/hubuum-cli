@@ -1,4 +1,7 @@
+use crate::domain::{ObjectReference, ResourceName};
+use hubuum_client::{ExportLimits, ExportMissingDataPolicy, ExportScopeKind};
 use std::fs::read_to_string;
+use std::str::FromStr;
 
 use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
@@ -19,7 +22,8 @@ use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::{append_json_line, append_line};
 use crate::services::{
-    AppServices, CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput,
+    AdHocExport, AppServices, CreateExportTemplateInput, ExportScopeInput, ExportSource,
+    RunExportInput, UpdateExportTemplateInput,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -389,18 +393,26 @@ impl CliCommand for ExportRun {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let opts = parse_task_submit_options(tokens)?;
-        let input = RunExportInput {
-            template: query.template,
-            scope_kind: query.scope,
-            class_name: query.class,
-            object_name: query.object,
-            query: query.query,
-            missing_data_policy: query.missing_data_policy,
-            max_items: query.max_items,
-            max_output_bytes: query.max_output_bytes,
-            relation_depth: query.relation_depth,
-            include_related: query.include_related,
-        };
+        let source = query.source()?;
+        let policy = query
+            .missing_data_policy
+            .as_deref()
+            .map(|value| {
+                ExportMissingDataPolicy::from_str(value).map_err(|_| {
+                    AppError::ParseError(format!("Invalid missing data policy: {value}"))
+                })
+            })
+            .transpose()?;
+        let limits = (query.max_items.is_some() || query.max_output_bytes.is_some()).then_some(
+            ExportLimits {
+                max_items: query.max_items,
+                max_output_bytes: query.max_output_bytes,
+            },
+        );
+        let input = RunExportInput::new(source)
+            .query(query.query)
+            .missing_data_policy(policy)
+            .limits(limits);
         let task = services.gateway().submit_export(input)?;
         run_task_backed(
             services,
@@ -437,5 +449,129 @@ fn read_optional_template_source(
             "Use either --template or --file, not both".to_string(),
         )),
         (None, None) => Ok(None),
+    }
+}
+
+impl ExportRun {
+    fn source(&self) -> Result<ExportSource, AppError> {
+        let class = self.class.as_deref().map(ResourceName::new).transpose()?;
+        let object = self.object.as_deref().map(ResourceName::new).transpose()?;
+        let required_class = || {
+            class
+                .clone()
+                .ok_or_else(|| AppError::MissingOptions(vec!["class".into()]))
+        };
+        if let Some(template) = &self.template {
+            if self.relation_depth.is_some() || !self.include_related.is_empty() {
+                return Err(AppError::InvalidOption("--relation-depth and --include-related require an ad-hoc export without --template".into()));
+            }
+            // Older CLI versions required a --scope placeholder with named templates.
+            // Preserve that syntax; the template itself owns its scope.
+            let object = object
+                .map(|object| Ok::<_, AppError>(ObjectReference::new(required_class()?, object)))
+                .transpose()?;
+            return Ok(ExportSource::Template {
+                name: ResourceName::new(template)?,
+                object,
+            });
+        }
+        let kind = ExportScopeKind::from_str(&self.scope)
+            .map_err(|_| AppError::ParseError(format!("Invalid export scope: {}", self.scope)))?;
+        let scope = match kind {
+            ExportScopeKind::Collections if class.is_none() && object.is_none() => {
+                ExportScopeInput::Collections
+            }
+            ExportScopeKind::Collections => {
+                return Err(AppError::ParseError(
+                    "collection exports do not take class or object".into(),
+                ))
+            }
+            ExportScopeKind::RelatedObjects => {
+                ExportScopeInput::RelatedObjects(ObjectReference::new(
+                    required_class()?,
+                    object.ok_or_else(|| AppError::MissingOptions(vec!["object".into()]))?,
+                ))
+            }
+            _ if object.is_some() => {
+                return Err(AppError::ParseError(
+                    "this export scope does not take an object".into(),
+                ))
+            }
+            ExportScopeKind::Classes => ExportScopeInput::Classes(required_class()?),
+            ExportScopeKind::ObjectsInClass => ExportScopeInput::ObjectsInClass(required_class()?),
+            ExportScopeKind::ClassRelations => ExportScopeInput::ClassRelations(required_class()?),
+            ExportScopeKind::ObjectRelations => {
+                ExportScopeInput::ObjectRelations(required_class()?)
+            }
+            _ => {
+                return Err(AppError::ParseError(format!(
+                    "unsupported export scope: {}",
+                    self.scope
+                )))
+            }
+        };
+        let related = self
+            .include_related
+            .iter()
+            .map(|value| value.parse())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ExportSource::AdHoc(
+            AdHocExport::new(scope)
+                .relation_depth(self.relation_depth)
+                .include_related(related),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExportRun;
+    use crate::services::ExportSource;
+
+    #[test]
+    fn export_scopes_require_their_own_selectors() {
+        let mut args = ExportRun {
+            scope: "related_objects".into(),
+            class: Some("Hosts".into()),
+            ..Default::default()
+        };
+        assert!(args.source().is_err());
+        args.object = Some("host".into());
+        assert!(matches!(args.source().unwrap(), ExportSource::AdHoc(_)));
+        args.scope = "objects_in_class".into();
+        assert!(args.source().is_err());
+        args.object = None;
+        assert!(args.source().is_ok());
+        args.scope = "collections".into();
+        assert!(args.source().is_err());
+        args.class = None;
+        assert!(args.source().is_ok());
+        args.scope = "invalid".into();
+        assert!(args.source().is_err());
+    }
+
+    #[test]
+    fn named_templates_preserve_legacy_scope_syntax_and_validate_overrides() {
+        let mut args = ExportRun {
+            template: Some("inventory".into()),
+            scope: "collections".into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            args.source().unwrap(),
+            ExportSource::Template { object: None, .. }
+        ));
+        args.object = Some("host".into());
+        assert!(args.source().is_err());
+        args.class = Some("Hosts".into());
+        assert!(matches!(
+            args.source().unwrap(),
+            ExportSource::Template {
+                object: Some(_),
+                ..
+            }
+        ));
+        args.include_related = vec!["related:Hosts".into()];
+        assert!(args.source().is_err());
     }
 }

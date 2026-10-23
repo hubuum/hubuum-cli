@@ -382,7 +382,7 @@ pub fn build_list_query(
 }
 
 pub fn normalize_server_page_size(limit: Option<usize>) -> Result<Option<usize>, AppError> {
-    let Some(page_size) = limit.map(ServerPageSize::from_requested) else {
+    let Some(page_size) = limit.map(ServerPageSize::from_requested).transpose()? else {
         return Ok(None);
     };
 

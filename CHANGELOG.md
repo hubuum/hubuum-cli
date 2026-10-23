@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Validate task IDs, page sizes, computed-field revisions and patches, export
+  scopes, remote-call subjects, and history timestamps before resource lookup.
+- Enforce semantic output and extension failure validation during direct JSON
+  deserialization as well as through protocol parsing.
+
+### Changed
+
+- **Breaking validation changes:** history `--at` rejects pagination/sort flags;
+  named export templates reject ad-hoc relation options; remote calls reject
+  selectors unrelated to their subject; related-export specifications reject
+  extra colon-separated segments. Remove the inapplicable options from scripts.
+  Task IDs and page sizes must be positive, computed updates must include a
+  change, and extension responses must satisfy their documented output and
+  failure invariants. Valid template exports retain the legacy `--scope` syntax.
+
 ## [0.0.19] - 2026-10-23
 
 ### Added

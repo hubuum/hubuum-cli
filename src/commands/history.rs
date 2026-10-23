@@ -1,7 +1,7 @@
 mod views;
 
 use cli_command_derive::CommandArgs;
-use hubuum_client::{ClassId, HistoryId, ObjectId};
+use hubuum_client::{ClassId, HistoryId, HubuumDateTime, ObjectId};
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -12,7 +12,9 @@ use super::{
 use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::services::{AppServices, HistoryInput, ResourceScope};
+use crate::services::{
+    parse_timestamp, AppServices, HistoryInput, HistoryListInput, ResourceScope,
+};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -84,9 +86,46 @@ pub struct HistoryShow {
     pub at: Option<String>,
 }
 
+struct HistoryArgs {
+    limit: Option<usize>,
+    sort: Option<String>,
+    cursor: Option<String>,
+    at: Option<String>,
+    include_total: bool,
+    page_selection: PageSelection,
+}
+
+impl HistoryArgs {
+    fn into_input(self) -> Result<HistoryInput, AppError> {
+        if let Some(at) = self.at {
+            if self.limit.is_some()
+                || self.sort.is_some()
+                || self.cursor.is_some()
+                || matches!(self.page_selection, PageSelection::All)
+            {
+                return Err(AppError::InvalidOption(
+                    "--at cannot be combined with --limit, --sort, --cursor, or --all".into(),
+                ));
+            }
+            return Ok(HistoryInput::At {
+                at: parse_timestamp(&at)?,
+                include_total: self.include_total,
+            });
+        }
+        Ok(HistoryInput::List(
+            HistoryListInput::default()
+                .limit(self.limit.map(TryInto::try_into).transpose()?)
+                .sort(self.sort.as_deref())?
+                .cursor(self.cursor)
+                .include_total(self.include_total)
+                .page_selection(self.page_selection),
+        ))
+    }
+}
+
 enum HistorySelector {
     Id(HistoryId),
-    At(String),
+    At(HubuumDateTime),
 }
 
 impl CliCommand for HistoryShow {
@@ -101,7 +140,7 @@ impl CliCommand for HistoryShow {
 
         let record = match history_selector(query.id, query.at)? {
             HistorySelector::Id(id) => services.gateway().history_record_by_id(scope, id)?,
-            HistorySelector::At(at) => services.gateway().history_record_at(scope, &at)?,
+            HistorySelector::At(at) => services.gateway().history_record_at(scope, at)?,
         };
 
         render_json_record(tokens, &record)
@@ -114,7 +153,7 @@ fn history_selector(
 ) -> Result<HistorySelector, AppError> {
     match (id, at) {
         (Some(id), None) => Ok(HistorySelector::Id(id)),
-        (None, Some(at)) => Ok(HistorySelector::At(at)),
+        (None, Some(at)) => Ok(HistorySelector::At(parse_timestamp(&at)?)),
         (Some(_), Some(_)) => Err(AppError::InvalidOption(
             "--id and --at are mutually exclusive".to_string(),
         )),
@@ -166,14 +205,15 @@ impl CliCommand for ClassHistory {
             .or_else(|| tokens.get_positionals().first().cloned());
         let history = services.gateway().history(
             ResourceScope::class(query.class, query.class_id)?,
-            HistoryInput {
+            HistoryArgs {
                 limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,
                 include_total: query.include_total.unwrap_or(false),
                 page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
-            },
+            }
+            .into_input()?,
         )?;
         render_list_page(tokens, &history)
     }
@@ -238,15 +278,17 @@ impl CliCommand for ObjectHistory {
         let history = services.gateway().history(
             ResourceScope::class(query.class, query.class_id)?
                 .with_object(query.name, query.object_id)?
-                .require_object()?,
-            HistoryInput {
+                .require_object()?
+                .into(),
+            HistoryArgs {
                 limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
                 cursor: query.cursor,
                 at: query.at,
                 include_total: query.include_total.unwrap_or(false),
                 page_selection: PageSelection::from_all(query.all.unwrap_or(false)),
-            },
+            }
+            .into_input()?,
         )?;
         render_list_page(tokens, &history)
     }
@@ -254,6 +296,43 @@ impl CliCommand for ObjectHistory {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn history_modes_validate_before_resource_resolution() {
+        use super::HistoryArgs;
+        use crate::list_query::PageSelection;
+        let args = || HistoryArgs {
+            limit: None,
+            sort: None,
+            cursor: None,
+            at: Some("2026-07-21T20:17:03Z".into()),
+            include_total: true,
+            page_selection: PageSelection::Single,
+        };
+        assert!(matches!(
+            args().into_input().unwrap(),
+            crate::services::HistoryInput::At {
+                include_total: true,
+                ..
+            }
+        ));
+        let mut invalid = args();
+        invalid.at = Some("yesterday".into());
+        assert!(invalid.into_input().is_err());
+        let mut invalid = args();
+        invalid.limit = Some(10);
+        assert!(invalid.into_input().is_err());
+        let mut invalid = args();
+        invalid.page_selection = PageSelection::All;
+        assert!(invalid.into_input().is_err());
+        let mut invalid = args();
+        invalid.cursor = Some("next".into());
+        assert!(invalid.into_input().is_err());
+        let mut invalid = args();
+        invalid.sort = Some("-history_id".into());
+        assert!(invalid.into_input().is_err());
+    }
+
     use super::{history_selector, HistorySelector};
 
     #[test]
@@ -265,7 +344,7 @@ mod tests {
         assert!(matches!(
             history_selector(None, Some("2026-07-21T20:17:03Z".to_string()))
                 .expect("timestamp should be accepted"),
-            HistorySelector::At(at) if at == "2026-07-21T20:17:03Z"
+            HistorySelector::At(at) if at == crate::services::parse_timestamp("2026-07-21T20:17:03Z").unwrap()
         ));
         assert!(
             history_selector(Some(1498.into()), Some("2026-07-21T20:17:03Z".to_string())).is_err()

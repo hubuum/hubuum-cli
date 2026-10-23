@@ -2448,11 +2448,28 @@ pub enum SemanticOutputShape {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(try_from = "SemanticOutputWire")]
 pub struct SemanticOutput {
     shape: SemanticOutputShape,
     value: Value,
     #[serde(default)]
     columns: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SemanticOutputWire {
+    shape: SemanticOutputShape,
+    value: Value,
+    #[serde(default)]
+    columns: Vec<String>,
+}
+
+impl TryFrom<SemanticOutputWire> for SemanticOutput {
+    type Error = ProtocolError;
+
+    fn try_from(wire: SemanticOutputWire) -> Result<Self, Self::Error> {
+        Self::new(wire.shape, wire.value, wire.columns)
+    }
 }
 
 impl SemanticOutput {
@@ -2525,11 +2542,34 @@ impl SemanticOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(try_from = "ExtensionFailureWire")]
 pub struct ExtensionFailure {
     code: String,
     message: String,
     #[serde(default)]
     details: Value,
+}
+
+#[derive(Deserialize)]
+struct ExtensionFailureWire {
+    code: String,
+    message: String,
+    #[serde(default)]
+    details: Value,
+}
+
+impl TryFrom<ExtensionFailureWire> for ExtensionFailure {
+    type Error = ProtocolError;
+
+    fn try_from(wire: ExtensionFailureWire) -> Result<Self, Self::Error> {
+        let failure = Self {
+            code: wire.code,
+            message: wire.message,
+            details: wire.details,
+        };
+        failure.validate()?;
+        Ok(failure)
+    }
 }
 
 impl ExtensionFailure {
@@ -3059,6 +3099,36 @@ mod workflow_language_tests {
             .expect_err("repeatable flag")
             .to_string()
             .contains("repeatable workflow input"));
+    }
+
+    #[test]
+    fn deserialization_enforces_output_and_failure_invariants() {
+        use super::ExtensionFailure;
+        for value in [
+            json!({"shape": "rows", "value": 42}),
+            json!({"shape": "lines", "value": [42]}),
+            json!({"shape": "detail", "value": {}, "columns": [""]}),
+            json!({"shape": "detail", "value": {}, "columns": ["id", "id"]}),
+        ] {
+            assert!(serde_json::from_value::<SemanticOutput>(value).is_err());
+        }
+        for value in [
+            json!({"code": "INVALID CODE", "message": "failure"}),
+            json!({"code": "failure", "message": " "}),
+        ] {
+            assert!(serde_json::from_value::<ExtensionFailure>(value).is_err());
+        }
+        let output = SemanticOutput::new(
+            SemanticOutputShape::Rows,
+            json!([{"id": 1}]),
+            vec!["id".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_value::<SemanticOutput>(serde_json::to_value(&output).unwrap())
+                .unwrap(),
+            output,
+        );
     }
 
     #[test]

@@ -62,10 +62,13 @@ pub(crate) use credential_approvals::CredentialApprovalSource;
 pub use events::{
     AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, EventSubscriptionScope,
 };
-pub use exports::{CreateExportTemplateInput, RunExportInput, UpdateExportTemplateInput};
+pub use exports::{
+    AdHocExport, CreateExportTemplateInput, ExportScopeInput, ExportSource, RunExportInput,
+    UpdateExportTemplateInput,
+};
 pub use groups::{CreateGroupInput, GroupUpdateInput};
 pub(crate) use history::parse_timestamp;
-pub use history::{HistoricalQuery, HistoryInput};
+pub use history::{HistoricalQuery, HistoryInput, HistoryListInput};
 pub use hydration::HydrationOptions;
 pub use imports::SubmitImportInput;
 pub use object_aggregates::{
@@ -83,10 +86,10 @@ pub use relations::{
     RelationTraversalOptions,
 };
 pub use remote_targets::{
-    CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
+    CreateRemoteTargetInput, InvocationSubject, InvokeRemoteTargetInput, RemoteAuthConfigInput,
     UpdateRemoteTargetInput,
 };
-pub use resource_scope::ResourceScope;
+pub use resource_scope::{ObjectScope, ResourceScope};
 pub use schema::SchemaOperation;
 pub use search::{SearchInput, SearchKind};
 pub use service_accounts::CreateServiceAccountInput;

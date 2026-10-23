@@ -1,6 +1,8 @@
 use std::iter::empty;
 
+use crate::domain::{ObjectReference, ResourceName};
 use cli_command_derive::CommandArgs;
+use hubuum_client::{RemoteHttpMethod, RemoteTargetSubjectType};
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 
@@ -22,8 +24,8 @@ use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
 use crate::output::append_line;
 use crate::services::{
-    AppServices, CreateRemoteTargetInput, InvokeRemoteTargetInput, RemoteAuthConfigInput,
-    UpdateRemoteTargetInput,
+    AppServices, CreateRemoteTargetInput, InvocationSubject, InvokeRemoteTargetInput,
+    RemoteAuthConfigInput, UpdateRemoteTargetInput,
 };
 use crate::tokenizer::CommandTokenizer;
 
@@ -177,8 +179,8 @@ impl CliCommand for RemoteTargetCreate {
         let subject_types = new
             .allowed_subject_types
             .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+            .map(|s| parse_subject_type(s.trim()))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let target = services
             .gateway()
@@ -186,7 +188,7 @@ impl CliCommand for RemoteTargetCreate {
                 collection: new.collection,
                 name: new.name,
                 description: new.description,
-                method: new.method,
+                method: parse_method(&new.method)?,
                 url_template: new.url_template,
                 allowed_subject_types: subject_types,
                 auth_config,
@@ -374,7 +376,13 @@ impl CliCommand for RemoteTargetUpdate {
 
         let subject_types = query
             .allowed_subject_types
-            .map(|types| types.split(',').map(|s| s.trim().to_string()).collect());
+            .map(|types| {
+                types
+                    .split(',')
+                    .map(|s| parse_subject_type(s.trim()))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
 
         let target = services
             .gateway()
@@ -383,7 +391,7 @@ impl CliCommand for RemoteTargetUpdate {
                 rename: query.rename,
                 description: query.description,
                 collection: query.collection,
-                method: query.method,
+                method: query.method.as_deref().map(parse_method).transpose()?,
                 url_template: query.url_template,
                 allowed_subject_types: subject_types,
                 auth_config,
@@ -503,6 +511,7 @@ pub struct RemoteTargetInvoke {
 impl CliCommand for RemoteTargetInvoke {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let new = Self::parse_tokens(tokens)?;
+        let subject = new.subject()?;
         let name = required_option_or_pos(new.name, tokens, 0, "name")?;
 
         let parameters = new
@@ -519,18 +528,9 @@ impl CliCommand for RemoteTargetInvoke {
 
         let task = services.gateway().invoke_remote_target(
             &name,
-            InvokeRemoteTargetInput {
-                subject_kind: new.subject_kind,
-                collection: new.collection,
-                class: new.class,
-                object: new.object,
-                class_a: new.class_a,
-                class_b: new.class_b,
-                object_a: new.object_a,
-                object_b: new.object_b,
-                parameters,
-                body_override,
-            },
+            InvokeRemoteTargetInput::new(subject)
+                .parameters(parameters)
+                .body_override(body_override),
         )?;
 
         let opts = parse_task_submit_options(tokens)?;
@@ -579,5 +579,132 @@ fn parse_auth_config(
             "Invalid auth type '{}'. Valid values: none, bearer, basic, apikey",
             other
         ))),
+    }
+}
+
+fn parse_method(method_str: &str) -> Result<RemoteHttpMethod, AppError> {
+    match method_str.to_lowercase().as_str() {
+        "get" => Ok(RemoteHttpMethod::Get),
+        "post" => Ok(RemoteHttpMethod::Post),
+        "patch" => Ok(RemoteHttpMethod::Patch),
+        "delete" => Ok(RemoteHttpMethod::Delete),
+        _ => Err(AppError::ParseError(format!(
+            "Invalid HTTP method '{}'. Valid values: get, post, patch, delete",
+            method_str
+        ))),
+    }
+}
+
+fn parse_subject_type(type_str: &str) -> Result<RemoteTargetSubjectType, AppError> {
+    match type_str.to_lowercase().as_str() {
+        "collection" => Ok(RemoteTargetSubjectType::Collection),
+        "class" => Ok(RemoteTargetSubjectType::Class),
+        "object" => Ok(RemoteTargetSubjectType::Object),
+        "class_relation" | "classrelation" => Ok(RemoteTargetSubjectType::ClassRelation),
+        "object_relation" | "objectrelation" => Ok(RemoteTargetSubjectType::ObjectRelation),
+        _ => Err(AppError::ParseError(format!(
+            "Invalid subject type '{}'. Valid values: collection, class, object, class_relation, object_relation",
+            type_str
+        ))),
+    }
+}
+
+impl RemoteTargetInvoke {
+    fn subject(&self) -> Result<InvocationSubject, AppError> {
+        let selectors = [
+            ("collection", self.collection.as_deref()),
+            ("class", self.class.as_deref()),
+            ("object", self.object.as_deref()),
+            ("class-a", self.class_a.as_deref()),
+            ("class-b", self.class_b.as_deref()),
+            ("object-a", self.object_a.as_deref()),
+            ("object-b", self.object_b.as_deref()),
+        ];
+        let required: &[&str] = match self.subject_kind.to_ascii_lowercase().as_str() {
+            "collection" => &["collection"], "class" => &["class"],
+            "object" => &["class", "object"],
+            "class_relation" | "classrelation" => &["class-a", "class-b"],
+            "object_relation" | "objectrelation" => &["class-a", "class-b", "object-a", "object-b"],
+            _ => return Err(AppError::InvalidOption("Invalid subject kind; use collection, class, object, class_relation, or object_relation".into())),
+        };
+        for (key, value) in selectors {
+            if value.is_some() && !required.contains(&key) {
+                return Err(AppError::InvalidOption(format!(
+                    "--{key} does not apply to subject {}",
+                    self.subject_kind
+                )));
+            }
+        }
+        let name = |key: &str| -> Result<ResourceName, AppError> {
+            let value = selectors
+                .iter()
+                .find(|(name, _)| *name == key)
+                .and_then(|(_, value)| *value)
+                .ok_or_else(|| AppError::MissingOptions(vec![key.into()]))?;
+            ResourceName::new(value)
+        };
+        Ok(match required {
+            ["collection"] => InvocationSubject::Collection(name("collection")?),
+            ["class"] => InvocationSubject::Class(name("class")?),
+            ["class", "object"] => {
+                InvocationSubject::Object(ObjectReference::new(name("class")?, name("object")?))
+            }
+            ["class-a", "class-b"] => InvocationSubject::ClassRelation {
+                from: name("class-a")?,
+                to: name("class-b")?,
+            },
+            _ => InvocationSubject::ObjectRelation {
+                from: ObjectReference::new(name("class-a")?, name("object-a")?),
+                to: ObjectReference::new(name("class-b")?, name("object-b")?),
+            },
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_method, parse_subject_type, RemoteTargetInvoke};
+    use crate::services::InvocationSubject;
+
+    #[test]
+    fn remote_subjects_reject_missing_blank_and_unrelated_selectors() {
+        let mut args = RemoteTargetInvoke {
+            subject_kind: "object".into(),
+            class: Some("Hosts".into()),
+            ..Default::default()
+        };
+        assert!(args.subject().is_err());
+        args.object = Some(" ".into());
+        assert!(args.subject().is_err());
+        args.object = Some("host".into());
+        assert!(matches!(
+            args.subject().unwrap(),
+            InvocationSubject::Object(_)
+        ));
+        args.collection = Some("Inventory".into());
+        assert!(args.subject().is_err());
+        args.subject_kind = "invalid".into();
+        assert!(args.subject().is_err());
+    }
+
+    #[test]
+    fn remote_subject_relations_and_aliases_preserve_endpoints() {
+        let args = RemoteTargetInvoke {
+            subject_kind: "ObjectRelation".into(),
+            class_a: Some("Hosts".into()),
+            class_b: Some("Rooms".into()),
+            object_a: Some("host".into()),
+            object_b: Some("room".into()),
+            ..Default::default()
+        };
+        let InvocationSubject::ObjectRelation { from, to } = args.subject().unwrap() else {
+            panic!("wrong subject")
+        };
+        assert_eq!((from.class(), from.object()), ("Hosts", "host"));
+        assert_eq!((to.class(), to.object()), ("Rooms", "room"));
+        assert!(parse_method("POST").is_ok());
+        assert!(parse_method("invalid").is_err());
+        assert!(parse_subject_type("classrelation").is_ok());
+        assert!(parse_subject_type("invalid").is_err());
     }
 }

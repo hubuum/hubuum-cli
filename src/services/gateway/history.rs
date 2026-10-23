@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use hubuum_client::types::SortDirection;
 use hubuum_client::{
     client::sync::HistoryRequest, HistoryId, HistoryPageOptions, HistoryTimelineOptions,
     HubuumDateTime, ObjectHistoryOptions, RelationHistoryOptions,
@@ -8,20 +9,51 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{from_value, Value};
 
 use super::shared::parse_single_sort;
-use super::{HubuumGateway, ResourceScope};
+use super::{HubuumGateway, ObjectScope, ResourceScope};
 use crate::diagnostics::client_call;
 use crate::domain::{HistoryPageRecord, HistoryRecord, JsonRecord};
 use crate::errors::AppError;
-use crate::list_query::{PageSelection, PagedResult};
+use crate::list_query::{PageSelection, PagedResult, ServerPageSize};
+
+pub enum HistoryInput {
+    At {
+        at: HubuumDateTime,
+        include_total: bool,
+    },
+    List(HistoryListInput),
+}
 
 #[derive(Clone, Default)]
-pub struct HistoryInput {
-    pub limit: Option<usize>,
-    pub sort: Option<String>,
-    pub cursor: Option<String>,
-    pub at: Option<String>,
-    pub include_total: bool,
-    pub page_selection: PageSelection,
+pub struct HistoryListInput {
+    limit: Option<ServerPageSize>,
+    sort: Option<(String, SortDirection)>,
+    cursor: Option<String>,
+    include_total: bool,
+    page_selection: PageSelection,
+}
+
+impl HistoryListInput {
+    pub fn limit(mut self, limit: Option<ServerPageSize>) -> Self {
+        self.limit = limit;
+        self
+    }
+    pub fn sort(mut self, sort: Option<&str>) -> Result<Self, AppError> {
+        self.sort =
+            parse_single_sort(sort)?.map(|(field, direction)| (field.to_owned(), direction));
+        Ok(self)
+    }
+    pub fn cursor(mut self, cursor: Option<String>) -> Self {
+        self.cursor = cursor;
+        self
+    }
+    pub fn include_total(mut self, include: bool) -> Self {
+        self.include_total = include;
+        self
+    }
+    pub fn page_selection(mut self, selection: PageSelection) -> Self {
+        self.page_selection = selection;
+        self
+    }
 }
 
 pub enum HistoricalQuery {
@@ -46,15 +78,18 @@ impl HubuumGateway {
         scope: ResourceScope,
         input: HistoryInput,
     ) -> Result<PagedResult<HistoryRecord>, AppError> {
-        if let Some(at) = input.at.as_deref() {
-            let record = self.history_record_at(scope, at)?;
-            return Ok(PagedResult {
-                items: vec![HistoryRecord::new(record)?],
-                next_cursor: None,
-                returned_count: 1,
-                total_count: input.include_total.then_some(1),
-            });
-        }
+        let input = match input {
+            HistoryInput::At { at, include_total } => {
+                let record = self.history_record_at(scope, at)?;
+                return Ok(PagedResult {
+                    items: vec![HistoryRecord::new(record)?],
+                    next_cursor: None,
+                    returned_count: 1,
+                    total_count: include_total.then_some(1),
+                });
+            }
+            HistoryInput::List(input) => input,
+        };
         let (class, object) = self.resolve_resource_scope(scope)?;
         match object {
             Some(object) => history_results(self.client().object_history(class, object), &input),
@@ -90,9 +125,8 @@ impl HubuumGateway {
     pub fn history_record_at(
         &self,
         scope: ResourceScope,
-        at: &str,
+        at: HubuumDateTime,
     ) -> Result<JsonRecord, AppError> {
-        let at = parse_timestamp(at)?;
         let (class, object) = self.resolve_resource_scope(scope)?;
         Ok(match object {
             Some(object) => {
@@ -110,16 +144,13 @@ impl HubuumGateway {
 
     pub fn historical_computed(
         &self,
-        scope: ResourceScope,
+        scope: ObjectScope,
         at: HubuumDateTime,
     ) -> Result<JsonRecord, AppError> {
-        let (class, object) = self.resolve_resource_scope(scope.require_object()?)?;
+        let (class, object) = self.resolve_object_scope(scope)?;
         Ok(JsonRecord::from_serializable(client_call(
             "client.object_computed_as_of",
-            || {
-                self.client()
-                    .object_computed_as_of(class, object.expect("required object"), at)
-            },
+            || self.client().object_computed_as_of(class, object, at),
         )?)?)
     }
 
@@ -240,14 +271,14 @@ pub(crate) fn parse_timestamp(value: &str) -> Result<HubuumDateTime, AppError> {
 
 fn history_results<T: DeserializeOwned + Serialize>(
     mut request: HistoryRequest<T>,
-    input: &HistoryInput,
+    input: &HistoryListInput,
 ) -> Result<PagedResult<HistoryRecord>, AppError> {
     if let Some(limit) = input.limit {
-        request = request.limit(limit);
+        request = request.limit(limit.effective());
     }
     request = request.include_total(input.include_total);
-    if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
-        request = request.sort(field, direction);
+    if let Some((field, direction)) = &input.sort {
+        request = request.sort(field, *direction);
     }
     if let Some(cursor) = &input.cursor {
         request = request.cursor(cursor);

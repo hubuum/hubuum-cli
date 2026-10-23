@@ -4,7 +4,7 @@ use crate::errors::AppError;
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::{append_json_line, append_line};
-use crate::services::{AppServices, WaitTaskInput};
+use crate::services::{AppServices, TaskLookupInput, WaitTaskInput};
 use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Clone, Default)]
@@ -46,12 +46,12 @@ pub fn run_task_backed(
     task: TaskRecord,
 ) -> Result<(), AppError> {
     let label = label.into();
-    let task_id = task.0.id.into();
+    let task_id = TaskLookupInput::new(task.0.id)?;
     let kind = task.0.kind;
 
     if opts.wait {
         let final_task = services.gateway().wait_task(WaitTaskInput {
-            task_id,
+            task: task_id,
             timeout_secs: opts.timeout_secs,
             poll_interval_secs: opts.poll_interval_secs,
         })?;

@@ -1758,7 +1758,7 @@ impl CliCommand for ObjectAggregate {
         let input = ObjectAggregateInput::new(query.class, dimensions, measures)?
             .filters(list_query.filters)
             .sort(sort)
-            .limit(list_query.limit)
+            .limit(list_query.limit.map(|limit| limit.effective()))
             .cursor(list_query.cursor)
             .include_total(list_query.include_total)
             .page_selection(list_query.page_selection);

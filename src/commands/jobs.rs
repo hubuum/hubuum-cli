@@ -164,7 +164,9 @@ impl CliCommand for JobsOutput {
             .background()
             .job(local_id)
             .ok_or_else(|| AppError::EntityNotFound(format!("background job {local_id}")))?;
-        let output = services.gateway().task_output(job.task_id)?;
+        let output = services
+            .gateway()
+            .task_output(TaskLookupInput::new(job.task_id.into())?)?;
         match desired_format(tokens)? {
             OutputFormat::Json => append_json_line(&output)?,
             OutputFormat::Text => {
@@ -180,7 +182,7 @@ impl CliCommand for JobsOutput {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct JobsWatch {
     #[option(short = "t", long = "task", help = "Server task ID")]
-    pub task: Option<i32>,
+    pub task: Option<TaskLookupInput>,
 }
 
 impl CliCommand for JobsWatch {
@@ -194,7 +196,7 @@ impl CliCommand for JobsWatch {
         let task_id = query
             .task
             .ok_or_else(|| AppError::MissingOptions(vec!["task".to_string()]))?;
-        let task = services.gateway().task(TaskLookupInput { task_id })?;
+        let task = services.gateway().task(task_id)?;
         let registration = services
             .background()
             .watch_task(task, format!("task {task_id}"))
