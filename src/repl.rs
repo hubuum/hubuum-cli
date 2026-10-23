@@ -1,3 +1,6 @@
+mod state;
+pub(crate) use state::SharedReplState;
+
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -16,7 +19,7 @@ use reedline::{
 use shlex::split;
 use tokio::runtime::Handle;
 
-use crate::app::{reauthenticate, AppRuntime, SharedSession};
+use crate::app::{reauthenticate, AppRuntime};
 use crate::autocomplete::{
     complete_search_predicate, complete_sort_clause, complete_where_clause, file_paths,
 };
@@ -36,7 +39,7 @@ use crate::services::CompletionContext;
 
 const CANCEL_PAGINATION_HOST_COMMAND: &str = "__hubuum_cancel_pagination__";
 
-pub async fn run(app: Arc<AppRuntime>, session: SharedSession) -> Result<(), AppError> {
+pub async fn run(app: Arc<AppRuntime>, session: SharedReplState) -> Result<(), AppError> {
     let runtime = Handle::current();
     let join = spawn(move || run_thread(runtime, app, session));
 
@@ -47,7 +50,7 @@ pub async fn run(app: Arc<AppRuntime>, session: SharedSession) -> Result<(), App
 fn run_thread(
     runtime: Handle,
     app: Arc<AppRuntime>,
-    session: SharedSession,
+    session: SharedReplState,
 ) -> Result<(), AppError> {
     let _background_guard = BackgroundGuard::new(app.services.background());
     let history = Box::new(
@@ -146,7 +149,7 @@ fn run_thread(
 
 async fn execute_repl_line(
     app: Arc<AppRuntime>,
-    session: &SharedSession,
+    session: &SharedReplState,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     let warnings = RefCell::new(Vec::new());
@@ -228,7 +231,7 @@ where
     }
 }
 
-fn handle_host_signal(signal: &Signal, session: &SharedSession) -> bool {
+fn handle_host_signal(signal: &Signal, session: &SharedReplState) -> bool {
     if let Signal::HostCommand(command) = signal {
         if command == CANCEL_PAGINATION_HOST_COMMAND {
             clear_pending_pagination(session);
@@ -239,7 +242,7 @@ fn handle_host_signal(signal: &Signal, session: &SharedSession) -> bool {
     }
 }
 
-fn clear_pending_pagination(session: &SharedSession) {
+fn clear_pending_pagination(session: &SharedReplState) {
     if session.next_page_command().is_some() {
         session.set_next_page_command(None);
     }
@@ -251,7 +254,7 @@ struct BackgroundGuard {
 
 struct PaginationEditMode {
     inner: Emacs,
-    session: SharedSession,
+    session: SharedReplState,
 }
 
 impl EditMode for PaginationEditMode {
@@ -331,7 +334,7 @@ impl Prompt for ReplPrompt {
 
 struct ReplCompleter {
     app: Arc<AppRuntime>,
-    session: SharedSession,
+    session: SharedReplState,
     completion: CompletionContext,
 }
 
@@ -1785,10 +1788,10 @@ mod tests {
         default_emacs_keybindings, EditMode, Emacs, ReedlineEvent, ReedlineRawEvent, Signal,
     };
 
-    use crate::app::SharedSession;
     use crate::catalog::{CommandOutcome, CompletionSpec, OptionSpec};
     use crate::commands::build_command_catalog;
     use crate::errors::{AppError, ReauthenticationRetry};
+    use crate::repl::SharedReplState;
 
     use super::{
         clause_active_token_offset, clause_option_context, completion_context_parts,
@@ -1966,7 +1969,7 @@ mod tests {
 
     #[test]
     fn esc_cancels_only_when_pagination_is_pending() {
-        let session = SharedSession::new();
+        let session = SharedReplState::new();
         let mut edit_mode = PaginationEditMode {
             inner: Emacs::new(default_emacs_keybindings()),
             session: session.clone(),
@@ -1983,7 +1986,7 @@ mod tests {
 
     #[test]
     fn pagination_host_command_clears_pending_state() {
-        let session = SharedSession::new();
+        let session = SharedReplState::new();
         session.set_next_page_command(Some("next --cursor abc".to_string()));
 
         assert!(handle_host_signal(
@@ -2243,7 +2246,7 @@ mod tests {
                 services,
                 catalog: Arc::new(CatalogStore::new(build_command_catalog())),
             }),
-            session: SharedSession::new(),
+            session: SharedReplState::new(),
         };
         (runtime, completer)
     }

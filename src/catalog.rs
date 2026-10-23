@@ -1595,8 +1595,11 @@ mod tests {
                 .replace(',', "")
                 .matches("create delete fields list modify show")
                 .count(),
-            2
+            1
         );
+        assert!(plain
+            .replace(',', "")
+            .contains("create delete fields hydrate list modify show"));
         assert!(plain.contains("query-usage"));
         assert!(plain.contains("event"));
         assert!(plain.contains("delivery, sink, subscription"));
@@ -2000,13 +2003,31 @@ mod tests {
             "event delivery dead --id",
             "event delivery retry --id",
             "event delivery show --id",
+            "history class --class-id",
+            "history computed --class-id",
+            "history computed --object-id",
+            "history object --class-id",
+            "history object --object-id",
+            "history object-name --class-id",
+            "history objects --class-id",
+            "history relations --class-id",
+            "history relations --object-id",
+            "history show --class-id",
             "history show --id",
+            "history show --object-id",
+            "history timeline class --class-id",
+            "history timeline object --class-id",
+            "history timeline object --object-id",
             "import results --id",
             "import show --id",
             "jobs forget --id",
             "jobs output --id",
             "jobs show --id",
             "jobs watch --task",
+            "me token activity --token-id",
+            "object hydrate --class-id",
+            "object hydrate --object-id",
+            "service-account token activity --token-id",
             "service-account token clone --token-id",
             "service-account token renew --token-id",
             "service-account token revoke --token-id",
@@ -2015,6 +2036,7 @@ mod tests {
             "task events --id",
             "task output --id",
             "task show --id",
+            "user token activity --token-id",
             "user token clone --token-id",
             "user token renew --token-id",
             "user token revoke --token-id",
@@ -2046,9 +2068,11 @@ mod tests {
         let catalog = build_command_catalog();
 
         for path in [
+            ["user", "token", "activity"],
             ["user", "token", "show"],
             ["user", "token", "clone"],
             ["user", "token", "revoke"],
+            ["service-account", "token", "activity"],
             ["service-account", "token", "show"],
             ["service-account", "token", "clone"],
             ["service-account", "token", "revoke"],
@@ -2194,7 +2218,7 @@ mod tests {
     }
 
     #[test]
-    fn history_commands_use_name_options_with_dynamic_completion() {
+    fn history_commands_keep_name_completion_and_allow_retained_resource_ids() {
         let catalog = build_command_catalog();
         let class_history = catalog
             .resolve_command(&[], &["history".to_string(), "class".to_string()])
@@ -2216,7 +2240,7 @@ mod tests {
             class_option.completion,
             CompletionSpec::Dynamic(_)
         ));
-        assert!(!class_history
+        assert!(class_history
             .command
             .options
             .iter()
@@ -2236,14 +2260,20 @@ mod tests {
             CompletionSpec::Dynamic(_)
         ));
         assert!(matches!(object_name.completion, CompletionSpec::Dynamic(_)));
-        assert!(!object_options.iter().any(|option| {
-            matches!(
-                option.long.as_deref(),
-                Some("--class-id") | Some("--object-id")
-            )
-        }));
+        for long in ["--class-id", "--object-id"] {
+            assert!(object_options
+                .iter()
+                .any(|option| option.long.as_deref() == Some(long)));
+        }
 
-        for long in ["--class", "--name", "--id", "--at"] {
+        for long in [
+            "--class",
+            "--class-id",
+            "--name",
+            "--object-id",
+            "--id",
+            "--at",
+        ] {
             assert!(history_show
                 .command
                 .options

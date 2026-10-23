@@ -1,17 +1,17 @@
 use std::future::Future;
 
-use crate::app::SharedSession;
 use crate::catalog::{CommandOutcome, ScopeAction};
 use crate::diagnostics;
 use crate::dispatch::{apply_output_state, apply_scope_action, render_error};
 use crate::errors::AppError;
 use crate::output::{print_rendered, RenderFormat};
 use crate::redirection::write_output;
+use crate::repl::SharedReplState;
 
 /// Execute and present one command, sharing the same diagnostics policy across
 /// direct commands, scripts, and the REPL.
 pub(crate) async fn present_command(
-    session: &SharedSession,
+    session: &SharedReplState,
     operation: impl Future<Output = Result<CommandOutcome, AppError>>,
 ) -> Result<ScopeAction, ()> {
     let ((mut outcome, mut succeeded, deferred), trace) = diagnostics::capture_command(async {

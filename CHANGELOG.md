@@ -7,6 +7,34 @@
 - Add `relation object graph --data` to include object data in JSON graph output
   without additional object lookups.
 
+- Inspect or end an existing rotating session with `auth status` and `auth logout`
+  without creating a new login. Status omits credentials; logout clears only its
+  matching saved session family.
+- Add history timelines, exact historical object-name lookup, as-of object
+  populations, direct relationship history, and historical shared computed
+  values. Preserve retained-history coverage, unavailable endpoint context, and
+  pagination metadata in JSON and pipelines.
+- Add `me token activity`, `user token activity`, and `service-account token activity`
+  with offset pagination and complete issuance, source, retention, and overflow evidence.
+- Add `object hydrate` for bounded paths to a target class and
+  `admin query-observations show|enable|disable` for the shared runtime override.
+- Accept and display directional class-relation labels, preserving their meaning
+  when class IDs are reordered. Include session and credential-activity settings
+  in `admin config`.
+- Disable persistent password-session storage with `--session-storage none` or
+  `server.session_storage = "none"`. Rotate credentials only in memory, ignore
+  saved sessions and legacy token caches, and leave existing credentials intact.
+- Opt into macOS Keychain or Linux Secret Service for rotating login sessions with
+  `--session-storage keychain` or `server.session_storage = "keychain"`.
+  File storage remains the default. Existing matching sessions move to the
+  keychain only after a successful secure write; keychain errors never fall back
+  to file credentials. Add the platform-specific keyring credential-store crates.
+
+### Security
+
+- Restore owner-only permissions on existing session caches and lock files before
+  use, including caches restored or copied with broader permissions.
+
 ### Fixed
 
 - Fetch `hubuum-room` placement and object data in one depth-two graph after
@@ -15,6 +43,31 @@
   wrapper; it now requires `relation object graph --data` support.
 - Keep object-relation class labels aligned with their objects when object IDs
   and class IDs have different endpoint orderings.
+
+- Fetch `history show --id` directly instead of scanning a bounded history list.
+  Accept numeric class/object selectors so retained history remains accessible
+  after deletion. History tables show history IDs, revisions, operations, and
+  validity intervals while existing JSON snapshots retain their fields.
+- Honor positional object names after history class selectors and positional
+  token IDs after credential-owner options. Suppress activity pagination hints
+  for summary pipelines while retaining warnings about partial evidence.
+- Coordinate concurrent cache-miss logins so processes starting with empty or
+  expired caches reuse one session instead of replacing each other's credentials.
+  Recheck storage after password entry under a cross-process login lock.
+- Restore remembered password logins across CLI restarts and wrapper subprocesses.
+  Save rotating sessions in `sessions.json`, isolate server/provider/user identities,
+  and coordinate refresh across processes with an exclusive lock and atomic writes.
+  Passwords are never stored. Expired, revoked, or uncertain sessions require login.
+
+### Changed
+
+- Pin published `hubuum_client` 0.17.0, replacing the temporary Git dependency.
+  The Hubuum server v0.0.20 target, pinned server image, blocking-only client
+  features, and backup format 10 remain unchanged. No cache migration is required.
+- Move persistent session storage into the `hubuum-session` workspace crate,
+  retaining cache formats, keychain identifiers, and process coordination.
+  The crate declares Rust 1.89 for filesystem locking; the CLI still has no
+  declared MSRV. Separate REPL state and history/resource selection into modules.
 
 ## [0.0.18] - 2026-10-22
 

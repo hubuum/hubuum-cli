@@ -2,6 +2,7 @@
 """Exercise the CLI against a pinned, disposable server; requires Python 3.11+."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -75,7 +76,13 @@ def main():
                   "-p", "127.0.0.1::8080", "-e", db_env,
                   "-e", "HUBUUM_BIND_IP=0.0.0.0", "-e", "HUBUUM_BIND_PORT=8080",
                   "-e", "HUBUUM_CLIENT_ALLOWLIST=*", image)
-        port = container("port", server, "8080/tcp").strip().rsplit(":", 1)[1]
+        def published_port():
+            mapping = container("port", server, "8080/tcp").strip()
+            if not mapping:
+                raise ValueError("Disposable server has no published port yet")
+            return mapping.rsplit(":", 1)[1]
+
+        port = eventually(published_port)
         base = f"http://127.0.0.1:{port}"
 
         def api(method, path, data=None, token=None):
@@ -135,7 +142,76 @@ def main():
                 assert json.loads(session_result.stdout), "CLI session returned no administrator configuration"
                 assert password not in session_result.stdout + session_result.stderr
                 assert json.loads((directory / "hubuum_cli/token.json").read_text()) == []
-                print("PASS: CLI password login uses a session without persisting credentials", flush=True)
+                cache = directory / "hubuum_cli/sessions.json"
+                saved = json.loads(cache.read_text())
+                assert len(saved) == 1 and password not in cache.read_text()
+                session_args = [binary, "--config", str(config), "--hostname", "127.0.0.1", "--port", port,
+                                "--protocol", "http", "--username", "admin", "admin", "config", "--output", "json"]
+                restarted = subprocess.run(session_args, text=True, capture_output=True, timeout=60, env=env)
+                assert restarted.returncode == 0, "CLI restart did not reuse the saved session"
+                original_refresh = saved[0]["session"]["pair"]["refresh_token"]
+                saved[0]["session"]["refresh_at"] = "2020-01-01T00:00:00Z"
+                saved[0]["session"]["pair"]["access_expires_at"] = "2020-01-01T00:00:00Z"
+                cache.write_text(json.dumps(saved))
+                processes = [subprocess.Popen(session_args, text=True, stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE, env=env) for _ in range(2)]
+                for process in processes:
+                    stdout, stderr = process.communicate(timeout=60)
+                    assert process.returncode == 0, "Concurrent CLI failed to resume/refresh the saved session"
+                    assert json.loads(stdout) and password not in stdout + stderr
+                assert json.loads(cache.read_text())[0]["session"]["pair"]["refresh_token"] != original_refresh
+                print("PASS: CLI sessions survive restarts and coordinate refresh across processes", flush=True)
+
+                # Concurrent cache misses must join one new session rather than
+                # replace the session another process has just begun using.
+                cold_directory = directory / "cold-start"
+                cold_env = dict(env, XDG_DATA_HOME=str(cold_directory),
+                                HUBUUM_CLI__SERVER__PASSWORD=password)
+                for expired in [False, True]:
+                    cold_cache = cold_directory / "hubuum_cli/sessions.json"
+                    if expired:
+                        saved = json.loads(cold_cache.read_text())
+                        saved[0]["session"]["refresh_at"] = "2020-01-01T00:00:00Z"
+                        for key in ["access_expires_at", "refresh_expires_at", "absolute_expires_at"]:
+                            saved[0]["session"]["pair"][key] = "2020-01-01T00:00:00Z"
+                        cold_cache.write_text(json.dumps(saved))
+                    processes = [subprocess.Popen(session_args, text=True, stdout=subprocess.PIPE,
+                                                  stderr=subprocess.PIPE, env=cold_env) for _ in range(2)]
+                    for process in processes:
+                        stdout, stderr = process.communicate(timeout=60)
+                        assert process.returncode == 0, "Concurrent cold-start CLI login failed"
+                        assert json.loads(stdout) and password not in stdout + stderr
+                    assert len(json.loads(cold_cache.read_text())) == 1
+                print("PASS: concurrent CLI cold starts recover from empty and expired caches", flush=True)
+
+                before_memory_login = cache.read_bytes()
+                memory_env = dict(env, HUBUUM_CLI__SERVER__SESSION_STORAGE="none",
+                                  HUBUUM_CLI__SERVER__PASSWORD=password)
+                for memory_directory in [directory, directory / "memory-only"]:
+                    memory_login = subprocess.run(session_args, text=True, capture_output=True,
+                                                  timeout=60, env=dict(memory_env, XDG_DATA_HOME=str(memory_directory)))
+                    assert memory_login.returncode == 0, "Memory-only CLI login failed"
+                    assert json.loads(memory_login.stdout)
+                    assert password not in memory_login.stdout + memory_login.stderr
+                    assert cache.read_bytes() == before_memory_login
+                    if memory_directory != directory:
+                        for name in ["sessions.json", "sessions.lock", "sessions.login.lock", "token.json"]:
+                            assert not (memory_directory / "hubuum_cli" / name).exists()
+                print("PASS: memory-only CLI logins preserve existing caches and create no session files", flush=True)
+
+                def session_command(action):
+                    result = subprocess.run(session_args[:-4] + ["auth", action, "--output", "json"],
+                                            text=True, capture_output=True, timeout=60, env=env)
+                    assert result.returncode == 0, (action, result.stderr)
+                    assert password not in result.stdout + result.stderr
+                    return json.loads(result.stdout)
+
+                assert session_command("status")["status"] == "active"
+                assert session_command("logout")["status"] == "logged_out"
+                assert json.loads(cache.read_text()) == []
+                assert session_command("status")["status"] == "no_saved_session"
+                assert session_command("logout")["status"] == "no_saved_session"
+                print("PASS: saved-session inspection and logout never create a fresh login", flush=True)
 
             def cli(*command, success=True, output="json", approve=True):
                 approval_args = ["--approval-password-file", str(approval_file)] if approve else []
@@ -166,7 +242,19 @@ def main():
             object_path = f'{objects_path}{obj["id"]}'
             obj = api("PATCH", object_path, {"description": "recover an advanced revision"}, token)
             assert obj["revision"] > 1
-            assert cli("admin", "config")
+            config_snapshot = cli("admin", "config")
+            assert config_snapshot
+            observed = cli("admin", "query-observations", "show")
+            assert cli("admin", "query-observations", "enable")["runtime_override"] is True
+            assert cli("admin", "query-observations", "disable")["runtime_override"] is False
+            cli("admin", "query-observations", "enable" if observed["enabled"] else "disable")
+            mine = cli("me", "show")
+            for owner in [("me",), ("user", "--username", "admin")]:
+                arguments = [owner[0], "token", "activity", *owner[1:], "--token-id", str(mine["token"]["id"]), "--all"]
+                activity = cli(*arguments)
+                assert {"session_id", "creation", "sources", "best_effort", "collection_enabled", "retention_days", "source_cap", "overflow_since"} <= activity.keys(), activity
+                assert activity["best_effort"] is True
+            print("PASS: shared query-observation controls and current/user credential activity", flush=True)
 
             # Provider presets remain ordinary webhooks. Preview through the
             # real server renderer without resolving secrets or sending chat.
@@ -201,7 +289,7 @@ def main():
             print("Webhook presets and server previews passed for Slack, Mattermost, and Discord", flush=True)
 
             login_events = api("GET", "/api/v1/events?entity_type=authentication&limit=100", token=token)
-            login_event = next(event for event in login_events if event["metadata"]["subject"]["is_admin"])
+            login_event = next(event for event in login_events if event["metadata"].get("subject", {}).get("is_admin"))
             system_name = prefix + "-login-alerts"
             system = cli("event", "subscription", "create", "--system", "--name", system_name,
                          "--sink", sink_name, "--entity-types", "authentication", "--actions", "succeeded",
@@ -238,9 +326,49 @@ def main():
                 "collection_id": related_collection["id"], "hubuum_class_id": related_class["id"],
                 "data": None,
             }, token)
-            cli("relation", "class", "create", "--class-a", prefix, "--class-b", related_name)
+            relation = cli("relation", "class", "create", "--class-a", related_name, "--class-b", prefix,
+                           "--forward-label", "contains", "--reverse-label", "located in")
+            assert relation["forward_label"] == "located in" and relation["reverse_label"] == "contains", relation
             cli("relation", "object", "create", "--class-a", prefix, "--object-a", prefix,
                 "--class-b", related_name, "--object-b", "neighbor")
+            hydrated = cli("object", "hydrate", "--class-id", str(cls["id"]), "--object-id", str(obj["id"]),
+                           "--target-class-id", str(related_class["id"]), "--max-depth", "1", "--path-limit", "1")
+            assert hydrated["root_object_id"] == obj["id"] and hydrated["paths"], hydrated
+            assert "truncated" in hydrated and "next_cursor" not in hydrated
+            historical_at = datetime.now(timezone.utc).isoformat()
+            scope = ["--class-id", str(cls["id"])]
+            object_scope = scope + ["--object-id", str(obj["id"])]
+            timeline = cli("history", "timeline", "object", *object_scope, "--limit", "1", "--all")
+            assert len(timeline["items"]) >= 2 and timeline["next_cursor"] is None, timeline
+            marker = timeline["items"][0]
+            snapshot = cli("history", "show", *object_scope, "--id", str(marker["history_id"]))
+            assert snapshot["history_id"] == marker["history_id"] and "data" in snapshot
+            assert cli("history", "timeline", "class", *scope)["items"]
+            population = cli("history", "objects", *scope, "--at", historical_at, "--all")
+            assert population["coverage"] == "retained_history" and population["class"]["id"] == cls["id"]
+            assert any(item["id"] == obj["id"] for item in population["objects"])
+            for selected in [scope, object_scope]:
+                for at_args in [[], ["--at", historical_at]]:
+                    relationships = cli("history", "relations", *selected, *at_args, "--all")
+                    assert relationships["coverage"] == "retained_history" and relationships["relations"]
+            computed = cli("history", "computed", *object_scope, "--at", historical_at)
+            assert computed["mode"] == "historical_recomputation" and computed["personal"] == "unsupported"
+            retired = api("POST", objects_path, {
+                "name": "123", "description": "history identity fixture", "collection_id": collection["id"],
+                "hubuum_class_id": cls["id"], "data": None,
+            }, token)
+            api("DELETE", f'{objects_path}{retired["id"]}', token=token)
+            replacement = api("POST", objects_path, {
+                "name": "123", "description": "replacement identity fixture", "collection_id": collection["id"],
+                "hubuum_class_id": cls["id"], "data": None,
+            }, token)
+            named = cli("history", "object-name", *scope, "--name", "123", "--limit", "1", "--all")
+            assert {retired["id"], replacement["id"]} <= {item["id"] for item in named["items"]}
+            deleted_marker = next(item for item in named["items"] if item["id"] == retired["id"])
+            deleted = cli("history", "show", *scope, "--object-id", str(retired["id"]), "--id", str(deleted_marker["history_id"]))
+            assert deleted["id"] == retired["id"] and deleted["history_id"] == deleted_marker["history_id"]
+            api("DELETE", f'{objects_path}{replacement["id"]}', token=token)
+            print("PASS: history timelines, direct/deleted snapshots, literal names, populations, relations, computed values, labels, and hydration", flush=True)
             shown = cli("object", "show", "--class", prefix, "--name", prefix, "--data", "--json")
             assert shown["id"] == obj["id"] and shown["data"] == obj["data"]
             assert shown["description"] == obj["description"] and shown["collection"] == prefix
@@ -372,6 +500,10 @@ def main():
             account = prefix + "-service"
             cli("service-account", "create", "--name", account, "--owner-group", groups[0]["groupname"])
             assert cli("service-account", "token", "create", "--name", account, "--token-name", prefix)
+            service_tokens = cli("service-account", "token", "list", "--name", account)
+            service_activity = cli("service-account", "token", "activity", "--name", account,
+                                   "--token-id", str(service_tokens[0]["id"]), "--all")
+            assert service_activity["creation"] is not None and service_activity["best_effort"]
             credential_import = directory / "credential-import.json"
             credential_import.write_text(json.dumps({
                 "version": 2, "dry_run": True, "graph": {"principals": [{

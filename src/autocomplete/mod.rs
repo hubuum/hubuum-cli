@@ -42,8 +42,9 @@ pub use shared::{
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{
-    class_sort, collection_sort, export_sort, group_sort, import_result_sort, object_sort,
-    relation_class_direct_sort, relation_class_list_sort, relation_object_direct_sort,
-    relation_object_sort, task_event_sort, user_sort,
+    class_sort, collection_sort, export_sort, group_sort, history_direction, history_sort,
+    import_result_sort, object_sort, relation_class_direct_sort, relation_class_list_sort,
+    relation_history_sort, relation_object_direct_sort, relation_object_sort, task_event_sort,
+    user_sort,
 };
 pub use tokens::{service_account_token_ids, user_token_ids};

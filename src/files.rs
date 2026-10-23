@@ -32,13 +32,13 @@ impl DataFile {
     }
 }
 
-fn data_root_dir() -> Result<PathBuf, AppError> {
+pub(crate) fn data_root_dir() -> Result<PathBuf, AppError> {
     Ok(data_dir()
         .ok_or_else(|| AppError::DataDirError("Could not determine data directory".to_string()))?
         .join("hubuum_cli"))
 }
 
-fn ensure_root_dir_at(root_dir: &Path) -> Result<(), AppError> {
+pub(crate) fn ensure_root_dir_at(root_dir: &Path) -> Result<(), AppError> {
     create_dir_all(root_dir)?;
     set_owner_only_directory_permissions(root_dir)?;
     Ok(())

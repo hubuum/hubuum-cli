@@ -5,12 +5,12 @@ use hubuum_client::ApiError;
 use hubuum_filter::{split_pipeline, PipeStage};
 use shlex::split;
 
-use crate::app::{AppRuntime, SharedSession};
+use crate::app::AppRuntime;
 use crate::catalog::{
     CatalogStore, CommandCatalog, CommandContext, CommandInvocation, CommandOutcome,
     ResolvedCommand, ScopeAction,
 };
-use crate::commands::auth::render_auth_providers;
+use crate::commands::auth::{render_auth_providers, render_saved_session};
 use crate::commands::backup::{render_restore_status, render_restore_wait};
 use crate::commands::config::{
     is_self_update_config_key, render_config_paths, render_config_set, render_config_show,
@@ -29,11 +29,12 @@ use crate::output::{
     set_render_format, set_table_headers, take_output, OutputSnapshot, RenderFormat,
 };
 use crate::redirection::{split_redirect_candidate, OutputRedirect};
+use crate::repl::SharedReplState;
 use crate::tokenizer::CommandTokenizer;
 
 pub async fn execute_line(
     app: Arc<AppRuntime>,
-    session: &SharedSession,
+    session: &SharedReplState,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     diagnostics::command(diagnostics::stage(
@@ -45,7 +46,7 @@ pub async fn execute_line(
 
 async fn execute_scoped_line(
     app: Arc<AppRuntime>,
-    session: &SharedSession,
+    session: &SharedReplState,
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     let catalog = app.catalog.snapshot();
@@ -60,7 +61,7 @@ async fn execute_scoped_line(
 
 async fn execute_line_inner(
     app: Arc<AppRuntime>,
-    session: &SharedSession,
+    session: &SharedReplState,
     line: &str,
     stream_output: bool,
 ) -> Result<CommandOutcome, AppError> {
@@ -258,6 +259,8 @@ pub(crate) fn is_offline_builtin_command(parts: &[String]) -> bool {
         || command_path_is(parts, &["theme", "show"])
         || command_path_is(parts, &["theme", "preview"])
         || command_path_is(parts, &["auth", "providers"])
+        || command_path_is(parts, &["auth", "status"])
+        || command_path_is(parts, &["auth", "logout"])
         || command_path_is(parts, &["metrics"])
         || command_path_is(parts, &["restore", "status"])
         || command_path_is(parts, &["restore", "wait"])
@@ -392,6 +395,19 @@ async fn execute_offline_line_inner(
         set_render_format(render_format(&tokens)?)?;
         set_table_headers(table_headers(&tokens)?)?;
         render_auth_providers(&tokens)?;
+    } else if command_path_is(&parts, &["auth", "status"])
+        || command_path_is(&parts, &["auth", "logout"])
+    {
+        let resolved = catalog.resolve_command(&[], &parts)?;
+        let tokens = tokenizer_for_resolved(&line, &resolved)?;
+        set_render_format(render_format(&tokens)?)?;
+        set_table_headers(table_headers(&tokens)?)?;
+        set_pipeline(pipeline)?;
+        set_pipeline_suffix(pipeline_suffix)?;
+        let logout = command_path_is(&parts, &["auth", "logout"]);
+        spawn_blocking(move || render_saved_session(&tokens, logout))
+            .await
+            .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
     } else if command_path_is(&parts, &["metrics"]) {
         let resolved = catalog.resolve_command(&[], &parts)?;
         let tokens = tokenizer_for_resolved(&line, &resolved)?;
@@ -463,7 +479,7 @@ async fn execute_offline_line_inner(
     })
 }
 
-pub fn apply_scope_action(session: &SharedSession, action: &ScopeAction) {
+pub fn apply_scope_action(session: &SharedReplState, action: &ScopeAction) {
     match action {
         ScopeAction::None => {}
         ScopeAction::Enter(scope) => session.set_scope(scope.clone()),
@@ -474,7 +490,7 @@ pub fn apply_scope_action(session: &SharedSession, action: &ScopeAction) {
     }
 }
 
-pub fn apply_output_state(session: &SharedSession, output: &OutputSnapshot) {
+pub fn apply_output_state(session: &SharedReplState, output: &OutputSnapshot) {
     session.set_next_page_command(output.next_page_command.clone());
 }
 
@@ -700,12 +716,12 @@ mod tests {
         is_help_alias, parent_scope_action, prepare_redirect, process_filter, render_error,
         tokenizer_for_resolved,
     };
-    use crate::app::SharedSession;
     use crate::catalog::{CatalogStore, ScopeAction};
     use crate::commands::build_command_catalog;
     use crate::errors::AppError;
     use crate::output::{append_line, reset_output, take_output, OutputSnapshot};
     use crate::redirection::RedirectTarget;
+    use crate::repl::SharedReplState;
 
     #[test]
     #[serial]
@@ -770,7 +786,7 @@ mod tests {
         .into_iter()
         .flat_map(|source| [source.clone(), format!("{source} --stream")])
         {
-            let session = SharedSession::new();
+            let session = SharedReplState::new();
             let initial =
                 format!("{source} --limit 2 --cursor='initial cursor' --output json {suffix}");
             for (page, next) in [(1, Some("page 2")), (2, Some("page 3")), (3, None)] {
@@ -932,7 +948,7 @@ mod tests {
 
     #[test]
     fn apply_output_state_tracks_next_page_command() {
-        let session = SharedSession::new();
+        let session = SharedReplState::new();
         apply_output_state(
             &session,
             &OutputSnapshot {

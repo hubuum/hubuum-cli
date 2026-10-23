@@ -5,7 +5,7 @@ use std::slice::from_ref;
 
 use hubuum_client::{
     client::sync::Handle as SyncHandle, Class, ClassRelation, ClassRelationCreateOptions,
-    ClassWithPath, Object, ObjectRelation, ObjectRelationLimit, ObjectWithPath,
+    ClassWithPath, Object, ObjectRelation, ObjectRelationLimit, ObjectWithPath, RelationLabel,
 };
 
 use crate::diagnostics::client_call;
@@ -43,6 +43,7 @@ pub struct CreateClassRelationInput {
 #[derive(Debug, Clone)]
 struct ClassRelationEndpointInput {
     class_name: String,
+    label: Option<RelationLabel>,
     template_alias: Option<String>,
     max_relations: Option<ObjectRelationLimit>,
 }
@@ -51,6 +52,7 @@ impl ClassRelationEndpointInput {
     fn new(class_name: impl Into<String>) -> Self {
         Self {
             class_name: class_name.into(),
+            label: None,
             template_alias: None,
             max_relations: None,
         }
@@ -58,6 +60,15 @@ impl ClassRelationEndpointInput {
 }
 
 impl CreateClassRelationInput {
+    pub fn with_forward_label(mut self, label: RelationLabel) -> Self {
+        self.class_a.label = Some(label);
+        self
+    }
+
+    pub fn with_reverse_label(mut self, label: RelationLabel) -> Self {
+        self.class_b.label = Some(label);
+        self
+    }
     pub fn new(class_a: impl Into<String>, class_b: impl Into<String>) -> Self {
         Self {
             class_a: ClassRelationEndpointInput::new(class_a),
@@ -95,6 +106,12 @@ impl CreateClassRelationInput {
 
     fn into_client_options(self) -> ClassRelationCreateOptions {
         let mut options = ClassRelationCreateOptions::default();
+        if let Some(label) = self.class_a.label {
+            options = options.with_forward_label(label);
+        }
+        if let Some(label) = self.class_b.label {
+            options = options.with_reverse_label(label);
+        }
         if let Some(alias) = self.class_a.template_alias {
             options = options.with_forward_template_alias(alias);
         }
@@ -1213,7 +1230,7 @@ mod tests {
     };
     use serde_json::{from_slice, from_value, json, Value};
 
-    use super::{CreateClassRelationInput, HubuumGateway, RelationTraversalOptions};
+    use super::{CreateClassRelationInput, HubuumGateway, RelationLabel, RelationTraversalOptions};
 
     #[test]
     fn class_show_resolves_root_collection_without_related_classes() {
@@ -1329,6 +1346,8 @@ mod tests {
                     "to_hubuum_class_id": 9,
                     "forward_template_alias": "hosts",
                     "reverse_template_alias": "rooms",
+                    "forward_label": "contains",
+                    "reverse_label": "located in",
                     "from_max_relations": 2,
                     "to_max_relations": 1,
                     "revision": 1,
@@ -1351,6 +1370,8 @@ mod tests {
                 CreateClassRelationInput::new("Hosts", "Rooms")
                     .with_forward_template_alias("rooms")
                     .with_reverse_template_alias("hosts")
+                    .with_forward_label(RelationLabel::new("located in").unwrap())
+                    .with_reverse_label(RelationLabel::new("contains").unwrap())
                     .with_from_max_relations(
                         ObjectRelationLimit::new(1).expect("positive limit should be valid"),
                     )
@@ -1362,6 +1383,8 @@ mod tests {
 
         assert_eq!(relation.class_a, "Rooms");
         assert_eq!(relation.class_b, "Hosts");
+        assert_eq!(relation.forward_label.as_deref(), Some("contains"));
+        assert_eq!(relation.reverse_label.as_deref(), Some("located in"));
         assert_eq!(relation.from_max_relations, Some(2));
         assert_eq!(relation.to_max_relations, Some(1));
         let requests = transport.requests();
@@ -1373,6 +1396,8 @@ mod tests {
         assert_eq!(body["to_hubuum_class_id"], 9);
         assert_eq!(body["forward_template_alias"], "hosts");
         assert_eq!(body["reverse_template_alias"], "rooms");
+        assert_eq!(body["forward_label"], "contains");
+        assert_eq!(body["reverse_label"], "located in");
         assert_eq!(body["from_max_relations"], 2);
         assert_eq!(body["to_max_relations"], 1);
     }

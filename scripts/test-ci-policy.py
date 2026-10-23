@@ -81,12 +81,15 @@ class ClassificationTests(unittest.TestCase):
             r'include_(?:str|bytes)!\s*\(\s*(?:r(#{0,})"(.*?)"\1|"([^"\n]+)")', re.S
         )
         tracked = subprocess.check_output(  # nosec B603, B607
-            ["git", "ls-files", "-z", "*.rs"], cwd=ROOT
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.rs"], cwd=ROOT
         )
         for entry in tracked.split(b"\0"):
             if not entry:
                 continue
             source = ROOT / entry.decode()
+            # Include new files and tolerate unstaged moves during local checks.
+            if not source.is_file():
+                continue
             for match in pattern.finditer(source.read_text()):
                 path = (source.parent / (match[2] or match[3])).resolve()
                 if path.is_relative_to(ROOT):

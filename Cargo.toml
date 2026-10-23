@@ -9,10 +9,14 @@ members = [
     "crates/hubuum-extension-protocol",
     "crates/hubuum-filter",
     "crates/hubuum-search",
+    "crates/hubuum-session",
     "crates/hubuum-theme",
     "crates/hubuum-update",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+hubuum_client = { version = "=0.17.0", default-features = false, features = ["blocking"] }
 
 [package.metadata.hubuum]
 server-version = "0.0.20"
@@ -25,6 +29,7 @@ semver = "1"
 cli_command_derive = { path = "./cli_command_derive" }
 hubuum-filter = { path = "./crates/hubuum-filter" }
 hubuum-search = { path = "./crates/hubuum-search" }
+hubuum-session = { path = "./crates/hubuum-session" }
 hubuum-extension-protocol = { path = "./crates/hubuum-extension-protocol" }
 hubuum-theme = { path = "./crates/hubuum-theme" }
 hubuum-update = { path = "./crates/hubuum-update" }
@@ -42,7 +47,7 @@ regex = "1"
 dirs = "7"
 config = "0"
 clap = { version = "4", features = ["derive", "env"] }
-hubuum_client = { version = "=0.16.0", default-features = false, features = ["blocking"] }
+hubuum_client = { workspace = true }
 rpassword = "7"
 rand = "0"
 jqesque = "0.1"
@@ -64,8 +69,14 @@ comfy-table = "8"
 crossterm = "0.29"
 toml = "1"
 tempfile = "3"
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+dbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust", "vendored"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
 
 [dev-dependencies]
+keyring-core = "=1.0.1"
 assert_cmd = "2"
 portable-pty = "0.9"
 predicates = "3"

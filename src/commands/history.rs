@@ -1,5 +1,7 @@
+mod views;
+
 use cli_command_derive::CommandArgs;
-use hubuum_client::HistoryId;
+use hubuum_client::{ClassId, HistoryId, ObjectId};
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -10,10 +12,11 @@ use super::{
 use crate::autocomplete::{classes, objects_from_class};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::services::{AppServices, HistoryInput, HistoryScope};
+use crate::services::{AppServices, HistoryInput, ResourceScope};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    views::register_commands(builder);
     builder
         .add_command(
             &["history"],
@@ -45,7 +48,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("Show one class or object history record"),
                     long_about: Some(
-                        "Shows a complete class history record when --name is omitted, or an object history record when --name is supplied. Select exactly one version with --id or --at. ID lookup scans the selected resource's history because the current hubuum_client does not expose a direct history-id endpoint.",
+                        "Shows a complete class history record, or an object history record when --name or --object-id is supplied. Select exactly one version with --id or --at. ID lookup uses the resource-scoped history endpoint. Use --class-id and --object-id to read retained history without resolving a live name.",
                     ),
                     examples: Some(
                         "--class Hosts --name host.example.org --id 1498\n--class Hosts --name host.example.org --at 2026-07-21T20:17:03Z\n--class Hosts --id 42",
@@ -60,11 +63,21 @@ pub struct HistoryShow {
     #[option(long = "class", help = "Class name", autocomplete = "classes")]
     pub class: Option<String>,
     #[option(
+        long = "class-id",
+        help = "Positive class ID; mutually exclusive with --class"
+    )]
+    pub class_id: Option<ClassId>,
+    #[option(
         long = "name",
         help = "Object name; omit for class history",
         autocomplete = "objects_from_class"
     )]
     pub name: Option<String>,
+    #[option(
+        long = "object-id",
+        help = "Positive object ID; mutually exclusive with --name"
+    )]
+    pub object_id: Option<ObjectId>,
     #[option(long = "id", help = "History record ID")]
     pub id: Option<HistoryId>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
@@ -83,16 +96,8 @@ impl CliCommand for HistoryShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
-        let class_name = query
-            .class
-            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let scope = match query.name {
-            Some(object_name) => HistoryScope::ObjectName {
-                class_name,
-                object_name,
-            },
-            None => HistoryScope::ClassName(class_name),
-        };
+        let scope = ResourceScope::class(query.class, query.class_id)?
+            .with_object(query.name, query.object_id)?;
 
         let record = match history_selector(query.id, query.at)? {
             HistorySelector::Id(id) => services.gateway().history_record_by_id(scope, id)?,
@@ -123,6 +128,11 @@ fn history_selector(
 pub struct ClassHistory {
     #[option(long = "class", help = "Class name", autocomplete = "classes")]
     pub class: Option<String>,
+    #[option(
+        long = "class-id",
+        help = "Positive class ID; mutually exclusive with --class"
+    )]
+    pub class_id: Option<ClassId>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
     #[option(long = "limit", help = "Page size (server maximum: 250)")]
@@ -154,12 +164,8 @@ impl CliCommand for ClassHistory {
         query.class = query
             .class
             .or_else(|| tokens.get_positionals().first().cloned());
-        let class_name = query
-            .class
-            .as_deref()
-            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
         let history = services.gateway().history(
-            HistoryScope::ClassName(class_name.to_string()),
+            ResourceScope::class(query.class, query.class_id)?,
             HistoryInput {
                 limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,
@@ -178,11 +184,21 @@ pub struct ObjectHistory {
     #[option(long = "class", help = "Class name", autocomplete = "classes")]
     pub class: Option<String>,
     #[option(
+        long = "class-id",
+        help = "Positive class ID; mutually exclusive with --class"
+    )]
+    pub class_id: Option<ClassId>,
+    #[option(
         long = "name",
         help = "Object name",
         autocomplete = "objects_from_class"
     )]
     pub name: Option<String>,
+    #[option(
+        long = "object-id",
+        help = "Positive object ID; mutually exclusive with --name"
+    )]
+    pub object_id: Option<ObjectId>,
     #[option(long = "at", help = "As-of RFC3339 timestamp")]
     pub at: Option<String>,
     #[option(long = "limit", help = "Page size (server maximum: 250)")]
@@ -212,21 +228,17 @@ impl CliCommand for ObjectHistory {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         let positionals = tokens.get_positionals();
-        query.class = query.class.or_else(|| positionals.first().cloned());
-        query.name = query.name.or_else(|| positionals.get(1).cloned());
-        let class_name = query
-            .class
-            .as_deref()
-            .ok_or_else(|| AppError::MissingOptions(vec!["class".to_string()]))?;
-        let object_name = query
-            .name
-            .as_deref()
-            .ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
+        let positional_class = query.class.is_none() && query.class_id.is_none();
+        if positional_class {
+            query.class = positionals.first().cloned();
+        }
+        if query.name.is_none() && query.object_id.is_none() {
+            query.name = positionals.get(usize::from(positional_class)).cloned();
+        }
         let history = services.gateway().history(
-            HistoryScope::ObjectName {
-                class_name: class_name.to_string(),
-                object_name: object_name.to_string(),
-            },
+            ResourceScope::class(query.class, query.class_id)?
+                .with_object(query.name, query.object_id)?
+                .require_object()?,
             HistoryInput {
                 limit: normalize_server_page_size(query.limit)?,
                 sort: query.sort,

@@ -67,6 +67,20 @@ Durations measure whole queries, including other predicates and authorization;
 they do not measure one predicate's cost. Read the effective observation
 settings and report limitations before interpreting the result.
 
+An unscoped human administrator can inspect or change the shared runtime override:
+
+```sh
+hubuum-cli admin query-observations show
+hubuum-cli admin query-observations enable
+hubuum-cli admin query-observations disable
+```
+
+The override propagates asynchronously across server instances. Disabling new
+collection leaves retained local evidence intact until expiry or restart.
+`show` returns effective state, override, sampling frequency, retention, pattern
+caps, and predicate limits. `admin config` also exposes the effective observation,
+session-lifetime, and credential-activity settings provided by the server.
+
 Text output summarizes assessments, suggestions, native resource references,
 ownership, size, scan counts, cleanup eligibility, and adapter progress. JSON
 preserves all returned details. An absent scan count means unknown, and a zero

@@ -5,7 +5,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
-use app::{init_logging, load_app_config, login, AppRuntime, SharedSession};
+use app::{init_logging, load_app_config, login, AppRuntime};
 use catalog::{CatalogStore, CommandCatalog};
 use cli::{build_cli, execution_mode, split_startup_args, StartupMode};
 use commands::build_command_catalog;
@@ -13,6 +13,7 @@ use dispatch::{can_execute_offline, execute_line, execute_offline_line};
 use errors::AppError;
 use presentation::present_command;
 use repl::run;
+use repl::SharedReplState;
 use services::{AppServices, CredentialApprovalSource};
 use tokio::fs::read_to_string;
 use tokio::runtime::Handle;
@@ -77,7 +78,7 @@ async fn main() -> Result<(), AppError> {
             if can_execute_script_offline(catalog.snapshot().as_ref(), filename).await? =>
         {
             diagnostics::init();
-            let session = SharedSession::new();
+            let session = SharedReplState::new();
             if !execute_offline_script(catalog.clone(), &session, filename).await? {
                 exit(1);
             }
@@ -105,7 +106,7 @@ async fn main() -> Result<(), AppError> {
         .gateway()
         .set_credential_approval_source(approval_source);
     let runtime = Arc::new(AppRuntime::new(config, services, catalog));
-    let session = SharedSession::new();
+    let session = SharedReplState::new();
 
     if let StartupMode::Command(command) = mode {
         if present_command(&session, execute_line(runtime.clone(), &session, &command))
@@ -127,13 +128,13 @@ async fn main() -> Result<(), AppError> {
     run(runtime, session).await
 }
 
-fn sessionless() -> SharedSession {
-    SharedSession::new()
+fn sessionless() -> SharedReplState {
+    SharedReplState::new()
 }
 
 async fn execute_script(
     runtime: Arc<AppRuntime>,
-    session: &SharedSession,
+    session: &SharedReplState,
     filename: &str,
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
@@ -161,7 +162,7 @@ async fn can_execute_script_offline(
 
 async fn execute_offline_script(
     catalog: Arc<CatalogStore>,
-    session: &SharedSession,
+    session: &SharedReplState,
     filename: &str,
 ) -> Result<bool, AppError> {
     let content = read_to_string(filename).await?;
