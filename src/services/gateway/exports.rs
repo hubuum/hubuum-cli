@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use hubuum_client::{
-    ClassId, ExportContentType, ExportInclude, ExportIncludeRelatedObject, ExportLimits,
+    ExportContentType, ExportInclude, ExportIncludeRelatedObject, ExportLimits,
     ExportMissingDataPolicy, ExportRelationContext, ExportRequest, ExportScope, ExportScopeKind,
-    ExportTemplateKind, ExportTemplatePatch, ExportTemplateRunRequest, ObjectId,
+    ExportTemplateKind, ExportTemplatePatch, ExportTemplateRunRequest,
 };
 
 use crate::diagnostics::client_call;
-use crate::domain::{ExportTemplateRecord, TaskRecord};
+use crate::domain::{ExportTemplateRecord, ObjectReference, ResourceName, TaskRecord};
 use crate::errors::AppError;
 use crate::list_query::{
     fetch_query_results, validate_filter_clauses, validate_sort_clauses, FilterFieldSpec,
@@ -37,17 +37,131 @@ pub struct UpdateExportTemplateInput {
 }
 
 #[derive(Debug, Clone)]
+pub enum ExportScopeInput {
+    Collections,
+    Classes(ResourceName),
+    ObjectsInClass(ResourceName),
+    ClassRelations(ResourceName),
+    ObjectRelations(ResourceName),
+    RelatedObjects(ObjectReference),
+}
+
+impl ExportScopeInput {
+    fn resolve(&self, gateway: &HubuumGateway) -> Result<ExportScope, AppError> {
+        let (kind, class) = match self {
+            Self::Collections => {
+                return Ok(ExportScope {
+                    kind: ExportScopeKind::Collections,
+                    class_id: None,
+                    object_id: None,
+                })
+            }
+            Self::RelatedObjects(reference) => {
+                let class = gateway.class_handle_by_name(reference.class())?;
+                let object = client_call("class.object_by_name", || {
+                    class.object_by_name(reference.object())
+                })?;
+                return Ok(ExportScope {
+                    kind: ExportScopeKind::RelatedObjects,
+                    class_id: Some(class.id()),
+                    object_id: Some(object.id()),
+                });
+            }
+            Self::Classes(name) => (ExportScopeKind::Classes, name),
+            Self::ObjectsInClass(name) => (ExportScopeKind::ObjectsInClass, name),
+            Self::ClassRelations(name) => (ExportScopeKind::ClassRelations, name),
+            Self::ObjectRelations(name) => (ExportScopeKind::ObjectRelations, name),
+        };
+        Ok(ExportScope {
+            kind,
+            class_id: Some(gateway.class_handle_by_name(class.as_str())?.id()),
+            object_id: None,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AdHocExport {
+    scope: ExportScopeInput,
+    relation_depth: Option<i32>,
+    include_related: Vec<RelatedExport>,
+}
+
+impl AdHocExport {
+    pub fn new(scope: ExportScopeInput) -> Self {
+        Self {
+            scope,
+            relation_depth: None,
+            include_related: Vec::new(),
+        }
+    }
+    pub fn relation_depth(mut self, depth: Option<i32>) -> Self {
+        self.relation_depth = depth;
+        self
+    }
+    pub fn include_related(mut self, related: Vec<RelatedExport>) -> Self {
+        self.include_related = related;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExportSource {
+    Template {
+        name: ResourceName,
+        object: Option<ObjectReference>,
+    },
+    AdHoc(AdHocExport),
+}
+
+#[derive(Debug, Clone)]
 pub struct RunExportInput {
-    pub template: Option<String>,
-    pub scope_kind: String,
-    pub class_name: Option<String>,
-    pub object_name: Option<String>,
-    pub query: Option<String>,
-    pub missing_data_policy: Option<String>,
-    pub max_items: Option<u64>,
-    pub max_output_bytes: Option<u64>,
-    pub relation_depth: Option<i32>,
-    pub include_related: Vec<String>,
+    source: ExportSource,
+    query: Option<String>,
+    missing_data_policy: Option<ExportMissingDataPolicy>,
+    limits: Option<ExportLimits>,
+}
+
+impl RunExportInput {
+    pub fn new(source: ExportSource) -> Self {
+        Self {
+            source,
+            query: None,
+            missing_data_policy: None,
+            limits: None,
+        }
+    }
+    pub fn query(mut self, query: Option<String>) -> Self {
+        self.query = query;
+        self
+    }
+    pub fn missing_data_policy(mut self, policy: Option<ExportMissingDataPolicy>) -> Self {
+        self.missing_data_policy = policy;
+        self
+    }
+    pub fn limits(mut self, limits: Option<ExportLimits>) -> Self {
+        self.limits = limits;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RelatedExport {
+    key: String,
+    class: ResourceName,
+    max_depth: Option<i32>,
+}
+
+impl FromStr for RelatedExport {
+    type Err = AppError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (key, class, max_depth) = parse_include_related_spec_parts(value)?;
+        Ok(Self {
+            key,
+            class: ResourceName::new(class)?,
+            max_depth,
+        })
+    }
 }
 
 /// Parse a single --include-related spec into (key, ExportIncludeRelatedObject).
@@ -60,29 +174,29 @@ pub struct RunExportInput {
 /// Examples:
 /// - `servers:Hosts` → `key="servers", class_id=<Hosts id>, max_depth=None`
 /// - `servers:Hosts:3` → `key="servers", class_id=<Hosts id>, max_depth=Some(3)`
-fn parse_include_related_spec(
-    gateway: &HubuumGateway,
-    spec: &str,
-) -> Result<(String, ExportIncludeRelatedObject), AppError> {
-    let (key, class_name, max_depth) = parse_include_related_spec_parts(spec)?;
-    let class_id = gateway.class_handle_by_name(&class_name)?.id();
-
-    Ok((
-        key,
-        ExportIncludeRelatedObject {
-            class_id,
-            class_relation_id: None,
-            direction: None,
-            limit: None,
-            max_depth,
-            sort: None,
-        },
-    ))
+impl RelatedExport {
+    fn resolve(
+        &self,
+        gateway: &HubuumGateway,
+    ) -> Result<(String, ExportIncludeRelatedObject), AppError> {
+        let class_id = gateway.class_handle_by_name(self.class.as_str())?.id();
+        Ok((
+            self.key.clone(),
+            ExportIncludeRelatedObject {
+                class_id,
+                class_relation_id: None,
+                direction: None,
+                limit: None,
+                max_depth: self.max_depth,
+                sort: None,
+            },
+        ))
+    }
 }
 
 fn parse_include_related_spec_parts(spec: &str) -> Result<(String, String, Option<i32>), AppError> {
     let parts: Vec<&str> = spec.split(':').collect();
-    if parts.len() < 2 {
+    if !(2..=3).contains(&parts.len()) {
         return Err(AppError::ParseError(format!(
             "Invalid --include-related spec '{}': expected '<key>:<class_name>[:<max_depth>]'",
             spec
@@ -166,8 +280,7 @@ impl HubuumGateway {
                 .collections()
                 .get(template.resource().collection_id)
         })?;
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id(), collection.resource().clone())]);
 
         Ok(ExportTemplateRecord::new(
             template.resource(),
@@ -199,8 +312,7 @@ impl HubuumGateway {
                 .send()
         })?;
 
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id(), collection.resource().clone())]);
         Ok(ExportTemplateRecord::new(&template, &collectionmap))
     }
 
@@ -245,8 +357,7 @@ impl HubuumGateway {
         let collection = client_call("collections.get", || {
             self.client().collections().get(updated.collection_id)
         })?;
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id(), collection.resource().clone())]);
         Ok(ExportTemplateRecord::new(&updated, &collectionmap))
     }
 
@@ -260,136 +371,64 @@ impl HubuumGateway {
         Ok(())
     }
 
-    fn build_export_request(&self, input: &RunExportInput) -> Result<ExportRequest, AppError> {
-        let scope_kind = ExportScopeKind::from_str(&input.scope_kind).map_err(|_| {
-            AppError::ParseError(format!("Invalid export scope: {}", input.scope_kind))
-        })?;
-
-        let class_id = match &input.class_name {
-            Some(name) => Some(
-                client_call("classes.get_by_name", || {
-                    self.client().classes().get_by_name(name)
-                })?
-                .id(),
-            ),
-            None => None,
-        };
-
-        let object_id = match (&input.class_name, &input.object_name) {
-            (Some(class_name), Some(object_name)) => {
-                let class = client_call("classes.get_by_name", || {
-                    self.client().classes().get_by_name(class_name)
-                })?;
-                Some(
-                    client_call("class.object_by_name", || class.object_by_name(object_name))?.id(),
-                )
-            }
-            (None, Some(_)) => {
-                return Err(AppError::MissingOptions(vec!["class".to_string()]));
-            }
-            _ => None,
-        };
-
-        validate_export_scope(&scope_kind, class_id, object_id)?;
-
-        let missing_data_policy = match &input.missing_data_policy {
-            Some(policy) => Some(ExportMissingDataPolicy::from_str(policy).map_err(|_| {
-                AppError::ParseError(format!("Invalid missing data policy: {policy}"))
-            })?),
-            None => None,
-        };
-
-        let relation_context = input
-            .relation_depth
-            .map(|depth| ExportRelationContext { depth: Some(depth) });
-
-        let include = if !input.include_related.is_empty() {
-            let mut related_objects = HashMap::new();
-            for spec in &input.include_related {
-                let (key, obj) = parse_include_related_spec(self, spec)?;
-                related_objects.insert(key, obj);
-            }
-            Some(ExportInclude {
-                related_objects: Some(related_objects),
-            })
-        } else {
-            None
-        };
-
-        Ok(ExportRequest {
-            limits: if input.max_items.is_some() || input.max_output_bytes.is_some() {
-                Some(ExportLimits {
-                    max_items: input.max_items,
-                    max_output_bytes: input.max_output_bytes,
-                })
-            } else {
-                None
-            },
-            missing_data_policy,
-            query: input.query.clone(),
-            scope: ExportScope {
-                class_id,
-                kind: scope_kind,
-                object_id,
-            },
-            include,
-            relation_context,
-        })
-    }
-
     pub fn submit_export(&self, input: RunExportInput) -> Result<TaskRecord, AppError> {
-        if let Some(template_name) = &input.template {
-            let template = client_call("export_templates.get_by_name", || {
-                self.client().export_templates().get_by_name(template_name)
-            })?;
-            let class = match &input.class_name {
-                Some(class_name) => Some(client_call("classes.get_by_name", || {
-                    self.client().classes().get_by_name(class_name)
-                })?),
-                None => None,
-            };
-            let object_id = match (&class, &input.object_name) {
-                (Some(class), Some(object_name)) => Some(
-                    client_call("class.object_by_name", || class.object_by_name(object_name))?.id(),
-                ),
-                (None, Some(_)) => return Err(AppError::MissingOptions(vec!["class".to_string()])),
-                _ => None,
-            };
-            let missing_data_policy = match &input.missing_data_policy {
-                Some(policy) => Some(ExportMissingDataPolicy::from_str(policy).map_err(|_| {
-                    AppError::ParseError(format!("Invalid missing data policy: {policy}"))
-                })?),
-                None => None,
-            };
-            let limits = if input.max_items.is_some() || input.max_output_bytes.is_some() {
-                Some(ExportLimits {
-                    max_items: input.max_items,
-                    max_output_bytes: input.max_output_bytes,
-                })
-            } else {
-                None
-            };
-            let request = ExportTemplateRunRequest {
-                query: input.query,
-                object_id,
-                missing_data_policy,
-                limits,
-            };
-            return Ok(TaskRecord(client_call(
-                "export_templates.submit_export.send",
-                || {
-                    self.client()
-                        .export_templates()
-                        .submit_export(template.id(), request)
-                        .send()
-                },
-            )?));
+        match input.source {
+            ExportSource::Template { name, object } => {
+                let template = client_call("export_templates.get_by_name", || {
+                    self.client().export_templates().get_by_name(name.as_str())
+                })?;
+                let object_id = object
+                    .map(|reference| {
+                        let class = self.class_handle_by_name(reference.class())?;
+                        Ok::<_, AppError>(
+                            client_call("class.object_by_name", || {
+                                class.object_by_name(reference.object())
+                            })?
+                            .id(),
+                        )
+                    })
+                    .transpose()?;
+                let request = ExportTemplateRunRequest {
+                    query: input.query,
+                    object_id,
+                    missing_data_policy: input.missing_data_policy,
+                    limits: input.limits,
+                };
+                Ok(TaskRecord(client_call(
+                    "export_templates.submit_export.send",
+                    || {
+                        self.client()
+                            .export_templates()
+                            .submit_export(template.id(), request)
+                            .send()
+                    },
+                )?))
+            }
+            ExportSource::AdHoc(export) => {
+                let scope = export.scope.resolve(self)?;
+                let related_objects = export
+                    .include_related
+                    .iter()
+                    .map(|related| related.resolve(self))
+                    .collect::<Result<HashMap<_, _>, _>>()?;
+                let include = (!related_objects.is_empty()).then_some(ExportInclude {
+                    related_objects: Some(related_objects),
+                });
+                let request = ExportRequest {
+                    limits: input.limits,
+                    missing_data_policy: input.missing_data_policy,
+                    query: input.query,
+                    scope,
+                    include,
+                    relation_context: export
+                        .relation_depth
+                        .map(|depth| ExportRelationContext { depth: Some(depth) }),
+                };
+                Ok(TaskRecord(client_call("exports.submit.send", || {
+                    self.client().exports().submit(request).send()
+                })?))
+            }
         }
-
-        let request = self.build_export_request(&input)?;
-        Ok(TaskRecord(client_call("exports.submit.send", || {
-            self.client().exports().submit(request).send()
-        })?))
     }
 }
 
@@ -448,50 +487,6 @@ pub(crate) const EXPORT_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
-
-fn validate_export_scope(
-    scope_kind: &ExportScopeKind,
-    class_id: Option<ClassId>,
-    object_id: Option<ObjectId>,
-) -> Result<(), AppError> {
-    match scope_kind {
-        ExportScopeKind::Collections => {
-            if class_id.is_some() || object_id.is_some() {
-                return Err(AppError::ParseError(
-                    "collection exports do not take class or object".to_string(),
-                ));
-            }
-        }
-        ExportScopeKind::Classes
-        | ExportScopeKind::ObjectsInClass
-        | ExportScopeKind::ClassRelations
-        | ExportScopeKind::ObjectRelations => {
-            if class_id.is_none() {
-                return Err(AppError::MissingOptions(vec!["class".to_string()]));
-            }
-            if object_id.is_some() {
-                return Err(AppError::ParseError(
-                    "this export scope does not take an object".to_string(),
-                ));
-            }
-        }
-        ExportScopeKind::RelatedObjects => {
-            if class_id.is_none() {
-                return Err(AppError::MissingOptions(vec!["class".to_string()]));
-            }
-            if object_id.is_none() {
-                return Err(AppError::MissingOptions(vec!["object".to_string()]));
-            }
-        }
-        _ => {
-            return Err(AppError::ParseError(format!(
-                "unsupported export scope: {scope_kind}"
-            )));
-        }
-    }
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

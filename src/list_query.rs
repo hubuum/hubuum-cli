@@ -28,22 +28,26 @@ pub const SERVER_MAX_PAGE_SIZE: usize = 250;
 pub(crate) const PARTIAL_PIPELINE_WARNING: &str =
     "Pipeline applied to the current page only; use --all for all matching results.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "usize", into = "usize")]
 pub struct ServerPageSize {
     requested: usize,
     effective: usize,
 }
 
 impl ServerPageSize {
-    pub const fn from_requested(requested: usize) -> Self {
-        Self {
+    pub fn from_requested(requested: usize) -> Result<Self, AppError> {
+        if requested == 0 {
+            return Err(AppError::InvalidOption("--limit must be positive".into()));
+        }
+        Ok(Self {
             requested,
             effective: if requested > SERVER_MAX_PAGE_SIZE {
                 SERVER_MAX_PAGE_SIZE
             } else {
                 requested
             },
-        }
+        })
     }
 
     pub const fn requested(self) -> usize {
@@ -59,11 +63,24 @@ impl ServerPageSize {
     }
 }
 
+impl TryFrom<usize> for ServerPageSize {
+    type Error = AppError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::from_requested(value)
+    }
+}
+
+impl From<ServerPageSize> for usize {
+    fn from(value: ServerPageSize) -> Self {
+        value.effective()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ListQuery {
     pub filters: Vec<FilterClause>,
     pub sorts: Vec<SortClause>,
-    pub limit: Option<usize>,
+    pub limit: Option<ServerPageSize>,
     pub cursor: Option<String>,
     pub include_total: bool,
     #[serde(default)]
@@ -309,7 +326,7 @@ pub fn list_query_from_raw(
     Ok(ListQuery {
         filters,
         sorts,
-        limit: limit.map(|requested| ServerPageSize::from_requested(requested).effective()),
+        limit: limit.map(ServerPageSize::from_requested).transpose()?,
         cursor,
         include_total: false,
         page_selection: PageSelection::Single,
@@ -449,7 +466,7 @@ where
     };
 
     let query = if let Some(limit) = list_query.limit {
-        query.limit(limit)
+        query.limit(limit.effective())
     } else {
         query
     };
@@ -597,7 +614,7 @@ fn apply_cursor_request_paging<T>(
     };
 
     let request = if let Some(limit) = list_query.limit {
-        request.limit(limit)
+        request.limit(limit.effective())
     } else {
         request
     };
@@ -986,7 +1003,8 @@ fn next_cursor_command(tokens: &CommandTokenizer, cursor: &str) -> Result<String
         .get_options()
         .get("limit")
         .and_then(|value| value.parse::<usize>().ok())
-        .map(ServerPageSize::from_requested);
+        .map(ServerPageSize::from_requested)
+        .transpose()?;
 
     let command = match requested_page_size.filter(|page_size| page_size.was_truncated()) {
         Some(page_size) => {
@@ -1008,6 +1026,19 @@ fn next_cursor_command(tokens: &CommandTokenizer, cursor: &str) -> Result<String
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn page_sizes_are_validated_during_construction_and_deserialization() {
+        use super::ServerPageSize;
+        assert!(ServerPageSize::from_requested(0).is_err());
+        assert!(serde_json::from_str::<ServerPageSize>("0").is_err());
+        let size = ServerPageSize::from_requested(1000).unwrap();
+        assert_eq!(size.requested(), 1000);
+        assert_eq!(size.effective(), 250);
+        assert!(size.was_truncated());
+        assert_eq!(serde_json::to_string(&size).unwrap(), "250");
+    }
+
     use std::sync::Once;
 
     use serde::Serialize;
@@ -1049,7 +1080,7 @@ mod tests {
 
         assert_eq!(query.filters.len(), 2);
         assert_eq!(query.sorts.len(), 1);
-        assert_eq!(query.limit, Some(10));
+        assert_eq!(query.limit.map(super::ServerPageSize::effective), Some(10));
     }
 
     #[test]
@@ -1057,7 +1088,10 @@ mod tests {
         let query = list_query_from_raw(&[], &[], Some(251), None)
             .expect("oversized page size should parse");
 
-        assert_eq!(query.limit, Some(SERVER_MAX_PAGE_SIZE));
+        assert_eq!(
+            query.limit.map(super::ServerPageSize::effective),
+            Some(SERVER_MAX_PAGE_SIZE)
+        );
     }
 
     #[test]

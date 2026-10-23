@@ -179,7 +179,7 @@ timeline_command!(ObjectTimeline {
     name: Option<String>,
     #[option(long = "object-id", help = "Positive object ID")]
     object_id: Option<ObjectId>,
-} |query| ResourceScope::class(query.class, query.class_id)?.with_object(query.name, query.object_id)?.require_object()?);
+} |query| ResourceScope::class(query.class, query.class_id)?.with_object(query.name, query.object_id)?.require_object()?.into());
 
 history_page_command!(ObjectNameHistory {
     #[option(long = "name", help = "Literal historical name, including numeric names")]

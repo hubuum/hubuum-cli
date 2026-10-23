@@ -183,7 +183,7 @@ impl ComputedDefinitionInput {
 
 #[derive(Debug, Clone)]
 pub struct ComputedPatchInput {
-    expected_revision: i64,
+    expected_revision: ResourceRevision,
     key: Option<String>,
     label: Option<String>,
     description: Option<String>,
@@ -192,59 +192,74 @@ pub struct ComputedPatchInput {
     enabled: Option<bool>,
 }
 
-impl ComputedPatchInput {
-    pub fn new(expected_revision: i64) -> Self {
-        Self {
-            expected_revision,
-            key: None,
-            label: None,
-            description: None,
-            operation: None,
-            result_type: None,
-            enabled: None,
-        }
-    }
+pub struct ComputedPatchBuilder {
+    input: ComputedPatchInput,
+}
 
+impl ComputedPatchBuilder {
     pub fn key(mut self, key: Option<String>) -> Self {
-        self.key = key;
+        self.input.key = key;
         self
     }
 
     pub fn label(mut self, label: Option<String>) -> Self {
-        self.label = label;
+        self.input.label = label;
         self
     }
 
     pub fn description(mut self, description: Option<String>) -> Self {
-        self.description = description;
+        self.input.description = description;
         self
     }
 
     pub fn operation(mut self, operation: Option<ComputedOperationInput>) -> Self {
-        self.operation = operation;
+        self.input.operation = operation;
         self
     }
 
     pub fn result_type(mut self, result_type: Option<ComputedResultKind>) -> Self {
-        self.result_type = result_type;
+        self.input.result_type = result_type;
         self
     }
 
     pub fn enabled(mut self, enabled: Option<bool>) -> Self {
-        self.enabled = enabled;
+        self.input.enabled = enabled;
         self
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.key.is_none()
-            && self.label.is_none()
-            && self.description.is_none()
-            && self.operation.is_none()
-            && self.result_type.is_none()
-            && self.enabled.is_none()
+    pub fn build(self) -> Result<ComputedPatchInput, AppError> {
+        let input = self.input;
+        if input.key.is_none()
+            && input.label.is_none()
+            && input.description.is_none()
+            && input.operation.is_none()
+            && input.result_type.is_none()
+            && input.enabled.is_none()
+        {
+            return Err(AppError::InvalidOption(
+                "At least one field to update must be supplied".to_string(),
+            ));
+        }
+        Ok(input)
+    }
+}
+
+impl ComputedPatchInput {
+    pub fn builder(expected_revision: ResourceRevision) -> ComputedPatchBuilder {
+        ComputedPatchBuilder {
+            input: Self {
+                expected_revision,
+                key: None,
+                label: None,
+                description: None,
+                operation: None,
+                result_type: None,
+                enabled: None,
+            },
+        }
     }
 
-    fn expected_revision(&self) -> i64 {
+    fn expected_revision(&self) -> ResourceRevision {
         self.expected_revision
     }
 
@@ -343,7 +358,7 @@ impl HubuumGateway {
         &self,
         class_name: &str,
         field_key: &str,
-        expected_revision: i64,
+        expected_revision: ResourceRevision,
     ) -> Result<ComputedFieldDeleteRecord, AppError> {
         let class = client_call("classes.get_by_name", || {
             self.client().classes().get_by_name(class_name)
@@ -457,7 +472,7 @@ impl HubuumGateway {
         &self,
         class_name: &str,
         field_key: &str,
-        expected_revision: i64,
+        expected_revision: ResourceRevision,
     ) -> Result<ComputedFieldRecord, AppError> {
         let class = client_call("classes.get_by_name", || {
             self.client().classes().get_by_name(class_name)
@@ -521,13 +536,11 @@ impl HubuumGateway {
     }
 }
 
-fn ensure_expected_revision(actual: ResourceRevision, expected: i64) -> Result<(), AppError> {
-    if expected <= 0 {
-        return Err(AppError::InvalidOption(
-            "revision must be a positive integer".to_string(),
-        ));
-    }
-    if actual.get() != expected {
+fn ensure_expected_revision(
+    actual: ResourceRevision,
+    expected: ResourceRevision,
+) -> Result<(), AppError> {
+    if actual != expected {
         return Err(AppError::CommandExecutionError(format!(
             "computed field revision changed: expected {expected}, current revision is {actual}"
         )));
@@ -543,6 +556,21 @@ fn computed_field_not_found(visibility: &str, class_name: &str, field_key: &str)
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn computed_patch_requires_a_change_and_preserves_explicit_false() {
+        use super::ComputedPatchInput;
+        use hubuum_client::ResourceRevision;
+        let revision = ResourceRevision::new(7).unwrap();
+        assert!(ComputedPatchInput::builder(revision).build().is_err());
+        let patch = ComputedPatchInput::builder(revision)
+            .enabled(Some(false))
+            .build()
+            .unwrap();
+        assert_eq!(patch.expected_revision(), revision);
+        assert_eq!(patch.into_api().enabled, Some(false));
+    }
+
     use super::{ComputedOperationInput, ComputedOperationKind, ComputedResultKind};
     use std::str::FromStr;
 

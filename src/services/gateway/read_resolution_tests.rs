@@ -294,9 +294,11 @@ fn same_class_object_relation_resolution_queries_objects_once() {
         "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z"
     }))
     .unwrap();
-    let objects = gateway.object_map_for_relation(&[relation], 9, 9).unwrap();
-    assert_eq!(objects[&42].name, "nommo.uio.no");
-    assert_eq!(objects[&43].name, "second");
+    let objects = gateway
+        .object_map_for_relation(&[relation], 9.into(), 9.into())
+        .unwrap();
+    assert_eq!(objects[&42.into()].name, "nommo.uio.no");
+    assert_eq!(objects[&43.into()].name, "second");
     assert_eq!(transport.requests().len(), 1);
 }
 
@@ -346,10 +348,10 @@ fn missing_collection_resolution_keeps_pagination() {
     );
     let classes = [from_value::<Class>(f["root_class"].clone()).unwrap()];
     let collections = gateway
-        .collection_map_with_classes([7, 8, 7], &classes)
+        .collection_map_with_classes([7.into(), 8.into(), 7.into()], &classes)
         .unwrap();
-    assert_eq!(collections[&7].name, "Math");
-    assert_eq!(collections[&8].name, "Facilities");
+    assert_eq!(collections[&7.into()].name, "Math");
+    assert_eq!(collections[&8.into()].name, "Facilities");
     let requests = transport.requests();
     assert_eq!(requests.len(), 2);
     assert!(requests[1]

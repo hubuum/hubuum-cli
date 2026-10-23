@@ -88,7 +88,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskShow {
     #[option(short = "i", long = "id", help = "Task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskLookupInput>,
 }
 
 impl CliCommand for TaskShow {
@@ -98,11 +98,11 @@ impl CliCommand for TaskShow {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         query.id = option_or_pos(query.id, tokens, 0, "id")?;
-        let task = services.gateway().task(TaskLookupInput {
-            task_id: query
+        let task = services.gateway().task(
+            query
                 .id
                 .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
-        })?;
+        )?;
 
         render_task_record(tokens, &task)
     }
@@ -111,7 +111,7 @@ impl CliCommand for TaskShow {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskEvents {
     #[option(short = "i", long = "id", help = "Task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskLookupInput>,
     #[option(
         long = "sort",
         help = "Sort clause: 'field asc|desc'",
@@ -154,11 +154,9 @@ impl CliCommand for TaskEvents {
         )?
         .page_selection(PageSelection::from_all(query.all.unwrap_or(false)));
         let events = services.gateway().task_events(
-            TaskLookupInput {
-                task_id: query
-                    .id
-                    .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
-            },
+            query
+                .id
+                .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?,
             &list_query,
         )?;
         render_list_page(tokens, &events)
@@ -245,7 +243,7 @@ impl CliCommand for TaskList {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskOutputCmd {
     #[option(short = "i", long = "id", help = "Task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskLookupInput>,
 }
 
 impl CliCommand for TaskOutputCmd {
@@ -276,7 +274,7 @@ impl CliCommand for TaskOutputCmd {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct TaskCancel {
     #[option(short = "i", long = "id", help = "Task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskLookupInput>,
     #[option(
         long = "reason",
         help = "Cancellation reason (nonblank, single line, at most 512 bytes)"
@@ -294,11 +292,9 @@ impl CliCommand for TaskCancel {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let id = super::required_option_or_pos(query.id, tokens, 0, "id")?;
-        let task = services.gateway().cancel_task(
-            TaskLookupInput { task_id: id },
-            query.reason,
-            query.expected_status,
-        )?;
+        let task = services
+            .gateway()
+            .cancel_task(id, query.reason, query.expected_status)?;
         render_task_record(tokens, &task)
     }
 }

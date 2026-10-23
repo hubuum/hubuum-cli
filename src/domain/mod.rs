@@ -34,6 +34,8 @@ mod object_fields;
 mod objects;
 mod query_usage;
 mod relations;
+mod resource_names;
+pub use resource_names::{ObjectReference, ResourceName};
 mod remote_targets;
 mod schema;
 mod search;

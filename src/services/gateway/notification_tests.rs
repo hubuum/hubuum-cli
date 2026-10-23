@@ -59,7 +59,7 @@ fn system_list_rejects_unsupported_pagination_before_network_access() {
     let transport = MockTransport::default();
     for query in [
         ListQuery {
-            limit: Some(1),
+            limit: Some(1.try_into().expect("positive page size")),
             ..Default::default()
         },
         ListQuery {

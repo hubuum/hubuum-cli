@@ -1,6 +1,6 @@
 use hubuum_client::{SearchHydrationRequest, StructuredClassSelector};
 
-use super::{HubuumGateway, ResourceScope};
+use super::{HubuumGateway, ObjectScope};
 use crate::diagnostics::client_call;
 use crate::domain::JsonRecord;
 use crate::errors::AppError;
@@ -42,13 +42,13 @@ impl HydrationOptions {
 impl HubuumGateway {
     pub fn hydrate_object(
         &self,
-        root: ResourceScope,
+        root: ObjectScope,
         options: HydrationOptions,
     ) -> Result<JsonRecord, AppError> {
-        let (class, object) = self.resolve_resource_scope(root.require_object()?)?;
+        let (class, object) = self.resolve_object_scope(root)?;
         let request = SearchHydrationRequest::new(
             class,
-            object.expect("required object"),
+            object,
             options.target,
             options.depth,
             options.limit,

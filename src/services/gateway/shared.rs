@@ -1,10 +1,12 @@
+use hubuum_client::{ClassId, CollectionId, ObjectId};
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use hubuum_client::{
     client::{sync::Handle as SyncHandle, sync::Resource, GetID},
     types::SortDirection,
-    ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, CollectionId,
-    EntityTag, FilterOperator, Object, ObjectRelation, ObjectWithPath, QueryFilter, ResourceId,
+    ApiError as ClientApiError, ApiResource, Class, ClassRelation, Collection, EntityTag,
+    FilterOperator, Object, ObjectRelation, ObjectWithPath, QueryFilter,
 };
 
 use crate::diagnostics::client_call;
@@ -73,35 +75,33 @@ impl HubuumGateway {
         Ok((from, to))
     }
 
-    pub(super) fn class_map_from_classes<'a, I>(&self, classes: I) -> HashMap<i32, Class>
+    pub(super) fn class_map_from_classes<'a, I>(&self, classes: I) -> HashMap<ClassId, Class>
     where
         I: IntoIterator<Item = &'a Class>,
     {
         classes
             .into_iter()
-            .map(|class| (class.id.into(), class.clone()))
+            .map(|class| (class.id, class.clone()))
             .collect()
     }
 
-    pub(super) fn class_map_from_ids<I, Id>(
+    pub(super) fn class_map_from_ids<I>(
         &self,
         class_ids: I,
-    ) -> Result<HashMap<i32, Class>, AppError>
+    ) -> Result<HashMap<ClassId, Class>, AppError>
     where
-        I: IntoIterator<Item = Id>,
-        Id: Into<i32>,
+        I: IntoIterator<Item = ClassId>,
     {
         fetch_entities_for_ids(&self.client().classes(), unique_ids(class_ids))
     }
 
-    pub(super) fn class_map_with_known<'a, I, Id>(
+    pub(super) fn class_map_with_known<'a, I>(
         &self,
         class_ids: I,
         known: impl IntoIterator<Item = &'a Class>,
-    ) -> Result<HashMap<i32, Class>, AppError>
+    ) -> Result<HashMap<ClassId, Class>, AppError>
     where
-        I: IntoIterator<Item = Id>,
-        Id: Into<i32>,
+        I: IntoIterator<Item = ClassId>,
     {
         let mut classes = self.class_map_from_classes(known);
         let missing = unique_ids(class_ids)
@@ -115,9 +115,9 @@ impl HubuumGateway {
     pub(super) fn object_map_for_relation(
         &self,
         relations: &[ObjectRelation],
-        from_class_id: i32,
-        to_class_id: i32,
-    ) -> Result<HashMap<i32, Object>, AppError> {
+        from_class_id: ClassId,
+        to_class_id: ClassId,
+    ) -> Result<HashMap<ObjectId, Object>, AppError> {
         let object_ids =
             unique_ids(relations.iter().flat_map(|relation| {
                 [relation.from_hubuum_object_id, relation.to_hubuum_object_id]
@@ -139,8 +139,8 @@ impl HubuumGateway {
 
     pub(super) fn find_class_relation(
         &self,
-        class_from_id: i32,
-        class_to_id: i32,
+        class_from_id: ClassId,
+        class_to_id: ClassId,
     ) -> Result<ClassRelation, AppError> {
         Ok(client_call("class_relation.one", || {
             self.client()
@@ -162,8 +162,8 @@ impl HubuumGateway {
 
     pub(super) fn find_class_relation_between(
         &self,
-        class_a_id: i32,
-        class_b_id: i32,
+        class_a_id: ClassId,
+        class_b_id: ClassId,
     ) -> Result<ClassRelation, AppError> {
         match self.find_class_relation(class_a_id, class_b_id) {
             Ok(relation) => Ok(relation),
@@ -218,33 +218,30 @@ impl HubuumGateway {
         }
     }
 
-    pub(super) fn collection_id(&self, name: &str) -> Result<i32, AppError> {
+    pub(super) fn collection_id(&self, name: &str) -> Result<CollectionId, AppError> {
         Ok(client_call("collections.get_by_name", || {
             self.client().collections().get_by_name(name)
         })?
-        .id()
-        .into())
+        .id())
     }
 
-    pub(super) fn collection_map_from_ids<I, Id>(
+    pub(super) fn collection_map_from_ids<I>(
         &self,
         collection_ids: I,
-    ) -> Result<HashMap<i32, Collection>, AppError>
+    ) -> Result<HashMap<CollectionId, Collection>, AppError>
     where
-        I: IntoIterator<Item = Id>,
-        Id: Into<i32>,
+        I: IntoIterator<Item = CollectionId>,
     {
         fetch_entities_for_ids(&self.client().collections(), unique_ids(collection_ids))
     }
 
-    pub(super) fn collection_map_with_classes<'a, I, Id>(
+    pub(super) fn collection_map_with_classes<'a, I>(
         &self,
         collection_ids: I,
         classes: impl IntoIterator<Item = &'a Class>,
-    ) -> Result<HashMap<i32, Collection>, AppError>
+    ) -> Result<HashMap<CollectionId, Collection>, AppError>
     where
-        I: IntoIterator<Item = Id>,
-        Id: Into<i32>,
+        I: IntoIterator<Item = CollectionId>,
     {
         self.collection_map_with_known(
             collection_ids,
@@ -254,18 +251,17 @@ impl HubuumGateway {
         )
     }
 
-    pub(super) fn collection_map_with_known<'a, I, Id>(
+    pub(super) fn collection_map_with_known<'a, I>(
         &self,
         collection_ids: I,
         known: impl IntoIterator<Item = &'a Collection>,
-    ) -> Result<HashMap<i32, Collection>, AppError>
+    ) -> Result<HashMap<CollectionId, Collection>, AppError>
     where
-        I: IntoIterator<Item = Id>,
-        Id: Into<i32>,
+        I: IntoIterator<Item = CollectionId>,
     {
         let mut collections = known
             .into_iter()
-            .map(|collection| (i32::from(collection.id), collection.clone()))
+            .map(|collection| (collection.id, collection.clone()))
             .collect::<HashMap<_, _>>();
         let missing = unique_ids(collection_ids)
             .into_iter()
@@ -310,43 +306,42 @@ fn is_missing_api_error(error: &ClientApiError) -> bool {
     ) || matches!(error, ClientApiError::EmptyResult(_))
 }
 
-pub(super) fn find_entities_by_ids<T, I, F, Id>(
+pub(super) fn find_entities_by_ids<T, I, F>(
     resource: &Resource<T>,
     objects: I,
     extract_id: F,
-) -> Result<HashMap<i32, T::GetOutput>, AppError>
+) -> Result<HashMap<T::Id, T::GetOutput>, AppError>
 where
     T: ApiResource,
     I: IntoIterator,
     I::Item: Copy,
-    F: Fn(I::Item) -> Id,
-    Id: Into<i32>,
-    T::GetOutput: GetID,
+    F: Fn(I::Item) -> T::Id,
+    T::Id: Hash,
+    T::GetOutput: GetID<Id = T::Id>,
 {
     fetch_entities_for_ids(resource, unique_ids(objects.into_iter().map(extract_id)))
 }
 
-fn unique_ids<I, Id>(ids: I) -> Vec<i32>
+fn unique_ids<I, Id>(ids: I) -> Vec<Id>
 where
     I: IntoIterator<Item = Id>,
-    Id: Into<i32>,
+    Id: Eq + Hash,
 {
     ids.into_iter()
-        .map(Into::into)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect()
 }
 
-pub(super) fn fetch_entities_for_ids<T, I, Id>(
+pub(super) fn fetch_entities_for_ids<T, I>(
     resource: &Resource<T>,
     ids: I,
-) -> Result<HashMap<i32, T::GetOutput>, AppError>
+) -> Result<HashMap<T::Id, T::GetOutput>, AppError>
 where
     T: ApiResource,
-    I: IntoIterator<Item = Id>,
-    Id: Into<i32>,
-    T::GetOutput: GetID,
+    I: IntoIterator<Item = T::Id>,
+    T::Id: Hash,
+    T::GetOutput: GetID<Id = T::Id>,
 {
     let ids = unique_ids(ids);
     if ids.is_empty() {
@@ -357,7 +352,7 @@ where
     for chunk in ids.chunks(MAX_EQUALS_FILTER_VALUES) {
         let joined = chunk
             .iter()
-            .map(i32::to_string)
+            .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(",");
         let results = client_call("QueryOp.all", || {
@@ -366,11 +361,7 @@ where
                 .filter("id", FilterOperator::Equals { is_negated: false }, joined)
                 .all()
         })?;
-        entities.extend(
-            results
-                .into_iter()
-                .map(|entity| (entity.id().get(), entity)),
-        );
+        entities.extend(results.into_iter().map(|entity| (entity.id(), entity)));
     }
 
     Ok(entities)
@@ -432,7 +423,7 @@ mod tests {
             .expect("client should build")
             .authenticate(Token::new("secret"));
 
-        let collections = fetch_entities_for_ids(&client.collections(), [1, 2])
+        let collections = fetch_entities_for_ids(&client.collections(), [1.into(), 2.into()])
             .expect("all collection pages should resolve");
 
         assert_eq!(collections.len(), 2);

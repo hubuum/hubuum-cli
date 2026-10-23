@@ -1,3 +1,4 @@
+use hubuum_client::CollectionId;
 use std::collections::HashMap;
 
 use hubuum_client::{Collection, ExportJsonResponse, ExportResult, ExportTemplate};
@@ -16,9 +17,12 @@ pub struct ExportTemplateRecord {
 }
 
 impl ExportTemplateRecord {
-    pub fn new(template: &ExportTemplate, collectionmap: &HashMap<i32, Collection>) -> Self {
+    pub fn new(
+        template: &ExportTemplate,
+        collectionmap: &HashMap<CollectionId, Collection>,
+    ) -> Self {
         let collection = collectionmap
-            .get(&template.collection_id.into())
+            .get(&template.collection_id)
             .map(|collection| collection.name.clone())
             .unwrap_or_else(|| "<unknown>".to_string());
 

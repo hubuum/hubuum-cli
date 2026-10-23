@@ -44,7 +44,7 @@ impl HubuumGateway {
     pub fn list_user_names(&self) -> Result<Vec<String>, AppError> {
         Ok(self
             .list_users(&ListQuery {
-                limit: Some(200),
+                limit: Some(200.try_into().expect("positive page size")),
                 ..ListQuery::default()
             })?
             .items

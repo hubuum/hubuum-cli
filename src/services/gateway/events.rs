@@ -198,7 +198,7 @@ impl HubuumGateway {
     }
 
     pub fn collection_id_by_name(&self, name: &str) -> Result<CollectionId, AppError> {
-        Ok(self.collection_id(name)?.into())
+        self.collection_id(name)
     }
 
     pub fn user_id_by_name(&self, name: &str) -> Result<UserId, AppError> {
@@ -216,9 +216,7 @@ impl HubuumGateway {
     ) -> Result<AuditScope, AppError> {
         let name = name.ok_or_else(|| AppError::MissingOptions(vec!["name".to_string()]))?;
         match resource {
-            AuditResourceKind::Collection => {
-                Ok(AuditScope::Collection(self.collection_id(name)?.into()))
-            }
+            AuditResourceKind::Collection => Ok(AuditScope::Collection(self.collection_id(name)?)),
             AuditResourceKind::Class => {
                 Ok(AuditScope::Class(self.class_handle_by_name(name)?.id()))
             }

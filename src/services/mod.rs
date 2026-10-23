@@ -18,13 +18,14 @@ pub(crate) use gateway::sort_specs_for_command_path;
 pub(crate) use gateway::{logout_session_client, parse_timestamp};
 pub(crate) use gateway::{result_row, StructuredSearchStreamEvent};
 pub use gateway::{
-    AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, BackupInput, ClassUpdateInput,
-    CloneTokenInput, CloneTokenOutcome, CollectionUpdateInput, ComputedDefinitionInput,
-    ComputedOperationInput, ComputedOperationKind, ComputedPatchInput, ComputedPreviewTarget,
-    ComputedResultKind, CreateClassInput, CreateClassRelationInput, CreateCollectionInput,
-    CreateExportTemplateInput, CreateGroupInput, CreateObjectInput, CreateRemoteTargetInput,
-    CreateServiceAccountInput, CreateUserInput, EventSubscriptionScope, GroupUpdateInput,
-    HistoricalQuery, HistoryInput, HubuumGateway, InvokeRemoteTargetInput, ListTasksInput,
+    AdHocExport, AuditActorKind, AuditListInput, AuditResourceKind, AuditScope, BackupInput,
+    ClassUpdateInput, CloneTokenInput, CloneTokenOutcome, CollectionUpdateInput,
+    ComputedDefinitionInput, ComputedOperationInput, ComputedOperationKind, ComputedPatchInput,
+    ComputedPreviewTarget, ComputedResultKind, CreateClassInput, CreateClassRelationInput,
+    CreateCollectionInput, CreateExportTemplateInput, CreateGroupInput, CreateObjectInput,
+    CreateRemoteTargetInput, CreateServiceAccountInput, CreateUserInput, EventSubscriptionScope,
+    ExportScopeInput, ExportSource, GroupUpdateInput, HistoricalQuery, HistoryInput,
+    HistoryListInput, HubuumGateway, InvocationSubject, InvokeRemoteTargetInput, ListTasksInput,
     NewTokenInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
     ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
     QueryUsageCommand, RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTarget,
@@ -38,7 +39,7 @@ pub(crate) use gateway::{CredentialApprovalSource, TaskDiscovery};
 
 #[derive(Debug, Clone)]
 pub struct WaitTaskInput {
-    pub task_id: i32,
+    pub task: TaskLookupInput,
     pub timeout_secs: Option<u64>,
     pub poll_interval_secs: Option<u64>,
 }

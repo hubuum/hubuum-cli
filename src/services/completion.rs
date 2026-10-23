@@ -654,7 +654,7 @@ impl CompletionStore {
 
         let fetched = spawn_blocking(move || {
             let tasks = gateway.list_tasks(ListTasksInput {
-                limit: Some(50),
+                limit: Some(50.try_into().expect("positive page size")),
                 ..ListTasksInput::default()
             })?;
             Ok::<_, AppError>(
@@ -725,7 +725,7 @@ impl CompletionStore {
             let page = gateway.audit_events(
                 AuditScope::Global,
                 AuditListInput {
-                    limit: Some(50),
+                    limit: Some(50.try_into().expect("positive page size")),
                     sort: Some("-occurred_at".to_string()),
                     ..AuditListInput::default()
                 },
@@ -759,7 +759,7 @@ impl CompletionStore {
 
         let fetched = spawn_blocking(move || {
             let page = gateway.event_deliveries(&ListQuery {
-                limit: Some(50),
+                limit: Some(50.try_into().expect("positive page size")),
                 sorts: vec![SortClause {
                     field: "updated_at".to_string(),
                     direction: SortDirectionArg::Desc,
@@ -801,7 +801,7 @@ impl CompletionStore {
             let personal = gateway.list_personal_computed_fields(
                 Some(&lookup_class),
                 &ListQuery {
-                    limit: Some(100),
+                    limit: Some(100.try_into().expect("positive page size")),
                     ..ListQuery::default()
                 },
             );

@@ -1,7 +1,9 @@
-use std::time::Duration;
+use std::{fmt, str::FromStr, time::Duration};
+
+use serde::{Deserialize, Serialize};
 
 use hubuum_client::{
-    types::SortDirection, TaskCancelRequest, TaskCancellationReason, TaskKind, TaskStatus,
+    types::SortDirection, TaskCancelRequest, TaskCancellationReason, TaskId, TaskKind, TaskStatus,
 };
 
 use crate::diagnostics::client_call;
@@ -17,9 +19,47 @@ use crate::services::WaitTaskInput;
 
 use super::{HubuumGateway, TaskDiscovery};
 
-#[derive(Debug, Clone)]
-pub struct TaskLookupInput {
-    pub task_id: i32,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "TaskId", into = "TaskId")]
+pub struct TaskLookupInput(TaskId);
+
+impl TaskLookupInput {
+    pub fn new(id: TaskId) -> Result<Self, AppError> {
+        if id.get() <= 0 {
+            return Err(AppError::InvalidOption("Task ID must be positive".into()));
+        }
+        Ok(Self(id))
+    }
+
+    pub fn id(self) -> TaskId {
+        self.0
+    }
+}
+
+impl TryFrom<TaskId> for TaskLookupInput {
+    type Error = AppError;
+    fn try_from(id: TaskId) -> Result<Self, Self::Error> {
+        Self::new(id)
+    }
+}
+
+impl From<TaskLookupInput> for TaskId {
+    fn from(input: TaskLookupInput) -> Self {
+        input.id()
+    }
+}
+
+impl FromStr for TaskLookupInput {
+    type Err = AppError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value.parse()?)
+    }
+}
+
+impl fmt::Display for TaskLookupInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id().fmt(f)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -48,7 +88,7 @@ impl HubuumGateway {
                 .transpose()?,
         };
         Ok(client_call("tasks.cancel", || {
-            self.client().tasks().cancel(input.task_id, request)
+            self.client().tasks().cancel(input.id(), request)
         })?
         .into())
     }
@@ -78,7 +118,7 @@ impl HubuumGateway {
 
     pub fn task(&self, input: TaskLookupInput) -> Result<TaskRecord, AppError> {
         Ok(TaskRecord::from(client_call("tasks.get", || {
-            self.client().tasks().get(input.task_id)
+            self.client().tasks().get(input.id())
         })?))
     }
 
@@ -89,14 +129,15 @@ impl HubuumGateway {
     ) -> Result<PagedResult<TaskEventRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, TASK_EVENT_SORT_SPECS)?;
         let page = fetch_cursor_results(
-            self.client().tasks().events(input.task_id),
+            self.client().tasks().events(input.id()),
             query,
             &validated_sorts,
         )?;
         Ok(page.map(TaskEventRecord::from))
     }
 
-    pub fn task_output(&self, task_id: i32) -> Result<TaskOutput, AppError> {
+    pub fn task_output(&self, input: TaskLookupInput) -> Result<TaskOutput, AppError> {
+        let task_id = input.id();
         let task = client_call("tasks.get", || self.client().tasks().get(task_id))?;
         Ok(match task.kind {
             TaskKind::Export => TaskOutput::Export(
@@ -117,7 +158,7 @@ impl HubuumGateway {
     }
 
     pub fn wait_task(&self, input: WaitTaskInput) -> Result<TaskRecord, AppError> {
-        let mut op = self.client().tasks().wait(input.task_id);
+        let mut op = self.client().tasks().wait(input.task.id());
         if let Some(p) = input.poll_interval_secs {
             op = op.poll_interval(Duration::from_secs(p));
         }
@@ -198,6 +239,24 @@ pub(crate) const TASK_EVENT_SORT_SPECS: &[SortFieldSpec] = &[
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn task_lookup_rejects_invalid_ids_at_every_input_boundary() {
+        for invalid in ["0", "-1", "not-an-id"] {
+            assert!(invalid.parse::<super::TaskLookupInput>().is_err());
+            assert!(serde_json::from_str::<super::TaskLookupInput>(invalid).is_err());
+        }
+        let input: super::TaskLookupInput = "42".parse().unwrap();
+        assert_eq!(input.id().get(), 42);
+        assert_eq!(serde_json::to_string(&input).unwrap(), "42");
+        assert_eq!(
+            serde_json::from_str::<super::TaskLookupInput>("42")
+                .unwrap()
+                .id(),
+            input.id()
+        );
+    }
+
     use super::*;
 
     use crate::formatting::DetailRenderable;
@@ -231,7 +290,7 @@ mod tests {
         })).unwrap());
         let task = gateway(&transport)
             .cancel_task(
-                TaskLookupInput { task_id: 71 },
+                TaskLookupInput::new(71.into()).unwrap(),
                 Some("Withdraw work".into()),
                 Some("running".into()),
             )
@@ -257,12 +316,16 @@ mod tests {
         let gateway = gateway(&transport);
         for reason in ["", "  ", "two\nlines"] {
             assert!(gateway
-                .cancel_task(TaskLookupInput { task_id: 71 }, Some(reason.into()), None)
+                .cancel_task(
+                    TaskLookupInput::new(71.into()).unwrap(),
+                    Some(reason.into()),
+                    None
+                )
                 .is_err());
         }
         assert!(gateway
             .cancel_task(
-                TaskLookupInput { task_id: 71 },
+                TaskLookupInput::new(71.into()).unwrap(),
                 None,
                 Some("invalid".into())
             )

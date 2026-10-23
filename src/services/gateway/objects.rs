@@ -218,9 +218,8 @@ impl HubuumGateway {
             })
         })?;
 
-        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id(), collection.resource().clone())]);
 
         Ok(ResolvedObjectRecord::new(
             &object,
@@ -252,8 +251,8 @@ impl HubuumGateway {
             .resource()
             .clone(),
         };
-        let classmap = HashMap::from([(class.id().into(), class.resource().clone())]);
-        let collectionmap = HashMap::from([(collection.id.into(), collection)]);
+        let classmap = HashMap::from([(class.id(), class.resource().clone())]);
+        let collectionmap = HashMap::from([(collection.id, collection)]);
 
         Ok(ResolvedObjectRecord::new(
             object.resource(),
@@ -337,8 +336,8 @@ impl HubuumGateway {
                 &related_graph.objects,
                 &class_map,
                 &collection_map,
-                object.id.into(),
-                class.id().into(),
+                object.id,
+                class.id(),
                 !options.include_self_class(),
             ),
         })
@@ -426,7 +425,7 @@ impl HubuumGateway {
             let total_count = query.include_total.then_some(items.len() as u64);
             if !query.fetches_all() {
                 if let Some(limit) = query.limit {
-                    items.truncate(limit);
+                    items.truncate(limit.effective());
                 }
             }
             let returned_count = items.len();
@@ -550,9 +549,8 @@ impl HubuumGateway {
             self.client().collections().get(result.collection_id)
         })?;
 
-        let classmap = HashMap::from([(result_class.id.into(), result_class)]);
-        let collectionmap =
-            HashMap::from([(collection.id().into(), collection.resource().clone())]);
+        let classmap = HashMap::from([(result_class.id, result_class)]);
+        let collectionmap = HashMap::from([(collection.id(), collection.resource().clone())]);
 
         Ok(ResolvedObjectRecord::new(
             &result,

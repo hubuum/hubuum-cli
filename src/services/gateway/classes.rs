@@ -100,7 +100,7 @@ impl HubuumGateway {
         let mut resolved_class = class.resource().clone();
         if resolved_class.collection.is_none() {
             resolved_class.collection = class_collection_id(&resolved_class)
-                .and_then(|id| collection_map.get(&i32::from(id)).cloned());
+                .and_then(|id| collection_map.get(&id).cloned());
         }
 
         Ok(ClassShowRecord {
@@ -109,7 +109,7 @@ impl HubuumGateway {
             related_classes: build_related_class_tree(
                 &related_graph.classes,
                 &collection_map,
-                class.id().into(),
+                class.id(),
                 !options.include_self_class(),
             ),
         })

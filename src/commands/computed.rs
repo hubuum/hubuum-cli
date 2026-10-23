@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use cli_command_derive::CommandArgs;
+use hubuum_client::ResourceRevision;
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
@@ -349,6 +350,37 @@ macro_rules! update_args {
             )]
             enabled: Option<bool>,
         }
+        impl $name {
+            fn patch(&self) -> Result<ComputedPatchInput, AppError> {
+                let revision = ResourceRevision::new(self.revision)?;
+                if self.operation.is_none() && !self.paths.is_empty() {
+                    return Err(AppError::MissingOptions(vec!["operation".to_string()]));
+                }
+                let operation = self
+                    .operation
+                    .as_deref()
+                    .map(|operation| {
+                        ComputedOperationInput::new(
+                            ComputedOperationKind::from_str(operation)?,
+                            self.paths.clone(),
+                        )
+                    })
+                    .transpose()?;
+                let result_type = self
+                    .result_type
+                    .as_deref()
+                    .map(ComputedResultKind::from_str)
+                    .transpose()?;
+                ComputedPatchInput::builder(revision)
+                    .key(self.new_key.clone())
+                    .label(self.label.clone())
+                    .description(self.description.clone())
+                    .operation(operation)
+                    .result_type(result_type)
+                    .enabled(self.enabled)
+                    .build()
+            }
+        }
     };
 }
 
@@ -358,16 +390,7 @@ update_args!(PersonalComputedUpdate);
 impl CliCommand for SharedComputedUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let patch = patch_input(
-            query.revision,
-            query.new_key,
-            query.label,
-            query.description,
-            query.operation,
-            query.paths,
-            query.result_type,
-            query.enabled,
-        )?;
+        let patch = query.patch()?;
         let result =
             services
                 .gateway()
@@ -379,16 +402,7 @@ impl CliCommand for SharedComputedUpdate {
 impl CliCommand for PersonalComputedUpdate {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
-        let patch = patch_input(
-            query.revision,
-            query.new_key,
-            query.label,
-            query.description,
-            query.operation,
-            query.paths,
-            query.result_type,
-            query.enabled,
-        )?;
+        let patch = query.patch()?;
         let result =
             services
                 .gateway()
@@ -425,7 +439,7 @@ impl CliCommand for SharedComputedDelete {
         let deleted = services.gateway().delete_shared_computed_field(
             &query.class,
             &query.key,
-            query.revision,
+            ResourceRevision::new(query.revision)?,
         )?;
         match desired_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
@@ -444,7 +458,7 @@ impl CliCommand for PersonalComputedDelete {
         let deleted = services.gateway().delete_personal_computed_field(
             &query.class,
             &query.key,
-            query.revision,
+            ResourceRevision::new(query.revision)?,
         )?;
         match desired_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
@@ -675,43 +689,6 @@ fn definition_input(args: &impl DefinitionArgs) -> Result<ComputedDefinitionInpu
         input = input.enabled(enabled);
     }
     Ok(input)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn patch_input(
-    revision: i64,
-    key: Option<String>,
-    label: Option<String>,
-    description: Option<String>,
-    operation: Option<String>,
-    paths: Vec<String>,
-    result_type: Option<String>,
-    enabled: Option<bool>,
-) -> Result<ComputedPatchInput, AppError> {
-    if operation.is_none() && !paths.is_empty() {
-        return Err(AppError::MissingOptions(vec!["operation".to_string()]));
-    }
-    let operation = operation
-        .map(|operation| {
-            ComputedOperationInput::new(ComputedOperationKind::from_str(&operation)?, paths)
-        })
-        .transpose()?;
-    let result_type = result_type
-        .map(|result_type| ComputedResultKind::from_str(&result_type))
-        .transpose()?;
-    let patch = ComputedPatchInput::new(revision)
-        .key(key)
-        .label(label)
-        .description(description)
-        .operation(operation)
-        .result_type(result_type)
-        .enabled(enabled);
-    if patch.is_empty() {
-        return Err(AppError::InvalidOption(
-            "At least one field to update must be supplied".to_string(),
-        ));
-    }
-    Ok(patch)
 }
 
 fn preview_target(
