@@ -35,6 +35,7 @@ case "${HUBUUM_EXTENSION_CONFIG_JSON:-}" in
         ;;
 esac
 printf '%s\n' "$*" >"$(dirname "$0")/../invocation"
+printf '%s\n' "${HUBUUM_CLI__SERVER__SESSION_STORAGE:-missing}" >"$(dirname "$0")/../session-storage"
 printf '%s\n' '{"protocol":"hubuum-cli.extension/v1","status":"ok","output":{"shape":"rows","value":[{"name":"alpha","state":"active"},{"name":"beta","state":"active"}],"columns":["name","state"]},"warnings":[]}'
 "#,
     )
@@ -597,6 +598,7 @@ fn extension_commands_are_first_class_and_lifecycle_managed() {
     cargo_bin_cmd!("hubuum-cli")
         .env("HUBUUM_CLI__SERVER__PASSWORD", "must-not-leak")
         .env("HUBUUM_CLI__CACHE__TIME", "123")
+        .env("HUBUUM_CLI__SERVER__SESSION_STORAGE", "keychain")
         .args([
             "--config",
             config.to_str().expect("config path"),
@@ -615,6 +617,10 @@ fn extension_commands_are_first_class_and_lifecycle_managed() {
     assert_eq!(
         read_to_string(user_root.join("demo/invocation")).expect("recorded invocation"),
         "inventory list --state active\n"
+    );
+    assert_eq!(
+        read_to_string(user_root.join("demo/session-storage")).unwrap(),
+        "keychain\n"
     );
 
     for format in ["text", "json", "jsonl", "csv", "tsv"] {

@@ -75,7 +75,13 @@ def main():
                   "-p", "127.0.0.1::8080", "-e", db_env,
                   "-e", "HUBUUM_BIND_IP=0.0.0.0", "-e", "HUBUUM_BIND_PORT=8080",
                   "-e", "HUBUUM_CLIENT_ALLOWLIST=*", image)
-        port = container("port", server, "8080/tcp").strip().rsplit(":", 1)[1]
+        def published_port():
+            mapping = container("port", server, "8080/tcp").strip()
+            if not mapping:
+                raise ValueError("Disposable server has no published port yet")
+            return mapping.rsplit(":", 1)[1]
+
+        port = eventually(published_port)
         base = f"http://127.0.0.1:{port}"
 
         def api(method, path, data=None, token=None):

@@ -1578,6 +1578,10 @@ fn configure_environment(
         ctx.config.server.ssl_validation.to_string(),
     );
     child.env("HUBUUM_CLI__SERVER__USERNAME", &ctx.config.server.username);
+    child.env(
+        "HUBUUM_CLI__SERVER__SESSION_STORAGE",
+        ctx.config.server.session_storage.to_string(),
+    );
     if let Some(scope) = &ctx.config.server.identity_scope {
         child.env("HUBUUM_CLI__SERVER__IDENTITY_SCOPE", scope);
     }

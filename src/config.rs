@@ -25,8 +25,8 @@ use crate::files::{
     get_user_extension_root,
 };
 use crate::models::{
-    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, TableBands,
-    TableHeaders, TableStyle, TableWidth, TableWrap,
+    EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, SessionStorage,
+    TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 
 static CONFIG: Lazy<RwLock<Arc<AppConfig>>> =
@@ -292,6 +292,8 @@ pub struct ServerConfig {
     pub password: Option<String>,
     #[serde(default)]
     pub token_file: Option<String>,
+    #[serde(default)]
+    pub session_storage: SessionStorage,
     pub protocol: Protocol,
 }
 
@@ -358,6 +360,7 @@ enum ConfigValueKind {
     I8,
     I32,
     Protocol,
+    SessionStorage,
     OutputFormat,
     OutputColor,
     ThemeName,
@@ -504,6 +507,13 @@ const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: Some("token_file"),
         env_var: "HUBUUM_CLI__SERVER__TOKEN_FILE",
         value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "server.session_storage",
+        cli_arg: Some("session_storage"),
+        env_var: "HUBUUM_CLI__SERVER__SESSION_STORAGE",
+        value_kind: ConfigValueKind::SessionStorage,
         sensitive: false,
     },
     ConfigKeyDescriptor {
@@ -697,6 +707,7 @@ impl Default for AppConfig {
                 username: Defaults::USER_USERNAME.to_string(),
                 password: None,
                 token_file: None,
+                session_storage: SessionStorage::default(),
                 protocol: Defaults::PROTOCOL,
             },
             cache: CacheConfig {
@@ -775,6 +786,7 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
     match descriptor.value_kind {
         ConfigValueKind::Bool => strings(&["true", "false"]),
         ConfigValueKind::Protocol => strings(&["http", "https"]),
+        ConfigValueKind::SessionStorage => strings(&["file", "keychain"]),
         ConfigValueKind::OutputFormat => strings(&["text", "json"]),
         ConfigValueKind::OutputColor => strings(&["auto", "always", "never"]),
         ConfigValueKind::ThemeName => theme_value_candidates(),
@@ -1070,6 +1082,9 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "server.username" => target.server.username = source.server.username.clone(),
             "server.password" => target.server.password = source.server.password.clone(),
             "server.token_file" => target.server.token_file = source.server.token_file.clone(),
+            "server.session_storage" => {
+                target.server.session_storage = source.server.session_storage
+            }
             "server.protocol" => target.server.protocol = source.server.protocol.clone(),
             "cache.time" => target.cache.time = source.cache.time,
             "cache.size" => target.cache.size = source.cache.size,
@@ -1366,6 +1381,7 @@ fn cli_flag_name(arg: &str) -> Option<&'static str> {
         "username" => Some("--username"),
         "password" => Some("--password"),
         "token_file" => Some("--token-file"),
+        "session_storage" => Some("--session-storage"),
         "cache_time" => Some("--cache-time"),
         "cache_size" => Some("--cache-size"),
         "cache_disable" => Some("--cache-disable"),
@@ -1407,6 +1423,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "server.username" => ConfigValueRef::String(&config.server.username),
         "server.password" => ConfigValueRef::OptionalString(config.server.password.as_deref()),
         "server.token_file" => ConfigValueRef::OptionalString(config.server.token_file.as_deref()),
+        "server.session_storage" => ConfigValueRef::SessionStorage(config.server.session_storage),
         "server.protocol" => ConfigValueRef::Protocol(&config.server.protocol),
         "cache.time" => ConfigValueRef::U64(config.cache.time),
         "cache.size" => ConfigValueRef::I32(config.cache.size),
@@ -1462,6 +1479,7 @@ enum ConfigValueRef<'a> {
     I8(i8),
     I32(i32),
     Protocol(&'a Protocol),
+    SessionStorage(SessionStorage),
     OutputFormat(&'a OutputFormat),
     OutputColor(&'a OutputColor),
     TableStyle(&'a TableStyle),
@@ -1500,6 +1518,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
         ConfigValueRef::I8(value) => value.to_string(),
         ConfigValueRef::I32(value) => value.to_string(),
         ConfigValueRef::Protocol(value) => value.to_string(),
+        ConfigValueRef::SessionStorage(value) => value.to_string(),
         ConfigValueRef::OutputFormat(value) => match value {
             OutputFormat::Json => "json".to_string(),
             OutputFormat::Text => "text".to_string(),
@@ -1704,6 +1723,12 @@ fn parse_config_value(
         ConfigValueKind::Protocol => TomlValue::String(
             value
                 .parse::<Protocol>()
+                .map_err(AppError::ConfigError)?
+                .to_string(),
+        ),
+        ConfigValueKind::SessionStorage => TomlValue::String(
+            value
+                .parse::<SessionStorage>()
                 .map_err(AppError::ConfigError)?
                 .to_string(),
         ),
@@ -2027,6 +2052,7 @@ mod tests {
             "HUBUUM_CLI__SERVER__USERNAME",
             "HUBUUM_CLI__SERVER__PASSWORD",
             "HUBUUM_CLI__SERVER__TOKEN_FILE",
+            "HUBUUM_CLI__SERVER__SESSION_STORAGE",
             "HUBUUM_CLI__SERVER__PROTOCOL",
             "HUBUUM_CLI__CACHE__TIME",
             "HUBUUM_CLI__CACHE__SIZE",
@@ -2072,6 +2098,7 @@ mod tests {
             "/run/secrets/hubuum-token",
         );
         set_var("HUBUUM_CLI__SERVER__PROTOCOL", "http");
+        set_var("HUBUUM_CLI__SERVER__SESSION_STORAGE", "keychain");
 
         set_var("HUBUUM_CLI__CACHE__TIME", "99");
         set_var("HUBUUM_CLI__CACHE__SIZE", "42");
@@ -2109,6 +2136,7 @@ mod tests {
             Some("/run/secrets/hubuum-token")
         );
         assert_eq!(cfg.server.protocol, Protocol::Http);
+        assert_eq!(cfg.server.session_storage, SessionStorage::Keychain);
 
         assert_eq!(cfg.cache.time, 99);
         assert_eq!(cfg.cache.size, 42);

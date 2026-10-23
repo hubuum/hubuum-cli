@@ -1,8 +1,9 @@
 //! Identity-scoped, process-safe storage for rotating login sessions.
 
-use std::fs::{read, File, OpenOptions};
-use std::io::{Error, ErrorKind, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use hubuum_client::{ApiError, BaseUrl, SessionStore, SessionStoreGuard, StoredSession};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,22 @@ use tempfile::NamedTempFile;
 
 use crate::errors::AppError;
 use crate::files::{data_root_dir, ensure_root_dir_at};
+use crate::models::SessionStorage;
+
+mod keychain;
+
+pub(crate) fn session_store(
+    storage: SessionStorage,
+    base_url: &BaseUrl,
+    identity_scope: Option<&str>,
+    username: &str,
+) -> Result<Arc<dyn SessionStore>, AppError> {
+    let files = SessionFileStore::new(base_url, identity_scope, username)?;
+    Ok(match storage {
+        SessionStorage::File => Arc::new(files),
+        SessionStorage::Keychain => Arc::new(keychain::KeychainStore::new(files)?),
+    })
+}
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Identity {
@@ -60,10 +77,7 @@ impl SessionFileStore {
             },
         })
     }
-}
-
-impl SessionStore for SessionFileStore {
-    fn lock(&self) -> Result<Box<dyn SessionStoreGuard>, ApiError> {
+    fn lock_guard(&self) -> Result<FileGuard, ApiError> {
         // Lock a stable sidecar, never the atomically replaced data inode.
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -73,12 +87,19 @@ impl SessionStore for SessionFileStore {
             options.mode(0o600);
         }
         let lock = options.open(self.directory.join("sessions.lock"))?;
+        secure_file(&lock)?;
         lock.lock()?;
-        Ok(Box::new(FileGuard {
+        Ok(FileGuard {
             _lock: lock,
             path: self.directory.join("sessions.json"),
             identity: self.identity.clone(),
-        }))
+        })
+    }
+}
+
+impl SessionStore for SessionFileStore {
+    fn lock(&self) -> Result<Box<dyn SessionStoreGuard>, ApiError> {
+        Ok(Box::new(self.lock_guard()?))
     }
 }
 
@@ -90,18 +111,36 @@ struct FileGuard {
 
 impl FileGuard {
     fn entries(&self) -> Result<Vec<Entry>, ApiError> {
-        match read(&self.path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| {
-                Error::new(
-                    ErrorKind::InvalidData,
-                    "Invalid session cache; remove sessions.json and sign in again",
-                )
-                .into()
-            }),
+        match File::open(&self.path) {
+            Ok(mut file) => {
+                secure_file(&file)?;
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes)?;
+                serde_json::from_slice(&bytes).map_err(|_| {
+                    Error::new(
+                        ErrorKind::InvalidData,
+                        "Invalid session cache; remove sessions.json and sign in again",
+                    )
+                    .into()
+                })
+            }
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => Err(error.into()),
         }
     }
+}
+
+fn secure_file(file: &File) -> Result<(), Error> {
+    #[cfg(unix)]
+    {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+
+        file.set_permissions(Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    let _ = file;
+    Ok(())
 }
 
 impl SessionStoreGuard for FileGuard {
@@ -114,6 +153,12 @@ impl SessionStoreGuard for FileGuard {
     }
 
     fn save(&mut self, session: Option<&StoredSession>) -> Result<(), ApiError> {
+        self.write_session(session)
+    }
+}
+
+impl FileGuard {
+    fn write_session(&self, session: Option<&StoredSession>) -> Result<(), ApiError> {
         let mut entries = self.entries()?;
         entries.retain(|entry| entry.identity != self.identity);
         if let Some(session) = session {
@@ -151,7 +196,7 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    fn session() -> StoredSession {
+    pub(super) fn session() -> StoredSession {
         let now = chrono::Utc::now();
         serde_json::from_value(json!({
             "base_url":"https://example.invalid/", "client_id":"hubuum-cli",
@@ -254,6 +299,41 @@ mod tests {
         for name in ["sessions.json", "sessions.lock"] {
             assert_eq!(
                 std::fs::metadata(root.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reading_existing_credentials_repairs_permissions_without_rewriting() {
+        use std::fs::{read, set_permissions, Permissions};
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let store = SessionFileStore::at(
+            directory.path().to_owned(),
+            &BaseUrl::new("https://example.invalid").unwrap(),
+            None,
+            "alice",
+        )
+        .unwrap();
+        store.lock().unwrap().save(Some(&session())).unwrap();
+        let path = directory.path().join("sessions.json");
+        let original = read(&path).unwrap();
+        for name in ["sessions.json", "sessions.lock"] {
+            set_permissions(directory.path().join(name), Permissions::from_mode(0o666)).unwrap();
+        }
+
+        assert!(store.lock().unwrap().load().unwrap().is_some());
+        assert_eq!(read(path).unwrap(), original);
+        for name in ["sessions.json", "sessions.lock"] {
+            assert_eq!(
+                std::fs::metadata(directory.path().join(name))
                     .unwrap()
                     .permissions()
                     .mode()

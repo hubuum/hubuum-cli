@@ -58,7 +58,7 @@ warnings, but they do not change the server target of a published client version
 ## Unreleased: persistent password sessions
 
 The session-persistence fix pins SDK commit
-`55369d1248f921b1bb4c00c486fdd88030ab6e52` from
+`ad4bde4fa88a34fc2373ef232bd6cd64d237cea7` from
 [SDK PR #124](https://github.com/hubuum/hubuum-client-rust/pull/124).
 This temporarily replaces the published 0.16.0 dependency with an immutable Git
 source providing the storage interface. It includes the SDK main-branch additions
@@ -72,6 +72,14 @@ not stored. Existing legacy-token migration and explicit PAT/service-token files
 remain supported. The SDK validates stored server/client bindings and invalidates
 consumed refresh credentials before exchange.
 
+File storage remains the default. Runtime opt-in keychain storage adds
+`keyring-core` 1.0.1 and the target-specific Apple Keychain 1.0.2 and D-Bus Secret
+Service 1.0.1 stores, using Rust cryptography and vendored libdbus on Linux. The credential pair
+is stored directly in the native store, with the same exclusive process lock.
+File-to-keychain migration preserves unrelated accounts and stops on storage
+failure. Existing Unix cache and lock-file permissions are repaired before use.
+No password or plaintext fallback is stored by the keychain backend.
+
 Verification uses the immutable server image
 `ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a`.
 The live CLI driver covers password login, restart without credentials, and two
@@ -80,6 +88,15 @@ integration and restore/recovery suite. The companion SDK's complete pinned
 library/consumer suite also verifies client recreation after real access-token
 expiry. Workspace regressions cover independent processes, identity isolation,
 cache permissions, redaction, malformed caches, and preservation of other accounts.
+
+The keychain follow-up passed 830 workspace tests plus two native Linux tests in
+an isolated D-Bus/GNOME Keyring container: credential persistence across recreated
+stores, and four CLI processes migrating a file session, resuming without a
+password, and coordinating exactly one refresh. The latter verifies the consumed
+refresh credential is absent from the native store before exchange and that the
+plaintext session entry was removed. macOS native validation is included in CI;
+it was not run on this Linux workstation. Strict Clippy, formatting, Markdown,
+wrapper and CI-policy checks, dependency audit, and a musl compile check passed.
 
 ## CLI v0.0.18: client v0.16.0
 

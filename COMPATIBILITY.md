@@ -40,6 +40,14 @@ and coordinates their refresh across CLI processes. Explicit PAT files remain
 available for unattended automation. The server target and API routes are unchanged.
 The CLI declares no MSRV; its filesystem locking uses Rust 1.89's standard API,
 while the SDK retains its declared Rust 1.88 MSRV.
+Session storage defaults to files. Opt-in `keychain` storage is available on macOS
+and Linux; Linux requires a Secret Service on the user's D-Bus session.
+This adds `keyring-core` 1.0.1, macOS `apple-native-keyring-store` 1.0.2, and Linux
+`dbus-secret-service-keyring-store` 1.0.1 with Rust cryptography and vendored D-Bus.
+Linux builds compile bundled libdbus with a C toolchain; no system libdbus or
+OpenSSL development package is required. Other platforms retain file
+storage and reject explicit keychain selection. See the
+[keychain configuration](docs/authentication.md#optional-keychain-storage).
 See [authentication](docs/authentication.md) and
 [credential approvals](docs/credential-approvals.md).
 

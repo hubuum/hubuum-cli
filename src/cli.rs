@@ -1,7 +1,8 @@
 // src/cli.rs
 use crate::config::AppConfig;
 use crate::models::{
-    EmptyResult, OutputColor, Protocol, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
+    EmptyResult, OutputColor, Protocol, SessionStorage, TableBands, TableHeaders, TableStyle,
+    TableWidth, TableWrap,
 };
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
@@ -96,6 +97,14 @@ pub fn build_cli() -> Command {
                 .env("HUBUUM_CLI__SERVER__TOKEN_FILE")
                 .conflicts_with("password")
                 .help("Read a bearer token from a file instead of using password login"),
+        )
+        .arg(
+            Arg::new("session_storage")
+                .long("session-storage")
+                .value_name("BACKEND")
+                .value_parser(value_parser!(SessionStorage))
+                .env("HUBUUM_CLI__SERVER__SESSION_STORAGE")
+                .help("Store password sessions in file (default) or keychain (macOS/Linux)"),
         )
         .arg(
             Arg::new("cache_time")
@@ -416,6 +425,7 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--username"
             | "--password"
             | "--token-file"
+            | "--session-storage"
             | "--approval-password-file"
             | "--cache-time"
             | "--cache-size"
@@ -507,6 +517,9 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(token_file) = get_command_line_value::<String>(matches, "token_file") {
         config.server.token_file = Some(token_file.to_string());
+    }
+    if let Some(storage) = get_command_line_value::<SessionStorage>(matches, "session_storage") {
+        config.server.session_storage = *storage;
     }
     if let Some(cache_time) = get_command_line_value::<u64>(matches, "cache_time") {
         config.cache.time = *cache_time;
@@ -614,6 +627,32 @@ mod tests {
             config.server.identity_scope.as_deref(),
             Some("corp-directory")
         );
+    }
+
+    #[test]
+    fn session_storage_is_explicit_and_validated() {
+        let mut config = AppConfig::default();
+        assert_eq!(config.server.session_storage, SessionStorage::File);
+        let matches = build_cli()
+            .try_get_matches_from(["hubuum-cli", "--session-storage", "keychain"])
+            .unwrap();
+        update_config_from_cli(&mut config, &matches);
+        assert_eq!(config.server.session_storage, SessionStorage::Keychain);
+        assert!(build_cli()
+            .try_get_matches_from(["hubuum-cli", "--session-storage", "unknown",])
+            .is_err());
+        let startup = split_startup_args([
+            "hubuum-cli",
+            "--session-storage",
+            "keychain",
+            "object",
+            "list",
+        ]);
+        assert_eq!(
+            startup.clap_args,
+            ["hubuum-cli", "--session-storage", "keychain"]
+        );
+        assert_eq!(startup.mode, StartupMode::Command("object list".into()));
     }
 
     #[test]

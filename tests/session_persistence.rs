@@ -1,6 +1,9 @@
 #![cfg(target_os = "linux")]
 
-use std::fs::{read_to_string, write};
+use std::fs::{create_dir_all, read_to_string, write};
+use std::path::PathBuf;
+
+use keyring_core::{api::CredentialStoreApi, Entry, Error as KeyringError};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
@@ -44,13 +47,83 @@ fn request(stream: &mut TcpStream) -> (String, String, Value) {
     (path, header.to_ascii_lowercase(), body)
 }
 
+struct Cache {
+    path: PathBuf,
+    keychain: Option<Entry>,
+}
+
+impl Cache {
+    fn load(&self) -> Option<Value> {
+        if let Some(entry) = &self.keychain {
+            match entry.get_secret() {
+                Ok(bytes) => Some(serde_json::from_slice(&bytes).unwrap()),
+                Err(KeyringError::NoEntry) => None,
+                Err(error) => panic!("Keychain test read failed: {error}"),
+            }
+        } else {
+            let entries: Value =
+                serde_json::from_str(&read_to_string(&self.path).unwrap()).unwrap();
+            entries
+                .as_array()
+                .unwrap()
+                .first()
+                .map(|entry| entry["session"].clone())
+        }
+    }
+
+    fn save(&self, session: &Value) {
+        if let Some(entry) = &self.keychain {
+            entry
+                .set_secret(&serde_json::to_vec(session).unwrap())
+                .unwrap();
+        } else {
+            let mut entries: Value =
+                serde_json::from_str(&read_to_string(&self.path).unwrap()).unwrap();
+            entries[0]["session"] = session.clone();
+            write(&self.path, serde_json::to_vec(&entries).unwrap()).unwrap();
+        }
+    }
+}
+
+impl Drop for Cache {
+    fn drop(&mut self) {
+        if let Some(entry) = &self.keychain {
+            let _ = entry.delete_credential();
+        }
+    }
+}
+
 #[test]
 fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
+    process_scenario(false);
+}
+
+#[test]
+#[ignore = "requires an unlocked native Secret Service"]
+fn native_keychain_processes_migrate_reuse_and_coordinate() {
+    process_scenario(true);
+}
+
+fn process_scenario(keychain: bool) {
     let directory = tempdir().unwrap();
-    let cache = directory.path().join("hubuum_cli/sessions.json");
+    let root = directory.path().join("hubuum_cli");
+    create_dir_all(&root).unwrap();
+    let cache_path = root.join("sessions.json");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
+    let entry = keychain.then(|| {
+        let account = serde_json::to_string(&json!([
+            root.canonicalize().unwrap(),
+            {"base_url":format!("http://127.0.0.1:{port}/"), "identity_scope":null, "username":"alice"}
+        ])).unwrap();
+        dbus_secret_service_keyring_store::Store::new().unwrap()
+            .build("org.hubuum.cli.sessions", &account, None).unwrap()
+    });
+    let cache = Arc::new(Cache {
+        path: cache_path.clone(),
+        keychain: entry,
+    });
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
     let server_cache = cache.clone();
@@ -84,7 +157,7 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
                 "/api/v1/auth/refresh" => {
                     assert_eq!(body["refresh_token"], "initial-refresh");
                     // A consumed credential must already be absent on disk.
-                    assert_eq!(read_to_string(&server_cache).unwrap(), "[]");
+                    assert!(server_cache.load().is_none());
                     pair["access_token"] = json!("rotated-access");
                     pair["refresh_token"] = json!("rotated-refresh");
                     pair.clone()
@@ -114,6 +187,10 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
             .env("XDG_DATA_HOME", directory.path())
             .env_remove("HUBUUM_CLI__SERVER__PASSWORD")
             .env_remove("HUBUUM_CLI__SERVER__TOKEN_FILE")
+            .env(
+                "HUBUUM_CLI__SERVER__SESSION_STORAGE",
+                if keychain { "keychain" } else { "file" },
+            )
             .args([
                 "--hostname",
                 "127.0.0.1",
@@ -130,6 +207,7 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
     };
     let password = format!("fixture-{}", rand::random::<u64>());
     let first = command()
+        .env("HUBUUM_CLI__SERVER__SESSION_STORAGE", "file")
         .env("HUBUUM_CLI__SERVER__PASSWORD", &password)
         .output()
         .unwrap();
@@ -138,7 +216,7 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
         "{}",
         String::from_utf8_lossy(&first.stderr)
     );
-    let mut saved: Value = serde_json::from_str(&read_to_string(&cache).unwrap()).unwrap();
+    let saved: Value = serde_json::from_str(&read_to_string(&cache_path).unwrap()).unwrap();
     assert!(!saved.to_string().contains(&password));
     // Exercise another process while the access token is still current.
     let second = command().output().unwrap();
@@ -147,10 +225,14 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
         "{}",
         String::from_utf8_lossy(&second.stderr)
     );
+    if keychain {
+        assert_eq!(read_to_string(&cache_path).unwrap(), "[]");
+    }
     // Expire the saved access token, then start two independent CLI processes.
-    saved[0]["session"]["refresh_at"] = json!(chrono::Utc::now() - chrono::Duration::seconds(1));
-    saved[0]["session"]["pair"]["access_expires_at"] = saved[0]["session"]["refresh_at"].clone();
-    write(&cache, serde_json::to_vec(&saved).unwrap()).unwrap();
+    let mut saved = cache.load().unwrap();
+    saved["refresh_at"] = json!(chrono::Utc::now() - chrono::Duration::seconds(1));
+    saved["pair"]["access_expires_at"] = saved["refresh_at"].clone();
+    cache.save(&saved);
     let results = thread::scope(|scope| {
         let one = scope.spawn(|| command().output().unwrap());
         let two = scope.spawn(|| command().output().unwrap());
@@ -193,9 +275,6 @@ fn separate_cli_processes_reuse_and_coordinate_rotating_credentials() {
             .count(),
         1
     );
-    let saved: Value = serde_json::from_str(&read_to_string(cache).unwrap()).unwrap();
-    assert_eq!(
-        saved[0]["session"]["pair"]["refresh_token"],
-        "rotated-refresh"
-    );
+    let saved = cache.load().unwrap();
+    assert_eq!(saved["pair"]["refresh_token"], "rotated-refresh");
 }

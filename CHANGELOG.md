@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- Opt into macOS Keychain or Linux Secret Service for rotating login sessions with
+  `--session-storage keychain` or `server.session_storage = "keychain"`.
+  File storage remains the default. Existing matching sessions move to the
+  keychain only after a successful secure write; keychain errors never fall back
+  to file credentials. Add the platform-specific keyring credential-store crates.
+
+### Security
+
+- Restore owner-only permissions on existing session caches and lock files before
+  use, including caches restored or copied with broader permissions.
+
 ### Fixed
 
 - Restore remembered password logins across CLI restarts and wrapper subprocesses.

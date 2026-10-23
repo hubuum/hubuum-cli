@@ -22,13 +22,14 @@ use crate::catalog::CatalogStore;
 use crate::cli::{get_cli_config_path, update_config_from_cli};
 use crate::config::{
     get_config, get_config_state, init_config, init_config_state, inspect_config_state,
-    load_config, update_runtime_server_port, AppConfig, ConfigSource,
+    load_config, update_runtime_server_port, AppConfig, ConfigSource, ServerConfig,
 };
 use crate::defaults::Defaults;
 use crate::errors::AppError;
 use crate::files::{get_log_file, get_token_from_tokenfile};
+use crate::models::SessionStorage;
 use crate::services::AppServices;
-use crate::session_store::SessionFileStore;
+use crate::session_store::session_store;
 use crate::theme::{paint, ThemeRole};
 
 const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -167,15 +168,7 @@ async fn login_with_cached_token(
         let config = reachable_server_config_on_ports(config, &ports)?;
         let client = build_client(&config)?;
 
-        let client = authenticate(
-            client,
-            config.server.hostname.as_str(),
-            config.server.identity_scope.as_deref(),
-            config.server.username.as_str(),
-            config.server.password.clone(),
-            config.server.token_file.as_deref(),
-            cached_token,
-        )?;
+        let client = authenticate(client, &config.server, cached_token)?;
 
         Ok(LoginSession {
             config,
@@ -334,25 +327,25 @@ fn try_server_configs<T>(
 
 fn authenticate(
     client: BlockingClient<Unauthenticated>,
-    hostname: &str,
-    identity_scope: Option<&str>,
-    username: &str,
-    password: Option<String>,
-    token_file: Option<&str>,
+    config: &ServerConfig,
     cached_token: CachedToken,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
-    if let Some(token_file) = token_file {
+    let hostname = config.hostname.as_str();
+    let identity_scope = config.identity_scope.as_deref();
+    let username = config.username.as_str();
+    if let Some(token_file) = config.token_file.as_deref() {
         let token = BearerTokenFile::new(token_file)?.read()?;
         return client_call("client.login_with_token", || client.login_with_token(token))
             .map_err(AppError::from);
     }
 
     let client_id = SessionClientId::new("hubuum-cli")?;
-    let store = Arc::new(SessionFileStore::new(
+    let store = session_store(
+        config.session_storage,
         client.base_url(),
         identity_scope,
         username,
-    )?);
+    )?;
     if matches!(cached_token, CachedToken::Allow) {
         match client_call("client.resume_session", || {
             client.resume_session(client_id.clone(), store.clone())
@@ -362,7 +355,11 @@ fn authenticate(
             Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => {}
             Err(error) => return Err(error.into()),
         }
-        let token = get_token_from_tokenfile(hostname, identity_scope, username)?;
+        let token = if config.session_storage == SessionStorage::File {
+            get_token_from_tokenfile(hostname, identity_scope, username)?
+        } else {
+            None
+        };
         if let Some(token) = token {
             debug!("Found existing token, testing validity...");
             if let Ok(client) = client_call("client.login_with_token", || {
@@ -373,7 +370,7 @@ fn authenticate(
         }
     }
 
-    let password = match password {
+    let password = match config.password.clone() {
         Some(password) => password,
         None => {
             let scope = identity_scope
@@ -690,16 +687,12 @@ mod authentication_cache_tests {
                 .build()
                 .unwrap();
             let password = format!("fixture-{}", rand::random::<u64>());
-            let client = authenticate(
-                client,
-                "example.invalid",
-                Some("corp"),
-                "alice",
-                Some(password.clone()),
-                None,
-                policy,
-            )
-            .unwrap();
+            let mut config = crate::config::AppConfig::default().server;
+            config.hostname = "example.invalid".into();
+            config.identity_scope = Some("corp".into());
+            config.username = "alice".into();
+            config.password = Some(password.clone());
+            let client = authenticate(client, &config, policy).unwrap();
             let expected = if reuse { "cached-token" } else { "fresh-token" };
             assert_eq!(client.token().unwrap().as_str(), expected);
             assert_eq!(
