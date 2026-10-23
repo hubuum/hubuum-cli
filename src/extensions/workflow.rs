@@ -14,7 +14,6 @@ use crate::catalog::{
     CommandEffects, CommandSpec, WorkflowCardinality, WorkflowInputContract,
     WorkflowValueType as CommandValueType,
 };
-use crate::dispatch::is_offline_builtin_command;
 use crate::errors::ReauthenticationRetry;
 
 pub const MAX_WORKFLOW_CALL_DEPTH: usize = 16;
@@ -738,8 +737,7 @@ where
                     when: step.when().map(str::to_string),
                     effects: command.workflow_contract().effects(),
                     reauthentication_retry: command.reauthentication_retry,
-                    requires_authentication: !is_offline_builtin_command(step.run().segments())
-                        && command.handler.requires_authentication(),
+                    requires_authentication: command.handler.requires_authentication(),
                 })
             }
             WorkflowStep::Let(step) => {

@@ -1338,6 +1338,7 @@ dependencies = [
  "dirs",
  "hubuum-extension-protocol",
  "hubuum-filter",
+ "hubuum-query",
  "hubuum-search",
  "hubuum-session",
  "hubuum-theme",
@@ -1393,6 +1394,17 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "hubuum-query"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hubuum_client",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

@@ -11,9 +11,7 @@ use hubuum_client::{
 
 use crate::diagnostics::client_call;
 use crate::errors::AppError;
-use crate::list_query::{
-    validated_clause_to_query_filter, FilterValueResolver, ValidatedFilterClause,
-};
+use crate::list_query::{FilterValueResolver, ValidatedFilterClause};
 
 use super::HubuumGateway;
 
@@ -275,19 +273,15 @@ impl HubuumGateway {
         &self,
         clause: &ValidatedFilterClause,
     ) -> Result<QueryFilter, AppError> {
-        let resolved_value = match clause.spec.resolver {
-            FilterValueResolver::None => clause.value.clone(),
-            FilterValueResolver::ClassNameToId => {
-                self.class_handle_by_name(&clause.value)?.id().to_string()
-            }
-            FilterValueResolver::CollectionNameToId => {
-                self.collection_id(&clause.value)?.to_string()
-            }
-        };
-
-        let mut resolved = clause.clone();
-        resolved.value = resolved_value;
-        Ok(validated_clause_to_query_filter(&resolved))
+        clause.resolve_value(|resolver, value| {
+            Ok(match resolver {
+                FilterValueResolver::None => value.to_owned(),
+                FilterValueResolver::ClassNameToId => {
+                    self.class_handle_by_name(value)?.id().to_string()
+                }
+                FilterValueResolver::CollectionNameToId => self.collection_id(value)?.to_string(),
+            })
+        })
     }
 }
 

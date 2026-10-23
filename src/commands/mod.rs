@@ -123,7 +123,35 @@ pub trait CommandArgs: Sized + Default + Send + Sync + 'static {
     fn parse_tokens(tokens: &CommandTokenizer) -> Result<Self, AppError>;
 }
 
+pub type OfflineCommand = fn(&CommandTokenizer) -> Result<(), AppError>;
+
+#[derive(Clone, Copy)]
+pub enum OfflineExecution {
+    Unavailable,
+    Always(OfflineCommand),
+    Conditional {
+        execute: OfflineCommand,
+        allowed: fn(&CommandTokenizer) -> bool,
+    },
+}
+
+impl OfflineExecution {
+    pub fn requires_authentication(self) -> bool {
+        !matches!(self, Self::Always(_))
+    }
+
+    pub fn handler(self, tokens: &CommandTokenizer) -> Option<OfflineCommand> {
+        match self {
+            Self::Always(execute) => Some(execute),
+            Self::Conditional { execute, allowed } if allowed(tokens) => Some(execute),
+            _ => None,
+        }
+    }
+}
+
 pub trait CliCommand: CommandArgs + Send + Sync {
+    const OFFLINE: OfflineExecution = OfflineExecution::Unavailable;
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Unsafe;
     const EFFECTS: CommandEffects = CommandEffects::Mutating;
 

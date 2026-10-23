@@ -250,17 +250,21 @@ impl<C> AsyncCommandHandler for CommandHandler<C>
 where
     C: CliCommand + Clone + 'static,
 {
+    fn requires_authentication(&self) -> bool {
+        C::OFFLINE.requires_authentication()
+    }
+
+    fn can_execute_offline(&self, tokens: &CommandTokenizer) -> bool {
+        C::OFFLINE.handler(tokens).is_some()
+    }
+
     async fn execute(
         &self,
         ctx: CommandContext,
         invocation: CommandInvocation,
     ) -> Result<CommandOutcome, AppError> {
         let command = self.command.clone();
-        let services = ctx.services.clone().ok_or_else(|| {
-            AppError::CommandExecutionError(
-                "This command requires an authenticated Hubuum session".to_string(),
-            )
-        })?;
+        let services = ctx.services.clone();
         let raw_line = invocation.raw_line.clone();
         let pipeline = invocation.pipeline.clone();
         let deprecation = self.deprecation;
@@ -286,8 +290,16 @@ where
             set_table_headers(table_headers(&tokens)?)?;
 
             set_stream_output(invocation.stream_output)?;
-            command.execute(services.as_ref(), &tokens)?;
-            services.invalidate_completion();
+            if let Some(services) = services {
+                command.execute(services.as_ref(), &tokens)?;
+                services.invalidate_completion();
+            } else if let Some(execute) = C::OFFLINE.handler(&tokens) {
+                execute(&tokens)?;
+            } else {
+                return Err(AppError::CommandExecutionError(
+                    "This command requires an authenticated Hubuum session".to_string(),
+                ));
+            }
 
             Ok(CommandOutcome {
                 output: take_output()?,
@@ -302,6 +314,58 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::commands::{CliCommand, OfflineExecution};
+    use crate::errors::AppError;
+    use crate::output::set_semantic_output;
+    use crate::services::AppServices;
+    use cli_command_derive::CommandArgs;
+    use hubuum_filter::OutputEnvelope;
+    use serde_json::json;
+    use serial_test::serial;
+
+    #[derive(Clone, Default, CommandArgs)]
+    struct OfflineProbe {}
+
+    impl CliCommand for OfflineProbe {
+        const OFFLINE: OfflineExecution = OfflineExecution::Always(|_| {
+            set_semantic_output(OutputEnvelope::rows(
+                vec![json!({"name": "probe", "hidden": true})],
+                vec!["name".into(), "hidden".into()],
+            ))
+        });
+
+        fn execute(&self, _: &AppServices, _: &CommandTokenizer) -> Result<(), AppError> {
+            panic!("offline dispatch must not initialize an authenticated command");
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn registered_offline_commands_execute_with_pipelines_without_dispatch_changes() {
+        use crate::catalog::{CatalogStore, CommandCatalogBuilder};
+        use crate::dispatch::{can_execute_offline, execute_offline_line};
+        use std::sync::Arc;
+        let mut builder = CommandCatalogBuilder::new();
+        builder.add_command(
+            &[],
+            super::catalog_command(
+                "offline-probe",
+                OfflineProbe::default(),
+                super::CommandDocs::default(),
+            ),
+        );
+        let catalog = builder.build();
+        let line = "offline-probe --output json | columns name";
+        assert!(can_execute_offline(&catalog, line));
+        let result = execute_offline_line(Arc::new(CatalogStore::new(catalog)), line)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.output.semantic[0].value(),
+            &json!([{"name": "probe"}])
+        );
+    }
+
     use super::CommandDeprecation;
     use crate::tokenizer::CommandTokenizer;
 

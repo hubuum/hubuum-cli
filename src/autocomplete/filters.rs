@@ -38,7 +38,7 @@ pub(crate) fn complete_where_clause(
         ),
         ClauseStage::Operator { field, prefix } => {
             let profile = match resolve_filter_field_spec(specs, field) {
-                Some((spec, _)) => spec.operator_profile,
+                Some((spec, _)) => spec.operator_profile(),
                 None if additional_fields.iter().any(|candidate| candidate == field) => {
                     FilterOperatorProfile::Any
                 }
@@ -232,7 +232,7 @@ fn clause_stage_with_fields<'a>(
 fn is_dotted_json_path(specs: &[FilterFieldSpec], field: &str) -> bool {
     field.contains('.')
         && resolve_filter_field_spec(specs, field)
-            .map(|(spec, path)| spec.json_root && !path.is_empty())
+            .map(|(spec, path)| spec.is_json_root() && !path.is_empty())
             .unwrap_or(false)
 }
 
@@ -370,18 +370,18 @@ fn complete_field(
     specs
         .iter()
         .flat_map(|spec| {
-            let root_description = if spec.json_root {
+            let root_description = if spec.is_json_root() {
                 Some("JSON root; append a dotted path".to_string())
             } else {
                 None
             };
             let root = FilterCompletion {
-                value: spec.public_name.to_string(),
+                value: spec.public_name().to_string(),
                 description: root_description.clone(),
                 append_whitespace: true,
             };
-            let nested = spec.json_root.then(|| FilterCompletion {
-                value: format!("{}.", spec.public_name),
+            let nested = spec.is_json_root().then(|| FilterCompletion {
+                value: format!("{}.", spec.public_name()),
                 description: root_description,
                 append_whitespace: false,
             });
@@ -408,13 +408,13 @@ fn complete_value(
         return Vec::new();
     };
 
-    let values = match spec.public_name {
+    let values = match spec.public_name() {
         "collection" => values(ctx.collections(prefix)),
         "class" | "class_a" | "class_b" | "root_class" | "related_class" => {
             values(ctx.classes(prefix))
         }
         "object_a" | "object_b" => Vec::new(),
-        _ if spec.value_profile == FilterValueProfile::Boolean => values(
+        _ if spec.value_profile() == FilterValueProfile::Boolean => values(
             ["true".to_string(), "false".to_string()]
                 .into_iter()
                 .filter(|value| value.starts_with(prefix))
@@ -445,7 +445,7 @@ fn placeholder_value(spec: FilterFieldSpec, operator: &str) -> FilterCompletion 
     let value = if operator == "between" || operator == "not_between" {
         "<low,high>"
     } else {
-        match spec.value_profile {
+        match spec.value_profile() {
             FilterValueProfile::String => "<string>",
             FilterValueProfile::Integer => "<integer>",
             FilterValueProfile::DateTime => "<date-time>",
@@ -456,7 +456,7 @@ fn placeholder_value(spec: FilterFieldSpec, operator: &str) -> FilterCompletion 
 
     FilterCompletion {
         value: value.to_string(),
-        description: Some(format!("value for {}", spec.public_name)),
+        description: Some(format!("value for {}", spec.public_name())),
         append_whitespace: false,
     }
 }

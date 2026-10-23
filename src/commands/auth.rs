@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use std::time::Duration;
 
 use cli_command_derive::CommandArgs;
@@ -62,6 +63,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub(crate) struct AuthStatus {}
 
 impl CliCommand for AuthStatus {
+    const OFFLINE: OfflineExecution =
+        OfflineExecution::Always(|tokens| render_saved_session(tokens, false));
+
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         Self::parse_tokens(tokens)?;
@@ -73,6 +77,9 @@ impl CliCommand for AuthStatus {
 pub(crate) struct AuthLogout {}
 
 impl CliCommand for AuthLogout {
+    const OFFLINE: OfflineExecution =
+        OfflineExecution::Always(|tokens| render_saved_session(tokens, true));
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         Self::parse_tokens(tokens)?;
         services.gateway().logout_session()?;
@@ -180,6 +187,8 @@ impl CliCommand for ApprovalShow {
 pub struct AuthProviders {}
 
 impl CliCommand for AuthProviders {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_auth_providers);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 

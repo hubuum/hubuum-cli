@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use std::time::Duration;
 
 use cli_command_derive::CommandArgs;
@@ -45,6 +46,8 @@ pub struct Version {
 }
 
 impl CliCommand for Version {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_version);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 

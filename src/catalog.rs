@@ -19,6 +19,7 @@ use crate::services::AppServices;
 use crate::suggestions::did_you_mean_message;
 use crate::terminal::terminal_width;
 use crate::theme::{paint, paint_command, ThemeRole};
+use crate::tokenizer::CommandTokenizer;
 
 #[derive(Debug, Clone)]
 pub struct OptionSpec {
@@ -318,6 +319,9 @@ pub trait AsyncCommandHandler: Send + Sync {
 
     fn requires_authentication(&self) -> bool {
         true
+    }
+    fn can_execute_offline(&self, _tokens: &CommandTokenizer) -> bool {
+        !self.requires_authentication()
     }
 }
 
@@ -1106,10 +1110,10 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
     let fields = specs
         .iter()
         .map(|spec| {
-            if spec.json_root {
-                format!("{}.<path>", spec.public_name)
+            if spec.is_json_root() {
+                format!("{}.<path>", spec.public_name())
             } else {
-                spec.public_name.to_string()
+                spec.public_name().to_string()
             }
         })
         .collect::<Vec<_>>()
@@ -1117,7 +1121,7 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
 
     let mut operator_profiles = specs
         .iter()
-        .map(|spec| spec.operator_profile)
+        .map(|spec| spec.operator_profile())
         .collect::<Vec<_>>();
     operator_profiles.sort_by_key(operator_profile_rank);
     operator_profiles.dedup();
@@ -1155,7 +1159,7 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
         );
     }
 
-    if specs.iter().any(|spec| spec.json_root) {
+    if specs.iter().any(|spec| spec.is_json_root()) {
         help.push_str(&format!(
             "  JSON paths: use dotted paths, for example {}.\n",
             paint_command("json_data.contact equals Entry")

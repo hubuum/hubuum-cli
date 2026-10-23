@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use cli_command_derive::CommandArgs;
 use serde::Serialize;
 use serde_json::{json, to_value, Map, Value};
@@ -154,6 +155,8 @@ pub struct ConfigShow {
 }
 
 impl CliCommand for ConfigShow {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_config_show);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
@@ -188,6 +191,8 @@ pub(crate) fn render_config_show(tokens: &CommandTokenizer) -> Result<(), AppErr
 pub struct ConfigPaths {}
 
 impl CliCommand for ConfigPaths {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_config_paths);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
@@ -232,6 +237,13 @@ pub struct ConfigSet {
 }
 
 impl CliCommand for ConfigSet {
+    const OFFLINE: OfflineExecution = OfflineExecution::Conditional {
+        execute: |tokens| render_config_set(tokens, None),
+        allowed: |tokens| {
+            Self::parse_tokens(tokens).is_ok_and(|query| is_self_update_config_key(&query.key))
+        },
+    };
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_set(tokens, Some(services))
     }
@@ -289,6 +301,13 @@ pub struct ConfigUnset {
 }
 
 impl CliCommand for ConfigUnset {
+    const OFFLINE: OfflineExecution = OfflineExecution::Conditional {
+        execute: |tokens| render_config_unset(tokens, None),
+        allowed: |tokens| {
+            Self::parse_tokens(tokens).is_ok_and(|query| is_self_update_config_key(&query.key))
+        },
+    };
+
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_config_unset(tokens, Some(services))
     }

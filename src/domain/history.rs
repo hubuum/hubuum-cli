@@ -5,7 +5,6 @@ use serde::Serialize;
 use serde_json::{json, to_value, Value};
 
 use crate::errors::AppError;
-use crate::formatting::TableRenderable;
 use crate::list_query::PagedResult;
 
 /// Retains the complete snapshot for JSON while giving tables history-specific columns.
@@ -18,45 +17,14 @@ impl HistoryRecord {
         Ok(Self(to_value(value)?))
     }
 
-    fn field(&self, field: &str) -> String {
-        match &self.0[field] {
-            Value::Null => "-".into(),
-            Value::String(value) => value.clone(),
-            value => value.to_string(),
-        }
+    pub(crate) fn snapshot(&self) -> &Value {
+        &self.0
     }
 }
 
 impl fmt::Debug for HistoryRecord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HistoryRecord").finish_non_exhaustive()
-    }
-}
-
-impl TableRenderable for HistoryRecord {
-    fn headers() -> Vec<&'static str> {
-        vec![
-            "history_id",
-            "id",
-            "name",
-            "revision",
-            "operation",
-            "valid_from",
-            "valid_to",
-        ]
-    }
-
-    fn row(&self) -> Vec<String> {
-        Self::headers()
-            .iter()
-            .map(|field| {
-                if *field == "operation" && self.0.get("operation").is_none() {
-                    self.field("op")
-                } else {
-                    self.field(field)
-                }
-            })
-            .collect()
     }
 }
 
@@ -177,53 +145,16 @@ impl HistoryPageRecord {
 #[serde(transparent)]
 pub(crate) struct HistoricalRelationRecord(HistoryRecord);
 
-impl TableRenderable for HistoricalRelationRecord {
-    fn headers() -> Vec<&'static str> {
-        vec![
-            "history_id",
-            "revision",
-            "operation",
-            "from",
-            "to",
-            "forward_label",
-            "reverse_label",
-            "context_at",
-        ]
-    }
-    fn row(&self) -> Vec<String> {
-        Self::headers()
-            .iter()
-            .map(|field| match *field {
-                "operation" => self.0.field("op"),
-                "from" | "to" => {
-                    let endpoint = &self.0 .0[field];
-                    if endpoint["status"] == "available" {
-                        format!(
-                            "{} (#{})",
-                            endpoint["snapshot"]["name"].as_str().unwrap_or("-"),
-                            endpoint["snapshot"]["id"]
-                        )
-                    } else {
-                        format!(
-                            "unavailable: {}",
-                            endpoint["reason"].as_str().unwrap_or("history_unavailable")
-                        )
-                    }
-                }
-                "forward_label" | "reverse_label" => self.0 .0["relation"][field]
-                    .as_str()
-                    .unwrap_or("-")
-                    .to_owned(),
-                field => self.0.field(field),
-            })
-            .collect()
-    }
-}
-
 impl fmt::Debug for HistoryPageRecord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HistoryPageRecord")
             .field("returned_count", &self.returned_count)
             .finish_non_exhaustive()
+    }
+}
+
+impl HistoricalRelationRecord {
+    pub(crate) fn snapshot(&self) -> &Value {
+        self.0.snapshot()
     }
 }

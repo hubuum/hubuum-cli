@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use cli_command_derive::CommandArgs;
 use hubuum_filter::OutputEnvelope;
 use hubuum_theme::{paint, ThemeError};
@@ -75,6 +76,8 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 pub struct ThemeList {}
 
 impl CliCommand for ThemeList {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_theme_list);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
@@ -128,6 +131,8 @@ pub struct ThemeShow {
 }
 
 impl CliCommand for ThemeShow {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_theme_show);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
@@ -157,6 +162,8 @@ pub struct ThemePreview {
 }
 
 impl CliCommand for ThemePreview {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_theme_preview);
+
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 

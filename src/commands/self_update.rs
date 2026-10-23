@@ -1,3 +1,4 @@
+use super::OfflineExecution;
 use std::time::Duration;
 
 use cli_command_derive::CommandArgs;
@@ -41,6 +42,8 @@ pub struct SelfUpdate {
 }
 
 impl CliCommand for SelfUpdate {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_self_update);
+
     fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         render_self_update(tokens)
     }
