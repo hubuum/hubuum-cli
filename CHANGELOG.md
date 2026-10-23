@@ -38,6 +38,9 @@
   Accept numeric class/object selectors so retained history remains accessible
   after deletion. History tables show history IDs, revisions, operations, and
   validity intervals while existing JSON snapshots retain their fields.
+- Honor positional object names after history class selectors and positional
+  token IDs after credential-owner options. Suppress activity pagination hints
+  for summary pipelines while retaining warnings about partial evidence.
 - Coordinate concurrent cache-miss logins so processes starting with empty or
   expired caches reuse one session instead of replacing each other's credentials.
   Recheck storage after password entry under a cross-process login lock.

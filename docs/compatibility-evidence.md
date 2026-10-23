@@ -74,14 +74,16 @@ and passes a Rust 1.89 compile check. It preserves file layouts, native keychain
 identifiers, login/refresh locks, permissions, and durable writes. The SDK retains
 its Rust 1.88 requirement; the application still declares no MSRV.
 
-On 2026-10-23, all 848 workspace tests passed. Strict workspace/all-target Clippy,
+On 2026-10-23, all 851 workspace tests passed. Strict workspace/all-target Clippy,
 rustfmt, Markdown lint, 18 CI-policy tests, wrapper tests, extension-schema
 validation, and the strict documentation build/link check passed. The updated
 lockfile passed the RustSec vulnerability audit. Regression coverage includes
 direct/deleted-resource history, literal numeric names, complete historical
 envelopes through pagination and pipelines, rejected cursor/offset cycles,
 directional label reordering, bounded hydration, observation controls, and
-logout preserving a newer saved session family.
+logout preserving a newer saved session family. It also covers mixed positional
+and named resource/token selectors and suppressed pagination hints for activity
+summary pipelines.
 
 The expanded live CLI suite passed against the pinned image above, including
 session inspection/logout without fresh login, current/user/service-account

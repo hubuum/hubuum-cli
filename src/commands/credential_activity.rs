@@ -10,8 +10,8 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json;
 use crate::list_query::PARTIAL_PIPELINE_WARNING;
 use crate::output::{
-    add_warning, append_line, append_pipeline_suffix, has_pipeline, set_next_page_command,
-    RenderFormat,
+    add_warning, append_line, append_pipeline_suffix, has_pipeline, pipeline_suppresses_pagination,
+    set_next_page_command, RenderFormat,
 };
 use crate::services::{AppServices, CredentialActivityInput, CredentialOwner};
 use crate::tokenizer::CommandTokenizer;
@@ -64,7 +64,7 @@ macro_rules! activity_command {
                 if result.next_offset.is_some() && has_pipeline()? { add_warning(PARTIAL_PIPELINE_WARNING)?; }
                 // Keep the complete evidence envelope in every output/pipeline.
                 append_json(&result)?;
-                if super::render_format($tokens)? == RenderFormat::Text {
+                if super::render_format($tokens)? == RenderFormat::Text && !pipeline_suppresses_pagination()? {
                     if let Some(offset) = result.next_offset {
                         let next = rebuild_with_replaced_options($tokens, &["--offset"], [("--offset", Some(offset.to_string().as_str()))]);
                         set_next_page_command(append_pipeline_suffix(next)?)?;
@@ -85,8 +85,8 @@ activity_command!(
 activity_command!(UserTokenActivity, "user_token_ids" {
     #[option(long = "username", help = "Token owner's username", autocomplete = "users")]
     username: Option<String>,
-} |query, tokens| CredentialOwner::User(required_option_or_pos(query.username, tokens, 0, "username")?), 1);
+} |query, tokens| CredentialOwner::User(required_option_or_pos(query.username, tokens, 0, "username")?), usize::from(query.username.is_none()));
 activity_command!(ServiceTokenActivity, "service_account_token_ids" {
     #[option(long = "name", help = "Token owner's service-account name", autocomplete = "service_accounts")]
     name: Option<String>,
-} |query, tokens| CredentialOwner::ServiceAccount(required_option_or_pos(query.name, tokens, 0, "name")?), 1);
+} |query, tokens| CredentialOwner::ServiceAccount(required_option_or_pos(query.name, tokens, 0, "name")?), usize::from(query.name.is_none()));

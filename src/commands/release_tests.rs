@@ -8,7 +8,7 @@ use serial_test::serial;
 
 use crate::app::AppRuntime;
 use crate::catalog::{CatalogStore, CommandOutcome};
-use crate::config::{init_config, AppConfig};
+use crate::config::{get_config, init_config, AppConfig};
 use crate::dispatch::execute_line;
 use crate::errors::AppError;
 use crate::repl::SharedReplState;
@@ -17,6 +17,7 @@ use crate::services::AppServices;
 const AT: &str = "2026-10-23T00:00:00Z";
 
 async fn execute(transport: &MockTransport, command: &str) -> Result<CommandOutcome, AppError> {
+    let previous = get_config();
     let config = Arc::new(AppConfig::default());
     init_config(config.clone()).unwrap();
     let transport = transport.clone();
@@ -41,6 +42,7 @@ async fn execute(transport: &MockTransport, command: &str) -> Result<CommandOutc
     tokio::task::spawn_blocking(move || drop(app))
         .await
         .unwrap();
+    init_config(previous).unwrap();
     result
 }
 
@@ -393,4 +395,72 @@ async fn history_permission_failures_are_not_replaced_by_live_lookups() {
     .await
     .is_err());
     assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn credential_activity_accepts_a_positional_token_after_an_owner_option() {
+    for command in [
+        "service-account token activity --name collector 42",
+        "service-account token activity collector 42",
+        "user token activity --username collector 42",
+        "user token activity collector 42",
+    ] {
+        let transport = MockTransport::default();
+        respond(&transport, service_account(), None);
+        respond(&transport, activity(0, None), None);
+        let value = output(
+            execute(&transport, &format!("{command} --output json"))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(value["session_id"], "family");
+        assert_eq!(
+            transport.requests()[1].url.path(),
+            "/api/v1/iam/principals/7/tokens/42/activity"
+        );
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn credential_activity_summary_pipeline_does_not_offer_next_page() {
+    let transport = MockTransport::default();
+    respond(&transport, service_account(), None);
+    respond(&transport, activity(0, Some(1)), None);
+    let result = execute(
+        &transport,
+        "service-account token activity --name collector --token-id 42 | JQ '.sources | length'",
+    )
+    .await
+    .unwrap();
+    assert!(result.output.next_page_command.is_none());
+    assert!(!result.output.render().contains("More credential sources"));
+    assert!(!result.output.warnings.is_empty());
+}
+
+#[tokio::test]
+#[serial]
+async fn object_history_accepts_a_positional_object_after_a_class_selector() {
+    for selector in ["--class-id 1", "--class Hosts", "Hosts"] {
+        let transport = MockTransport::default();
+        if selector != "--class-id 1" {
+            respond(&transport, class_history(), None);
+        }
+        respond(&transport, json!([object_history(2)]), None);
+        respond(&transport, json!([object_history(2)]), None);
+        let value = output(
+            execute(
+                &transport,
+                &format!("history object {selector} 123 --output json"),
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(value[0]["id"], 2);
+        assert_eq!(
+            transport.requests().last().unwrap().url.path(),
+            "/api/v1/classes/1/2/history"
+        );
+    }
 }

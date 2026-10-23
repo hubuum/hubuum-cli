@@ -228,8 +228,13 @@ impl CliCommand for ObjectHistory {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let mut query = Self::parse_tokens(tokens)?;
         let positionals = tokens.get_positionals();
-        query.class = query.class.or_else(|| positionals.first().cloned());
-        query.name = query.name.or_else(|| positionals.get(1).cloned());
+        let positional_class = query.class.is_none() && query.class_id.is_none();
+        if positional_class {
+            query.class = positionals.first().cloned();
+        }
+        if query.name.is_none() && query.object_id.is_none() {
+            query.name = positionals.get(usize::from(positional_class)).cloned();
+        }
         let history = services.gateway().history(
             ResourceScope::class(query.class, query.class_id)?
                 .with_object(query.name, query.object_id)?
