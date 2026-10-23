@@ -134,6 +134,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::task::register_commands(&mut builder);
     commands::theme::register_commands(&mut builder);
     commands::object::register_commands(&mut builder);
+    commands::hydration::register_commands(&mut builder);
     commands::relations::register_commands(&mut builder);
     commands::remote_target::register_commands(&mut builder);
     commands::event_sink::register_commands(&mut builder);
@@ -143,6 +144,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     commands::search::register_commands(&mut builder);
     commands::service_account::register_commands(&mut builder);
     commands::me::register_commands(&mut builder);
+    commands::credential_activity::register_commands(&mut builder);
     commands::metrics::register_commands(&mut builder);
     commands::history::register_commands(&mut builder);
     commands::help::register_commands(&mut builder);

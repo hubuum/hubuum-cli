@@ -76,6 +76,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      - name: Check session crate minimum Rust version
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          cargo +1.89.0 check --locked -p hubuum-session
+
       - name: Run Host extension wrapper tests
         run: examples/hubuum-wrappers/tests/test_wrappers.sh
 
@@ -161,13 +166,13 @@ jobs:
         run: |
           dbus-run-session -- bash -euc '
             head -c 32 /dev/urandom | base64 | gnome-keyring-daemon --unlock
-            cargo test --locked --release --bin hubuum-cli session_store::keychain::tests::native_keychain_round_trip -- --ignored --exact
+            cargo test --locked --release -p hubuum-session keychain::tests::native_keychain_round_trip -- --ignored --exact
             cargo test --locked --release --test session_persistence native_keychain_processes_migrate_reuse_and_coordinate -- --ignored --exact
           '
 
       - name: Test macOS Keychain
         if: matrix.platform.os_name == 'macOS-aarch64' && matrix.toolchain == 'stable'
-        run: cargo test --locked --release --bin hubuum-cli session_store::keychain::tests::native_keychain_round_trip -- --ignored --exact
+        run: cargo test --locked --release -p hubuum-session keychain::tests::native_keychain_round_trip -- --ignored --exact
 
   backup-restore:
     needs: changes

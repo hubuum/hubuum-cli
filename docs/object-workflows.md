@@ -58,6 +58,30 @@ error instead of partial results; it is not a page size or output truncation.
 Omitting `--limit` keeps the server's default. Zero is rejected by the CLI.
 Use `--max-depth` to narrow traversal when a graph is too large.
 
+## Hydrate paths to a target class
+
+```sh
+hubuum-cli object hydrate --class Hosts --name web-01 --target-class Rooms --max-depth 2 --path-limit 20
+hubuum-cli object hydrate --class-id 10 --object-id 42 --target-class-id 20 --output json
+```
+
+Supply exactly one name or ID for each class selector and for the root object.
+Depth accepts 1–10 and defaults to 1; the path limit accepts 1–50 and defaults to
+20. The result retains the root, target, objects, relations, paths, and
+`truncated` indication, including in pipelines. Hydration has no continuation
+cursor. A truncated response requires a narrower request or a larger bounded
+path limit.
+
+## Directional relation labels
+
+```sh
+hubuum-cli relation class create --class-a Hosts --class-b Rooms --forward-label 'located in' --reverse-label contains
+```
+
+The forward label describes class A toward class B; the reverse label describes
+the opposite direction. Labels, template aliases, and cardinality settings stay
+with their respective endpoints when the CLI orders class IDs for the API.
+
 Administrators can inspect the server's redacted effective process configuration:
 
 ```sh

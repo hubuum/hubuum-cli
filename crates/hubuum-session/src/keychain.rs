@@ -133,7 +133,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::session_store::tests::session;
+    use crate::tests::session;
 
     fn files(directory: &Path, user: &str) -> SessionFileStore {
         SessionFileStore::at(

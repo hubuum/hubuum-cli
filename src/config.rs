@@ -1729,7 +1729,7 @@ fn parse_config_value(
         ConfigValueKind::SessionStorage => TomlValue::String(
             value
                 .parse::<SessionStorage>()
-                .map_err(AppError::ConfigError)?
+                .map_err(|error| AppError::ConfigError(error.to_string()))?
                 .to_string(),
         ),
         ConfigValueKind::OutputFormat => {

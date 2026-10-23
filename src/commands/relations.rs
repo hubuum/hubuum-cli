@@ -1,5 +1,6 @@
 use cli_command_derive::CommandArgs;
 use hubuum_client::ObjectRelationLimit;
+use hubuum_client::RelationLabel;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -299,6 +300,13 @@ impl CliCommand for ClassRelationShow {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ClassRelationCreate {
     #[option(
+        long = "forward-label",
+        help = "Human-facing label from class A to B (independent of template aliases)"
+    )]
+    pub forward_label: Option<String>,
+    #[option(long = "reverse-label", help = "Human-facing label from class B to A")]
+    pub reverse_label: Option<String>,
+    #[option(
         long = "class-a",
         help = "First class endpoint",
         autocomplete = "classes"
@@ -335,6 +343,12 @@ pub struct ClassRelationCreate {
 impl ClassRelationCreate {
     fn into_relation_input(self) -> Result<CreateClassRelationInput, AppError> {
         let mut input = CreateClassRelationInput::new(self.class_a, self.class_b);
+        if let Some(label) = self.forward_label {
+            input = input.with_forward_label(RelationLabel::new(label)?);
+        }
+        if let Some(label) = self.reverse_label {
+            input = input.with_reverse_label(RelationLabel::new(label)?);
+        }
         if let Some(alias) = self.forward_template_alias {
             input = input.with_forward_template_alias(alias);
         }

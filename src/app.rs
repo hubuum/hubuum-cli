@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::diagnostics::{self, client_call, spawn_blocking};
@@ -27,11 +27,12 @@ use crate::config::{
 };
 use crate::defaults::Defaults;
 use crate::errors::AppError;
-use crate::files::{get_log_file, get_token_from_tokenfile};
+use crate::files::{data_root_dir, get_log_file, get_token_from_tokenfile};
 use crate::models::SessionStorage;
+use crate::repl::SharedReplState;
 use crate::services::AppServices;
-use crate::session_store::SessionCache;
 use crate::theme::{paint, ThemeRole};
+use hubuum_session::{SessionCache, SessionIdentity, SessionOptions};
 
 const SERVER_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -40,63 +41,6 @@ pub struct AppRuntime {
     pub config: Arc<AppConfig>,
     pub services: Arc<AppServices>,
     pub catalog: Arc<CatalogStore>,
-}
-
-#[derive(Debug, Default)]
-pub struct AppSession {
-    scope: Vec<String>,
-    next_page_command: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct SharedSession {
-    inner: Arc<Mutex<AppSession>>,
-}
-
-impl SharedSession {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(AppSession::default())),
-        }
-    }
-
-    pub fn scope(&self) -> Vec<String> {
-        self.inner
-            .lock()
-            .expect("session scope lock should not be poisoned")
-            .scope
-            .clone()
-    }
-
-    pub fn set_scope(&self, scope: Vec<String>) {
-        self.inner
-            .lock()
-            .expect("session scope lock should not be poisoned")
-            .scope = scope;
-    }
-
-    pub fn exit_scope(&self) -> bool {
-        let mut guard = self
-            .inner
-            .lock()
-            .expect("session scope lock should not be poisoned");
-        guard.scope.pop().is_some()
-    }
-
-    pub fn next_page_command(&self) -> Option<String> {
-        self.inner
-            .lock()
-            .expect("session scope lock should not be poisoned")
-            .next_page_command
-            .clone()
-    }
-
-    pub fn set_next_page_command(&self, command: Option<String>) {
-        self.inner
-            .lock()
-            .expect("session scope lock should not be poisoned")
-            .next_page_command = command;
-    }
 }
 
 pub fn init_logging() -> Result<(), AppError> {
@@ -350,12 +294,7 @@ fn authenticate_with_prompt(
     }
 
     let client_id = SessionClientId::new("hubuum-cli")?;
-    let cache = SessionCache::new(
-        config.session_storage,
-        client.base_url(),
-        identity_scope,
-        username,
-    )?;
+    let cache = session_cache(config, client.base_url())?;
     if matches!(cached_token, CachedToken::Allow) {
         if let Some(cache) = &cache {
             if let Some(client) = resume_session(&client, &client_id, cache)? {
@@ -413,6 +352,20 @@ fn authenticate_with_prompt(
     .map_err(AppError::from)
 }
 
+fn session_cache(
+    config: &ServerConfig,
+    base_url: &BaseUrl,
+) -> Result<Option<SessionCache>, AppError> {
+    if config.session_storage == SessionStorage::None {
+        return Ok(None);
+    }
+    let identity =
+        SessionIdentity::new(base_url, config.identity_scope.as_deref(), &config.username)?;
+    Ok(SessionCache::open(
+        SessionOptions::new(data_root_dir()?, identity).storage(config.session_storage),
+    )?)
+}
+
 fn resume_session(
     client: &BlockingClient<Unauthenticated>,
     client_id: &SessionClientId,
@@ -426,6 +379,29 @@ fn resume_session(
         Err(error) if error.is_status(reqwest::StatusCode::UNAUTHORIZED) => Ok(None),
         Err(error) => Err(error.into()),
     }
+}
+
+/// Resume only existing rotating credentials. Inspection/logout must never prompt
+/// for a password or turn a missing session into a new login.
+pub(crate) fn resume_saved_session(
+    config: Arc<AppConfig>,
+) -> Result<Option<BlockingClient<Authenticated>>, AppError> {
+    if config.server.token_file.is_some() || config.server.session_storage == SessionStorage::None {
+        return Ok(None);
+    }
+    for port in ServerPorts::from_config(&config).0 {
+        let mut candidate = (*config).clone();
+        candidate.server.port = port;
+        let client = build_client(&candidate)?;
+        if let Some(cache) = session_cache(&candidate.server, client.base_url())? {
+            if let Some(client) =
+                resume_session(&client, &SessionClientId::new("hubuum-cli")?, &cache)?
+            {
+                return Ok(Some(client));
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[derive(Debug, Clone)]
@@ -468,7 +444,7 @@ impl AppRuntime {
         }
     }
 
-    pub fn prompt(&self, session: &SharedSession) -> String {
+    pub fn prompt(&self, session: &SharedReplState) -> String {
         let config = get_config();
         let identity = config
             .server

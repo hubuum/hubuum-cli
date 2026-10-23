@@ -2,18 +2,14 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use hubuum_client::{
-    client::sync::{EventListRequest, HistoryRequest},
-    types::SortDirection,
-    ClassId, CollectionId, EventDeliveryId, EventNotificationRequest, EventSinkId,
-    EventSubscriptionId, ExportTemplateId, FilterOperator, GroupId, HistoryId, HubuumDateTime,
-    NewEventSink, NewEventSubscription, ObjectId, QueryFilter, RemoteTargetId, UpdateEventSink,
-    UpdateEventSubscription, UserId,
+    client::sync::EventListRequest, ClassId, CollectionId, EventDeliveryId,
+    EventNotificationRequest, EventSinkId, EventSubscriptionId, ExportTemplateId, FilterOperator,
+    GroupId, NewEventSink, NewEventSubscription, ObjectId, QueryFilter, RemoteTargetId,
+    UpdateEventSink, UpdateEventSubscription, UserId,
 };
 use log::debug;
 use reqwest::StatusCode;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, Value};
 
 use crate::diagnostics::client_call;
 use crate::domain::{AuditEventId, AuditEventRecord, JsonRecord};
@@ -24,7 +20,7 @@ use crate::list_query::{
     PagedResult, SortFieldSpec, ValidatedFilterClause,
 };
 
-use super::HubuumGateway;
+use super::{shared::parse_single_sort, HubuumGateway};
 
 #[derive(Debug, Clone, Default)]
 pub struct AuditListInput {
@@ -164,30 +160,6 @@ pub enum AuditScope {
     Group(GroupId),
     Template(ExportTemplateId),
     RemoteTarget(RemoteTargetId),
-}
-
-#[derive(Debug, Clone)]
-pub enum HistoryScope {
-    Class(ClassId),
-    Object {
-        class_id: ClassId,
-        object_id: ObjectId,
-    },
-    ClassName(String),
-    ObjectName {
-        class_name: String,
-        object_name: String,
-    },
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct HistoryInput {
-    pub limit: Option<usize>,
-    pub sort: Option<String>,
-    pub cursor: Option<String>,
-    pub at: Option<String>,
-    pub include_total: bool,
-    pub page_selection: PageSelection,
 }
 
 impl HubuumGateway {
@@ -381,131 +353,6 @@ impl HubuumGateway {
         });
 
         record.with_audit_resource_names(actor_user, collection)
-    }
-
-    pub fn history(
-        &self,
-        scope: HistoryScope,
-        input: HistoryInput,
-    ) -> Result<PagedResult<JsonRecord>, AppError> {
-        let scope = self.resolve_history_scope(scope)?;
-        if let Some(at) = input.at.as_deref() {
-            let record = self.history_record_at_resolved(scope, parse_hubuum_datetime(at)?)?;
-            return Ok(PagedResult {
-                items: vec![record],
-                next_cursor: None,
-                returned_count: 1,
-                total_count: input.include_total.then_some(1),
-            });
-        }
-
-        match scope {
-            HistoryScope::Class(id) => {
-                let request = apply_history_input(self.client().class_history(id), &input)?;
-                history_results(request, &input)
-            }
-            HistoryScope::Object {
-                class_id,
-                object_id,
-            } => {
-                let request =
-                    apply_history_input(self.client().object_history(class_id, object_id), &input)?;
-                history_results(request, &input)
-            }
-            HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
-                unreachable!("history name scopes are resolved before request execution")
-            }
-        }
-    }
-
-    pub fn history_record_at(&self, scope: HistoryScope, at: &str) -> Result<JsonRecord, AppError> {
-        let scope = self.resolve_history_scope(scope)?;
-        self.history_record_at_resolved(scope, parse_hubuum_datetime(at)?)
-    }
-
-    pub fn history_record_by_id(
-        &self,
-        scope: HistoryScope,
-        history_id: HistoryId,
-    ) -> Result<JsonRecord, AppError> {
-        const PAGE_LIMIT: usize = 100;
-        const MAX_PAGES: usize = 100;
-
-        let scope = self.resolve_history_scope(scope)?;
-        let mut cursor = None;
-        for _ in 0..MAX_PAGES {
-            let page = self.history(
-                scope.clone(),
-                HistoryInput {
-                    limit: Some(PAGE_LIMIT),
-                    sort: Some("-history_id".to_string()),
-                    cursor: cursor.clone(),
-                    ..HistoryInput::default()
-                },
-            )?;
-
-            if let Some(record) = page
-                .items
-                .into_iter()
-                .find(|record| json_record_history_id(record) == Some(history_id))
-            {
-                return Ok(record);
-            }
-
-            let Some(next_cursor) = page.next_cursor else {
-                break;
-            };
-            cursor = Some(next_cursor);
-        }
-
-        Err(AppError::EntityNotFound(format!(
-            "history record {history_id} not found in the first {} versions of the selected resource",
-            PAGE_LIMIT * MAX_PAGES
-        )))
-    }
-
-    fn history_record_at_resolved(
-        &self,
-        scope: HistoryScope,
-        at: HubuumDateTime,
-    ) -> Result<JsonRecord, AppError> {
-        match scope {
-            HistoryScope::Class(id) => {
-                JsonRecord::from_serializable(client_call("client.class_history_as_of", || {
-                    self.client().class_history_as_of(id, at)
-                })?)
-                .map_err(AppError::from)
-            }
-            HistoryScope::Object {
-                class_id,
-                object_id,
-            } => JsonRecord::from_serializable(client_call("client.object_history_as_of", || {
-                self.client().object_history_as_of(class_id, object_id, at)
-            })?)
-            .map_err(AppError::from),
-            HistoryScope::ClassName(_) | HistoryScope::ObjectName { .. } => {
-                unreachable!("history name scopes are resolved before request execution")
-            }
-        }
-    }
-
-    fn resolve_history_scope(&self, scope: HistoryScope) -> Result<HistoryScope, AppError> {
-        match scope {
-            HistoryScope::ClassName(class_name) => Ok(HistoryScope::Class(
-                self.class_handle_by_name(&class_name)?.id(),
-            )),
-            HistoryScope::ObjectName {
-                class_name,
-                object_name,
-            } => {
-                let object = self.object_handle_by_name(&class_name, &object_name)?;
-                Ok(HistoryScope::Object {
-                    class_id: object.resource().hubuum_class_id,
-                    object_id: object.id(),
-                })
-            }
-            other => Ok(other),
-        }
     }
 
     pub fn collection_event_sinks(
@@ -944,10 +791,6 @@ impl HubuumGateway {
     }
 }
 
-fn json_record_history_id(record: &JsonRecord) -> Option<HistoryId> {
-    from_value(record.value.get("history_id")?.clone()).ok()
-}
-
 fn apply_audit_input(
     mut request: EventListRequest,
     input: &AuditListInput,
@@ -983,63 +826,6 @@ fn apply_audit_input(
         request = request.cursor(cursor);
     }
     Ok(request)
-}
-
-fn apply_history_input<T>(
-    mut request: HistoryRequest<T>,
-    input: &HistoryInput,
-) -> Result<HistoryRequest<T>, AppError>
-where
-    T: DeserializeOwned,
-{
-    if let Some(limit) = input.limit {
-        request = request.limit(limit);
-    }
-    request = request.include_total(input.include_total);
-    if let Some((field, direction)) = parse_single_sort(input.sort.as_deref())? {
-        request = request.sort(field, direction);
-    }
-    if let Some(cursor) = &input.cursor {
-        request = request.cursor(cursor);
-    }
-    Ok(request)
-}
-
-fn parse_single_sort(sort: Option<&str>) -> Result<Option<(&str, SortDirection)>, AppError> {
-    let Some(sort) = sort.filter(|value| !value.trim().is_empty()) else {
-        return Ok(None);
-    };
-    if sort.contains(',') {
-        return Err(AppError::InvalidOption(
-            "only one sort field is supported by the official hubuum_client request type"
-                .to_string(),
-        ));
-    }
-    let sort = sort.trim();
-    if let Some(field) = sort.strip_prefix('-') {
-        Ok(Some((field, SortDirection::Desc)))
-    } else {
-        Ok(Some((sort, SortDirection::Asc)))
-    }
-}
-
-fn parse_hubuum_datetime(value: &str) -> Result<HubuumDateTime, AppError> {
-    from_value(Value::String(value.to_string())).map_err(AppError::from)
-}
-
-fn history_results<T>(
-    request: HistoryRequest<T>,
-    input: &HistoryInput,
-) -> Result<PagedResult<JsonRecord>, AppError>
-where
-    T: DeserializeOwned + Serialize,
-{
-    let page = if matches!(input.page_selection, PageSelection::All) {
-        PagedResult::from_pages(request.pages())?
-    } else {
-        PagedResult::from_page(client_call("history.page", || request.page())?, |item| item)
-    };
-    paged_to_json(page)
 }
 
 fn paged_to_json<T: Serialize>(page: PagedResult<T>) -> Result<PagedResult<JsonRecord>, AppError> {

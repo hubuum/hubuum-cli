@@ -1,6 +1,7 @@
 //! Identity-scoped, process-safe storage for rotating login sessions.
 
-use std::fs::{File, OpenOptions};
+use std::fmt;
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,30 +10,60 @@ use hubuum_client::{ApiError, BaseUrl, SessionStore, SessionStoreGuard, StoredSe
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::errors::AppError;
-use crate::files::{data_root_dir, ensure_root_dir_at};
-use crate::models::SessionStorage;
-
 mod keychain;
+mod storage;
 
-pub(crate) struct SessionCache {
+pub use storage::SessionStorage;
+
+#[derive(Debug, thiserror::Error)]
+pub enum SessionError {
+    #[error("Session username must not be blank")]
+    InvalidUsername,
+    #[error("Session identity provider must not be blank")]
+    InvalidIdentityScope,
+    #[error("Session storage must be 'file', 'keychain', or 'none'")]
+    InvalidStorage,
+    #[error("Session storage error: {0}")]
+    Io(#[from] Error),
+    #[error("Session storage error: {0}")]
+    Store(#[from] ApiError),
+}
+
+/// Storage settings supplied by the application; no global configuration is read.
+pub struct SessionOptions {
+    directory: PathBuf,
+    identity: SessionIdentity,
+    storage: SessionStorage,
+}
+
+impl SessionOptions {
+    pub fn new(directory: impl Into<PathBuf>, identity: SessionIdentity) -> Self {
+        Self {
+            directory: directory.into(),
+            identity,
+            storage: SessionStorage::default(),
+        }
+    }
+
+    pub fn storage(mut self, storage: SessionStorage) -> Self {
+        self.storage = storage;
+        self
+    }
+}
+
+pub struct SessionCache {
     store: Arc<dyn SessionStore>,
     login_lock: PathBuf,
 }
 
 impl SessionCache {
-    pub(crate) fn new(
-        storage: SessionStorage,
-        base_url: &BaseUrl,
-        identity_scope: Option<&str>,
-        username: &str,
-    ) -> Result<Option<Self>, AppError> {
-        if storage == SessionStorage::None {
+    pub fn open(options: SessionOptions) -> Result<Option<Self>, SessionError> {
+        if options.storage == SessionStorage::None {
             return Ok(None);
         }
-        let files = SessionFileStore::new(base_url, identity_scope, username)?;
+        let files = SessionFileStore::open(options.directory, options.identity)?;
         let login_lock = files.directory.join("sessions.login.lock");
-        let store: Arc<dyn SessionStore> = match storage {
+        let store: Arc<dyn SessionStore> = match options.storage {
             SessionStorage::File => Arc::new(files),
             SessionStorage::Keychain => Arc::new(keychain::KeychainStore::new(files)?),
             SessionStorage::None => unreachable!(),
@@ -40,34 +71,86 @@ impl SessionCache {
         Ok(Some(Self { store, login_lock }))
     }
 
-    pub(crate) fn store(&self) -> Arc<dyn SessionStore> {
+    pub fn store(&self) -> Arc<dyn SessionStore> {
         self.store.clone()
     }
 
     /// Serialize the cache recheck and login/save across processes. Acquire this
     /// only after prompting, and before the SDK acquires its session-store lock.
     /// Refreshes keep using the SDK lock and never acquire this login lock.
-    pub(crate) fn lock_login(&self) -> Result<File, ApiError> {
-        lock_file(&self.login_lock)
+    pub fn lock_login(&self) -> Result<LoginGuard, SessionError> {
+        Ok(LoginGuard {
+            _lock: lock_file(&self.login_lock)?,
+        })
     }
 }
 
+/// Holds the login transaction lock until dropped. Acquire it only after prompting.
+pub struct LoginGuard {
+    _lock: File,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Identity {
+#[serde(try_from = "IdentityWire")]
+pub struct SessionIdentity {
     base_url: String,
     identity_scope: Option<String>,
     username: String,
 }
 
+#[derive(Deserialize)]
+struct IdentityWire {
+    base_url: String,
+    identity_scope: Option<String>,
+    username: String,
+}
+
+impl TryFrom<IdentityWire> for SessionIdentity {
+    type Error = SessionError;
+    fn try_from(value: IdentityWire) -> Result<Self, Self::Error> {
+        Self::new(
+            &BaseUrl::new(value.base_url)?,
+            value.identity_scope.as_deref(),
+            &value.username,
+        )
+    }
+}
+
+impl SessionIdentity {
+    pub fn new(
+        base_url: &BaseUrl,
+        identity_scope: Option<&str>,
+        username: &str,
+    ) -> Result<Self, SessionError> {
+        if username.trim().is_empty() {
+            return Err(SessionError::InvalidUsername);
+        }
+        if identity_scope.is_some_and(|scope| scope.trim().is_empty()) {
+            return Err(SessionError::InvalidIdentityScope);
+        }
+        Ok(Self {
+            base_url: base_url.as_str().to_owned(),
+            identity_scope: identity_scope.map(str::to_owned),
+            username: username.to_owned(),
+        })
+    }
+}
+
+impl fmt::Debug for SessionIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionIdentity").finish_non_exhaustive()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct Entry {
-    identity: Identity,
+    identity: SessionIdentity,
     session: StoredSession,
 }
 
-pub(crate) struct SessionFileStore {
+struct SessionFileStore {
     directory: PathBuf,
-    identity: Identity,
+    identity: SessionIdentity,
 }
 
 impl std::fmt::Debug for SessionFileStore {
@@ -77,28 +160,30 @@ impl std::fmt::Debug for SessionFileStore {
 }
 
 impl SessionFileStore {
-    pub fn new(
-        base_url: &BaseUrl,
-        identity_scope: Option<&str>,
-        username: &str,
-    ) -> Result<Self, AppError> {
-        Self::at(data_root_dir()?, base_url, identity_scope, username)
-    }
-
+    #[cfg(test)]
     fn at(
         directory: PathBuf,
         base_url: &BaseUrl,
         identity_scope: Option<&str>,
         username: &str,
-    ) -> Result<Self, AppError> {
-        ensure_root_dir_at(&directory)?;
+    ) -> Result<Self, SessionError> {
+        Self::open(
+            directory,
+            SessionIdentity::new(base_url, identity_scope, username)?,
+        )
+    }
+
+    fn open(directory: PathBuf, identity: SessionIdentity) -> Result<Self, SessionError> {
+        create_dir_all(&directory)?;
+        #[cfg(unix)]
+        {
+            use std::fs::{set_permissions, Permissions};
+            use std::os::unix::fs::PermissionsExt;
+            set_permissions(&directory, Permissions::from_mode(0o700))?;
+        }
         Ok(Self {
             directory,
-            identity: Identity {
-                base_url: base_url.as_str().to_owned(),
-                identity_scope: identity_scope.map(str::to_owned),
-                username: username.to_owned(),
-            },
+            identity,
         })
     }
     fn lock_guard(&self) -> Result<FileGuard, ApiError> {
@@ -134,7 +219,7 @@ impl SessionStore for SessionFileStore {
 struct FileGuard {
     _lock: File,
     path: PathBuf,
-    identity: Identity,
+    identity: SessionIdentity,
 }
 
 impl FileGuard {
@@ -238,6 +323,45 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn disabled_storage_does_not_access_the_directory() {
+        let directory = tempdir().unwrap();
+        let absent = directory.path().join("never-created");
+        let identity = SessionIdentity::new(
+            &BaseUrl::new("https://example.invalid").unwrap(),
+            None,
+            "alice",
+        )
+        .unwrap();
+        assert!(SessionCache::open(
+            SessionOptions::new(&absent, identity).storage(SessionStorage::None)
+        )
+        .unwrap()
+        .is_none());
+        assert!(!absent.exists());
+    }
+
+    #[test]
+    fn identity_deserialization_enforces_constructor_invariants() {
+        for (base, scope, user) in [
+            ("not a url", None, "alice"),
+            ("https://example.invalid", Some(" "), "alice"),
+            ("https://example.invalid", None, " "),
+        ] {
+            let value = json!({"base_url":base,"identity_scope":scope,"username":user});
+            assert!(serde_json::from_value::<SessionIdentity>(value).is_err());
+        }
+        let identity = SessionIdentity::new(
+            &BaseUrl::new("https://example.invalid").unwrap(),
+            Some("corp"),
+            "alice",
+        )
+        .unwrap();
+        let restored: SessionIdentity =
+            serde_json::from_value(serde_json::to_value(&identity).unwrap()).unwrap();
+        assert_eq!(identity, restored);
     }
 
     #[test]

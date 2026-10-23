@@ -26,6 +26,7 @@ mod computed;
 mod events;
 mod exports;
 mod groups;
+mod history;
 mod identity;
 mod imports;
 mod object_aggregates;
@@ -92,3 +93,5 @@ pub use search::{
 pub use task_output::TaskOutput;
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};
+
+pub(crate) use history::{HistoryPageRecord, HistoryRecord};
