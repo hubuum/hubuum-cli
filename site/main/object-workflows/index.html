@@ -726,6 +726,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#filter-lists-by-related-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Filter lists by related objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hydrate-paths-to-a-target-class" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1792,6 +1803,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#filter-lists-by-related-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Filter lists by related objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hydrate-paths-to-a-target-class" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1887,9 +1909,45 @@ A graph that exceeds the limit returns an
 error instead of partial results; it is not a page size or output truncation.
 Omitting <code>--limit</code> keeps the server's default. Zero is rejected by the CLI.
 Use <code>--max-depth</code> to narrow traversal when a graph is too large.</p>
+<h2 id="filter-lists-by-related-objects">Filter lists by related objects<a class="headerlink" href="#filter-lists-by-related-objects" title="Permanent link">&para;</a></h2>
+<p>The development CLI can restrict <code>object list</code> to objects connected to matching
+objects in another class. Filtering happens on the server before pagination:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--related<span class="w"> </span><span class="nv">room</span><span class="o">=</span>Rooms<span class="w"> </span>--related-depth<span class="w"> </span><span class="nv">room</span><span class="o">=</span><span class="m">2</span><span class="w"> </span>--related-where<span class="w"> </span>room.name<span class="w"> </span>equals<span class="w"> </span>B701
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--related<span class="w"> </span><span class="nv">room</span><span class="o">=</span>Rooms<span class="w"> </span>--related-depth<span class="w"> </span><span class="nv">room</span><span class="o">=</span><span class="m">2</span><span class="w"> </span>--related-where<span class="w"> </span>room.data.floor<span class="w"> </span>gte<span class="w"> </span><span class="m">3</span><span class="w"> </span>--computed<span class="w"> </span>all<span class="w"> </span>--all
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--related-id<span class="w"> </span><span class="nv">rack</span><span class="o">=</span><span class="m">42</span><span class="w"> </span>--related-where<span class="w"> </span>rack.name<span class="w"> </span>startswith<span class="w"> </span>rack-<span class="w"> </span>--include-total
+</code></pre></div>
+<p><code>--related ALIAS=CLASS</code> selects an exact class name. Quote the whole assignment
+for names containing spaces, such as <code>--related 'room=Server Rooms'</code>. Numeric
+class names stay names; use <code>--related-id ALIAS=ID</code> for positive IDs. The options
+may appear in any order. A group without <code>--related-where</code> requires any reachable
+object in its target class.</p>
+<p>Repeat <code>--related-where ALIAS.FIELD OP VALUE</code> to require every predicate to match
+<strong>the same related object</strong>. Repeat <code>--related</code> with distinct aliases for separate
+existence tests, combined with AND; those tests may match different targets.
+Traversal follows either relationship direction, excludes the root object itself,
+and respects server permissions. Depth defaults to 1 (direct neighbors); each
+<code>--related-depth ALIAS=DEPTH</code> sets one group's maximum distance from 1 through 10.
+Negated field operators still require a related object; <code>not_equals</code> does not mean
+"has no relationship". Use <a href="../search/#query-files">structured search</a> for that,
+OR expressions, or negation of a whole related predicate.</p>
+<p>Fields are <code>id</code>, <code>name</code>, <code>description</code>, <code>collection_id</code>, <code>revision</code>, <code>created_at</code>,
+<code>updated_at</code>, and dotted <code>data.*</code> / <code>json_data.*</code> paths. They use the same operator
+and value grammar as <code>--where</code>. Related computed fields and JSON array selectors
+are unsupported. Related fields filter the targets; displayed rows and pipeline
+fields remain the source objects.</p>
+<p>At most four groups are allowed. Aliases contain 1–64 ASCII letters, digits, or
+underscores and cannot start with a digit. Duplicate aliases, repeated depths,
+undeclared aliases, invalid class IDs, depths, fields, operators, and JSON paths
+fail before resource lookup. Server query budgets still apply.</p>
+<p>These options combine with ordinary <code>--where</code>, <code>--sort</code>, <code>--computed</code>, <code>--limit</code>,
+<code>--cursor</code>, <code>--include-total</code>, <code>--all</code>, and output pipelines. Keep all groups and
+predicates unchanged when reusing a cursor; the REPL's next-page command preserves
+them. Computed-field sorting still fetches and sorts all matching objects locally
+and rejects a server cursor. REPL completion offers class names after <code>ALIAS=</code>,
+declared aliases and target fields for <code>--related-where</code>, and supported operators.</p>
 <h2 id="hydrate-paths-to-a-target-class">Hydrate paths to a target class<a class="headerlink" href="#hydrate-paths-to-a-target-class" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>hydrate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--name<span class="w"> </span>web-01<span class="w"> </span>--target-class<span class="w"> </span>Rooms<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">2</span><span class="w"> </span>--path-limit<span class="w"> </span><span class="m">20</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>hydrate<span class="w"> </span>--class-id<span class="w"> </span><span class="m">10</span><span class="w"> </span>--object-id<span class="w"> </span><span class="m">42</span><span class="w"> </span>--target-class-id<span class="w"> </span><span class="m">20</span><span class="w"> </span>--output<span class="w"> </span>json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>hydrate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--name<span class="w"> </span>web-01<span class="w"> </span>--target-class<span class="w"> </span>Rooms<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">2</span><span class="w"> </span>--path-limit<span class="w"> </span><span class="m">20</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>hydrate<span class="w"> </span>--class-id<span class="w"> </span><span class="m">10</span><span class="w"> </span>--object-id<span class="w"> </span><span class="m">42</span><span class="w"> </span>--target-class-id<span class="w"> </span><span class="m">20</span><span class="w"> </span>--output<span class="w"> </span>json
 </code></pre></div>
 <p>Supply exactly one name or ID for each class selector and for the root object.
 Depth accepts 1–10 and defaults to 1; the path limit accepts 1–50 and defaults to
@@ -1898,27 +1956,27 @@ Depth accepts 1–10 and defaults to 1; the path limit accepts 1–50 and defaul
 cursor. A truncated response requires a narrower request or a larger bounded
 path limit.</p>
 <h2 id="directional-relation-labels">Directional relation labels<a class="headerlink" href="#directional-relation-labels" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--class-a<span class="w"> </span>Hosts<span class="w"> </span>--class-b<span class="w"> </span>Rooms<span class="w"> </span>--forward-label<span class="w"> </span><span class="s1">'located in'</span><span class="w"> </span>--reverse-label<span class="w"> </span>contains
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--class-a<span class="w"> </span>Hosts<span class="w"> </span>--class-b<span class="w"> </span>Rooms<span class="w"> </span>--forward-label<span class="w"> </span><span class="s1">'located in'</span><span class="w"> </span>--reverse-label<span class="w"> </span>contains
 </code></pre></div>
 <p>The forward label describes class A toward class B; the reverse label describes
 the opposite direction. Labels, template aliases, and cardinality settings stay
 with their respective endpoints when the CLI orders class IDs for the API.</p>
 <p>Administrators can inspect the server's redacted effective process configuration:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config<span class="w"> </span>--output<span class="w"> </span>json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>config<span class="w"> </span>--output<span class="w"> </span>json
 </code></pre></div>
 <p>Fetch Prometheus exposition text without logging in. The default route is <code>/metrics</code>;
 use the path reported by <code>admin config</code> when the server has configured another route:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-cli<span class="w"> </span>metrics
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-cli<span class="w"> </span>metrics<span class="w"> </span>--path<span class="w"> </span>/internal/metrics
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hubuum-cli<span class="w"> </span>metrics
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hubuum-cli<span class="w"> </span>metrics<span class="w"> </span>--path<span class="w"> </span>/internal/metrics
 </code></pre></div>
 <p>Computed fields can be managed as shared class definitions or personal
 definitions. Paths are JSON Pointers into object <code>data</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>create<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--key<span class="w"> </span>average_load<span class="w"> </span>--label<span class="w"> </span><span class="s2">"Average load"</span><span class="w"> </span>--operation<span class="w"> </span>average<span class="w"> </span>--path<span class="w"> </span>/load/one<span class="w"> </span>--path<span class="w"> </span>/load/five<span class="w"> </span>--result-type<span class="w"> </span>number
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>personal<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>S:average_load
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>all<span class="w"> </span>--output<span class="w"> </span>json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>create<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--key<span class="w"> </span>average_load<span class="w"> </span>--label<span class="w"> </span><span class="s2">"Average load"</span><span class="w"> </span>--operation<span class="w"> </span>average<span class="w"> </span>--path<span class="w"> </span>/load/one<span class="w"> </span>--path<span class="w"> </span>/load/five<span class="w"> </span>--result-type<span class="w"> </span>number
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>shared<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>hubuum-cli<span class="w"> </span>computed<span class="w"> </span>personal<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>S:average_load
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>all<span class="w"> </span>--output<span class="w"> </span>json
 </code></pre></div>
 <p>In the REPL, data-field completion merges the selected class's JSON Schema with
 a sample of up to 100 objects, using the same depth-six traversal as
@@ -1937,18 +1995,18 @@ exact replacement command when invoked.</p>
 <p>Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 <code>--computed S:&lt;key&gt;</code> and <code>--computed P:&lt;key&gt;</code> options to select individual
 shared or personal fields, or <code>--computed all</code> to select every field:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>S:average_load<span class="w"> </span>--computed<span class="w"> </span>P:preferred_name
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>S:average_load<span class="w"> </span>--computed<span class="w"> </span>P:preferred_name
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>show<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>host-1<span class="w"> </span>--computed<span class="w"> </span>all
 </code></pre></div>
 <p>Per-class defaults apply to both object list and show commands:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">[output.object_class_computed_fields]</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">Hosts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"S:average_load"</span><span class="p">,</span><span class="w"> </span><span class="s2">"P:preferred_name"</span><span class="p">]</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">Switches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"all"</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">[output.object_class_computed_fields]</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">Hosts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"S:average_load"</span><span class="p">,</span><span class="w"> </span><span class="s2">"P:preferred_name"</span><span class="p">]</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">Switches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"all"</span><span class="p">]</span>
 </code></pre></div>
 <p>They can also be changed from the CLI; the key and value both support dynamic
 completion:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts<span class="w"> </span>--value<span class="w"> </span>S:average_load,P:preferred_name
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts<span class="w"> </span>--value<span class="w"> </span>S:average_load,P:preferred_name
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">unset</span><span class="w"> </span>--key<span class="w"> </span>output.object_class_computed_fields.Hosts
 </code></pre></div>
 <p>An explicit <code>--computed</code> selection replaces the class default for that command.
 Use <code>--computed none</code> to suppress configured defaults temporarily.</p>
@@ -1956,8 +2014,8 @@ Use <code>--computed none</code> to suppress configured defaults temporarily.</p
 Selected JSON output retains scope metadata such as revisions while excluding
 unselected values; <code>--computed all</code> retains the complete computed envelope.
 Computed columns can also be sorted with the same scoped names:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>S:average_load<span class="w"> </span>desc<span class="w"> </span>--limit<span class="w"> </span><span class="m">10</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>P:preferred_name<span class="w"> </span>asc
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>S:average_load<span class="w"> </span>desc<span class="w"> </span>--limit<span class="w"> </span><span class="m">10</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--sort<span class="w"> </span>P:preferred_name<span class="w"> </span>asc
 </code></pre></div>
 <p>The CLI fetches all matching objects for computed sorting, sorts them locally,
 and then applies <code>--limit</code>. Computed sorting cannot
@@ -1965,8 +2023,8 @@ be combined with <code>--cursor</code>. A computed sort fetches its key internal
 not display it unless the same field is selected with <code>--computed</code>.</p>
 <p>Related objects can be selected by target class name without specifying any
 intermediate classes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--root-class<span class="w"> </span>Person<span class="w"> </span>--root-object<span class="w"> </span>Alice<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--where<span class="w"> </span>class<span class="w"> </span>equals<span class="w"> </span>Hosts<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">10</span><span class="w"> </span>--all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--root-class<span class="w"> </span>Person<span class="w"> </span>--root-object<span class="w"> </span>Alice<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--where<span class="w"> </span>class<span class="w"> </span>equals<span class="w"> </span>Hosts<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">10</span><span class="w"> </span>--all
 </code></pre></div>
 <p>This includes paths such as Person → Room → Host and other connecting paths,
 subject to server limits and permissions. The default maximum depth is 2;
@@ -1975,8 +2033,8 @@ Related class and object queries also accept <code>--where collection equals Inv
 Class and collection filter values support name completion.</p>
 <p>To fetch a neighborhood with object data and all connecting edges, use JSON graph
 output with <code>--data</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>object<span class="w"> </span>graph<span class="w"> </span>--root-class<span class="w"> </span>Rooms<span class="w"> </span>--root-object<span class="w"> </span>B701<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--max-depth<span class="w"> </span><span class="m">2</span><span class="w"> </span>--data<span class="w"> </span>--output<span class="w"> </span>json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>hubuum-cli<span class="w"> </span>relation<span class="w"> </span>object<span class="w"> </span>graph<span class="w"> </span>--root-class<span class="w"> </span>Rooms<span class="w"> </span>--root-object<span class="w"> </span>B701<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>--max-depth<span class="w"> </span><span class="m">2</span><span class="w"> </span>--data<span class="w"> </span>--output<span class="w"> </span>json
 </code></pre></div>
 <p>Each entry in <code>objects</code> then includes <code>data</code> (including explicit <code>null</code> values),
 reusing the graph response without further object lookups. Without <code>--data</code>, the
@@ -1986,11 +2044,11 @@ limits return errors instead of partial results.</p>
 <p>Object-list text and pipeline output automatically promotes dotted data fields
 referenced by <code>--where</code> into explicit columns. This makes the matching value
 visible without separately repeating the path in <code>--data-columns</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>--where<span class="w"> </span>json_data.facts.operating_system.major_version<span class="w"> </span>lt<span class="w"> </span><span class="m">8</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span>--include-where-results<span class="w"> </span><span class="nb">false</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span>--where<span class="w"> </span>json_data.facts.operating_system.major_version<span class="w"> </span>lt<span class="w"> </span><span class="m">8</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span>--include-where-results<span class="w"> </span><span class="nb">false</span>
 </code></pre></div>
 <p>The second form keeps the normal configured or automatic data-column layout.
 Raw JSON output already contains these values in the nested <code>data</code> object and
@@ -1999,16 +2057,16 @@ is not flattened.</p>
 <code>--group-by</code> accepts scalar object fields, dotted <code>data</code> paths, and computed
 selectors. Numeric measures use <code>operation:field</code>; repeat dimensions up to three
 times and measures up to four times:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--group-by<span class="w"> </span>data.os_version
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span>--group-by<span class="w"> </span>data.region<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--aggregate<span class="w"> </span>sum:data.cpu.cores<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:S:load<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">  </span>--sort<span class="w"> </span>object_count<span class="w"> </span>desc<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">  </span>--limit<span class="w"> </span><span class="m">25</span><span class="w"> </span>--include-total
-<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:data.cpu.cores<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--group-by<span class="w"> </span>data.os_version
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span>--group-by<span class="w"> </span>data.region<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span>--aggregate<span class="w"> </span>sum:data.cpu.cores<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:S:load<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">  </span>--sort<span class="w"> </span>object_count<span class="w"> </span>desc<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span>--limit<span class="w"> </span><span class="m">25</span><span class="w"> </span>--include-total
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>aggregate<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">  </span>--aggregate<span class="w"> </span>average:data.cpu.cores<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">  </span>--where<span class="w"> </span>data.environment<span class="w"> </span>equals<span class="w"> </span>production
 </code></pre></div>
 <p>Every aggregate row includes <code>object_count</code>. Measures support <code>sum</code>, <code>average</code>
 (<code>avg</code> is accepted as an input alias), <code>min</code>, and <code>max</code> over numeric <code>data.path</code>,
@@ -2024,18 +2082,18 @@ but they only process rows already returned by the preceding command. Use
 set.</p>
 <p>Class-specific display aliases provide short local names for raw object-data
 paths. Selectors are tried in order and the first present value is displayed:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">[output.object_list_class_aliases.Hosts]</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">os_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.os.macos.version"</span><span class="p">,</span><span class="w"> </span><span class="s2">"data.os.redhat.version"</span><span class="p">]</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">primary_ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.network.interfaces[*].ipv4"</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">[output.object_list_class_aliases.Hosts]</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">os_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.os.macos.version"</span><span class="p">,</span><span class="w"> </span><span class="s2">"data.os.redhat.version"</span><span class="p">]</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">primary_ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"data.network.interfaces[*].ipv4"</span><span class="p">]</span>
 </code></pre></div>
 <p>The aliases can be included in <code>output.object_list_class_columns.Hosts</code> or
 requested with <code>--data-columns</code>. An unambiguous alias is also used as the text
 table header when its raw selector is included automatically, such as by an
 object-list <code>--where</code> clause. Configure aliases from the CLI with the alias as
 the final key component and its selectors as a comma-separated value:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span>--key<span class="w"> </span>output.object_list_class_aliases.Hosts.IPv4<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span>--value<span class="w"> </span>data.facts.network.default_ipv4.address
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hubuum-cli<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span>--key<span class="w"> </span>output.object_list_class_aliases.Hosts.IPv4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span>--value<span class="w"> </span>data.facts.network.default_ipv4.address
 </code></pre></div>
 <p>The former
 <code>output.object_list_class_meta</code> name remains accepted for existing config files
@@ -2044,15 +2102,15 @@ and config commands, but new writes use <code>object_list_class_aliases</code>.<
 flow. Format 5 excludes password hashes and bearer tokens, but contains privileged
 integration configuration. Backup and receipt files are saved atomically with
 owner-only permissions on Unix; existing files require <code>--force</code> before replacement:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>submit
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>download<span class="w"> </span><span class="m">123</span><span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
-<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
-<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>stage<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
-<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>status<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
-<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>confirm<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--yes<span class="w"> </span>--wait
-<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span><span class="nb">wait</span><span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--timeout<span class="w"> </span><span class="m">600</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>create<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>submit
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>hubuum-cli<span class="w"> </span>backup<span class="w"> </span>download<span class="w"> </span><span class="m">123</span><span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>stage<span class="w"> </span>--file<span class="w"> </span>hubuum-backup.json<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>status<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span>confirm<span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--yes<span class="w"> </span>--wait
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>hubuum-cli<span class="w"> </span>restore<span class="w"> </span><span class="nb">wait</span><span class="w"> </span>--receipt<span class="w"> </span>restore-receipt.json<span class="w"> </span>--timeout<span class="w"> </span><span class="m">600</span>
 </code></pre></div>
 <p>Confirmation queues replacement of all Hubuum data. Use <code>--wait</code> or <code>restore wait</code>
 to verify completion; status and wait use the receipt without logging in, even

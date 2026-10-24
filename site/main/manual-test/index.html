@@ -1632,6 +1632,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#related-object-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Related object lists
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1957,6 +1968,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#related-object-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Related object lists
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2173,10 +2195,23 @@
 
 
 <h1 id="manual-test-checklist">Manual Test Checklist<a class="headerlink" href="#manual-test-checklist" title="Permanent link">&para;</a></h1>
-<p>This checklist covers the development CLI, which uses <code>hubuum_client</code> 0.17.0. That client
+<p>This checklist covers the development CLI, which uses <code>hubuum_client</code> 0.19.0. That client
 library targets Hubuum server v0.0.20. It intentionally uses the current
 terms <code>collection</code> and <code>export</code>; old <code>namespace</code> and <code>report</code> commands are not
 kept for compatibility.</p>
+<h2 id="related-object-lists">Related object lists<a class="headerlink" href="#related-object-lists" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Declare groups by exact class name and by positive ID; check that numeric class
+  names remain names. Try names containing spaces, punctuation, and Unicode.</li>
+<li>Verify direct (default) and depth-two filters, two predicates on one target,
+  and two aliases matching different targets. A group with no predicates should
+  require a relationship, and negated predicates should still require a target.</li>
+<li>Combine related groups with ordinary filters, computed values, local computed
+  sorting, page limits, total counts, cursors, <code>--all</code>, and pipelines.</li>
+<li>Check REPL alias/field/operator completion and that <code>next</code> preserves all groups.</li>
+<li>Confirm invalid IDs, duplicate aliases/depths, missing aliases, more than four
+  groups, invalid fields/operators, and invalid JSON paths fail before lookup.</li>
+</ul>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <p>Use a test server and an account that can create temporary collections,
 classes, objects, event resources, exports, imports, and remote targets.</p>
