@@ -2,7 +2,7 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
 `hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| 0.0.21 | 0.19.0 | 0.0.20 | Flexible history times, timeline comparisons, and clearer detail rendering |
 | 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
@@ -56,6 +57,47 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.21: history selectors and comparisons
+
+Verified on 2026-10-24 with published `hubuum_client` 0.19.0 against the same
+immutable server v0.0.20 image as CLI v0.0.20:
+
+```text
+ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a
+```
+
+The disposable integration suite now creates a class with three revisions and
+an object with 253 revisions. Distinct payloads verify complete history across
+the 250-entry timeline and snapshot batch boundaries. Live checks cover:
+
+- Every shortened UTC precision from year through second for `history show`,
+  `history class`, and `history object`, including empty windows and totals.
+- Exact RFC3339 boundaries and equivalent timezone offsets, plus `now`, signed
+  and unsigned seconds, and compound relative-time syntax. Relative reads are
+  checked against the returned validity interval and the command's clock bounds.
+- Previous-entry and latest-entry comparisons outside a selected time window,
+  in both navigation directions and across actual server cursors.
+- Complete timeline pagination, explicit creation/deletion summaries, deleted
+  snapshots in date windows, and a deleted latest comparison reference.
+- Text comparison output and JSON pipelines preserving the timeline envelope,
+  pagination metadata, comparison direction, and reference history IDs.
+
+The complete pinned suite also passed its existing session, delegated integration,
+related-object filtering, schema, query-usage, backup, restore, and recovery checks.
+
+The client dependency, blocking-only features, server target, OpenAPI surface,
+backup output 10 / restore input 6–10, and saved-session formats are unchanged.
+No dependency was added or upgraded. The CLI still declares no MSRV;
+`hubuum-session` retains Rust 1.89 and the SDK retains Rust 1.88. No migration
+is required when upgrading from CLI v0.0.20.
+
+Local verification used Rust 1.98.0 and Python 3.12. The workspace suite passed
+922 tests, with two opt-in native-keychain tests reserved for platform CI.
+Required and workspace-wide Clippy, rustfmt, tracked Markdown lint, strict
+documentation build and rendered-link checks, session MSRV, CI-policy tests,
+wrapper tests, and extension-schema validation passed. The current RustSec and
+registry audit reported no advisories or yank warnings for 449 dependencies.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="unreleased-client-v0190-and-related-object-lists"></span>

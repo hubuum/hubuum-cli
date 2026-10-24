@@ -1,6 +1,6 @@
 # History and historical views
 
-CLI v0.0.20 uses client 0.19.0 against Hubuum server v0.0.20.
+CLI v0.0.21 uses client 0.19.0 against Hubuum server v0.0.20.
 History describes retained snapshots. It does not promise a complete event ledger
 or reconstruct records that the server no longer retains.
 

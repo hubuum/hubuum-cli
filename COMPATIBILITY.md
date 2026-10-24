@@ -2,7 +2,7 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
 `hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| 0.0.21 | 0.19.0 | 0.0.20 | Flexible history times, timeline comparisons, and clearer detail rendering |
 | 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
@@ -32,6 +33,13 @@ against other server versions is not guaranteed.
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
 ## Before upgrading
+
+CLI v0.0.21 adds flexible history times and timeline comparisons using the same
+client 0.19.0 and pinned server v0.0.20. Upgrading from v0.0.20 requires no
+server, backup, session, or script migration. Full RFC3339 history timestamps
+keep their as-of meaning; shortened dates select changes within a UTC interval.
+See [history usage](docs/history.md) and the
+[pinned verification](docs/compatibility-evidence.md#cli-v0021-history-selectors-and-comparisons).
 
 CLI v0.0.20 upgrades to client 0.19.0 and adds
 [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects).

@@ -17,6 +17,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+from history_checks import verify_history
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -370,6 +372,7 @@ def main():
             assert deleted["id"] == retired["id"] and deleted["history_id"] == deleted_marker["history_id"]
             api("DELETE", f'{objects_path}{replacement["id"]}', token=token)
             print("PASS: history timelines, direct/deleted snapshots, literal names, populations, relations, computed values, labels, and hydration", flush=True)
+            verify_history(api, cli, token, collection)
             shown = cli("object", "show", "--class", prefix, "--name", prefix, "--data", "--json")
             assert shown["id"] == obj["id"] and shown["data"] == obj["data"]
             assert shown["description"] == obj["description"] and shown["collection"] == prefix
