@@ -1616,6 +1616,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0021-history-selectors-and-comparisons" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.21: history selectors and comparisons
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0020-client-v0190-and-related-object-lists" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1941,6 +1952,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0021-history-selectors-and-comparisons" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.21: history selectors and comparisons
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0020-client-v0190-and-related-object-lists" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2121,7 +2143,7 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
 <code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
@@ -2137,6 +2159,12 @@ against other server versions is not guaranteed.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>0.0.21</td>
+<td>0.19.0</td>
+<td>0.0.20</td>
+<td>Flexible history times, timeline comparisons, and clearer detail rendering</td>
+</tr>
 <tr>
 <td>0.0.20</td>
 <td>0.19.0</td>
@@ -2271,6 +2299,40 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0021-history-selectors-and-comparisons">CLI v0.0.21: history selectors and comparisons<a class="headerlink" href="#cli-v0021-history-selectors-and-comparisons" title="Permanent link">&para;</a></h2>
+<p>Verified on 2026-10-24 with published <code>hubuum_client</code> 0.19.0 against the same
+immutable server v0.0.20 image as CLI v0.0.20:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a
+</code></pre></div>
+<p>The disposable integration suite now creates a class with three revisions and
+an object with 253 revisions. Distinct payloads verify complete history across
+the 250-entry timeline and snapshot batch boundaries. Live checks cover:</p>
+<ul>
+<li>Every shortened UTC precision from year through second for <code>history show</code>,
+  <code>history class</code>, and <code>history object</code>, including empty windows and totals.</li>
+<li>Exact RFC3339 boundaries and equivalent timezone offsets, plus <code>now</code>, signed
+  and unsigned seconds, and compound relative-time syntax. Relative reads are
+  checked against the returned validity interval and the command's clock bounds.</li>
+<li>Previous-entry and latest-entry comparisons outside a selected time window,
+  in both navigation directions and across actual server cursors.</li>
+<li>Complete timeline pagination, explicit creation/deletion summaries, deleted
+  snapshots in date windows, and a deleted latest comparison reference.</li>
+<li>Text comparison output and JSON pipelines preserving the timeline envelope,
+  pagination metadata, comparison direction, and reference history IDs.</li>
+</ul>
+<p>The complete pinned suite also passed its existing session, delegated integration,
+related-object filtering, schema, query-usage, backup, restore, and recovery checks.</p>
+<p>The client dependency, blocking-only features, server target, OpenAPI surface,
+backup output 10 / restore input 6–10, and saved-session formats are unchanged.
+No dependency was added or upgraded. The CLI still declares no MSRV;
+<code>hubuum-session</code> retains Rust 1.89 and the SDK retains Rust 1.88. No migration
+is required when upgrading from CLI v0.0.20.</p>
+<p>Local verification used Rust 1.98.0 and Python 3.12. The workspace suite passed
+922 tests, with two opt-in native-keychain tests reserved for platform CI.
+Required and workspace-wide Clippy, rustfmt, tracked Markdown lint, strict
+documentation build and rendered-link checks, session MSRV, CI-policy tests,
+wrapper tests, and extension-schema validation passed. The current RustSec and
+registry audit reported no advisories or yank warnings for 449 dependencies.</p>
 <!-- markdownlint-disable-next-line MD033 -->
 <p><span id="unreleased-client-v0190-and-related-object-lists"></span></p>
 <h2 id="cli-v0020-client-v0190-and-related-object-lists">CLI v0.0.20: client v0.19.0 and related object lists<a class="headerlink" href="#cli-v0020-client-v0190-and-related-object-lists" title="Permanent link">&para;</a></h2>
@@ -2283,7 +2345,7 @@ Rust 1.89. Server v0.0.20, its OpenAPI routes, backup output 10 / restore input
 6–10, and persistent-session formats remain unchanged. No server or cache
 migration is needed.</p>
 <p>The immutable server image used for the complete live CLI suite was:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a
 </code></pre></div>
 <p>The SDK's <a href="https://github.com/hubuum/hubuum-client-rust/blob/v0.19.0/docs/migration-0.19.md">0.19 migration guide</a>
 describes its breaking Rust APIs. CLI adapters now construct checked IDs,
