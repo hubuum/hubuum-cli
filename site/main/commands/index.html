@@ -1879,8 +1879,16 @@ succeeded or failed:</p>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    2. QueryOp.page: 10.500 ms (ok)
 <a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>      request GET /api/v1/classes/{class_id}/: 10.400 ms (ok)
 <a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>        HTTP GET attempt 1: 9.700 ms [status 200] (ok)
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>  render: 0.800 ms
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    format_output: 2.000 ms
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>  render: 0.800 ms
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    write_output: 0.750 ms
 </code></pre></div>
+<p><code>format_output</code> measures conversion of structured results into the requested
+display format; it can appear under <code>execute</code> because commands prepare their
+output before returning.
+<code>write_output</code> measures writing and flushing stdout, which can include waiting
+for the terminal or a downstream process. These are nested timings, so do not
+add them to their parent stage's duration. Rendering does not fetch history.</p>
 <p>Text, JSONL, CSV, and TSV reports go to stderr. With <code>--output json</code> (or <code>--json</code>)
 and <code>--debug</code>, the response is an object containing the original result in <code>data</code>
 and structured diagnostics in <code>debug</code>:</p>
