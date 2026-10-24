@@ -1,9 +1,86 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use hubuum_client::{ComputedObject, Object};
 use serde_json::Value;
 
 pub const DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT: usize = 100;
 pub const DEFAULT_OBJECT_FIELD_DEPTH: usize = 6;
+
+pub(crate) struct ClassFieldSample {
+    shared_keys: Vec<String>,
+    personal_keys: Vec<String>,
+    objects: Vec<ObjectFieldValues>,
+}
+
+impl ClassFieldSample {
+    pub(crate) fn new(
+        shared_keys: Vec<String>,
+        personal_keys: Vec<String>,
+        objects: Vec<ObjectFieldValues>,
+    ) -> Self {
+        Self {
+            shared_keys,
+            personal_keys,
+            objects,
+        }
+    }
+
+    pub(crate) fn shared_keys(&self) -> &[String] {
+        &self.shared_keys
+    }
+
+    pub(crate) fn personal_keys(&self) -> &[String] {
+        &self.personal_keys
+    }
+
+    pub(crate) fn objects(&self) -> &[ObjectFieldValues] {
+        &self.objects
+    }
+}
+
+pub(crate) struct ObjectFieldValues {
+    data: Option<Value>,
+    shared: BTreeMap<String, Value>,
+    personal: BTreeMap<String, Value>,
+}
+
+impl ObjectFieldValues {
+    pub(crate) fn data(&self) -> Option<&Value> {
+        self.data.as_ref()
+    }
+
+    pub(crate) fn shared(&self) -> &BTreeMap<String, Value> {
+        &self.shared
+    }
+
+    pub(crate) fn personal(&self) -> &BTreeMap<String, Value> {
+        &self.personal
+    }
+}
+
+impl From<Object> for ObjectFieldValues {
+    fn from(object: Object) -> Self {
+        Self {
+            data: object.data,
+            shared: BTreeMap::new(),
+            personal: BTreeMap::new(),
+        }
+    }
+}
+
+impl From<ComputedObject> for ObjectFieldValues {
+    fn from(object: ComputedObject) -> Self {
+        Self {
+            data: object.object.data,
+            shared: object.computed.shared.values,
+            personal: object
+                .computed
+                .personal
+                .map(|scope| scope.values)
+                .unwrap_or_default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ObjectDataPath {

@@ -18,6 +18,7 @@ use crate::services::AppServices;
 
 const AT: &str = "2026-10-23T00:00:00Z";
 
+mod class_fields;
 mod timeline;
 
 async fn execute(transport: &MockTransport, command: &str) -> Result<CommandOutcome, AppError> {

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reduce `class fields` (and its `object fields` alias) requests by resolving the
+  class once and skipping unused collection labels. Move sampled data and
+  computed values directly into field discovery without cloning object data.
+- Add `prepare_field_sample`, `summarize_fields`, and `prepare_field_output`
+  diagnostic timings to expose local field-discovery work.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-21"></span>
 

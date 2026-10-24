@@ -1,5 +1,6 @@
 mod admin;
 mod backups;
+mod class_fields;
 mod classes;
 mod collections;
 mod computed;

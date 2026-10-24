@@ -1,4 +1,3 @@
-use crate::services::ObjectListInput;
 use std::collections::{BTreeMap, BTreeSet};
 
 use cli_command_derive::CommandArgs;
@@ -9,19 +8,17 @@ use serde_json::{json, Value};
 use super::builder::{
     catalog_command, deprecated_catalog_command, CommandDeprecation, CommandDocs,
 };
-use super::{
-    build_list_query, equals_clause, normalize_server_page_size, required_option_or_pos,
-    CliCommand, PageSelection,
-};
+use super::{normalize_server_page_size, required_option_or_pos, CliCommand};
 use crate::autocomplete::classes;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
+use crate::diagnostics::stage_sync;
 use crate::domain::{
-    visit_observed_data_fields, ResolvedObjectRecord, DEFAULT_OBJECT_FIELD_DEPTH,
+    visit_observed_data_fields, ObjectFieldValues, ResourceName, DEFAULT_OBJECT_FIELD_DEPTH,
     DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::data_preview;
-use crate::list_query::PagedResult;
+use crate::list_query::ServerPageSize;
 use crate::output::set_semantic_output;
 use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
@@ -158,40 +155,25 @@ fn inspect_class_fields(
 ) -> Result<(), AppError> {
     let sample_limit =
         normalize_server_page_size(sample_limit)?.unwrap_or(DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT);
-    let list_query = build_list_query(
-        &[],
-        &[],
-        Some(sample_limit),
-        None,
-        false,
-        [equals_clause("class", class_name)],
+    let sample = services.gateway().sample_class_fields(
+        &ResourceName::new(class_name)?,
+        ServerPageSize::from_requested(sample_limit)?,
     )?;
-    let shared_fields = services.gateway().list_shared_computed_fields(class_name)?;
-    let personal_query =
-        build_list_query(&[], &[], None, None, false, [])?.page_selection(PageSelection::All);
-    let personal_fields = services
-        .gateway()
-        .list_personal_computed_fields(Some(class_name), &personal_query)?;
-    let computed_fields = shared_fields
-        .definitions
+    let computed_fields = sample
+        .shared_keys()
         .iter()
-        .filter(|field| field.enabled)
-        .map(|field| AvailableComputedField::shared(&field.key))
+        .map(AvailableComputedField::shared)
         .chain(
-            personal_fields
-                .items
+            sample
+                .personal_keys()
                 .iter()
-                .filter(|field| field.enabled)
-                .map(|field| AvailableComputedField::personal(&field.key)),
+                .map(AvailableComputedField::personal),
         )
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let objects = services.gateway().list_objects(
-        &ObjectListInput::new(list_query).include_computed(!computed_fields.is_empty()),
-    )?;
     render_class_fields(
-        objects.objects(),
+        sample.objects(),
         &computed_fields,
         sample_limit,
         depth.unwrap_or(DEFAULT_OBJECT_FIELD_DEPTH),
@@ -223,13 +205,6 @@ enum ComputedFieldScope {
 }
 
 impl ComputedFieldScope {
-    const fn envelope_key(self) -> &'static str {
-        match self {
-            Self::Shared => "shared",
-            Self::Personal => "personal",
-        }
-    }
-
     const fn selector_prefix(self) -> &'static str {
         match self {
             Self::Shared => "S",
@@ -299,33 +274,37 @@ impl FieldSummary {
 }
 
 fn render_class_fields(
-    objects: &PagedResult<ResolvedObjectRecord>,
+    objects: &[ObjectFieldValues],
     computed_fields: &[AvailableComputedField],
     sample_limit: usize,
     depth: usize,
     include_containers: bool,
 ) -> Result<(), AppError> {
-    let summaries = class_field_summaries(objects, computed_fields, depth, include_containers);
-    let mut summaries = summaries.into_iter().collect::<Vec<_>>();
-    summaries.sort_by(|(left_field, left), (right_field, right)| {
-        left.source
-            .cmp(&right.source)
-            .then_with(|| left_field.cmp(right_field))
+    let summaries = stage_sync("summarize_fields", || {
+        class_field_summaries(objects, computed_fields, depth, include_containers)
     });
-    let rows = summaries
-        .into_iter()
-        .map(|(field, summary)| {
-            json!({
-                "Field": field,
-                "Source": summary.source.label(),
-                "Count": summary.count,
-                "Types": summary.types.into_iter().collect::<Vec<_>>().join(","),
-                "Example": summary.example.unwrap_or_default(),
-                "Sample": objects.returned_count,
-                "Limit": sample_limit,
+    let rows = stage_sync("prepare_field_output", || {
+        let mut summaries = summaries.into_iter().collect::<Vec<_>>();
+        summaries.sort_by(|(left_field, left), (right_field, right)| {
+            left.source
+                .cmp(&right.source)
+                .then_with(|| left_field.cmp(right_field))
+        });
+        summaries
+            .into_iter()
+            .map(|(field, summary)| {
+                json!({
+                    "Field": field,
+                    "Source": summary.source.label(),
+                    "Count": summary.count,
+                    "Types": summary.types.into_iter().collect::<Vec<_>>().join(","),
+                    "Example": summary.example.unwrap_or_default(),
+                    "Sample": objects.len(),
+                    "Limit": sample_limit,
+                })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+    });
     set_semantic_output(OutputEnvelope::rows(
         rows,
         vec![
@@ -342,7 +321,7 @@ fn render_class_fields(
 }
 
 fn class_field_summaries(
-    objects: &PagedResult<ResolvedObjectRecord>,
+    objects: &[ObjectFieldValues],
     computed_fields: &[AvailableComputedField],
     depth: usize,
     include_containers: bool,
@@ -354,10 +333,7 @@ fn class_field_summaries(
             .or_insert_with(|| FieldSummary::new(field.scope.field_source()));
     }
     visit_observed_data_fields(
-        objects
-            .items
-            .iter()
-            .filter_map(|object| object.data.as_ref()),
+        objects.iter().filter_map(ObjectFieldValues::data),
         depth,
         |path, value| {
             let is_container = matches!(value, Value::Object(_) | Value::Array(_));
@@ -371,18 +347,11 @@ fn class_field_summaries(
                 .observe(value);
         },
     );
-    for object in &objects.items {
-        let Some(computed) = object.computed.as_ref() else {
-            continue;
-        };
-        for scope in [ComputedFieldScope::Shared, ComputedFieldScope::Personal] {
-            let Some(values) = computed
-                .get(scope.envelope_key())
-                .and_then(|scope| scope.get("values"))
-                .and_then(Value::as_object)
-            else {
-                continue;
-            };
+    for object in objects {
+        for (scope, values) in [
+            (ComputedFieldScope::Shared, object.shared()),
+            (ComputedFieldScope::Personal, object.personal()),
+        ] {
             for (key, value) in values {
                 let field = AvailableComputedField::new(scope, key).selector();
                 if let Some(summary) = summaries.get_mut(&field) {
@@ -407,13 +376,13 @@ fn json_type_name(value: &Value) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use hubuum_client::ComputedObject;
+    use serde_json::{from_value, json, Value};
 
     use super::{
         class_field_summaries, AvailableComputedField, FieldSource, DEFAULT_OBJECT_FIELD_DEPTH,
     };
-    use crate::domain::ResolvedObjectRecord;
-    use crate::list_query::PagedResult;
+    use crate::domain::ObjectFieldValues;
 
     #[test]
     fn field_summaries_collect_nested_data_paths() {
@@ -469,18 +438,18 @@ mod tests {
     #[test]
     fn field_summaries_include_computed_selectors_and_observed_values() {
         let mut first = test_object(1, json!({"contact": "Entry"}));
-        first.computed = Some(json!({
-            "shared": {"values": {"load": 1.5}, "errors": {}},
+        first.computed = from_value(json!({
+            "shared": {"revision": 1, "materialization_stale": false, "values": {"load": 1.5}, "errors": {}},
             "personal": {"values": {"note": "mine"}, "errors": {}}
-        }));
+        })).unwrap();
         let mut second = test_object(2, json!({"contact": "Dell"}));
-        second.computed = Some(json!({
-            "shared": {"values": {"load": 3}, "errors": {}},
+        second.computed = from_value(json!({
+            "shared": {"revision": 1, "materialization_stale": false, "values": {"load": 3}, "errors": {}},
             "personal": {
                 "values": {},
-                "errors": {"note": {"message": "not available"}}
+                "errors": {"note": {"code": "invalid", "message": "not available"}}
             }
-        }));
+        })).unwrap();
         let page = page(vec![first, second]);
         let fields = vec![
             AvailableComputedField::shared("load"),
@@ -512,27 +481,25 @@ mod tests {
         assert!(empty.example.is_none());
     }
 
-    fn page(items: Vec<ResolvedObjectRecord>) -> PagedResult<ResolvedObjectRecord> {
-        let returned_count = items.len();
-        PagedResult {
-            items,
-            next_cursor: None,
-            returned_count,
-            total_count: None,
-        }
+    fn page(items: Vec<ComputedObject>) -> Vec<ObjectFieldValues> {
+        items.into_iter().map(ObjectFieldValues::from).collect()
     }
 
-    fn test_object(id: i32, data: Value) -> ResolvedObjectRecord {
-        ResolvedObjectRecord {
-            id,
-            name: format!("host-{id}"),
-            description: String::new(),
-            collection: "Math".to_string(),
-            class: "Hosts".to_string(),
-            data: Some(data),
-            computed: None,
-            created_at: "2026-07-05 03:44:41".to_string(),
-            updated_at: "2026-07-05 03:44:41".to_string(),
+    fn test_object(id: i32, data: Value) -> ComputedObject {
+        ComputedObject {
+            object: from_value(json!({
+                "id": id,
+                "name": format!("host-{id}"),
+                "description": "",
+                "collection_id": 1,
+                "hubuum_class_id": 1,
+                "revision": 1,
+                "data": data,
+                "created_at": "2026-07-05T03:44:41Z",
+                "updated_at": "2026-07-05T03:44:41Z",
+            }))
+            .unwrap(),
+            computed: Default::default(),
         }
     }
 }
