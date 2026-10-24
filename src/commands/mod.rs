@@ -394,6 +394,16 @@ pub fn desired_format(tokens: &CommandTokenizer) -> Result<OutputFormat, AppErro
     }
 }
 
+/// Select complete response data when custom text presentation would hide fields.
+/// Shared table formatters use `desired_format` to retain display-column selectors.
+pub fn response_format(tokens: &CommandTokenizer) -> Result<OutputFormat, AppError> {
+    if has_pipeline()? || render_format(tokens)? != RenderFormat::Text {
+        Ok(OutputFormat::Json)
+    } else {
+        Ok(OutputFormat::Text)
+    }
+}
+
 pub fn build_list_query(
     where_clauses: &[String],
     sort_clauses: &[String],
@@ -452,7 +462,7 @@ fn render_issued_token(
     owner: &str,
     token: &IssuedTokenRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
@@ -484,7 +494,7 @@ fn render_cloned_token(
         SourceTokenRevocation::Failed(error) => (true, Some(false), Some(error.as_str())),
     };
 
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(&json!({
             "token": token.token(),
             "expires_at": token.expires_at(),
@@ -672,8 +682,9 @@ mod tests {
     use crate::domain::IssuedTokenRecord;
     use crate::errors::AppError;
     use crate::models::TableHeaders;
-    use crate::output::{reset_output, take_output};
+    use crate::output::{reset_output, set_pipeline, set_render_format, take_output, RenderFormat};
     use crate::tokenizer::CommandTokenizer;
+    use hubuum_filter::Pipeline;
 
     #[derive(Default)]
     struct DummyArgs;
@@ -747,6 +758,7 @@ mod tests {
     #[serial]
     fn issued_token_json_includes_authoritative_expiry() {
         reset_output().expect("output should reset");
+        set_render_format(RenderFormat::Json).unwrap();
         let token: Token = from_value(json!({
             "token": "issued-secret",
             "expires_at": "2026-07-27T05:17:17Z"
@@ -760,9 +772,21 @@ mod tests {
 
         let snapshot = take_output().expect("output should be captured");
         let value: Value =
-            from_str(&snapshot.lines[0]).expect("issued token output should be valid JSON");
+            from_str(&snapshot.render()).expect("issued token output should be valid JSON");
         assert_eq!(value["token"], "issued-secret");
         assert_eq!(value["expires_at"], "2026-07-27T05:17:17+00:00");
+    }
+
+    #[test]
+    #[serial]
+    fn issued_token_pipeline_extracts_the_token_without_prose() {
+        reset_output().unwrap();
+        set_render_format(RenderFormat::Text).unwrap();
+        set_pipeline(Pipeline::parse("VALUE token").unwrap().into_stages()).unwrap();
+        let issued = IssuedTokenRecord::from(Token::new("issued-secret"));
+        let tokens = CommandTokenizer::new("dummy", "dummy", &[]).unwrap();
+        render_issued_token(&tokens, "user 'alice'", &issued).unwrap();
+        assert_eq!(take_output().unwrap().render(), "issued-secret\n");
     }
 
     #[test]

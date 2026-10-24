@@ -301,10 +301,7 @@ impl CliCommand for ServiceAccountDelete {
         services.gateway().delete_service_account(&name)?;
 
         let message = format!("Service account '{}' deleted", name);
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -606,10 +603,7 @@ impl CliCommand for ServiceAccountTokenRevoke {
             "Token {} revoked for service account '{}'",
             query.token_id, name
         );
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

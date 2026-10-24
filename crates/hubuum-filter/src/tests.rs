@@ -98,6 +98,10 @@ fn output_ids(envelope: &OutputEnvelope) -> Vec<&str> {
 
 fn representative_stages() -> Vec<PipeStage> {
     vec![
+        PipeStage::Help(crate::HelpRequest::new(None).unwrap()),
+        PipeStage::SelectorPolicy(crate::MissingSelectorPolicy::Allow),
+        PipeStage::ProjectRows(vec![keep("items[]")]),
+        PipeStage::UnrollInto(crate::UnrollSpec::new("items", "member").unwrap()),
         PipeStage::Grep(".*".to_string()),
         PipeStage::TypedFilter(Predicate::parse("field == 1").expect("valid predicate")),
         PipeStage::ValueSearch(".*".to_string()),
@@ -230,6 +234,8 @@ fn empty_is_identity_only_for_row_preserving_stages() {
             .map(PipeStage::name)
             .collect::<Vec<_>>(),
         vec![
+            "CHECK",
+            "U",
             "F",
             "F WHERE",
             "V",
@@ -943,19 +949,19 @@ fn grouped_filters_compose_with_repeated_aggregates_count_and_collapse() {
     .expect("filter and aggregate groups");
     assert_eq!(
         group_summary_rows(&filtered.value),
-        vec![json!({"g": "x", "n": 2, "total": 3.0})]
+        vec![json!({"g": "x", "n": 2, "total": 3})]
     );
 
     let counted = apply_pipeline(filtered.clone(), &[PipeStage::Count]).expect("group count");
     assert_eq!(counted.shape, OutputShape::Rows);
     assert_eq!(
         counted.value,
-        json!([{"g": "x", "n": 2, "total": 3.0, "count": 2}])
+        json!([{"g": "x", "n": 2, "total": 3, "count": 2}])
     );
 
     let collapsed = apply_pipeline(filtered, &[PipeStage::CollapseGroups]).expect("collapse");
     assert_eq!(collapsed.shape, OutputShape::Rows);
-    assert_eq!(collapsed.value, json!([{"g": "x", "n": 2, "total": 3.0}]));
+    assert_eq!(collapsed.value, json!([{"g": "x", "n": 2, "total": 3}]));
 }
 
 #[test]
@@ -1018,8 +1024,8 @@ fn grouped_unroll_transforms_summaries_and_preserves_members() {
     assert_eq!(
         group_summary_rows(&unrolled.value),
         vec![
-            json!({"g": "x", "tags": "a", "n": 2, "total": 3.0}),
-            json!({"g": "x", "tags": "b", "n": 2, "total": 3.0})
+            json!({"g": "x", "tags": "a", "n": 2, "total": 3}),
+            json!({"g": "x", "tags": "b", "n": 2, "total": 3})
         ]
     );
     assert!(unrolled

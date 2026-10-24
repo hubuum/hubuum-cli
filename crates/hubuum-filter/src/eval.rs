@@ -1,4 +1,8 @@
-use regex::Regex;
+use crate::diagnostics::validate_selectors;
+use crate::pipeline::FilterPlan;
+use crate::relative_time::evaluation_clock;
+use crate::{pipeline_help, Pipeline};
+use chrono::{DateTime, Utc};
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape, PipeStage};
@@ -9,25 +13,25 @@ use crate::verbs::collection::{
 };
 use crate::verbs::distinct::{distinct_envelope, distinct_lines};
 use crate::verbs::jq::jq_envelope;
-use crate::verbs::project::{project_envelope, value_envelope};
+use crate::verbs::project::{project_envelope, project_rows_envelope, value_envelope};
 use crate::verbs::search::{
     filter_envelope, key_search_envelope, predicate_envelope, truthy_envelope,
     value_search_envelope,
 };
 
 impl PipeStage {
-    fn apply(&self, lines: Vec<String>) -> Result<Vec<String>, PipelineError> {
+    fn apply(&self, lines: Vec<String>, plan: &FilterPlan) -> Result<Vec<String>, PipelineError> {
         self.validate_input_shape(OutputShape::Lines)?;
         match self {
-            Self::Grep(pattern) | Self::ValueSearch(pattern) => {
-                let regex = Regex::new(pattern)?;
+            Self::Grep(_) | Self::ValueSearch(_) => {
+                let regex = plan.regex()?;
                 Ok(lines
                     .into_iter()
                     .filter(|line| regex.is_match(line))
                     .collect())
             }
-            Self::Reject(pattern) => {
-                let regex = Regex::new(pattern)?;
+            Self::Reject(_) => {
+                let regex = plan.regex()?;
                 Ok(lines
                     .into_iter()
                     .filter(|line| !regex.is_match(line))
@@ -50,7 +54,11 @@ impl PipeStage {
                 Ok(sorted)
             }
             Self::Distinct(_) => Ok(distinct_lines(lines)),
-            Self::KeySearch(_)
+            Self::Help(_)
+            | Self::SelectorPolicy(_)
+            | Self::UnrollInto(_)
+            | Self::ProjectRows(_)
+            | Self::KeySearch(_)
             | Self::TypedFilter(_)
             | Self::TypedReject(_)
             | Self::Truthy(_)
@@ -78,9 +86,30 @@ pub fn apply_pipeline_with_settings(
     stages: &[PipeStage],
     settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let mut envelope = envelope;
-    for stage in stages {
-        envelope = apply_semantic_stage(envelope, stage, settings)?;
+    Pipeline::from_stages(stages.to_vec())?.apply_with_settings(envelope, settings)
+}
+
+pub(crate) fn apply_compiled(
+    mut envelope: OutputEnvelope,
+    stages: &[PipeStage],
+    plans: &[FilterPlan],
+    settings: &PipelineSettings,
+) -> Result<OutputEnvelope, PipelineError> {
+    if let Some(help) = pipeline_help(stages) {
+        return Ok(OutputEnvelope::lines(
+            help.lines().map(str::to_string).collect(),
+        ));
+    }
+    let now = evaluation_clock(settings.evaluation_time())?;
+    let mut settings = settings.clone();
+    for (stage, plan) in stages.iter().zip(plans) {
+        if let PipeStage::SelectorPolicy(policy) = stage {
+            settings = settings.with_missing_selector_policy(*policy);
+            continue;
+        }
+        stage.validate_input_shape(envelope.shape)?;
+        validate_selectors(&envelope, stage, plan, &settings)?;
+        envelope = apply_semantic_stage(envelope, stage, plan, &settings, now)?;
     }
     Ok(envelope)
 }
@@ -88,7 +117,9 @@ pub fn apply_pipeline_with_settings(
 fn apply_semantic_stage(
     envelope: OutputEnvelope,
     stage: &PipeStage,
+    plan: &FilterPlan,
     settings: &PipelineSettings,
+    now: DateTime<Utc>,
 ) -> Result<OutputEnvelope, PipelineError> {
     stage.validate_input_shape(envelope.shape)?;
     if envelope.shape == OutputShape::Lines {
@@ -104,17 +135,28 @@ fn apply_semantic_stage(
                 lines.len().into(),
             )]));
         }
-        return Ok(OutputEnvelope::lines(stage.apply(lines)?));
+        return Ok(OutputEnvelope::lines(stage.apply(lines, plan)?));
     }
 
     match stage {
-        PipeStage::Grep(pattern) => filter_envelope(envelope, pattern, false, settings),
-        PipeStage::TypedFilter(predicate) => predicate_envelope(envelope, predicate, false),
-        PipeStage::ValueSearch(pattern) => value_search_envelope(envelope, pattern, settings),
-        PipeStage::KeySearch(pattern) => key_search_envelope(envelope, pattern, settings),
+        PipeStage::UnrollInto(spec) => {
+            unroll_envelope(envelope, spec.selector(), Some(spec.destination()))
+        }
+        PipeStage::ProjectRows(terms) => project_rows_envelope(envelope, terms),
+        PipeStage::Help(_) | PipeStage::SelectorPolicy(_) => {
+            unreachable!("handled before execution")
+        }
+        PipeStage::Grep(_) => filter_envelope(envelope, plan.semantic(), false, settings),
+        PipeStage::TypedFilter(predicate) => {
+            predicate_envelope(envelope, &predicate.for_evaluation(now)?, false)
+        }
+        PipeStage::ValueSearch(_) => value_search_envelope(envelope, plan.regex()?, settings),
+        PipeStage::KeySearch(_) => key_search_envelope(envelope, plan.regex()?, settings),
         PipeStage::Truthy(selector) => truthy_envelope(envelope, selector.as_ref()),
-        PipeStage::Reject(pattern) => filter_envelope(envelope, pattern, true, settings),
-        PipeStage::TypedReject(predicate) => predicate_envelope(envelope, predicate, true),
+        PipeStage::Reject(_) => filter_envelope(envelope, plan.semantic(), true, settings),
+        PipeStage::TypedReject(predicate) => {
+            predicate_envelope(envelope, &predicate.for_evaluation(now)?, true)
+        }
         PipeStage::Head { count, offset } => limit_envelope(envelope, *count, *offset, false),
         PipeStage::Tail(count) => limit_envelope(envelope, *count, 0, true),
         PipeStage::Count => count_envelope(envelope),
@@ -125,7 +167,7 @@ fn apply_semantic_stage(
         PipeStage::Group(keys) => group_envelope(envelope, keys),
         PipeStage::Aggregate(request) => aggregate_envelope(envelope, request),
         PipeStage::CollapseGroups => collapse_groups(envelope),
-        PipeStage::Unroll(selector) => unroll_envelope(envelope, selector),
+        PipeStage::Unroll(selector) => unroll_envelope(envelope, selector, None),
         PipeStage::Jq(expression) => jq_envelope(envelope, expression),
         PipeStage::Value(selector) => value_envelope(envelope, selector),
     }

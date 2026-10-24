@@ -491,6 +491,71 @@ fn offline_config_show_supports_semantic_pipeline_projection() {
 }
 
 #[test]
+fn custom_text_responses_support_fields_and_all_output_formats_offline() {
+    let directory = tempdir().unwrap();
+    for (command, field, expected) in [
+        (
+            "version",
+            "cli_version",
+            format!("v{}", env!("CARGO_PKG_VERSION")),
+        ),
+        ("config paths", "user", "hubuum".to_string()),
+        (
+            "theme preview catppuccin-mocha",
+            "name",
+            "catppuccin-mocha".to_string(),
+        ),
+    ] {
+        for format in ["text", "json", "jsonl", "csv", "tsv"] {
+            cargo_bin_cmd!("hubuum-cli")
+                .env("XDG_CONFIG_HOME", directory.path())
+                .args([
+                    "--hostname",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                    "--command",
+                    &format!("{command} --output {format} | P {field}"),
+                ])
+                .assert()
+                .success()
+                .stdout(contains(&expected));
+        }
+    }
+    let target = directory.path().join("{name}.json");
+    cargo_bin_cmd!("hubuum-cli")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .args([
+            "--command",
+            &format!(
+                "theme preview catppuccin-mocha --output json | P name license > each:{}",
+                target.display()
+            ),
+        ])
+        .assert()
+        .success();
+    let contents = read_to_string(directory.path().join("catppuccin-mocha.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&contents).unwrap();
+    assert_eq!(value["name"], "catppuccin-mocha");
+    assert!(value["license"].is_object());
+    assert!(value.get("roles").is_none());
+}
+
+#[test]
+fn theme_preview_json_returns_the_theme_definition() {
+    let output = cargo_bin_cmd!("hubuum-cli")
+        .args(["theme", "preview", "catppuccin-mocha", "--output", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let theme: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(theme["name"], "catppuccin-mocha");
+    assert!(theme["roles"].is_object());
+}
+
+#[test]
 fn projection_aliases_work_across_renderers_and_each_redirects() {
     for format in ["text", "json", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")

@@ -6,7 +6,7 @@ use serde_json::{json, to_value, Map, Value};
 use hubuum_filter::OutputEnvelope;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{desired_format, response_format, CliCommand};
 use crate::autocomplete::{config_keys, config_values};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
@@ -204,7 +204,7 @@ impl CliCommand for ConfigPaths {
 pub(crate) fn render_config_paths(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let _query = ConfigPaths::parse_tokens(tokens)?;
     let paths = &get_config_state().paths;
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(paths)?,
         OutputFormat::Text => {
             append_key_value("System", paths.system.display(), 12)?;
@@ -413,7 +413,7 @@ impl CliCommand for ConfigStore {
             if query.enabled { "enabled" } else { "disabled" },
             path.display()
         );
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_line(&json!({
                 "enabled": query.enabled,
                 "path": path,
@@ -429,7 +429,7 @@ fn render_preferences_result(
     preferences: &UserPreferences,
     message: &str,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(preferences)?,
         OutputFormat::Text => append_line(message)?,
     }

@@ -2,8 +2,43 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add local typed string predicates `CONTAINS`, `ICONTAINS`, `STARTS_WITH`,
+  `ENDS_WITH`, `IEQUALS`, and opt-in `FUZZY`, including negated forms. Existing
+  regex filters retain their syntax and meaning.
+- Add relative datetime operands `now` and `now-Ns/m/h/d` with one clock sample
+  per pipeline application and an injectable library clock.
+- Add optional selector diagnostics through `CHECK STRICT` / `CHECK ALLOW` and
+  `PipelineSettings`, with available paths and spelling suggestions.
+- Add `P ROWS` for projection aligned by original array-member addresses and
+  `U selector AS item` for unrolling into a named field without promoting members.
+- Add offline `H` / `HELP [verb|topic|CURRENT]` to explain options and the current
+  statement without executing its command. The existing `help pipe` topics use
+  the same reference; help and diagnostic options support REPL completion.
+
 ### Fixed
 
+- Preserve large integers in numeric casts, comparisons, sorting, distinct, and
+  representable integer sums. Reuse compiled regexes and cast literals across
+  rows and pipeline applications.
+- Resolve projection removals against original addresses before compacting arrays,
+  and share quote/escape handling across pipeline, predicate, comma-list,
+  completion, and redirect scanning.
+- Count each input row once per distinct group-key combination, even when an
+  array repeats a key. Reject unroll field collisions instead of silently
+  overwriting parent values.
+- Preserve structured response data through pipelines for version and config
+  paths, preference and alias updates, theme previews, issued tokens, task
+  output and submission, computed previews and mutations, class/group details,
+  and relation graphs. Mutation confirmations expose a semantic message.
+- Render legacy JSON responses through the shared pipeline and final renderer.
+  Exclude auxiliary text from structured payloads while retaining it in JSON
+  debug messages. Theme previews now honor structured output formats.
+- Preserve object details and historical context in JSONL, CSV, and TSV views.
+  Count empty search results as zero records instead of counting status text.
+- Replace obsolete `--limit 0` empty-result examples with a valid unmatched
+  name filter; page sizes must be positive.
 - Apply pipelines consistently to offline commands, including configuration and
   theme inspection, through the shared catalog command handler.
 - Validate task IDs, page sizes, computed-field revisions and patches, export
@@ -13,6 +48,31 @@
 
 ### Changed
 
+- **Breaking filter behavior:** integer-only sums now serialize as integers;
+  consumers requiring floating-point values must convert them explicitly.
+  Array exclusions in a single `P` stage use original indexes; use separate
+  stages for sequential removals. Repeated group keys no longer multiply member
+  counts; use `U tags AS tag | G tag | C` to count occurrences. Unroll collisions
+  now fail; migrate to `U selector AS item` and select fields under `item`.
+- **Breaking DSL/API additions:** `H`, `HELP`, and `CHECK` are reserved stage
+  words; search for them with `F H`, `F HELP`, or `F CHECK`. Quote a field named
+  `ROWS` after `P` to distinguish it from `P ROWS`. Library callers matching
+  `PipeStage`, `PredicateOperator`, or `TypedLiteral` exhaustively must handle
+  the added variants. New local text/time predicates are rejected by server
+  search with guidance to use a local pipeline.
+- Add `strsim` 0.11.1 as a direct `hubuum-filter` dependency for fuzzy matching
+  and selector suggestions; this version was already in the workspace lockfile.
+  This filtering change does not alter the declared Hubuum server target,
+  OpenAPI surface, or MSRV.
+- **Breaking pipeline changes:** commands with custom text responses now expose
+  their JSON fields to pipelines. Replace filters on rendered labels with field
+  selectors such as `VALUE cli_version`, `VALUE token`, or `VALUE message`.
+  Composite class/group details, relation graphs, and shared computed lists and
+  mutations provide one complete response document; use nested selectors such
+  as `class.name`, `group.groupname`, `objects`, `relations`, `definitions`, or `state`.
+  Ordinary list-table selectors and unpiped text/JSON response shapes remain
+  unchanged, except that `theme preview --output json` now returns the theme
+  definition. See [output pipelines](docs/output-pipeline.md#remaining-boundaries).
 - **Breaking validation changes:** history `--at` rejects pagination/sort flags;
   named export templates reject ad-hoc relation options; remote calls reject
   selectors unrelated to their subject; related-export specifications reject

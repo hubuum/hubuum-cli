@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, option_or_pos, CliCommand};
+use super::{desired_format, option_or_pos, response_format, CliCommand};
 use crate::autocomplete::theme_names;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
@@ -184,6 +184,10 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
         .cloned()
         .ok_or_else(|| unknown_theme(&name))?;
 
+    if response_format(tokens)? == OutputFormat::Json {
+        return append_json_line(&theme);
+    }
+
     append_line(paint(
         &theme,
         ThemeRole::Heading,
@@ -258,7 +262,7 @@ impl CliCommand for ThemeUse {
         services.invalidate_completion();
         services.sync_user_preferences_if_enabled()?;
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_line(&json!({
                 "theme": name,
                 "path": path,

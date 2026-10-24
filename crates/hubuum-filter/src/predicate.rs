@@ -2,10 +2,14 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use regex::Regex;
+use crate::relative_time::RelativeTime;
+use crate::text_match::{TextMatch, TextMatcher};
+use chrono::{DateTime, Utc};
 use serde_json::{Number, Value};
 
 use crate::error::PipelineError;
+use crate::number::NumericValue;
+use crate::scanner::quoted_literal;
 use crate::selector::{select_values, Selector};
 use crate::value_cast::{cast_value, CastValue};
 
@@ -59,6 +63,7 @@ pub enum TypedLiteral {
     Number(Number),
     Boolean(bool),
     Null,
+    RelativeTime(RelativeTime),
 }
 
 impl TypedLiteral {
@@ -68,6 +73,7 @@ impl TypedLiteral {
             Self::Number(value) => Value::Number(value.clone()),
             Self::Boolean(value) => Value::Bool(*value),
             Self::Null => Value::Null,
+            Self::RelativeTime(value) => Value::String(format!("now-{}s", value.seconds_ago())),
         }
     }
 }
@@ -84,6 +90,11 @@ pub enum Comparison {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PredicateOperator {
+    Text {
+        mode: TextMatch,
+        pattern: String,
+        negated: bool,
+    },
     Compare {
         comparison: Comparison,
         literal: TypedLiteral,
@@ -109,6 +120,13 @@ pub struct PredicateTest {
     selector: Selector,
     cast: Option<ValueCast>,
     operator: PredicateOperator,
+    compiled: CompiledTest,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CompiledTest {
+    matcher: Option<TextMatcher>,
+    literals: Vec<(Value, Option<CastValue>)>,
 }
 
 impl PredicateTest {
@@ -124,15 +142,30 @@ impl PredicateTest {
         &self.operator
     }
 
-    fn validate(self, position: usize) -> Result<Self, PipelineError> {
+    fn validate(mut self, position: usize) -> Result<Self, PipelineError> {
         match (&self.operator, self.cast) {
             (PredicateOperator::Regex { pattern, .. }, cast) => {
-                Regex::new(pattern).map_err(|error| {
+                self.compiled.matcher = Some(TextMatcher::regex(pattern).map_err(|error| {
                     parse_error(position, format!("Invalid predicate regex: {error}"))
-                })?;
+                })?);
                 if cast.is_some_and(|cast| cast != ValueCast::String) {
                     return Err(parse_error(position, "Regex predicates only accept AS str"));
                 }
+            }
+            (PredicateOperator::Text { mode, pattern, .. }, cast) => {
+                if cast.is_some_and(|cast| cast != ValueCast::String) {
+                    return Err(parse_error(position, "Text predicates only accept AS str"));
+                }
+                self.compiled.matcher = Some(TextMatcher::literal(*mode, pattern)?);
+            }
+            (
+                PredicateOperator::Compare {
+                    literal: TypedLiteral::RelativeTime(_),
+                    ..
+                },
+                cast,
+            ) if cast != Some(ValueCast::DateTime) => {
+                return Err(parse_error(position, "Relative time requires AS datetime"));
             }
             (PredicateOperator::Compare { literal, .. }, Some(cast)) => {
                 validate_literal_cast(literal, cast, position)?;
@@ -144,7 +177,47 @@ impl PredicateTest {
             }
             _ => {}
         }
+        if let PredicateOperator::In { literals, .. } = &self.operator {
+            if literals
+                .iter()
+                .any(|literal| matches!(literal, TypedLiteral::RelativeTime(_)))
+            {
+                return Err(parse_error(
+                    position,
+                    "Relative time is supported in comparisons, not IN lists",
+                ));
+            }
+        }
+        self.prepare_literals(None)?;
         Ok(self)
+    }
+
+    fn prepare_literals(&mut self, now: Option<DateTime<Utc>>) -> Result<(), PipelineError> {
+        let literals = match &self.operator {
+            PredicateOperator::Compare { literal, .. } => std::slice::from_ref(literal),
+            PredicateOperator::In { literals, .. } => literals,
+            _ => &[],
+        };
+        self.compiled.literals = literals
+            .iter()
+            .map(|literal| {
+                let json = match literal {
+                    TypedLiteral::RelativeTime(relative) => match now {
+                        Some(now) => Value::String(relative.resolve(now)?),
+                        None => return Ok((Value::Null, None)),
+                    },
+                    _ => literal.as_json(),
+                };
+                let casted = self
+                    .cast
+                    .map(|cast| cast_value(&json, cast))
+                    .transpose()
+                    .map_err(PipelineError::Parse)?
+                    .flatten();
+                Ok((json, casted))
+            })
+            .collect::<Result<_, PipelineError>>()?;
+        Ok(())
     }
 
     fn matches(&self, value: &Value, row: usize, stage: &str) -> Result<bool, PipelineError> {
@@ -168,9 +241,12 @@ impl PredicateTest {
                 let matched = selected.is_empty();
                 Ok(if *negated { !matched } else { matched })
             }
-            PredicateOperator::Regex { pattern, negated } => {
-                let regex =
-                    Regex::new(pattern).expect("predicate regex is validated during parsing");
+            PredicateOperator::Regex { negated, .. } | PredicateOperator::Text { negated, .. } => {
+                let regex = self
+                    .compiled
+                    .matcher
+                    .as_ref()
+                    .expect("compiled string matcher");
                 if selected.is_empty() {
                     return Ok(false);
                 }
@@ -188,17 +264,14 @@ impl PredicateTest {
                         .any(|value| value.as_ref().is_some_and(|value| regex.is_match(value))))
                 }
             }
-            PredicateOperator::Compare {
-                comparison,
-                literal,
-            } => {
+            PredicateOperator::Compare { comparison, .. } => {
                 let negative = *comparison == Comparison::NotEqual;
                 if selected.is_empty() {
                     return Ok(false);
                 }
                 let results = selected
                     .iter()
-                    .map(|value| self.compare(value, literal, *comparison, row, stage))
+                    .map(|value| self.compare(value, *comparison, row, stage))
                     .collect::<Result<Vec<_>, _>>()?;
                 if negative {
                     Ok(!results.is_empty() && results.into_iter().all(|matched| matched))
@@ -206,13 +279,13 @@ impl PredicateTest {
                     Ok(results.into_iter().any(|matched| matched))
                 }
             }
-            PredicateOperator::In { literals, negated } => {
+            PredicateOperator::In { negated, .. } => {
                 if selected.is_empty() {
                     return Ok(false);
                 }
                 let results = selected
                     .iter()
-                    .map(|value| self.in_list(value, literals, row, stage))
+                    .map(|value| self.in_list(value, row, stage))
                     .collect::<Result<Vec<_>, _>>()?;
                 if *negated {
                     Ok(!results.is_empty() && results.into_iter().all(|matched| !matched))
@@ -226,33 +299,25 @@ impl PredicateTest {
     fn compare(
         &self,
         value: &Value,
-        literal: &TypedLiteral,
         comparison: Comparison,
         row: usize,
         stage: &str,
     ) -> Result<bool, PipelineError> {
-        let literal_json = literal.as_json();
-        let ordering = if value.is_null() || literal_json.is_null() {
-            compare_json(value, &literal_json)
+        let (literal, casted) = &self.compiled.literals[0];
+        let ordering = if value.is_null() || literal.is_null() {
+            compare_json(value, literal)
         } else if let Some(cast) = self.cast {
-            let Some(value) = self.cast_selected(value, cast, row, stage)? else {
-                return Ok(false);
-            };
-            let literal = cast_value(&literal_json, cast)
-                .expect("typed predicate literal cast is validated during parsing")
-                .expect("non-null cast literals produce a value");
-            value.compare(&literal)
+            self.cast_selected(value, cast, row, stage)?
+                .as_ref()
+                .and_then(|value| casted.as_ref().and_then(|literal| value.compare(literal)))
         } else {
-            compare_json(value, &literal_json)
+            compare_json(value, literal)
         };
-
         Ok(match comparison {
             Comparison::Equal => ordering == Some(Ordering::Equal),
             Comparison::NotEqual => ordering != Some(Ordering::Equal),
             Comparison::Less => ordering == Some(Ordering::Less),
-            Comparison::LessOrEqual => {
-                matches!(ordering, Some(Ordering::Less | Ordering::Equal))
-            }
+            Comparison::LessOrEqual => matches!(ordering, Some(Ordering::Less | Ordering::Equal)),
             Comparison::Greater => ordering == Some(Ordering::Greater),
             Comparison::GreaterOrEqual => {
                 matches!(ordering, Some(Ordering::Greater | Ordering::Equal))
@@ -260,33 +325,27 @@ impl PredicateTest {
         })
     }
 
-    fn in_list(
-        &self,
-        value: &Value,
-        literals: &[TypedLiteral],
-        row: usize,
-        stage: &str,
-    ) -> Result<bool, PipelineError> {
+    fn in_list(&self, value: &Value, row: usize, stage: &str) -> Result<bool, PipelineError> {
         if value.is_null() {
-            return Ok(literals
+            return Ok(self
+                .compiled
+                .literals
                 .iter()
-                .any(|literal| matches!(literal, TypedLiteral::Null)));
+                .any(|(literal, _)| literal.is_null()));
         }
         if let Some(cast) = self.cast {
-            let Some(value) = self.cast_selected(value, cast, row, stage)? else {
-                return Ok(false);
-            };
-            Ok(literals
+            let value = self.cast_selected(value, cast, row, stage)?;
+            Ok(self
+                .compiled
+                .literals
                 .iter()
-                .filter(|literal| !matches!(literal, TypedLiteral::Null))
-                .any(|literal| {
-                    let literal = cast_value(&literal.as_json(), cast)
-                        .expect("typed predicate literal cast is validated during parsing")
-                        .expect("non-null cast literals produce a value");
-                    value == literal
-                }))
+                .any(|(_, literal)| value.is_some() && &value == literal))
         } else {
-            Ok(literals.iter().any(|literal| value == &literal.as_json()))
+            Ok(self
+                .compiled
+                .literals
+                .iter()
+                .any(|(literal, _)| compare_json(value, literal) == Some(Ordering::Equal)))
         }
     }
 
@@ -358,10 +417,18 @@ impl PredicateExpr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Predicate {
+    source: String,
     expression: PredicateExpr,
 }
+
+impl PartialEq for Predicate {
+    fn eq(&self, other: &Self) -> bool {
+        self.expression == other.expression
+    }
+}
+impl Eq for Predicate {}
 
 impl Predicate {
     pub fn parse(source: &str) -> Result<Self, PipelineError> {
@@ -369,7 +436,44 @@ impl Predicate {
         let mut parser = Parser::new(tokens, source.len());
         let expression = parser.parse_expression()?;
         parser.expect_end()?;
-        Ok(Self { expression })
+        Ok(Self {
+            source: source.to_string(),
+            expression,
+        })
+    }
+
+    pub(crate) fn for_evaluation(&self, now: DateTime<Utc>) -> Result<Self, PipelineError> {
+        fn prepare(
+            expression: &mut PredicateExpr,
+            now: DateTime<Utc>,
+        ) -> Result<(), PipelineError> {
+            match expression {
+                PredicateExpr::And(a, b) | PredicateExpr::Or(a, b) => {
+                    prepare(a, now)?;
+                    prepare(b, now)
+                }
+                PredicateExpr::Not(inner) => prepare(inner, now),
+                PredicateExpr::Test(test) => {
+                    if matches!(
+                        test.operator,
+                        PredicateOperator::Compare {
+                            literal: TypedLiteral::RelativeTime(_),
+                            ..
+                        }
+                    ) {
+                        test.prepare_literals(Some(now))?;
+                    }
+                    Ok(())
+                }
+            }
+        }
+        let mut compiled = self.clone();
+        prepare(&mut compiled.expression, now)?;
+        Ok(compiled)
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     pub fn expression(&self) -> &PredicateExpr {
@@ -399,7 +503,7 @@ fn validate_literal_cast(
     cast: ValueCast,
     position: usize,
 ) -> Result<(), PipelineError> {
-    if matches!(literal, TypedLiteral::Null) {
+    if matches!(literal, TypedLiteral::Null | TypedLiteral::RelativeTime(_)) {
         return Ok(());
     }
     match cast_value(&literal.as_json(), cast) {
@@ -425,25 +529,7 @@ fn compare_json(left: &Value, right: &Value) -> Option<Ordering> {
 }
 
 fn compare_json_numbers(left: &Number, right: &Number) -> Option<Ordering> {
-    match (
-        (left.is_i64(), left.is_u64(), left.is_f64()),
-        (right.is_i64(), right.is_u64(), right.is_f64()),
-    ) {
-        ((true, _, false), (true, _, false)) => Some(left.as_i64()?.cmp(&right.as_i64()?)),
-        ((false, true, false), (false, true, false)) => Some(left.as_u64()?.cmp(&right.as_u64()?)),
-        ((true, _, false), (false, true, false)) => {
-            let left = left.as_i64()?;
-            Some(if left < 0 {
-                Ordering::Less
-            } else {
-                (left as u64).cmp(&right.as_u64()?)
-            })
-        }
-        ((false, true, false), (true, _, false)) => {
-            compare_json_numbers(right, left).map(Ordering::reverse)
-        }
-        _ => left.as_f64()?.partial_cmp(&right.as_f64()?),
-    }
+    Some(NumericValue::from_number(left).cmp(&NumericValue::from_number(right)))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -480,7 +566,7 @@ fn lex(source: &str) -> Result<Vec<Token>, PipelineError> {
         let position = offset;
         match ch {
             '"' => {
-                let (value, end) = lex_double_quoted(source, offset)?;
+                let (value, end) = quoted_literal(source, offset)?;
                 tokens.push(Token {
                     kind: TokenKind::String(value),
                     position,
@@ -488,7 +574,7 @@ fn lex(source: &str) -> Result<Vec<Token>, PipelineError> {
                 offset = end;
             }
             '\'' => {
-                let (value, end) = lex_single_quoted(source, offset)?;
+                let (value, end) = quoted_literal(source, offset)?;
                 tokens.push(Token {
                     kind: TokenKind::String(value),
                     position,
@@ -530,59 +616,6 @@ fn lex(source: &str) -> Result<Vec<Token>, PipelineError> {
 fn push_punctuation(tokens: &mut Vec<Token>, kind: TokenKind, position: usize, offset: &mut usize) {
     tokens.push(Token { kind, position });
     *offset += 1;
-}
-
-fn lex_double_quoted(source: &str, start: usize) -> Result<(String, usize), PipelineError> {
-    let mut offset = start + 1;
-    let mut escaped = false;
-    while offset < source.len() {
-        let ch = source[offset..]
-            .chars()
-            .next()
-            .expect("offset is inside source");
-        offset += ch.len_utf8();
-        if escaped {
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            let raw = &source[start..offset];
-            let value = serde_json::from_str::<String>(raw).map_err(|error| {
-                parse_error(start, format!("Invalid double-quoted string: {error}"))
-            })?;
-            return Ok((value, offset));
-        }
-    }
-    Err(parse_error(start, "Unterminated double-quoted string"))
-}
-
-fn lex_single_quoted(source: &str, start: usize) -> Result<(String, usize), PipelineError> {
-    let mut offset = start + 1;
-    let mut value = String::new();
-    while offset < source.len() {
-        let ch = source[offset..]
-            .chars()
-            .next()
-            .expect("offset is inside source");
-        offset += ch.len_utf8();
-        if ch == '\'' {
-            return Ok((value, offset));
-        }
-        if ch == '\\' {
-            let Some(next) = source[offset..].chars().next() else {
-                return Err(parse_error(start, "Unterminated single-quoted string"));
-            };
-            if matches!(next, '\\' | '\'') {
-                value.push(next);
-                offset += next.len_utf8();
-            } else {
-                value.push('\\');
-            }
-        } else {
-            value.push(ch);
-        }
-    }
-    Err(parse_error(start, "Unterminated single-quoted string"))
 }
 
 fn operator_end(source: &str, start: usize) -> usize {
@@ -747,12 +780,22 @@ impl Parser {
             }
         } else {
             let negated = self.consume_keyword("NOT");
-            if !self.consume_keyword("IN") {
-                return Err(self.error_here("Expected a comparison, MATCHES, IN, or IS"));
-            }
-            PredicateOperator::In {
-                literals: self.parse_literal_list()?,
-                negated,
+            if self.consume_keyword("IN") {
+                PredicateOperator::In {
+                    literals: self.parse_literal_list()?,
+                    negated,
+                }
+            } else if let Some(mode) = TextMatch::ALL
+                .into_iter()
+                .find(|mode| self.consume_keyword(mode.keyword()))
+            {
+                PredicateOperator::Text {
+                    mode,
+                    pattern: self.parse_string_literal("Text matching requires a quoted string")?,
+                    negated,
+                }
+            } else {
+                return Err(self.error_here("Expected a comparison, MATCHES, IN, IS, CONTAINS, ICONTAINS, STARTS_WITH, ENDS_WITH, IEQUALS, or FUZZY"));
             }
         };
 
@@ -760,6 +803,7 @@ impl Parser {
             selector,
             cast,
             operator,
+            compiled: CompiledTest::default(),
         }
         .validate(position)
     }
@@ -843,6 +887,11 @@ impl Parser {
                 Ok(TypedLiteral::Boolean(false))
             }
             TokenKind::Word(value) if value.eq_ignore_ascii_case("null") => Ok(TypedLiteral::Null),
+            TokenKind::Word(value) if value == "now" || value.starts_with("now-") => {
+                RelativeTime::parse(&value)
+                    .map(TypedLiteral::RelativeTime)
+                    .map_err(|error| parse_error(token.position, error.to_string()))
+            }
             TokenKind::Word(value) => match serde_json::from_str::<Value>(&value) {
                 Ok(Value::Number(number)) => Ok(TypedLiteral::Number(number)),
                 _ => Err(parse_error(

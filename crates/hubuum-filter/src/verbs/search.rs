@@ -5,14 +5,15 @@ use std::cmp::Ordering;
 
 use crate::error::PipelineError;
 use crate::model::{OutputEnvelope, OutputShape};
+use crate::number::NumericValue;
 use crate::predicate::Predicate;
 use crate::selector::{compact_empty, key_paths, scalar_text, select_values, truthy, Selector};
 use crate::settings::PipelineSettings;
 use crate::verbs::array_values;
 use crate::verbs::collection::{group_summary_row, replace_group_summary};
 
-#[derive(Debug)]
-enum SemanticFilter {
+#[derive(Debug, Clone)]
+pub(crate) enum SemanticFilter {
     Quick(Regex),
     PathExists(Selector),
     PathEquals(Selector, String),
@@ -23,7 +24,7 @@ enum SemanticFilter {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CompareOp {
+pub(crate) enum CompareOp {
     Greater,
     GreaterOrEqual,
     Less,
@@ -38,12 +39,10 @@ struct FilterMatch {
 
 pub(crate) fn filter_envelope(
     envelope: OutputEnvelope,
-    expression: &str,
+    filter: &SemanticFilter,
     invert: bool,
     settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let filter = SemanticFilter::parse(expression)?;
-
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let columns = envelope.columns.clone();
@@ -87,7 +86,7 @@ pub(crate) fn filter_envelope(
                 Ok(OutputEnvelope::empty())
             }
         }
-        OutputShape::Groups => filter_group_summaries(envelope, &filter, invert, settings),
+        OutputShape::Groups => filter_group_summaries(envelope, filter, invert, settings),
         OutputShape::Empty => Ok(envelope),
         OutputShape::Lines => unreachable!("line output is handled before semantic filtering"),
     }
@@ -151,15 +150,14 @@ pub(crate) fn predicate_envelope(
 
 pub(crate) fn value_search_envelope(
     envelope: OutputEnvelope,
-    pattern: &str,
+    regex: &Regex,
     settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let regex = Regex::new(pattern)?;
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter(|value| value_search_match(value, &regex, settings))
+                .filter(|value| value_search_match(value, regex, settings))
                 .collect::<Vec<_>>();
             Ok(OutputEnvelope {
                 value: Value::Array(rows),
@@ -167,7 +165,7 @@ pub(crate) fn value_search_envelope(
             })
         }
         OutputShape::Detail | OutputShape::Message => {
-            if value_search_match(&envelope.value, &regex, settings) {
+            if value_search_match(&envelope.value, regex, settings) {
                 Ok(envelope)
             } else {
                 Ok(OutputEnvelope::empty())
@@ -178,7 +176,7 @@ pub(crate) fn value_search_envelope(
                 .into_iter()
                 .filter(|group| {
                     group_summary_row(group)
-                        .is_some_and(|summary| value_search_match(&summary, &regex, settings))
+                        .is_some_and(|summary| value_search_match(&summary, regex, settings))
                 })
                 .collect();
             Ok(OutputEnvelope::groups(groups, envelope.columns))
@@ -190,20 +188,19 @@ pub(crate) fn value_search_envelope(
 
 pub(crate) fn key_search_envelope(
     envelope: OutputEnvelope,
-    pattern: &str,
+    regex: &Regex,
     settings: &PipelineSettings,
 ) -> Result<OutputEnvelope, PipelineError> {
-    let regex = Regex::new(pattern)?;
     match envelope.shape {
         OutputShape::Rows | OutputShape::Values => {
             let rows = array_values(&envelope.value)?
                 .into_iter()
-                .filter_map(|value| key_projection(&value, &regex, settings))
+                .filter_map(|value| key_projection(&value, regex, settings))
                 .collect::<Vec<_>>();
             Ok(OutputEnvelope::rows(rows, Vec::new()))
         }
         OutputShape::Detail | OutputShape::Message => {
-            Ok(key_projection(&envelope.value, &regex, settings)
+            Ok(key_projection(&envelope.value, regex, settings)
                 .map(|value| OutputEnvelope::detail(value, Vec::new()))
                 .unwrap_or_else(OutputEnvelope::empty))
         }
@@ -212,7 +209,7 @@ pub(crate) fn key_search_envelope(
             let groups = array_values(&envelope.value)?
                 .into_iter()
                 .filter_map(|group| {
-                    let projection = key_projection(&group_summary_row(&group)?, &regex, settings)?;
+                    let projection = key_projection(&group_summary_row(&group)?, regex, settings)?;
                     if let Some(object) = projection.as_object() {
                         for key in object.keys() {
                             if !columns.contains(key) {
@@ -306,7 +303,19 @@ pub(crate) fn truthy_envelope(
 }
 
 impl SemanticFilter {
-    fn parse(expression: &str) -> Result<Self, PipelineError> {
+    pub(crate) fn selector(&self) -> Option<&Selector> {
+        match self {
+            Self::Quick(_) => None,
+            Self::PathExists(selector)
+            | Self::PathEquals(selector, _)
+            | Self::PathContains(selector, _)
+            | Self::PathCompare(selector, _, _)
+            | Self::PathNotEquals(selector, _)
+            | Self::PathNotContains(selector, _) => Some(selector),
+        }
+    }
+
+    pub(crate) fn parse(expression: &str) -> Result<Self, PipelineError> {
         let parts = split(expression).unwrap_or_else(|| {
             expression
                 .split_whitespace()
@@ -505,8 +514,13 @@ fn parse_compare_op(value: &str) -> Result<CompareOp, PipelineError> {
 }
 
 fn compare_expected(value: &Value, op: CompareOp, expected: &str) -> bool {
-    let ordering = match (value.as_f64(), expected.parse::<f64>().ok()) {
-        (Some(actual), Some(expected)) => actual.partial_cmp(&expected).unwrap_or(Ordering::Equal),
+    let ordering = match (
+        value.as_number(),
+        serde_json::from_str::<serde_json::Number>(expected).ok(),
+    ) {
+        (Some(actual), Some(expected)) => {
+            NumericValue::from_number(actual).cmp(&NumericValue::from_number(&expected))
+        }
         _ => scalar_text(value)
             .unwrap_or_default()
             .as_str()

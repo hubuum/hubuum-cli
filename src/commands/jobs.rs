@@ -2,7 +2,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, option_or_pos, CliCommand};
+use super::{desired_format, option_or_pos, response_format, CliCommand};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
@@ -167,7 +167,7 @@ impl CliCommand for JobsOutput {
         let output = services
             .gateway()
             .task_output(TaskLookupInput::new(job.task_id.into())?)?;
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_line(&output)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {
@@ -218,7 +218,7 @@ impl CliCommand for JobsWatch {
             )
         };
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_message(&message)?,
             OutputFormat::Text => {
                 append_line(message)?;
@@ -252,10 +252,7 @@ impl CliCommand for JobsForget {
         }
 
         let message = format!("Forgot background job {id}");
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

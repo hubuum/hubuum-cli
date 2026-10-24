@@ -1,14 +1,20 @@
 #![doc = include_str!("../README.md")]
 
+mod diagnostics;
 mod equality;
 mod error;
 mod eval;
+mod help;
 mod model;
+mod number;
 mod parse;
 mod pipeline;
 mod predicate;
+mod relative_time;
+mod scanner;
 mod selector;
 mod settings;
+mod text_match;
 mod value_cast;
 mod verbs;
 
@@ -17,18 +23,25 @@ mod tests;
 
 pub use error::PipelineError;
 pub use eval::{apply_pipeline, apply_pipeline_with_settings};
+pub use help::{
+    help_topics, pipeline_help, statement_help, topic_help, verb_summaries, HelpRequest, HelpTopic,
+    VerbSummary,
+};
 pub use model::{
     AggregateFunction, AggregateRequest, AggregateSpec, DistinctKey, DistinctSpec, GroupKey,
     NullOrder, OutputEnvelope, OutputName, OutputShape, PipeStage, ProjectTerm, SortCast,
-    SortDirection, SortKey, SortReduction, SortSpec,
+    SortDirection, SortKey, SortReduction, SortSpec, UnrollSpec,
 };
 pub use parse::split_pipeline;
 pub use pipeline::Pipeline;
 pub use predicate::{
     Comparison, Predicate, PredicateExpr, PredicateOperator, PredicateTest, TypedLiteral, ValueCast,
 };
+pub use relative_time::RelativeTime;
+pub use scanner::unquoted_positions;
 pub use selector::{scalar_text, select_values, Selector};
-pub use settings::PipelineSettings;
+pub use settings::{MissingSelectorPolicy, PipelineSettings};
+pub use text_match::TextMatch;
 pub use verbs::collection::group_summary_rows;
 
 pub fn validate_jq_expression(expression: &str) -> Result<(), PipelineError> {

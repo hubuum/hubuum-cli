@@ -18,7 +18,7 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
-use crate::output::{append_json, append_line};
+use crate::output::append_json;
 use crate::services::{AppServices, CollectionUpdateInput, CreateCollectionInput};
 use crate::tokenizer::CommandTokenizer;
 
@@ -301,10 +301,7 @@ impl CliCommand for CollectionDelete {
 
         let message = format!("Collection '{}' deleted", collection_name);
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -377,7 +374,7 @@ impl CliCommand for CollectionPermissions {
         match (desired_format(tokens)?, permissions.entries.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => append_json(&permissions.entries)?,
-            (OutputFormat::Text, true) => append_line(empty_message)?,
+            (OutputFormat::Text, true) => append_json_message(&empty_message)?,
             (OutputFormat::Text, false) => permissions.summary.format_noreturn()?,
         }
 
@@ -648,10 +645,7 @@ impl CliCommand for CollectionPermissionsSet {
             perm_string, new.group, collection
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -703,7 +697,7 @@ impl CliCommand for CollectionPrincipalPermissions {
         match (desired_format(tokens)?, permissions.is_empty()) {
             (OutputFormat::Json, true) => append_json_message(&empty_message)?,
             (OutputFormat::Json, false) => append_json(&permissions)?,
-            (OutputFormat::Text, true) => append_line(empty_message)?,
+            (OutputFormat::Text, true) => append_json_message(&empty_message)?,
             (OutputFormat::Text, false) => {
                 use crate::domain::GroupPermissionsSummary;
                 let summary: Vec<GroupPermissionsSummary> = permissions

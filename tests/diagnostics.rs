@@ -151,7 +151,7 @@ fn pipeline_failures_keep_diagnostics_in_the_json_response() {
     let directory = tempdir().unwrap();
     let output = cargo_bin_cmd!("hubuum-cli")
         .env("XDG_CONFIG_HOME", directory.path())
-        .args(["--command", "version --debug --output json | JQ '42'"])
+        .args(["--command", "version --debug --output json | Z"])
         .assert()
         .failure()
         .stderr("")
@@ -163,7 +163,7 @@ fn pipeline_failures_keep_diagnostics_in_the_json_response() {
     assert!(response["errors"][0]
         .as_str()
         .unwrap()
-        .contains("does not accept Lines"));
+        .contains("does not accept Detail"));
     assert_report(&response["debug"], 0, 0);
 }
 

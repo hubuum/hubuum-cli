@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use anstream::{AutoStream, ColorChoice};
 use dirs::home_dir;
 use hubuum_filter::{
-    group_summary_rows, scalar_text, select_values, split_pipeline, OutputShape, Selector,
+    group_summary_rows, scalar_text, select_values, split_pipeline, unquoted_positions,
+    OutputShape, Selector,
 };
 use serde_json::Value;
 use shlex::split;
@@ -360,36 +361,20 @@ fn sanitize_path_value(value: &str) -> String {
 }
 
 fn final_redirect_operator(line: &str) -> Option<(usize, usize)> {
-    let mut quote = None;
-    let mut escaped = false;
     let mut candidates = Vec::new();
-    let mut iter = line.char_indices().peekable();
-
-    while let Some((index, ch)) = iter.next() {
-        if escaped {
-            escaped = false;
+    let mut skip_until = 0;
+    for index in unquoted_positions(line, '>').ok()? {
+        if index < skip_until || line[index..].starts_with(">=") {
             continue;
         }
-
-        match ch {
-            '\\' if quote != Some('\'') => escaped = true,
-            '\'' | '"' if quote == Some(ch) => quote = None,
-            '\'' | '"' if quote.is_none() => quote = Some(ch),
-            '>' if quote.is_none() => {
-                if iter.peek().is_some_and(|(_, next)| *next == '=') {
-                    continue;
-                }
-                let operator_len = if iter.peek().is_some_and(|(_, next)| *next == '>') {
-                    iter.next();
-                    2
-                } else {
-                    1
-                };
-                if has_token_boundaries(line, index, operator_len) {
-                    candidates.push((index, operator_len));
-                }
-            }
-            _ => {}
+        let operator_len = if line[index..].starts_with(">>") {
+            2
+        } else {
+            1
+        };
+        skip_until = index + operator_len;
+        if has_token_boundaries(line, index, operator_len) {
+            candidates.push((index, operator_len));
         }
     }
 
@@ -552,6 +537,20 @@ mod tests {
         assert_eq!(
             candidate.redirect.target,
             RedirectTarget::File(PathBuf::from("adults.json"))
+        );
+    }
+
+    #[test]
+    fn redirect_scanner_shares_typed_single_quote_escapes() {
+        let line = r#"object list | F WHERE name == 'it\'s>|here' > result.json"#;
+        let candidate = split_redirect_candidate(line).unwrap().unwrap();
+        assert_eq!(
+            candidate.line,
+            r#"object list | F WHERE name == 'it\'s>|here'"#
+        );
+        assert_eq!(
+            candidate.redirect.target,
+            RedirectTarget::File(PathBuf::from("result.json"))
         );
     }
 

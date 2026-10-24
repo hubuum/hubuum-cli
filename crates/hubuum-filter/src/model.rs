@@ -5,11 +5,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::PipelineError;
+use crate::help::HelpRequest;
 use crate::predicate::{Predicate, ValueCast};
 use crate::selector::Selector;
+use crate::settings::MissingSelectorPolicy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeStage {
+    Help(HelpRequest),
+    SelectorPolicy(MissingSelectorPolicy),
+    UnrollInto(UnrollSpec),
+    ProjectRows(Vec<ProjectTerm>),
     Grep(String),
     TypedFilter(Predicate),
     ValueSearch(String),
@@ -97,6 +103,10 @@ const JQ_OUTPUT_SHAPES: &[OutputShape] = &[
 impl PipeStage {
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Help(_) => "H",
+            Self::SelectorPolicy(_) => "CHECK",
+            Self::UnrollInto(_) => "U",
+            Self::ProjectRows(_) => "P ROWS",
             Self::Grep(_) => "F",
             Self::TypedFilter(_) => "F WHERE",
             Self::ValueSearch(_) => "V",
@@ -122,7 +132,13 @@ impl PipeStage {
 
     pub fn accepted_input_shapes(&self) -> &'static [OutputShape] {
         match self {
-            Self::Grep(_) | Self::ValueSearch(_) | Self::Reject(_) | Self::Count => ALL_SHAPES,
+            Self::Help(_)
+            | Self::SelectorPolicy(_)
+            | Self::Grep(_)
+            | Self::ValueSearch(_)
+            | Self::Reject(_)
+            | Self::Count => ALL_SHAPES,
+            Self::ProjectRows(_) => PROJECT_SHAPES,
             Self::TypedFilter(_)
             | Self::TypedReject(_)
             | Self::KeySearch(_)
@@ -133,7 +149,9 @@ impl PipeStage {
             Self::Distinct(spec) if spec.is_whole_value() => COLLECTION_SHAPES,
             Self::Distinct(_) => STRUCTURED_COLLECTION_SHAPES,
             Self::Columns(_) => PROJECT_SHAPES,
-            Self::SortColumns(_) | Self::Unroll(_) => STRUCTURED_COLLECTION_SHAPES,
+            Self::SortColumns(_) | Self::Unroll(_) | Self::UnrollInto(_) => {
+                STRUCTURED_COLLECTION_SHAPES
+            }
             Self::Group(_) => GROUP_INPUT_SHAPES,
             Self::Aggregate(request) if request.is_global() => GLOBAL_AGGREGATE_INPUT_SHAPES,
             Self::Aggregate(_) | Self::CollapseGroups => GROUPS_ONLY,
@@ -146,6 +164,25 @@ impl PipeStage {
     ) -> Result<&'static [OutputShape], PipelineError> {
         self.validate_input_shape(input)?;
         let shapes = match self {
+            Self::Help(_) => LINES_ONLY,
+            Self::ProjectRows(_) => {
+                if input == OutputShape::Groups {
+                    GROUPS_ONLY
+                } else {
+                    ROWS_ONLY
+                }
+            }
+            Self::SelectorPolicy(_) => {
+                return Ok(match input {
+                    OutputShape::Empty => EMPTY_ONLY,
+                    OutputShape::Lines => LINES_ONLY,
+                    OutputShape::Rows => ROWS_ONLY,
+                    OutputShape::Detail => DETAIL_ONLY,
+                    OutputShape::Message => &[OutputShape::Message],
+                    OutputShape::Values => VALUES_ONLY,
+                    OutputShape::Groups => GROUPS_ONLY,
+                })
+            }
             Self::Grep(_)
             | Self::TypedFilter(_)
             | Self::ValueSearch(_)
@@ -200,7 +237,7 @@ impl PipeStage {
                     unreachable!("validated input shape")
                 }
             },
-            Self::SortColumns(_) | Self::Unroll(_) => match input {
+            Self::SortColumns(_) | Self::Unroll(_) | Self::UnrollInto(_) => match input {
                 OutputShape::Empty => EMPTY_ONLY,
                 OutputShape::Rows => ROWS_ONLY,
                 OutputShape::Values => VALUES_ONLY,
@@ -234,6 +271,31 @@ impl PipeStage {
             "Pipe stage '{}' does not accept {input} output; expected one of: {expected}",
             self.name()
         )))
+    }
+}
+
+/// Unroll selected array members into an explicitly named top-level field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnrollSpec {
+    selector: Selector,
+    destination: OutputName,
+}
+
+impl UnrollSpec {
+    pub fn new(
+        selector: impl Into<String>,
+        destination: impl Into<String>,
+    ) -> Result<Self, PipelineError> {
+        Ok(Self {
+            selector: Selector::new(selector)?,
+            destination: OutputName::new(destination)?,
+        })
+    }
+    pub fn selector(&self) -> &Selector {
+        &self.selector
+    }
+    pub fn destination(&self) -> &str {
+        self.destination.as_str()
     }
 }
 
@@ -479,6 +541,23 @@ pub enum AggregateFunction {
     Max(Selector),
     First(Selector),
     Last(Selector),
+}
+
+impl Display for AggregateFunction {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let (name, selector) = match self {
+            Self::Count => return formatter.write_str("count"),
+            Self::CountSelected(selector) => ("count", selector),
+            Self::CountDistinct(selector) => ("count_distinct", selector),
+            Self::Sum(selector) => ("sum", selector),
+            Self::Avg(selector) => ("avg", selector),
+            Self::Min(selector) => ("min", selector),
+            Self::Max(selector) => ("max", selector),
+            Self::First(selector) => ("first", selector),
+            Self::Last(selector) => ("last", selector),
+        };
+        write!(formatter, "{name}({selector})")
+    }
 }
 
 pub(crate) fn validate_projection_terms(terms: &[ProjectTerm]) -> Result<(), PipelineError> {

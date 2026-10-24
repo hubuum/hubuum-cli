@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, desired_format, lte_clause, render_list_page, CliCommand, PageSelection,
+    build_list_query, desired_format, lte_clause, render_list_page, response_format, CliCommand,
+    PageSelection,
 };
 use crate::autocomplete::{
     classes, objects_from_class_a, objects_from_class_b, objects_from_root_class,
@@ -405,10 +406,7 @@ impl CliCommand for ClassRelationDelete {
             .delete_class_relation_by_pair(&class_a, &class_b)?;
         let message = format!("Deleted class relation between '{class_a}' and '{class_b}'");
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -678,10 +676,7 @@ impl CliCommand for ObjectRelationDeleteV2 {
             target.object_b.clone().unwrap_or_default()
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -951,7 +946,7 @@ fn render_related_object_graph(
     tokens: &CommandTokenizer,
     graph: &ResolvedRelatedObjectGraph,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json(graph)?,
         OutputFormat::Text => {
             append_line("Objects")?;
@@ -968,7 +963,7 @@ fn render_related_class_graph(
     tokens: &CommandTokenizer,
     graph: &ResolvedRelatedClassGraph,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json(graph)?,
         OutputFormat::Text => {
             append_line("Classes")?;
@@ -984,11 +979,58 @@ fn render_related_class_graph(
 #[cfg(test)]
 mod tests {
     use hubuum_client::ApiError;
+    use hubuum_filter::Pipeline;
+    use serial_test::serial;
 
-    use super::{ClassRelationCreate, RelatedClassGraphCommand, RelatedObjectGraphCommand};
+    use super::{
+        render_related_class_graph, render_related_object_graph, ClassRelationCreate,
+        RelatedClassGraphCommand, RelatedObjectGraphCommand,
+    };
     use crate::commands::command_options;
+    use crate::domain::{ResolvedRelatedClassGraph, ResolvedRelatedObjectGraph};
     use crate::errors::AppError;
+    use crate::output::{reset_output, set_pipeline, set_render_format, take_output, RenderFormat};
     use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    #[serial]
+    fn graph_pipelines_receive_one_complete_document() {
+        let tokens = CommandTokenizer::new("graph", "graph", &[]).unwrap();
+        for field in ["objects", "classes"] {
+            reset_output().unwrap();
+            set_render_format(RenderFormat::Json).unwrap();
+            set_pipeline(
+                Pipeline::parse(&format!("P {field} relations"))
+                    .unwrap()
+                    .into_stages(),
+            )
+            .unwrap();
+            if field == "objects" {
+                render_related_object_graph(
+                    &tokens,
+                    &ResolvedRelatedObjectGraph {
+                        objects: vec![],
+                        relations: vec![],
+                    },
+                )
+                .unwrap();
+            } else {
+                render_related_class_graph(
+                    &tokens,
+                    &ResolvedRelatedClassGraph {
+                        classes: vec![],
+                        relations: vec![],
+                    },
+                )
+                .unwrap();
+            }
+            let snapshot = take_output().unwrap();
+            assert_eq!(snapshot.semantic.len(), 1);
+            let value: serde_json::Value = serde_json::from_str(&snapshot.render()).unwrap();
+            assert_eq!(value[field], serde_json::json!([]));
+            assert_eq!(value["relations"], serde_json::json!([]));
+        }
+    }
 
     #[test]
     fn class_relation_create_parses_aliases_and_cardinality_limits() {

@@ -15,8 +15,8 @@ use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
-    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos, CliCommand,
-    PageSelection,
+    build_list_query, contains_clause, desired_format, equals_clause, option_or_pos,
+    response_format, CliCommand, PageSelection,
 };
 use crate::autocomplete::{
     bool, classes, collections, computed_fields, object_aggregate_dimensions,
@@ -381,7 +381,7 @@ impl CliCommand for ObjectInfo {
             return Ok(());
         }
 
-        if desired_format(tokens)? == OutputFormat::Json {
+        if response_format(tokens)? == OutputFormat::Json {
             append_json_line(&computed_selection.project_object_show(&object))?;
             return Ok(());
         }
@@ -530,13 +530,13 @@ mod tests {
         ObjectInfo, ObjectList, ObjectListColumns,
     };
     use super::{render_object_data, render_object_show_text, should_render_object_data};
-    use crate::commands::{command_options, CliCommand};
+    use crate::commands::{command_options, render_format, CliCommand};
     use crate::config::{init_config, AppConfig};
     use crate::domain::{
         ComputedFieldSet, ObjectShowRecord, RelatedObjectTreeNode, ResolvedObjectRecord,
     };
     use crate::list_query::{parse_where_clause, PagedResult};
-    use crate::output::{append_line, reset_output, set_pipeline, take_output};
+    use crate::output::{append_line, reset_output, set_pipeline, set_render_format, take_output};
     use crate::services::AppServices;
     use crate::tokenizer::CommandTokenizer;
 
@@ -1529,6 +1529,9 @@ mod tests {
             ("json", "--data --json"),
             ("json", "--data --path '$.facts' --json"),
             ("json", "--path '$.facts' --output json"),
+            ("json", "--output jsonl"),
+            ("structured", "--output csv"),
+            ("structured", "--output tsv"),
             ("pipeline", "--data"),
         ] {
             let transport = MockTransport::default();
@@ -1575,6 +1578,7 @@ mod tests {
                 &command_options::<ObjectInfo>(),
             )
             .unwrap();
+            set_render_format(render_format(&tokens).unwrap()).unwrap();
             ObjectInfo::default().execute(&services, &tokens).unwrap();
             let output = take_output().unwrap();
             match mode {
@@ -1591,6 +1595,7 @@ mod tests {
                     from_str::<Value>(&output.lines.join("\n")).unwrap(),
                     fixture["expected"]
                 ),
+                "structured" => assert_eq!(output.semantic[0].value(), &fixture["expected"]),
                 _ => {
                     let mut expected = fixture["expected"].clone();
                     expected.as_object_mut().unwrap().remove("id");
@@ -1655,10 +1660,7 @@ impl CliCommand for ObjectDelete {
             object_name, class_name
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

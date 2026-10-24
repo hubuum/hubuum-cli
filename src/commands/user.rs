@@ -17,7 +17,7 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::list_query::filter_clause;
 use crate::models::OutputFormat;
-use crate::output::{append_json_line, append_key_value, append_line};
+use crate::output::{append_json_line, append_key_value};
 use crate::services::{
     AppServices, CloneTokenInput, CreateUserInput, NewTokenInput, RenewTokenInput,
     TokenStateFilter, UserFilter, UserUpdateInput,
@@ -27,7 +27,7 @@ use crate::tokenizer::CommandTokenizer;
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand, PageSelection,
+    response_format, CliCommand, PageSelection,
 };
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -209,7 +209,7 @@ impl CliCommand for UserNew {
             password: password.clone(),
         })?;
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => {
                 append_json_line(&created)?;
             }
@@ -242,10 +242,7 @@ impl CliCommand for UserDelete {
 
         let message = format!("User '{}' deleted", username);
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -454,10 +451,7 @@ impl CliCommand for UserSetPassword {
             .set_user_password(&username, password.as_str())?;
 
         let message = format!("Password updated for user '{}'", username);
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -762,10 +756,7 @@ impl CliCommand for UserTokenRevoke {
             .user_token_revoke(&username, query.token_id)?;
 
         let message = format!("Token {} revoked for user '{}'", query.token_id, username);
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
