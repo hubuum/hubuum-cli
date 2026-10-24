@@ -8,6 +8,7 @@ use crate::model::{
     validate_group_keys, AggregateFunction, AggregateRequest, GroupKey, NullOrder, OutputEnvelope,
     OutputShape, SortCast, SortDirection, SortKey, SortReduction, SortSpec,
 };
+use crate::number::{sum_numbers, NumericValue};
 use crate::predicate::ValueCast;
 use crate::selector::{scalar_text, select_values, Selector};
 use crate::value_cast::{cast_value, CastValue};
@@ -269,33 +270,36 @@ pub(crate) fn collapse_groups(envelope: OutputEnvelope) -> Result<OutputEnvelope
 pub(crate) fn unroll_envelope(
     envelope: OutputEnvelope,
     selector: &Selector,
+    destination: Option<&str>,
 ) -> Result<OutputEnvelope, PipelineError> {
-    match envelope.shape {
-        OutputShape::Rows | OutputShape::Values => {
-            let rows = array_values(&envelope.value)?
-                .into_iter()
-                .flat_map(|row| unroll_row(&row, selector))
-                .collect::<Vec<_>>();
-            Ok(OutputEnvelope {
-                value: Value::Array(rows),
-                ..envelope
-            })
-        }
-        OutputShape::Groups => {
-            let groups = array_values(&envelope.value)?
-                .into_iter()
-                .flat_map(|group| {
-                    group_summary_row(&group)
-                        .into_iter()
-                        .flat_map(|summary| unroll_row(&summary, selector))
-                        .filter_map(move |summary| replace_group_summary(group.clone(), summary))
-                })
-                .collect();
-            Ok(OutputEnvelope::groups(groups, envelope.columns))
-        }
-        OutputShape::Detail | OutputShape::Message | OutputShape::Empty => Ok(envelope),
-        OutputShape::Lines => unreachable!("line output is handled before semantic unroll"),
+    if envelope.shape == OutputShape::Empty {
+        return Ok(envelope);
     }
+    let mut values = Vec::new();
+    for value in array_values(&envelope.value)? {
+        if envelope.shape == OutputShape::Groups {
+            if let Some(summary) = group_summary_row(&value) {
+                for row in unroll_row(&summary, selector, destination)? {
+                    if let Some(group) = replace_group_summary(value.clone(), row) {
+                        values.push(group);
+                    }
+                }
+            }
+        } else {
+            values.extend(unroll_row(&value, selector, destination)?);
+        }
+    }
+    let mut columns = envelope.columns;
+    if let Some(destination) = destination {
+        if !columns.is_empty() && !columns.iter().any(|column| column == destination) {
+            columns.push(destination.to_string());
+        }
+    }
+    Ok(OutputEnvelope {
+        value: Value::Array(values),
+        columns,
+        shape: envelope.shape,
+    })
 }
 
 fn group_value_combinations(
@@ -322,11 +326,14 @@ fn group_value_combinations(
         }
 
         let mut next = Vec::new();
+        let mut seen = HashSet::new();
         for combination in &combinations {
             for value in &selected {
                 let mut combination = combination.clone();
                 combination.insert(key.alias().to_string(), value.clone());
-                next.push(combination);
+                if seen.insert(json_equality_key(&Value::Object(combination.clone()))) {
+                    next.push(combination);
+                }
             }
         }
         combinations = next;
@@ -352,12 +359,7 @@ fn aggregate_rows(rows: &[Value], function: &AggregateFunction) -> Value {
             Value::Number(count.into())
         }
         AggregateFunction::Sum(selector) => {
-            let values = numeric_values(rows, selector).collect::<Vec<_>>();
-            if values.is_empty() {
-                Value::Null
-            } else {
-                number_value(values.into_iter().sum())
-            }
+            sum_numbers(selected_values(rows, selector).filter_map(Value::as_number))
         }
         AggregateFunction::Avg(selector) => {
             let values = numeric_values(rows, selector).collect::<Vec<_>>();
@@ -444,36 +446,38 @@ fn group_count_rows(value: &Value) -> Vec<Value> {
         .collect()
 }
 
-fn unroll_row(row: &Value, selector: &Selector) -> Vec<Value> {
-    let selected = select_values(row, selector);
-    let items = selected
-        .into_iter()
-        .flat_map(|value| match value {
-            Value::Array(values) => values.iter().collect::<Vec<_>>(),
-            value => vec![value],
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if items.is_empty() {
-        return Vec::new();
-    }
-
-    items
-        .into_iter()
-        .map(|item| {
-            let mut row = row.clone();
-            if let (Value::Object(row), Value::Object(item)) = (&mut row, &item) {
-                for (key, value) in item {
-                    row.insert(key.clone(), value.clone());
+fn unroll_row(
+    row: &Value,
+    selector: &Selector,
+    destination: Option<&str>,
+) -> Result<Vec<Value>, PipelineError> {
+    select_values(row, selector).into_iter().flat_map(|value| match value {
+        Value::Array(values) => values.iter().collect::<Vec<_>>(),
+        value => vec![value],
+    }).map(|item| {
+        let mut output = row.clone();
+        if let Value::Object(object) = &mut output {
+            if let Some(destination) = destination {
+                if object.contains_key(destination) {
+                    return Err(PipelineError::Pipe(format!("U destination '{destination}' already exists; choose a new AS name")));
                 }
+                object.insert(destination.to_string(), item.clone());
+            } else {
+                if let Value::Object(member) = item {
+                    for (key, value) in member {
+                        if object.contains_key(key) {
+                            return Err(PipelineError::Pipe(format!("U {} member field '{key}' conflicts with its parent; use U {} AS item with a new destination", selector, selector)));
+                        }
+                        object.insert(key.clone(), value.clone());
+                    }
+                }
+                object.insert(selector.to_string(), item.clone());
             }
-            if let Value::Object(row) = &mut row {
-                row.insert(selector.to_string(), item);
-            }
-            row
-        })
-        .collect()
+        } else if destination.is_some() {
+            return Err(PipelineError::Pipe("U AS requires object rows".into()));
+        }
+        Ok(output)
+    }).collect()
 }
 
 struct PreparedRow {
@@ -610,10 +614,9 @@ fn compare_prepared_non_null(left: &PreparedSortValue, right: &PreparedSortValue
 fn compare_values(left: &Value, right: &Value, cast: SortCast) -> Ordering {
     match cast {
         SortCast::Auto => match (left, right) {
-            (Value::Number(left), Value::Number(right)) => left
-                .as_f64()
-                .partial_cmp(&right.as_f64())
-                .unwrap_or(Ordering::Equal),
+            (Value::Number(left), Value::Number(right)) => {
+                NumericValue::from_number(left).cmp(&NumericValue::from_number(right))
+            }
             (Value::String(left), Value::String(right)) => left.cmp(right),
             (Value::Bool(left), Value::Bool(right)) => left.cmp(right),
             _ => sortable_text(left).cmp(&sortable_text(right)),

@@ -131,6 +131,25 @@ object list --class Hosts | reject WHERE status == "retired" OR disabled == true
 
 Typed tests support `=`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `~`, `!~`,
 `MATCHES`, `[NOT] IN [...]`, `IS [NOT] NULL`, and `IS [NOT] MISSING`.
+Explicit string tests also support `[NOT] CONTAINS`, `[NOT] ICONTAINS`,
+`[NOT] STARTS_WITH`, `[NOT] ENDS_WITH`, `[NOT] IEQUALS`, and `[NOT] FUZZY`.
+These accept quoted strings and optional `AS str`; they do not interpret their
+operands as regexes. `CONTAINS`, `STARTS_WITH`, and `ENDS_WITH` are case-sensitive.
+`ICONTAINS` and `IEQUALS` use Unicode simple case folding, as regex `(?i)` does.
+
+```text
+object list --class Hosts | F WHERE Name ICONTAINS "web."
+object list --class Hosts | F WHERE Name FUZZY "servre"
+object list --class Hosts | F WHERE Name NOT CONTAINS "retired"
+```
+
+Fuzzy matching is opt-in. It lowercases both strings, accepts a substring match,
+or compares the complete value and its alphanumeric words using Damerau–Levenshtein
+distance (including adjacent transpositions). Queries of 3–5 characters allow
+one edit; queries of 6 or more allow two. Shorter queries require a substring;
+empty fuzzy queries are rejected. It filters rows without ranking them.
+Regex matching and existing bare searches retain their meanings.
+
 Keywords are ASCII case-insensitive. Double-quoted strings use JSON escapes;
 single-quoted strings accept `\\` and `\'` and otherwise preserve their text.
 Numbers, booleans, and `null` are unquoted JSON literals; strings must be
@@ -140,6 +159,27 @@ An optional `AS str|num|bool|ip|datetime|version|natural` cast makes conversion
 explicit. Invalid literals fail while parsing. An invalid selected value stops
 evaluation and reports the stage, selector, cast, 1-based row, and offending
 JSON value. Boolean evaluation short-circuits left to right.
+
+Numeric casts, comparisons, sorting, and distinct preserve exact JSON integers,
+including values above 2^53. Under `AS num`, equivalent forms such as `1`, `1.0`, and `"1"` have the
+same numeric identity. Uncast JSON distinct keeps its existing equality policy. Integer-only sums return integers
+when their totals fit the JSON signed/unsigned 64-bit range; larger totals or
+sums containing floating-point inputs use floating point. Averages use floating
+point. Numeric casts do not accept partial numbers, NaN, or infinity.
+
+Datetime comparisons accept unquoted `now` and `now-Ns`, `now-Nm`, `now-Nh`, or
+`now-Nd`, with a nonnegative integer duration. A day is exactly 86400 seconds.
+All relative operands share one clock sample per pipeline application; reusing
+a parsed pipeline samples again. `AS datetime` is required. Absolute datetime
+strings still require RFC3339 with an explicit offset. Invalid or overflowing
+durations fail; relative operands are not supported in `IN` lists.
+
+```text
+task events 123 --all | F WHERE created_at AS datetime >= now-24h
+```
+
+These are local filters over fetched data. Relative-time and text operators do
+not extend the server-side structured search subset.
 
 Positive comparisons, matches, and `IN` are existential for fanout selectors.
 Their negative forms require at least one selected value and require every
@@ -152,6 +192,22 @@ matches. Their `IS NOT` forms and general `NOT` are exact logical negations.
 ```text
 object list --class Hosts | ?
 object list --class Hosts | ? data.network.interfaces[]
+```
+
+### Selector Diagnostics
+
+`CHECK STRICT` opts into errors when an explicit selector matches no record in
+a nonempty input. Errors identify the stage and selector, list available paths,
+and suggest nearby spellings. `CHECK ALLOW` restores the default permissive
+policy. This checks filters, projection keep terms, sorting, grouping, distinct,
+unroll, and value extraction; broad searches and projection drop terms remain
+permissive. Empty inputs and empty fanout/slice selections never fail this check. `IS MISSING` tests, and other
+tests of the same selector within that predicate, are exempt.
+
+```text
+object list --class Hosts | CHECK STRICT | S Name
+object list --class Hosts | CHECK STRICT | F WHERE owner IS MISSING OR owner == "ops"
+object list --class Hosts | CHECK ALLOW | P optional_field
 ```
 
 ## Projection And Values
@@ -173,6 +229,10 @@ as keep terms. A terminal index removes that array element, a terminal slice
 removes the selected range, and a terminal `[]` or `[*]` empties the selected
 array. Missing paths are harmless. Array traversal must be explicit, so use
 `!items[].secret`, not `!items.secret`, to remove a field from every item.
+All drop terms in one stage resolve against original source addresses before
+arrays are compacted. Drops targeting newly introduced aliases resolve against
+the original projected value. For example, `P !items[0] !items[1]` removes the
+original first two items. Use separate `P` stages for sequential removals.
 An optional `AS` alias creates one top-level output field. No selector match
 becomes null, one match stays scalar, and multiple matches become an array. If
 any term uses `AS`, commas are required between every term so alias boundaries
@@ -200,6 +260,21 @@ the class default; `--computed none` disables it for one command.
 object list --class Hosts | VALUE data.network.interfaces[*].ipv4
 object list --class Hosts | VAL Name
 ```
+
+`P ROWS` explicitly produces rows from fanout or slice selections. Static fields
+repeat for each selected member; dynamic fields align by original member address.
+A missing member field stays absent, and selected nulls and duplicate values
+remain data. It neither zips unrelated arrays nor forms a Cartesian product.
+Output names are full selectors unless aliased. A requested fanout with no
+matches produces no rows. With no fanout or slice, it projects one row per input.
+Drop fields in a preceding `P` stage; `P ROWS` accepts keep terms only.
+
+```text
+object list --class Hosts | P ROWS Name AS Host, data.network.interfaces[].ipv4 AS IP, data.network.interfaces[].mac AS MAC
+```
+
+After grouping, `P ROWS` transforms visible summaries and preserves attached
+member rows in each resulting group.
 
 ## Stable Distinct
 
@@ -337,6 +412,11 @@ Array selectors fan out group membership:
 object list --class Hosts | G data.network.interfaces[*].ipv4 AS IPv4
 ```
 
+A row joins each distinct group-key combination once, even if a fanout repeats
+a value. To count occurrences instead of input rows, unroll first, for example
+`U tags AS tag | G tag | C`. Selector aggregates such as `count(tags[])` still
+count every selected occurrence within each retained member row.
+
 Aggregate grouped rows:
 
 ```text
@@ -420,6 +500,16 @@ object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 After `G`, `U` instead unrolls an array in the visible group summary and keeps
 the original member rows attached to every resulting group.
 
+The unaliased `U` form promotes object-member fields into the parent record and
+rejects collisions instead of overwriting parent data. Use `U selector AS item`
+to place each selected member in a new top-level field while preserving parent
+fields. The destination must not already exist. Subsequent selectors can use
+`item.name` without losing the parent's `name`.
+
+```text
+object list --class Hosts | U data.network.interfaces AS interface | P Name interface.ipv4
+```
+
 ## Shape Contracts
 
 Every pipeline value has one of seven shapes: `Empty`, `Lines`, `Rows`,
@@ -446,11 +536,14 @@ derives `Empty`, `Rows`, `Detail`, `Message`, or `Values` from its JSON result.
 | whole-value `D`, `distinct` | same | same | same | error | error | same | same |
 | keyed `D`, `distinct` | same | error | same | error | error | same | same |
 | `P`, `columns` | same | error | Rows | Detail | Detail | error | Groups |
+| `P ROWS` | Rows | error | Rows | Rows | Rows | error | Groups |
 | `G` | Groups | error | Groups | Groups | Groups | Groups | error |
 | grouped `A` | error | error | error | error | error | error | Groups |
 | `A GLOBAL` | Rows | error | Rows | error | error | Rows | error |
 | `Z` | error | error | error | error | error | error | Rows |
-| `U` | same | error | same | error | error | same | same |
+| `U`, `U ... AS ...` | same | error | same | error | error | same | same |
+| `CHECK STRICT`, `CHECK ALLOW` | same | same | same | same | same | same | same |
+| `H`, `HELP` | Lines | Lines | Lines | Lines | Lines | Lines | Lines |
 | `JQ` | dynamic | error | dynamic | dynamic | dynamic | dynamic | dynamic |
 | `VALUE`, `VAL` | Values | error | Values | Values | Values | Values | Values |
 
@@ -559,7 +652,28 @@ hubuum-cli object list --class Hosts \| VALUE Name \> each:/tmp/host-{value}.txt
 
 ## Help
 
-Use focused help topics in the REPL:
+`H` and `HELP` show the available stages and topics. Append them as the final
+stage to explain the current statement without executing its command, fetching
+data, or applying transformations. `H CURRENT` lists parsed stages and accepted
+input shapes. Actual input shapes, values, and selector availability are checked
+when the statement is executed. `H F`, `HELP P`, and other verb/topic operands
+give focused syntax, semantics, and examples. These work offline in both the
+REPL and one-shot invocations.
+
+```text
+H
+HELP F
+object list --class Hosts | F WHERE Name FUZZY "servre" | S Name | H CURRENT
+```
+
+In a POSIX shell, `--command` preserves typed DSL quotes, for example:
+
+```sh
+hubuum-cli --command 'object list | F WHERE Name ICONTAINS "web" | HELP CURRENT'
+hubuum-cli object list \| HELP F
+```
+
+The existing focused help topics use the same reference:
 
 ```text
 help pipe
@@ -572,4 +686,10 @@ help pipe selectors
 help pipe shapes
 help pipe redirects
 help pipe jq
+help pipe check
+help pipe help
 ```
+
+`H`, `HELP`, and `CHECK` are reserved stage words. Use `F HELP` or `F CHECK`
+when those words are search text. Quote a field named `ROWS` when it follows
+`P`, for example `P 'ROWS' name`, to avoid the row-producing projection syntax.

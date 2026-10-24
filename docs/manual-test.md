@@ -520,7 +520,7 @@ Check output controls:
 ```text
 object list --class Hosts --limit 5 --table-style dense --table-bands auto
 object list --class Hosts --limit 5 --table-width full --table-wrap 40
-object list --class Hosts --limit 0 --empty-result silent
+object list --class Hosts --where name equals __no_matching_host__ --empty-result silent
 object list --class Hosts --where json_data.facts.operating_system.major_version = 10
 object list --class Hosts --where json_data.facts.operating_system.major_version = 10 --table-headers full
 object list --class Hosts --limit 5 --table-headers none
@@ -545,6 +545,22 @@ Expected results:
 - `--table-headers full` restores flat, complete dotted paths for one command.
 - `--table-headers none` suppresses the table header rows.
 - Theme selection works at runtime and persists through config when requested.
+- The unmatched-name query produces no output with `--empty-result silent`.
+  Choose a name absent from the test dataset; `--limit 0` is invalid.
+
+Check structured responses from commands with custom text presentations:
+
+```text
+version | VALUE cli_version
+config paths | P user write_target
+theme preview catppuccin-mocha --output json
+theme preview catppuccin-mocha | VALUE name
+class show Hosts --output json | P class.name objects related_classes
+```
+
+Expected results: field selectors operate on response data, JSON theme previews
+contain the theme definition, and structured output contains no text headings
+or auxiliary hints. Plain text invocations keep their usual presentation.
 
 ## Administrative Configuration, Backups, And Restore
 

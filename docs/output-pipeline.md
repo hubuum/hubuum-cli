@@ -122,12 +122,38 @@ redirect the result. The same validation keeps command filters such as
 
 ## Remaining Boundaries
 
-- Some command-specific branches still append direct rendered lines. Those
-  branches continue to support conservative line stages: `grep`, `reject`,
-  `head`, `tail`, `sort line`, and `count`.
-- New command output should use shared semantic emitters rather than
-  `append_line` for normal result data.
-- Do not add behavior that depends on parsing table glyph output.
+Commands with custom text presentations expose their complete response to
+pipelines and structured renderers. This includes version information, config
+paths and preference updates, theme previews, alias updates, issued tokens,
+task output, computed previews, class and group details, and relation graphs.
+Normal text invocations retain their readable summaries. Theme previews return
+the theme definition, including roles and license, in structured output.
+
+Use the response's field names instead of parsing labels or table glyphs:
+
+```text
+version | VALUE cli_version
+config paths | VALUE user
+theme preview catppuccin-mocha | P name license
+class show Hosts | P class.name objects related_classes
+group show --groupname operators | P group members
+relation object graph --root-class Hosts --root-object host-1 | P objects relations
+task output 123 | JQ '.ImportResults'
+```
+
+**Pipeline migration:** composite class/group details, relation graphs, and
+shared computed-field lists and mutations now provide one complete response
+document. For example, use `class.name` for the class name, `group.groupname` for
+the group name, and `definitions`/`state` for shared computed lists. Select
+`definition`/`state` for a computed mutation. Mutation confirmations expose
+`message`; token responses expose `token` and `expires_at`. Existing list-table
+selectors such as `Name` remain available on ordinary list commands.
+
+Human-only output, such as help text, retains line stages: `grep`, `reject`,
+`head`, `tail`, `sort line`, and `count`. New result data should use shared
+semantic emitters. Reserve `append_line` for text presentation and auxiliary
+messages; auxiliary lines accompanying semantic data are excluded from JSON,
+JSONL, CSV, and TSV payloads. JSON debug responses retain them in `messages`.
 
 ## Table controls
 
@@ -137,10 +163,13 @@ Table rendering can be tuned per run or with config keys:
 hubuum-cli --table-style plain object list --limit 5
 hubuum-cli --table-style dense --table-bands auto object list --limit 5
 hubuum-cli --table-width full --table-wrap 40 object list --class Hosts
-hubuum-cli --empty-result silent object list --class Hosts --limit 0
+hubuum-cli --empty-result silent object list --class Hosts --where name equals __no_matching_host__
 hubuum-cli object list --class Hosts --table-headers full
 hubuum-cli object list --class Hosts --table-headers none
 ```
+
+The empty-result example assumes no object is named `__no_matching_host__`.
+Page sizes must be positive; `--limit 0` is rejected before lookup.
 
 Grouped headers are the default for text tables. Dotted paths stay on one line
 when they fit the column, or wrap between path segments when space is limited.

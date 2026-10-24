@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_command_catalog, desired_format, CliCommand};
+use super::{build_command_catalog, desired_format, response_format, CliCommand};
 use crate::autocomplete::{command_aliases, file_paths};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::{
@@ -249,7 +249,7 @@ fn render_persisted_alias(
     description: Option<&str>,
     path: &str,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(&json!({
             "action": action.to_lowercase(),
             "name": name,

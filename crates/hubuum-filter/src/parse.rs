@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::scanner::split_unquoted;
 use shlex::split;
 
 use crate::error::PipelineError;
@@ -11,9 +12,10 @@ use crate::model::{
 use crate::predicate::{Predicate, ValueCast};
 use crate::selector::Selector;
 use crate::verbs::search::validate_filter_expression;
+use crate::{HelpRequest, MissingSelectorPolicy, UnrollSpec};
 
 pub fn split_pipeline(line: &str) -> Result<(String, Vec<PipeStage>), PipelineError> {
-    let parts = split_unquoted_pipes(line);
+    let parts = split_unquoted(line, '|')?;
     let Some(command) = parts.first() else {
         return Ok((String::new(), Vec::new()));
     };
@@ -33,7 +35,7 @@ pub(crate) fn parse_stage_list(source: &str) -> Result<Vec<PipeStage>, PipelineE
         return Ok(Vec::new());
     }
 
-    let parts = split_unquoted_pipes(source);
+    let parts = split_unquoted(source, '|')?;
     let start = usize::from(parts.first().is_some_and(|part| part.trim().is_empty()));
     let stages = parts
         .iter()
@@ -50,7 +52,12 @@ pub(crate) fn parse_stage_list(source: &str) -> Result<Vec<PipeStage>, PipelineE
 
 pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(), PipelineError> {
     let mut grouped_names = None::<HashSet<String>>;
-    for stage in stages {
+    for (index, stage) in stages.iter().enumerate() {
+        if matches!(stage, PipeStage::Help(_)) && index + 1 != stages.len() {
+            return Err(PipelineError::Parse(
+                "H / HELP must be the final pipeline stage".into(),
+            ));
+        }
         match stage {
             PipeStage::Group(keys) => {
                 grouped_names = Some(keys.iter().map(|key| key.alias().to_string()).collect());
@@ -69,7 +76,9 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
                     }
                 }
             }
-            PipeStage::Columns(terms) if grouped_names.is_some() => {
+            PipeStage::Columns(terms) | PipeStage::ProjectRows(terms)
+                if grouped_names.is_some() =>
+            {
                 let names = grouped_names.as_ref().expect("group names exist");
                 for alias in terms.iter().filter_map(ProjectTerm::alias) {
                     if names.contains(alias) {
@@ -95,7 +104,11 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
             | PipeStage::CollapseGroups
             | PipeStage::Jq(_)
             | PipeStage::Value(_) => grouped_names = None,
-            PipeStage::Grep(_)
+            PipeStage::Help(_)
+            | PipeStage::SelectorPolicy(_)
+            | PipeStage::UnrollInto(_)
+            | PipeStage::ProjectRows(_)
+            | PipeStage::Grep(_)
             | PipeStage::TypedFilter(_)
             | PipeStage::ValueSearch(_)
             | PipeStage::KeySearch(_)
@@ -114,40 +127,39 @@ pub(crate) fn validate_pipeline_output_names(stages: &[PipeStage]) -> Result<(),
     Ok(())
 }
 
-fn split_unquoted_pipes(line: &str) -> Vec<String> {
-    let mut escaped = false;
-    let mut single_quoted = false;
-    let mut double_quoted = false;
-    let mut start = 0;
-    let mut parts = Vec::new();
-
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if !single_quoted => escaped = true,
-            '\'' if !double_quoted => single_quoted = !single_quoted,
-            '"' if !single_quoted => double_quoted = !double_quoted,
-            '|' if !single_quoted && !double_quoted => {
-                parts.push(line[start..index].to_string());
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-
-    parts.push(line[start..].to_string());
-    parts
-}
-
 fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
     if stage.is_empty() {
         return Err(PipelineError::Pipe("Empty pipe stage".to_string()));
     }
 
+    let mut words = stage.split_whitespace();
+    if words
+        .next()
+        .is_some_and(|verb| verb.eq_ignore_ascii_case("H") || verb.eq_ignore_ascii_case("HELP"))
+    {
+        let topic = words.next();
+        if words.next().is_some() {
+            return Err(PipelineError::Parse(
+                "H / HELP accepts one verb or topic".into(),
+            ));
+        }
+        return HelpRequest::new(topic).map(PipeStage::Help);
+    }
+    let (verb, rest) = stage.split_once(char::is_whitespace).unwrap_or((stage, ""));
+    if matches!(verb, "P" | "columns") && rest.split_whitespace().next() == Some("ROWS") {
+        let rest = rest.trim_start()["ROWS".len()..].trim_start();
+        let parsed =
+            parse_projection_stage_source(&format!("P {rest}")).expect("projection prefix")?;
+        let PipeStage::Columns(terms) = parsed else {
+            unreachable!("projection")
+        };
+        if terms.iter().any(ProjectTerm::is_drop) {
+            return Err(PipelineError::Parse(
+                "P ROWS accepts keep selectors; apply P !field first to remove fields".into(),
+            ));
+        }
+        return Ok(PipeStage::ProjectRows(terms));
+    }
     if let Some(typed) = parse_typed_predicate_stage(stage) {
         return typed;
     }
@@ -199,7 +211,18 @@ fn parse_stage(stage: &str) -> Result<PipeStage, PipelineError> {
             require_arg_count("Z", &parts, 1)?;
             Ok(PipeStage::CollapseGroups)
         }
+        "U" if parts.len() == 4 && parts[2].eq_ignore_ascii_case("AS") => {
+            UnrollSpec::new(&parts[1], &parts[3]).map(PipeStage::UnrollInto)
+        }
         "U" => selector_stage("U", &parts, PipeStage::Unroll),
+        "CHECK" => {
+            require_arg_count("CHECK", &parts, 2)?;
+            match parts[1].to_ascii_uppercase().as_str() {
+                "STRICT" => Ok(PipeStage::SelectorPolicy(MissingSelectorPolicy::Error)),
+                "ALLOW" => Ok(PipeStage::SelectorPolicy(MissingSelectorPolicy::Allow)),
+                _ => Err(PipelineError::Parse("CHECK expects STRICT or ALLOW".into())),
+            }
+        }
         "JQ" => parse_jq_stage(&parts),
         "VALUE" | "VAL" => selector_stage(parts[0].as_str(), &parts, PipeStage::Value),
         _ => parse_legacy_stage(stage, &parts),
@@ -400,44 +423,19 @@ fn split_comma_separated<'a>(
     source: &'a str,
     item_description: &str,
 ) -> Result<Vec<&'a str>, PipelineError> {
-    let mut items = Vec::new();
-    let mut quote = None;
-    let mut escaped = false;
-    let mut start = 0;
-    for (index, ch) in source.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        match quote {
-            Some(active) if ch == active => quote = None,
-            Some(_) => {}
-            None if matches!(ch, '\'' | '"') => quote = Some(ch),
-            None if ch == ',' => {
-                let item = source[start..index].trim();
-                if item.is_empty() {
-                    return Err(PipelineError::Parse(format!(
-                        "{item_description} cannot be empty"
-                    )));
-                }
-                items.push(item);
-                start = index + ch.len_utf8();
+    split_unquoted(source, ',')?
+        .into_iter()
+        .map(|item| {
+            let item = item.trim();
+            if item.is_empty() {
+                Err(PipelineError::Parse(format!(
+                    "{item_description} cannot be empty"
+                )))
+            } else {
+                Ok(item)
             }
-            None => {}
-        }
-    }
-    let item = source[start..].trim();
-    if item.is_empty() {
-        return Err(PipelineError::Parse(format!(
-            "{item_description} cannot be empty"
-        )));
-    }
-    items.push(item);
-    Ok(items)
+        })
+        .collect()
 }
 
 fn parse_projection_term(source: &str, term_number: usize) -> Result<ProjectTerm, PipelineError> {

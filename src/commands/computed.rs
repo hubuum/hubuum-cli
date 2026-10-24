@@ -5,7 +5,9 @@ use hubuum_client::ResourceRevision;
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{build_list_query, desired_format, render_list_page, CliCommand, PageSelection};
+use super::{
+    build_list_query, desired_format, render_list_page, response_format, CliCommand, PageSelection,
+};
 use crate::autocomplete::{
     bool, classes, computed_field_paths, computed_operations, computed_result_types,
     objects_from_class,
@@ -441,7 +443,7 @@ impl CliCommand for SharedComputedDelete {
             &query.key,
             ResourceRevision::new(query.revision)?,
         )?;
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
             OutputFormat::Text => {
                 append_line(format!("Deleted shared computed field '{}'.", query.key))?;
@@ -460,7 +462,7 @@ impl CliCommand for PersonalComputedDelete {
             &query.key,
             ResourceRevision::new(query.revision)?,
         )?;
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json(&deleted)?,
             OutputFormat::Text => append_line(format!(
                 "Deleted personal computed field '{}' from class '{}'.",
@@ -712,7 +714,7 @@ fn render_shared_list(
     tokens: &CommandTokenizer,
     fields: &SharedComputedFieldListRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json(fields)?,
         OutputFormat::Text => {
             fields.definitions.format_noreturn()?;
@@ -726,7 +728,7 @@ fn render_mutation(
     tokens: &CommandTokenizer,
     mutation: &ComputedFieldMutationRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json(mutation)?,
         OutputFormat::Text => {
             mutation.definition.format_noreturn()?;
@@ -751,7 +753,7 @@ fn render_preview(
     tokens: &CommandTokenizer,
     preview: &ComputedFieldPreviewRecord,
 ) -> Result<(), AppError> {
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json(preview)?,
         OutputFormat::Text => {
             append_key_value("Value", preview.value.to_string(), 10)?;
@@ -782,10 +784,37 @@ fn render_state(state: &ClassComputationStateRecord) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
+    use hubuum_filter::Pipeline;
     use serde_json::json;
+    use serial_test::serial;
 
-    use super::preview_target;
+    use super::{preview_target, render_preview};
+    use crate::domain::ComputedFieldPreviewRecord;
+    use crate::output::{reset_output, set_pipeline, set_render_format, take_output, RenderFormat};
     use crate::services::ComputedPreviewTarget;
+    use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    #[serial]
+    fn preview_pipelines_keep_false_values_and_absent_errors() {
+        reset_output().unwrap();
+        set_render_format(RenderFormat::Json).unwrap();
+        set_pipeline(Pipeline::parse("P value error").unwrap().into_stages()).unwrap();
+        let tokens = CommandTokenizer::new("preview", "preview", &[]).unwrap();
+        render_preview(
+            &tokens,
+            &ComputedFieldPreviewRecord {
+                value: json!(false),
+                error: None,
+            },
+        )
+        .unwrap();
+        let result = take_output().unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result.render()).unwrap(),
+            json!({"value":false,"error":null})
+        );
+    }
 
     #[test]
     fn preview_requires_exactly_one_target() {

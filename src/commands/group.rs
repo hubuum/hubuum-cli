@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand, PageSelection,
+    response_format, CliCommand, PageSelection,
 };
 use crate::autocomplete::{group_sort, group_where, groups, service_accounts, users};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
@@ -13,7 +13,7 @@ use crate::domain::GroupDetails;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::{append_json_line, append_line};
+use crate::output::append_json_line;
 use crate::services::{AppServices, CreateGroupInput, GroupUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
@@ -164,10 +164,7 @@ impl CliCommand for GroupAddUser {
 
         let message = format!("User '{}' added to group '{}'", new.username, new.groupname);
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -202,10 +199,7 @@ impl CliCommand for GroupRemoveUser {
             new.username, new.groupname
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -241,10 +235,7 @@ impl CliCommand for GroupAddServiceAccount {
             new.name, new.groupname
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -280,10 +271,7 @@ impl CliCommand for GroupRemoveServiceAccount {
             new.name, new.groupname
         );
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }
@@ -307,7 +295,7 @@ impl CliCommand for GroupInfo {
         let new = Self::parse_tokens(tokens)?;
         let details: GroupDetails = services.gateway().group_details(&new.groupname)?;
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_line(&details)?,
             OutputFormat::Text => {
                 details.group.format()?;

@@ -5,7 +5,7 @@ use cli_command_derive::CommandArgs;
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, CliCommand};
+use super::{response_format, CliCommand};
 use crate::app::reachable_server_config;
 use crate::build_info;
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
@@ -89,7 +89,7 @@ pub(crate) fn render_version(tokens: &CommandTokenizer) -> Result<(), AppError> 
         server_version,
     };
 
-    match desired_format(tokens)? {
+    match response_format(tokens)? {
         OutputFormat::Json => append_json_line(&info)?,
         OutputFormat::Text => {
             append_key_value("CLI", info.cli_version, 10)?;

@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 use super::admin::render_structured_value;
 use super::builder::{catalog_command, CommandDocs};
 use super::task_submit::{run_task_backed, TaskSubmitOptions};
-use super::{desired_format, option_or_pos, render_task_record, CliCommand};
+use super::{desired_format, option_or_pos, render_task_record, response_format, CliCommand};
 use crate::app::{build_client, request_with_server_port_fallback};
 use crate::autocomplete::{bool, file_paths};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
@@ -452,12 +452,7 @@ fn render_backup_saved(
     path: &str,
     artifact: &BackupArtifact,
 ) -> Result<(), AppError> {
-    let format = if has_pipeline()? {
-        OutputFormat::Json
-    } else {
-        desired_format(tokens)?
-    };
-    match format {
+    match response_format(tokens)? {
         OutputFormat::Json => set_semantic_output(OutputEnvelope::detail(
             json!({"file": path, "backup": artifact.summary()}),
             Vec::new(),

@@ -2,19 +2,70 @@ use std::str::FromStr;
 
 use regex::Regex;
 
+use crate::eval::apply_compiled;
 use crate::model::{validate_group_keys, validate_projection_terms};
 use crate::parse::{parse_stage_list, validate_pipeline_output_names};
 use crate::verbs::jq::validate_jq_expression;
-use crate::verbs::search::validate_filter_expression;
-use crate::{
-    apply_pipeline, apply_pipeline_with_settings, OutputEnvelope, PipeStage, PipelineError,
-    PipelineSettings,
-};
+use crate::verbs::search::SemanticFilter;
+use crate::{OutputEnvelope, PipeStage, PipelineError, PipelineSettings};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Pipeline {
     stages: Vec<PipeStage>,
+    plans: Vec<FilterPlan>,
 }
+
+#[derive(Debug, Clone)]
+pub(crate) enum FilterPlan {
+    None,
+    Legacy {
+        semantic: SemanticFilter,
+        lines: Result<Regex, String>,
+    },
+    Regex(Regex),
+}
+
+impl FilterPlan {
+    fn compile(stage: &PipeStage) -> Result<Self, PipelineError> {
+        Ok(match stage {
+            PipeStage::Grep(pattern) | PipeStage::Reject(pattern) => Self::Legacy {
+                semantic: SemanticFilter::parse(pattern)?,
+                lines: Regex::new(pattern).map_err(|error| error.to_string()),
+            },
+            PipeStage::ValueSearch(pattern) | PipeStage::KeySearch(pattern) => {
+                Self::Regex(Regex::new(pattern)?)
+            }
+            _ => Self::None,
+        })
+    }
+
+    pub(crate) fn semantic(&self) -> &SemanticFilter {
+        match self {
+            Self::Legacy { semantic, .. } => semantic,
+            _ => unreachable!("compiled legacy filter"),
+        }
+    }
+
+    pub(crate) fn regex(&self) -> Result<&Regex, PipelineError> {
+        match self {
+            Self::Regex(regex)
+            | Self::Legacy {
+                lines: Ok(regex), ..
+            } => Ok(regex),
+            Self::Legacy {
+                lines: Err(error), ..
+            } => Err(PipelineError::Parse(error.clone())),
+            Self::None => unreachable!("compiled regex filter"),
+        }
+    }
+}
+
+impl PartialEq for Pipeline {
+    fn eq(&self, other: &Self) -> bool {
+        self.stages == other.stages
+    }
+}
+impl Eq for Pipeline {}
 
 impl Pipeline {
     pub fn parse(source: &str) -> Result<Self, PipelineError> {
@@ -26,7 +77,11 @@ impl Pipeline {
             validate_stage(stage)?;
         }
         validate_pipeline_output_names(&stages)?;
-        Ok(Self { stages })
+        let plans = stages
+            .iter()
+            .map(FilterPlan::compile)
+            .collect::<Result<_, _>>()?;
+        Ok(Self { stages, plans })
     }
 
     pub fn stages(&self) -> &[PipeStage] {
@@ -42,7 +97,7 @@ impl Pipeline {
     }
 
     pub fn apply(&self, input: OutputEnvelope) -> Result<OutputEnvelope, PipelineError> {
-        apply_pipeline(input, &self.stages)
+        self.apply_with_settings(input, &PipelineSettings::default())
     }
 
     pub fn apply_with_settings(
@@ -50,7 +105,7 @@ impl Pipeline {
         input: OutputEnvelope,
         settings: &PipelineSettings,
     ) -> Result<OutputEnvelope, PipelineError> {
-        apply_pipeline_with_settings(input, &self.stages, settings)
+        apply_compiled(input, &self.stages, &self.plans, settings)
     }
 }
 
@@ -64,16 +119,16 @@ impl FromStr for Pipeline {
 
 fn validate_stage(stage: &PipeStage) -> Result<(), PipelineError> {
     match stage {
-        PipeStage::Grep(expression) | PipeStage::Reject(expression) => {
-            validate_filter_expression(expression)
-        }
-        PipeStage::ValueSearch(pattern) | PipeStage::KeySearch(pattern) => {
-            Regex::new(pattern).map(|_| ()).map_err(PipelineError::from)
-        }
-        PipeStage::Columns(terms) => {
+        PipeStage::Columns(terms) | PipeStage::ProjectRows(terms) => {
             if terms.is_empty() {
                 return Err(PipelineError::Pipe(
                     "Pipe stage 'P' requires at least one column".to_string(),
+                ));
+            }
+            if matches!(stage, PipeStage::ProjectRows(_)) && terms.iter().any(|term| term.is_drop())
+            {
+                return Err(PipelineError::Pipe(
+                    "P ROWS accepts keep selectors only".into(),
                 ));
             }
             validate_projection_terms(terms)
@@ -87,7 +142,14 @@ fn validate_stage(stage: &PipeStage) -> Result<(), PipelineError> {
             validate_group_keys(keys)
         }
         PipeStage::Jq(expression) => validate_jq_expression(expression),
-        PipeStage::Truthy(_)
+        PipeStage::Grep(_)
+        | PipeStage::Reject(_)
+        | PipeStage::ValueSearch(_)
+        | PipeStage::KeySearch(_)
+        | PipeStage::Help(_)
+        | PipeStage::SelectorPolicy(_)
+        | PipeStage::UnrollInto(_)
+        | PipeStage::Truthy(_)
         | PipeStage::TypedFilter(_)
         | PipeStage::TypedReject(_)
         | PipeStage::Head { .. }

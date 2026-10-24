@@ -22,7 +22,6 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::append_line;
 use crate::services::{
     AppServices, CreateRemoteTargetInput, InvocationSubject, InvokeRemoteTargetInput,
     RemoteAuthConfigInput, UpdateRemoteTargetInput,
@@ -430,10 +429,7 @@ impl CliCommand for RemoteTargetDelete {
 
         let message = format!("Remote target '{}' deleted", target_name);
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

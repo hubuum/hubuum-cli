@@ -64,8 +64,11 @@ The current native stages provide:
 
 - broad, value-only, key-only, field, reject, and truthiness filtering;
 - typed boolean predicates with explicit casts, null/missing tests, fanout,
-  quoted JSON literals, and `NOT`/`AND`/`OR` composition;
+  quoted JSON literals, `NOT`/`AND`/`OR` composition, literal text operators,
+  opt-in fuzzy matching, and relative datetime operands;
 - projection with validated output aliases and selector-based value extraction;
+- explicit `P ROWS` projection aligned by source array-member addresses,
+  simultaneous array removals, and collision-checked `U selector AS item`;
 - stable multi-key sorting with strict scalar, date, version, natural, and
   IPv4/IPv6 casts, fanout reduction, and null order;
 - stable distinct over whole visible JSON values or typed selector tuples;
@@ -73,6 +76,16 @@ The current native stages provide:
 - grouped and global aggregation with selector counts and ordered boundaries,
   collapse, and array unroll; and
 - JQ-compatible transforms through the in-process `jaq` evaluator.
+
+Integer comparisons, numeric casts, distinct, and sorting retain exact JSON
+integer values. Integer-only sums retain an integer result while it fits the
+JSON i64/u64 range. Group membership counts each input row once per distinct
+key combination, independently of repeated fanout values.
+
+`Pipeline` retains compiled filter plans, including regexes and cast literals.
+All relative-time operands use one clock sample per application; reusing a
+pipeline refreshes that sample. The shared quote/escape scanner handles stage
+boundaries, comma lists, typed string literals, and host redirect scanning.
 
 Selectors support dotted fields, indexes, negative indexes, array fanout with
 `[]` or `[*]`, and slices. Selectors are validated when parsed or constructed.
@@ -98,6 +111,30 @@ let settings = PipelineSettings::new()
 Pass the settings to `Pipeline::apply_with_settings` or
 `apply_pipeline_with_settings`. Values selected through an envelope's explicit
 visible columns remain searchable.
+
+`PipelineSettings::with_missing_selector_policy(MissingSelectorPolicy::Error)`
+enables selector diagnostics; `CHECK STRICT` does the same within the DSL, and
+`CHECK ALLOW` restores the default. Missing-selector checks allow empty inputs
+and explicit `IS MISSING` tests. `with_evaluation_time(SystemTime)` supplies a
+fixed clock for deterministic relative-time evaluation.
+
+## Help And Statement Inspection
+
+`H` and `HELP` list the language options. `H F`, `HELP P`, and other verb/topic
+operands explain individual features. Terminal `H CURRENT` describes preceding
+pipeline stages without evaluating them. `statement_help` lets a CLI handle
+this request before command dispatch, authentication, or any effects.
+
+```rust
+use hubuum_filter::statement_help;
+
+let help = statement_help("delete-record 123 | F WHERE name FUZZY 'servre' | H CURRENT")?;
+assert!(help.unwrap().contains("F WHERE"));
+# Ok::<(), hubuum_filter::PipelineError>(())
+```
+
+The shared `help_topics`, `topic_help`, and `verb_summaries` APIs support host
+help menus. Rendering and command execution remain the caller's responsibility.
 
 ## Bounded JQ
 

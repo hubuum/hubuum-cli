@@ -34,7 +34,6 @@ static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(Output
 #[derive(Debug)]
 enum OutputEvent {
     Line(String),
-    Json { value: Value, rendered: String },
     Semantic(OutputEnvelope),
 }
 
@@ -42,7 +41,6 @@ impl OutputEvent {
     fn rendered_line(&self) -> Option<String> {
         match self {
             Self::Line(line) => Some(line.clone()),
-            Self::Json { rendered, .. } => Some(rendered.clone()),
             Self::Semantic(_) => None,
         }
     }
@@ -50,8 +48,12 @@ impl OutputEvent {
 
 fn json_envelope(value: Value) -> OutputEnvelope {
     match value {
+        Value::Array(values) if values.iter().all(Value::is_object) => {
+            OutputEnvelope::rows(values, Vec::new())
+        }
         Value::Array(values) => OutputEnvelope::values(values),
-        value => OutputEnvelope::detail(value, Vec::new()),
+        Value::Object(_) => OutputEnvelope::detail(value, Vec::new()),
+        value => OutputEnvelope::message(value),
     }
 }
 
@@ -228,6 +230,8 @@ impl OutputBuffer {
                     | PipeStage::CollapseGroups
                     | PipeStage::Jq(_)
                     | PipeStage::Value(_)
+                    | PipeStage::ProjectRows(_)
+                    | PipeStage::UnrollInto(_)
             )
         })
     }
@@ -255,13 +259,10 @@ impl OutputBuffer {
             let mut rendered = Vec::new();
             for event in &self.events {
                 match event {
-                    OutputEvent::Line(line) => rendered.push(line.clone()),
-                    OutputEvent::Json {
-                        value,
-                        rendered: line,
-                    } => {
-                        rendered.push(line.clone());
-                        semantic.push(json_envelope(value.clone()));
+                    OutputEvent::Line(line) => {
+                        if self.render_format == RenderFormat::Text {
+                            rendered.push(line.clone());
+                        }
                     }
                     OutputEvent::Semantic(envelope) => {
                         let envelope = apply_pipeline_with_settings(
@@ -280,10 +281,6 @@ impl OutputBuffer {
             }
             rendered
         } else if self.pipeline.is_empty() {
-            semantic.extend(self.events.iter().filter_map(|event| match event {
-                OutputEvent::Json { value, .. } => Some(json_envelope(value.clone())),
-                _ => None,
-            }));
             self.events
                 .iter()
                 .filter_map(OutputEvent::rendered_line)
@@ -321,7 +318,7 @@ impl OutputBuffer {
                     .iter()
                     .filter_map(|event| match event {
                         OutputEvent::Line(line) => Some(line.clone()),
-                        OutputEvent::Json { .. } | OutputEvent::Semantic(_) => None,
+                        OutputEvent::Semantic(_) => None,
                     })
                     .collect()
             } else {
@@ -403,17 +400,7 @@ pub fn append_json<T: Serialize>(value: T) -> Result<(), AppError> {
 }
 
 pub fn append_json_line<T: Serialize + ?Sized>(value: &T) -> Result<(), AppError> {
-    // Preserve legacy JSON commands' line-oriented pipeline behavior while
-    // retaining typed data for diagnostic responses and per-item redirects.
-    OUTPUT_BUFFER
-        .lock()
-        .map_err(|_| AppError::LockError)?
-        .events
-        .push(OutputEvent::Json {
-            value: to_value(value)?,
-            rendered: to_string_pretty(value)?,
-        });
-    Ok(())
+    set_semantic_output(json_envelope(to_value(value)?))
 }
 
 pub fn append_key_value<K: Display, V: Display>(
@@ -1321,16 +1308,60 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        add_error, add_warning, append_line, apply_table_layout_at_terminal_width,
-        apply_table_style, column_headers, render_dense_rows_with_band, render_dense_theme_preview,
-        reset_output, set_pipeline, set_render_format, set_semantic_output, take_output,
-        DenseLayout, OutputSnapshot, RenderFormat,
+        add_error, add_warning, append_json_line, append_line,
+        apply_table_layout_at_terminal_width, apply_table_style, column_headers,
+        render_dense_rows_with_band, render_dense_theme_preview, reset_output, set_pipeline,
+        set_render_format, set_semantic_output, take_output, DenseLayout, OutputSnapshot,
+        RenderFormat,
     };
     use crate::config::{init_config, AppConfig};
     use crate::models::{OutputColor, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap};
     use comfy_table::Table;
     use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, Pipeline, ProjectTerm};
     use hubuum_theme::resolve_theme;
+
+    #[test]
+    #[serial]
+    fn json_response_emitters_transform_data_before_every_renderer() {
+        init_config(AppConfig::default()).unwrap();
+        for format in [
+            RenderFormat::Text,
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            reset_output().unwrap();
+            set_render_format(format).unwrap();
+            set_pipeline(
+                Pipeline::parse("F WHERE enabled == false | P name missing")
+                    .unwrap()
+                    .into_stages(),
+            )
+            .unwrap();
+            append_json_line(&json!([
+                {"name":"kept", "enabled":false, "missing":null},
+                {"name":"discarded", "enabled":true, "missing":42}
+            ]))
+            .unwrap();
+            append_line("Use next to fetch more.").unwrap();
+            let snapshot = take_output().unwrap();
+            assert_eq!(
+                snapshot.semantic[0].value(),
+                &json!([{"name":"kept", "missing":null}])
+            );
+            let rendered = snapshot.render();
+            assert!(rendered.contains("kept"), "{format:?}: {rendered}");
+            assert!(!rendered.contains("discarded"));
+            assert_eq!(rendered.contains("Use next"), format == RenderFormat::Text);
+            if format == RenderFormat::Json {
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&rendered).unwrap(),
+                    *snapshot.semantic[0].value()
+                );
+            }
+        }
+    }
 
     #[test]
     fn automatic_table_width_wraps_long_cells_within_the_terminal() {

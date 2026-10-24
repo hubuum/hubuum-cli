@@ -1394,6 +1394,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
+ "strsim",
  "thiserror 2.0.21",
 ]
 

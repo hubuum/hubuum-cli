@@ -451,6 +451,12 @@ fn render_search_event(event: &SearchStreamEvent, text: bool) -> Result<(), AppE
                 if !batch.objects.is_empty() {
                     batch.objects.format_noreturn()?;
                 }
+                if batch.collections.is_empty()
+                    && batch.classes.is_empty()
+                    && batch.objects.is_empty()
+                {
+                    set_semantic_output(OutputEnvelope::empty())?;
+                }
                 Ok(())
             }
         }
@@ -469,6 +475,7 @@ fn render_search_results(results: &SearchResultsRecord) -> Result<(), AppError> 
     rendered_any |= render_group("Objects", &results.objects)?;
 
     if !rendered_any {
+        set_semantic_output(OutputEnvelope::empty())?;
         append_line("No results.")?;
     }
 
@@ -481,6 +488,7 @@ fn render_search_batch(batch: &SearchBatchRecord) -> Result<(), AppError> {
         | render_group("Objects", &batch.objects)?;
 
     if !rendered_any {
+        set_semantic_output(OutputEnvelope::empty())?;
         append_line("No results in this batch.")?;
     }
 
@@ -566,6 +574,43 @@ mod tests {
     use crate::domain::SearchCursorSet;
     use crate::services::SearchKind;
     use crate::tokenizer::CommandTokenizer;
+
+    #[test]
+    #[serial_test::serial]
+    fn empty_search_results_count_records_instead_of_status_lines() {
+        use super::{render_search_batch, render_search_results};
+        use crate::domain::{SearchBatchRecord, SearchResultsRecord};
+        use crate::output::{
+            reset_output, set_pipeline, set_render_format, take_output, RenderFormat,
+        };
+        use hubuum_filter::PipeStage;
+
+        for stream in [false, true] {
+            reset_output().unwrap();
+            set_render_format(RenderFormat::Json).unwrap();
+            set_pipeline(vec![PipeStage::Count]).unwrap();
+            if stream {
+                render_search_batch(&SearchBatchRecord {
+                    kind: "objects".into(),
+                    collections: vec![],
+                    classes: vec![],
+                    objects: vec![],
+                    next: None,
+                })
+                .unwrap();
+            } else {
+                render_search_results(&SearchResultsRecord {
+                    collections: vec![],
+                    classes: vec![],
+                    objects: vec![],
+                })
+                .unwrap();
+            }
+            let output = take_output().unwrap();
+            assert_eq!(output.semantic[0].value(), &serde_json::json!([0]));
+            assert!(!output.render().contains("No results"));
+        }
+    }
 
     #[test]
     #[serial_test::serial]

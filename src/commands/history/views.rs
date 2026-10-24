@@ -12,7 +12,7 @@ use crate::autocomplete::{
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::commands::builder::{catalog_command, CommandDocs};
 use crate::commands::{
-    desired_format, normalize_server_page_size, render_json_record, required_option, CliCommand,
+    normalize_server_page_size, render_json_record, required_option, response_format, CliCommand,
     PageSelection,
 };
 use crate::domain::HistoryPageRecord;
@@ -299,7 +299,7 @@ fn object_options(
 fn render_page(tokens: &CommandTokenizer, page: &HistoryPageRecord) -> Result<(), AppError> {
     let rows = page.rows()?;
     warn_on_partial_pipeline(&rows)?;
-    if has_pipeline()? || matches!(desired_format(tokens)?, OutputFormat::Json) {
+    if matches!(response_format(tokens)?, OutputFormat::Json) {
         append_json(page)?;
     } else {
         let context = page.context();

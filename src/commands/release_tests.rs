@@ -80,6 +80,48 @@ fn output(outcome: CommandOutcome) -> Value {
 
 #[tokio::test]
 #[serial]
+async fn task_output_pipelines_read_the_complete_response() {
+    let transport = MockTransport::default();
+    respond(
+        &transport,
+        json!({
+            "id":5,"kind":"import","status":"succeeded","created_at":AT,
+            "progress":{"total_items":0,"processed_items":0,"success_items":0,"failed_items":0},
+            "links":{"task":"/api/v1/tasks/5","events":"/api/v1/tasks/5/events"}
+        }),
+        None,
+    );
+    respond(&transport, json!([]), None);
+    let result = execute(
+        &transport,
+        "task output 5 --output json | JQ '.ImportResults | length'",
+    )
+    .await
+    .unwrap();
+    assert_eq!(output(result), json!(0));
+    assert_eq!(transport.requests().len(), 2);
+}
+
+#[tokio::test]
+#[serial]
+async fn deletion_confirmations_support_message_extraction() {
+    let transport = MockTransport::default();
+    let fixture: Value = from_str(include_str!("../../tests/fixtures/object-show.json")).unwrap();
+    respond(&transport, fixture["root_class"].clone(), None);
+    transport.push_response(TransportResponse::empty(StatusCode::NO_CONTENT));
+    let result = execute(&transport, "class delete example | VALUE message")
+        .await
+        .unwrap();
+    assert_eq!(
+        result.output.render(),
+        "Class 'example' deleted successfully\n"
+    );
+    assert_eq!(transport.requests().len(), 2);
+    assert_eq!(transport.requests()[1].method, Method::DELETE);
+}
+
+#[tokio::test]
+#[serial]
 async fn history_ids_fetch_deleted_entries_directly_and_preserve_snapshots() {
     for (command, path, response) in [
         (
@@ -218,6 +260,29 @@ async fn relationship_and_computed_history_preserve_explicit_unavailability() {
     assert_eq!(result["shared"]["reason"], "definition_history_unavailable");
     assert_eq!(result["personal"], "unsupported");
     assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn structured_history_formats_keep_retention_context() {
+    for format in ["jsonl", "csv", "tsv"] {
+        let transport = MockTransport::default();
+        respond(
+            &transport,
+            json!({"at":AT,"coverage":"retained_history","relations":[]}),
+            None,
+        );
+        let result = execute(
+            &transport,
+            &format!("history relations --class-id 1 --output {format}"),
+        )
+        .await
+        .unwrap();
+        let page = result.output.semantic[0].value();
+        assert_eq!(page["coverage"], "retained_history");
+        assert_eq!(page["relations"], json!([]));
+        assert!(!result.output.render().contains("Historical context:"));
+    }
 }
 
 #[tokio::test]

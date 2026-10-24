@@ -5,17 +5,17 @@ use hubuum_client::{
     ComplianceStatus, SchemaActivationPolicy, SchemaActivationRequest, SchemaObjectUrlTemplate,
     SchemaPageOptions, SchemaRepairReportRequest, SchemaRevision, SchemaStageRequest,
 };
+use hubuum_filter::OutputEnvelope;
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
-use super::{desired_format, render_format, required_option_or_pos, CliCommand};
+use super::{render_format, required_option_or_pos, CliCommand};
 use crate::autocomplete::{bool, classes};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::SchemaOutput;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::append_json;
-use crate::models::OutputFormat;
-use crate::output::{append_line, append_lines, has_pipeline, RenderFormat};
+use crate::output::{append_lines, has_pipeline, set_semantic_output, RenderFormat};
 use crate::services::{AppServices, SchemaOperation};
 use crate::tokenizer::CommandTokenizer;
 
@@ -557,10 +557,7 @@ impl CliCommand for SchemaReport {
         let html = services
             .gateway()
             .schema_report(&class, query.task.into(), request)?;
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json(&html)?,
-            OutputFormat::Text => append_line(html)?,
-        }
+        set_semantic_output(OutputEnvelope::message(Value::String(html)))?;
         Ok(())
     }
 }
@@ -595,10 +592,7 @@ impl CliCommand for SchemaGenerateReport {
         let html = services
             .gateway()
             .schema_report(&class, query.task.into(), request)?;
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json(&html)?,
-            OutputFormat::Text => append_line(html)?,
-        }
+        set_semantic_output(OutputEnvelope::message(Value::String(html)))?;
         Ok(())
     }
 }

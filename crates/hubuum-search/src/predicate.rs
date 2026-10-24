@@ -92,6 +92,7 @@ fn lower_test(test: &PredicateTest) -> Result<Expression, SearchError> {
             };
             (operator, Some(literal_value(literal)?), *comparison == Comparison::NotEqual)
         }
+        PredicateOperator::Text { .. } => return Err(SearchError("server search does not support local text or fuzzy operators; use a local pipeline".into())),
         PredicateOperator::Regex { pattern, negated } => ("regex", Some(Value::String(pattern.clone())), *negated),
         PredicateOperator::In { literals, negated } => ("in", Some(Value::Array(literals.iter().map(literal_value).collect::<Result<_, _>>()?)), *negated),
         PredicateOperator::IsNull { negated } => ("is_null", None, *negated),
@@ -119,6 +120,7 @@ fn literal_value(literal: &TypedLiteral) -> Result<Value, SearchError> {
         TypedLiteral::String(value) => Ok(Value::String(value.clone())),
         TypedLiteral::Number(value) => Ok(Value::Number(value.clone())),
         TypedLiteral::Boolean(value) => Ok(Value::Bool(*value)),
+        TypedLiteral::RelativeTime(_) => Err(SearchError("server search does not support relative-time operands; use an absolute timestamp or a local pipeline".into())),
         TypedLiteral::Null => Err(SearchError(
             "use IS NULL or IS NOT NULL instead of comparing with null".into(),
         )),
@@ -204,6 +206,9 @@ mod tests {
     #[test]
     fn rejects_local_only_semantics_and_wrong_target_fields() {
         for predicate in [
+            "name CONTAINS 'srv'",
+            "name FUZZY 'servre'",
+            "created_at AS datetime >= now-1d",
             "data.x AS num > 1",
             "data.x IS MISSING",
             "data.x == null",

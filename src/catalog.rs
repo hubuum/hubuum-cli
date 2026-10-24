@@ -914,8 +914,8 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     for topic in help_topics() {
         line!(format!(
             "  {} {}",
-            paint_command(format!("help pipe {:<10}", topic.name)),
-            topic.summary
+            paint_command(format!("help pipe {:<10}", topic.name())),
+            topic.summary()
         ));
     }
     line!("");
@@ -923,7 +923,9 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     for summary in verb_summaries() {
         line!(format!(
             "  {:<14} {:<9} {}",
-            summary.names, summary.topic, summary.summary
+            summary.names(),
+            summary.topic(),
+            summary.summary()
         ));
     }
     line!("");

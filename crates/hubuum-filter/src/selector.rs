@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -20,6 +21,17 @@ pub struct Selector {
     tokens: Vec<SelectorToken>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum AddressStep {
+    Field(String),
+    Index(usize),
+}
+
+pub(crate) struct SelectedValue<'a> {
+    pub(crate) address: Vec<AddressStep>,
+    pub(crate) value: &'a Value,
+}
+
 impl Selector {
     pub fn new(source: impl Into<String>) -> Result<Self, PipelineError> {
         let source = source.into();
@@ -36,7 +48,119 @@ impl Selector {
     }
 
     pub fn remove_matches(&self, value: &mut Value) {
-        remove_selected(value, &self.tokens);
+        remove_matches(value, &[self]);
+    }
+
+    pub(crate) fn has_empty_fanout(&self, value: &Value) -> bool {
+        self.tokens.iter().enumerate().any(|(index, token)| {
+            if !matches!(token, SelectorToken::All | SelectorToken::Slice(_, _)) {
+                return false;
+            }
+            select_tokens(value, &self.tokens[..index])
+                .iter()
+                .any(|parent| {
+                    let Value::Array(array) = parent else {
+                        return false;
+                    };
+                    match token {
+                        SelectorToken::All => array.is_empty(),
+                        SelectorToken::Slice(start, end) => {
+                            let (start, end) = resolve_slice(array.len(), *start, *end);
+                            start == end
+                        }
+                        _ => false,
+                    }
+                })
+        })
+    }
+
+    pub(crate) fn addressed<'a>(&self, value: &'a Value) -> Vec<SelectedValue<'a>> {
+        let mut current = vec![SelectedValue {
+            address: Vec::new(),
+            value,
+        }];
+        for token in &self.tokens {
+            let mut next = Vec::new();
+            for selected in current {
+                let mut push = |step, value| {
+                    let mut address = selected.address.clone();
+                    address.push(step);
+                    next.push(SelectedValue { address, value });
+                };
+                match (token, selected.value) {
+                    (SelectorToken::Field(field), Value::Object(object)) => {
+                        if let Some(value) = object.get(field) {
+                            push(AddressStep::Field(field.clone()), value);
+                        }
+                    }
+                    (SelectorToken::Index(index), Value::Array(array)) => {
+                        if let Some(index) = resolve_index(array.len(), *index) {
+                            push(AddressStep::Index(index), &array[index]);
+                        }
+                    }
+                    (SelectorToken::All, Value::Array(array)) => {
+                        for (index, value) in array.iter().enumerate() {
+                            push(AddressStep::Index(index), value);
+                        }
+                    }
+                    (SelectorToken::Slice(start, end), Value::Array(array)) => {
+                        let (start, end) = resolve_slice(array.len(), *start, *end);
+                        for (index, value) in array.iter().enumerate().take(end).skip(start) {
+                            push(AddressStep::Index(index), value);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            current = next;
+        }
+        current
+    }
+}
+
+/// Resolve every removal before changing an array's indexes.
+pub(crate) fn remove_matches(value: &mut Value, selectors: &[&Selector]) {
+    let addresses = selectors
+        .iter()
+        .flat_map(|selector| selector.addressed(value))
+        .map(|selected| selected.address)
+        .collect::<HashSet<_>>();
+    remove_addressed(value, &addresses);
+}
+
+pub(crate) fn remove_addressed(value: &mut Value, addresses: &HashSet<Vec<AddressStep>>) {
+    remove_addresses(value, &mut Vec::new(), addresses);
+}
+
+fn remove_addresses(
+    value: &mut Value,
+    path: &mut Vec<AddressStep>,
+    addresses: &HashSet<Vec<AddressStep>>,
+) {
+    match value {
+        Value::Object(object) => object.retain(|field, value| {
+            path.push(AddressStep::Field(field.clone()));
+            let keep = !addresses.contains(path);
+            if keep {
+                remove_addresses(value, path, addresses);
+            }
+            path.pop();
+            keep
+        }),
+        Value::Array(array) => {
+            let mut index = 0;
+            array.retain_mut(|value| {
+                path.push(AddressStep::Index(index));
+                index += 1;
+                let keep = !addresses.contains(path);
+                if keep {
+                    remove_addresses(value, path, addresses);
+                }
+                path.pop();
+                keep
+            });
+        }
+        _ => {}
     }
 }
 
@@ -61,8 +185,12 @@ impl AsRef<str> for Selector {
 }
 
 pub fn select_values<'a>(value: &'a Value, selector: &Selector) -> Vec<&'a Value> {
+    select_tokens(value, selector.tokens())
+}
+
+fn select_tokens<'a>(value: &'a Value, tokens: &[SelectorToken]) -> Vec<&'a Value> {
     let mut current = vec![value];
-    for token in selector.tokens() {
+    for token in tokens {
         let mut next = Vec::new();
         for value in current {
             match token {
@@ -228,63 +356,6 @@ fn parse_bracket(
 
 fn invalid_selector(selector: &str, detail: &str) -> PipelineError {
     PipelineError::Pipe(format!("Invalid selector '{selector}': {detail}"))
-}
-
-fn remove_selected(value: &mut Value, tokens: &[SelectorToken]) {
-    let Some((token, remaining)) = tokens.split_first() else {
-        return;
-    };
-
-    match token {
-        SelectorToken::Field(field) => {
-            let Value::Object(object) = value else {
-                return;
-            };
-            if remaining.is_empty() {
-                object.remove(field);
-            } else if let Some(value) = object.get_mut(field) {
-                remove_selected(value, remaining);
-            }
-        }
-        SelectorToken::Index(index) => {
-            let Value::Array(values) = value else {
-                return;
-            };
-            let Some(index) = resolve_index(values.len(), *index) else {
-                return;
-            };
-            if remaining.is_empty() {
-                values.remove(index);
-            } else if let Some(value) = values.get_mut(index) {
-                remove_selected(value, remaining);
-            }
-        }
-        SelectorToken::All => {
-            let Value::Array(values) = value else {
-                return;
-            };
-            if remaining.is_empty() {
-                values.clear();
-            } else {
-                for value in values {
-                    remove_selected(value, remaining);
-                }
-            }
-        }
-        SelectorToken::Slice(start, end) => {
-            let Value::Array(values) = value else {
-                return;
-            };
-            let (start, end) = resolve_slice(values.len(), *start, *end);
-            if remaining.is_empty() {
-                values.drain(start..end);
-            } else {
-                for value in &mut values[start..end] {
-                    remove_selected(value, remaining);
-                }
-            }
-        }
-    }
 }
 
 pub fn scalar_text(value: &Value) -> Option<String> {

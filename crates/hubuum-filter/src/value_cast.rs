@@ -6,12 +6,13 @@ use chrono::{DateTime, Utc};
 use semver::Version;
 use serde_json::Value;
 
+use crate::number::NumericValue;
 use crate::predicate::ValueCast;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CastValue {
     String(String),
-    Number(f64),
+    Number(NumericValue),
     Boolean(bool),
     Ip(IpAddr),
     DateTime(DateTime<Utc>),
@@ -41,10 +42,7 @@ impl Hash for CastValue {
         std::mem::discriminant(self).hash(state);
         match self {
             Self::String(value) | Self::Natural(value) => value.hash(state),
-            Self::Number(value) => {
-                let normalized = if *value == 0.0 { 0.0 } else { *value };
-                normalized.to_bits().hash(state);
-            }
+            Self::Number(value) => value.hash(state),
             Self::Boolean(value) => value.hash(state),
             Self::Ip(value) => value.hash(state),
             Self::DateTime(value) => value.hash(state),
@@ -63,7 +61,7 @@ pub(crate) fn cast_value(value: &Value, cast: ValueCast) -> Result<Option<CastVa
             scalar_cast_text(value)
                 .ok_or_else(|| "expected a JSON string, number, or boolean".to_string())?,
         ),
-        ValueCast::Number => CastValue::Number(parse_number(value)?),
+        ValueCast::Number => CastValue::Number(NumericValue::parse(value)?),
         ValueCast::Boolean => CastValue::Boolean(parse_boolean(value)?),
         ValueCast::Ip => {
             CastValue::Ip(parse_string(value, "an IP address")?.parse().map_err(|_| {
@@ -88,23 +86,6 @@ pub(crate) fn cast_value(value: &Value, cast: ValueCast) -> Result<Option<CastVa
 
 fn parse_string<'a>(value: &'a Value, expected: &str) -> Result<&'a str, String> {
     value.as_str().ok_or_else(|| format!("expected {expected}"))
-}
-
-fn parse_number(value: &Value) -> Result<f64, String> {
-    let number = match value {
-        Value::Number(number) => number.as_f64(),
-        Value::String(text) => serde_json::from_str::<Value>(text)
-            .ok()
-            .and_then(|value| value.as_f64()),
-        _ => None,
-    }
-    .ok_or_else(|| "expected one complete finite JSON number".to_string())?;
-
-    if number.is_finite() {
-        Ok(number)
-    } else {
-        Err("expected one complete finite JSON number".to_string())
-    }
 }
 
 fn parse_boolean(value: &Value) -> Result<bool, String> {

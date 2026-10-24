@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::MAIN_SEPARATOR;
 use std::sync::Arc;
 
+use hubuum_filter::{help_topics, unquoted_positions};
 use reedline::{Completer, CompletionResult, Span, Suggestion};
 use shlex::split;
 
@@ -373,11 +374,21 @@ impl ReplCompleter {
 
     fn pipe_suggestions(&self, prefix_line: &str, pos: usize) -> Option<Vec<Suggestion>> {
         let context = pipe_completion_context(prefix_line, pos)?;
-        if context.kind == PipeCompletionKind::Stage {
-            return Some(
-                PIPE_STAGES
+        if context.kind != PipeCompletionKind::Field {
+            let options = match context.kind {
+                PipeCompletionKind::Stage => PIPE_STAGES.to_vec(),
+                PipeCompletionKind::Help => help_topics()
                     .iter()
-                    .copied()
+                    .map(|topic| topic.name())
+                    .chain(PIPE_STAGES.iter().copied())
+                    .chain(["CURRENT"])
+                    .collect(),
+                PipeCompletionKind::Policy => vec!["STRICT", "ALLOW"],
+                PipeCompletionKind::Field => unreachable!("field completion below"),
+            };
+            return Some(
+                options
+                    .into_iter()
                     .filter(|stage| stage.starts_with(context.prefix))
                     .map(|stage| {
                         let value = if context.needs_leading_space {
@@ -928,6 +939,8 @@ fn is_completing_positional_id(
 enum PipeCompletionKind {
     Stage,
     Field,
+    Help,
+    Policy,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -940,8 +953,8 @@ struct PipeCompletionContext<'a> {
 }
 
 const PIPE_STAGES: &[&str] = &[
-    "grep", "F", "V", "K", "?", "reject", "P", "columns", "S", "sort", "D", "distinct", "G", "A",
-    "L", "head", "tail", "C", "count", "U", "Z", "JQ", "VALUE", "VAL",
+    "H", "HELP", "CHECK", "grep", "F", "V", "K", "?", "reject", "P", "columns", "S", "sort", "D",
+    "distinct", "G", "A", "L", "head", "tail", "C", "count", "U", "Z", "JQ", "VALUE", "VAL",
 ];
 
 fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompletionContext<'_>> {
@@ -991,6 +1004,24 @@ fn pipe_completion_context(prefix_line: &str, pos: usize) -> Option<PipeCompleti
             replacement_start: word_start,
             needs_leading_space: false,
         });
+    }
+
+    let option_kind = match stage.to_ascii_uppercase().as_str() {
+        "H" | "HELP" => Some(PipeCompletionKind::Help),
+        "CHECK" => Some(PipeCompletionKind::Policy),
+        _ => None,
+    };
+    if let Some(kind) = option_kind {
+        if pipe_parts.len() == 1 || (pipe_parts.len() == 2 && !ends_with_space) {
+            return Some(PipeCompletionContext {
+                command_prefix,
+                kind,
+                prefix: word,
+                replacement_start: word_start,
+                needs_leading_space: false,
+            });
+        }
+        return None;
     }
 
     if !field_completion_stage(stage)
@@ -1177,29 +1208,7 @@ fn field_uses_comma_segments(stage: &str) -> bool {
 }
 
 fn last_unquoted_pipe(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    let mut last_pipe = None;
-
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        match quote {
-            Some(active) if ch == active => quote = None,
-            Some(_) => {}
-            None if ch == '\'' || ch == '"' => quote = Some(ch),
-            None if ch == '|' => last_pipe = Some(index),
-            None => {}
-        }
-    }
-
-    last_pipe
+    unquoted_positions(line, '|').ok()?.last().copied()
 }
 
 fn projection_fields_for_command(
@@ -2015,6 +2024,24 @@ mod tests {
         assert_eq!(
             fallback.display_override.as_deref(),
             Some("type path manually")
+        );
+    }
+
+    #[test]
+    fn help_and_selector_policy_completion_do_not_require_command_fields() {
+        for (line, kind, prefix) in [
+            ("object list | H ", PipeCompletionKind::Help, ""),
+            ("object list | HELP CUR", PipeCompletionKind::Help, "CUR"),
+            ("object list | CHECK ST", PipeCompletionKind::Policy, "ST"),
+        ] {
+            let context = pipe_completion_context(line, line.len()).unwrap();
+            assert_eq!(context.kind, kind);
+            assert_eq!(context.prefix, prefix);
+        }
+        let line = r#"object list | F WHERE name == 'it\'s|here' | H "#;
+        assert_eq!(
+            pipe_completion_context(line, line.len()).unwrap().kind,
+            PipeCompletionKind::Help
         );
     }
 

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, desired_format, normalize_server_page_size, option_or_pos, render_list_page,
-    render_task_record, CliCommand, PageSelection,
+    render_task_record, response_format, CliCommand, PageSelection,
 };
 use crate::autocomplete::{task_event_sort, task_kinds, task_statuses, task_where};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
@@ -258,7 +258,7 @@ impl CliCommand for TaskOutputCmd {
             .ok_or_else(|| AppError::MissingOptions(vec!["id".to_string()]))?;
         let output = services.gateway().task_output(task_id)?;
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => append_json_line(&output)?,
             OutputFormat::Text => {
                 for line in output.render_lines() {

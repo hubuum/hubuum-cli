@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::builder::{catalog_command, CommandDocs};
 use super::{
     build_list_query, contains_clause, desired_format, render_list_page, required_option_or_pos,
-    CliCommand, PageSelection,
+    response_format, CliCommand, PageSelection,
 };
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 
@@ -14,7 +14,7 @@ use crate::domain::ClassShowRecord;
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, render_related_class_tree_with_key, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::{append_json_line, append_key_value, append_line};
+use crate::output::{append_json_line, append_key_value};
 use crate::services::{
     AppServices, ClassUpdateInput, CreateClassInput, RelatedGraphLimit, RelationTraversalOptions,
 };
@@ -167,7 +167,7 @@ impl CliCommand for ClassInfo {
             .with_graph_limit(query.limit.map(RelatedGraphLimit::new).transpose()?),
         )?;
 
-        match desired_format(tokens)? {
+        match response_format(tokens)? {
             OutputFormat::Json => {
                 append_json_line(&details)?;
             }
@@ -208,10 +208,7 @@ impl CliCommand for ClassDelete {
 
         let message = format!("Class '{name}' deleted successfully");
 
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

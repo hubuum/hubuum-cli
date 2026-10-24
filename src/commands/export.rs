@@ -20,7 +20,7 @@ use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json_message, OutputFormatter};
 use crate::models::OutputFormat;
-use crate::output::{append_json_line, append_line};
+use crate::output::append_json_line;
 use crate::services::{
     AdHocExport, AppServices, CreateExportTemplateInput, ExportScopeInput, ExportSource,
     RunExportInput, UpdateExportTemplateInput,
@@ -318,10 +318,7 @@ impl CliCommand for ExportDelete {
         services.gateway().delete_export_template(&name)?;
 
         let message = format!("Export template '{name}' deleted");
-        match desired_format(tokens)? {
-            OutputFormat::Json => append_json_message(&message)?,
-            OutputFormat::Text => append_line(message)?,
-        }
+        append_json_message(&message)?;
 
         Ok(())
     }

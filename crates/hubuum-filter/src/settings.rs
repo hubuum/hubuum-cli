@@ -1,17 +1,47 @@
 use std::collections::BTreeSet;
+use std::time::SystemTime;
 
 use crate::error::PipelineError;
+
+/// How an explicitly selected path absent from every input record is handled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MissingSelectorPolicy {
+    #[default]
+    Allow,
+    Error,
+}
 
 /// Caller-owned policy for pipeline evaluation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PipelineSettings {
     ignored_search_keys: BTreeSet<String>,
+    missing_selectors: MissingSelectorPolicy,
+    evaluation_time: Option<SystemTime>,
 }
 
 impl PipelineSettings {
     /// Creates settings that search every JSON key.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_missing_selector_policy(mut self, policy: MissingSelectorPolicy) -> Self {
+        self.missing_selectors = policy;
+        self
+    }
+
+    pub fn missing_selector_policy(&self) -> MissingSelectorPolicy {
+        self.missing_selectors
+    }
+
+    /// Fix the clock for one application. Otherwise the clock is sampled once.
+    pub fn with_evaluation_time(mut self, time: SystemTime) -> Self {
+        self.evaluation_time = Some(time);
+        self
+    }
+
+    pub(crate) fn evaluation_time(&self) -> SystemTime {
+        self.evaluation_time.unwrap_or_else(SystemTime::now)
     }
 
     /// Excludes keys from recursive broad, key-only, and value-only searches.

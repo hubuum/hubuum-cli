@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::diagnostics;
 use hubuum_client::ApiError;
-use hubuum_filter::{split_pipeline, PipeStage};
+use hubuum_filter::{split_pipeline, statement_help, PipeStage};
 use shlex::split;
 
 use crate::app::AppRuntime;
@@ -57,6 +57,9 @@ async fn execute_line_inner(
 ) -> Result<CommandOutcome, AppError> {
     let catalog = app.catalog.snapshot();
     reset_output()?;
+    if let Some(help) = statement_help(line)? {
+        return render_pipeline_inspection(help);
+    }
     let (mut line, mut pipeline, mut pipeline_suffix) = process_filter(line)?;
     let mut parts =
         split(&line).ok_or_else(|| AppError::ParseError("Parsing input failed".to_string()))?;
@@ -194,6 +197,9 @@ pub fn can_execute_offline(catalog: &CommandCatalog, line: &str) -> bool {
         return false;
     };
     let line = expansion.line();
+    if !matches!(statement_help(line), Ok(None)) {
+        return true;
+    }
     let line = match split_redirect_candidate(line) {
         Ok(Some(candidate)) => candidate.line,
         Ok(None) => line.to_string(),
@@ -257,6 +263,9 @@ async fn execute_offline_line_inner(
     line: &str,
 ) -> Result<CommandOutcome, AppError> {
     reset_output()?;
+    if let Some(help) = statement_help(line)? {
+        return render_pipeline_inspection(help);
+    }
     let (line, pipeline, pipeline_suffix) = process_filter(line)?;
     let parts = invocation_parts(&line)?;
     if parts.is_empty() {
@@ -509,6 +518,15 @@ fn parses_as_command(catalog: &CommandCatalog, scope: &[String], line: &str) -> 
         return false;
     };
     tokenizer_for_resolved(&line, &resolved).is_ok()
+}
+
+fn render_pipeline_inspection(help: String) -> Result<CommandOutcome, AppError> {
+    reset_output()?;
+    append_line(help)?;
+    Ok(CommandOutcome {
+        output: take_output()?,
+        ..CommandOutcome::default()
+    })
 }
 
 fn process_filter(line: &str) -> Result<(String, Vec<PipeStage>, Option<String>), AppError> {
