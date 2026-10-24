@@ -290,7 +290,7 @@ mod tests {
         })).unwrap());
         let task = gateway(&transport)
             .cancel_task(
-                TaskLookupInput::new(71.into()).unwrap(),
+                TaskLookupInput::new(71.try_into().unwrap()).unwrap(),
                 Some("Withdraw work".into()),
                 Some("running".into()),
             )
@@ -317,7 +317,7 @@ mod tests {
         for reason in ["", "  ", "two\nlines"] {
             assert!(gateway
                 .cancel_task(
-                    TaskLookupInput::new(71.into()).unwrap(),
+                    TaskLookupInput::new(71.try_into().unwrap()).unwrap(),
                     Some(reason.into()),
                     None
                 )
@@ -325,7 +325,7 @@ mod tests {
         }
         assert!(gateway
             .cancel_task(
-                TaskLookupInput::new(71.into()).unwrap(),
+                TaskLookupInput::new(71.try_into().unwrap()).unwrap(),
                 None,
                 Some("invalid".into())
             )

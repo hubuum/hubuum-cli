@@ -121,3 +121,13 @@ pub fn object_aggregate_sort(
         .map(|completion| completion.value)
         .collect()
 }
+
+pub fn related_classes(ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    let Some((alias, class_prefix)) = prefix.split_once('=') else {
+        return Vec::new();
+    };
+    ctx.classes(class_prefix)
+        .into_iter()
+        .map(|name| format!("{alias}={name}"))
+        .collect()
+}

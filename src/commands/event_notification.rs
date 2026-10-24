@@ -116,9 +116,9 @@ mod tests {
         let uuid = "11111111-1111-4111-8111-111111111111"
             .parse::<EventUuid>()
             .unwrap();
-        assert!(request(Some(7.into()), Some(uuid.clone())).is_ok());
-        assert!(request(Some(0.into()), Some(uuid.clone())).is_err());
+        assert!(request(Some(7.try_into().unwrap()), Some(uuid.clone())).is_ok());
+        assert!("0".parse::<EventSubscriptionId>().is_err());
         assert!(request(None, Some(uuid)).is_err());
-        assert!(request(Some(7.into()), None).is_err());
+        assert!(request(Some(7.try_into().unwrap()), None).is_err());
     }
 }

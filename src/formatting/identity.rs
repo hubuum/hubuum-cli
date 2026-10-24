@@ -330,11 +330,14 @@ mod tests {
             token,
             vec![
                 ResolvedTokenResource::resolved_class(
-                    8.into(),
+                    8.try_into().unwrap(),
                     "Hosts",
-                    TokenResourceParent::new(7.into(), Some("Infrastructure".to_string())),
+                    TokenResourceParent::new(
+                        7.try_into().unwrap(),
+                        Some("Infrastructure".to_string()),
+                    ),
                 ),
-                ResolvedTokenResource::unreachable_object(42.into()),
+                ResolvedTokenResource::unreachable_object(42.try_into().unwrap()),
             ],
         );
 

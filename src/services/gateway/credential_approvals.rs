@@ -1,3 +1,4 @@
+use hubuum_client::CredentialApprovalId;
 use std::fs::File;
 use std::io::{stderr, Read, Write};
 use std::path::{Path, PathBuf};
@@ -108,7 +109,9 @@ impl super::HubuumGateway {
             ));
         }
         Ok(to_value(client_call("credential_approvals.get", || {
-            self.client().credential_approvals().get(id)
+            self.client()
+                .credential_approvals()
+                .get(CredentialApprovalId::new(id)?)
         })?)?)
     }
     pub(crate) fn set_credential_approval_source(&self, source: CredentialApprovalSource) {

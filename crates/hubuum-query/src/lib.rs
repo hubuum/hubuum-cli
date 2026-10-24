@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use suggestions::did_you_mean_message;
 use thiserror::Error;
 
+mod related;
+pub use related::{RelatedObjectFilters, RELATED_OBJECT_FILTER_FIELDS};
+
 pub mod suggestions;
 
 #[derive(Debug, Error)]

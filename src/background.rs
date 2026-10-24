@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use hubuum_client::TaskStatus;
+use hubuum_client::{TaskId, TaskStatus};
 use serde::Serialize;
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
@@ -71,8 +71,9 @@ enum PendingNotice {
 
 impl BackgroundManager {
     pub fn new(runtime: Handle, gateway: Arc<HubuumGateway>, poll_interval: Duration) -> Self {
-        let fetch_task =
-            Arc::new(move |task_id: i32| gateway.task(TaskLookupInput::new(task_id.into())?));
+        let fetch_task = Arc::new(move |task_id: i32| {
+            gateway.task(TaskLookupInput::new(TaskId::new(task_id)?)?)
+        });
         Self::new_with_fetcher(runtime, poll_interval, fetch_task)
     }
 

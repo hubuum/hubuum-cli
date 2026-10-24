@@ -34,6 +34,9 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
+The development branch uses client **0.19.0** with the same server target and
+adds [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects).
+
 CLI v0.0.19 uses client **0.17.0** and targets server **v0.0.20**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery

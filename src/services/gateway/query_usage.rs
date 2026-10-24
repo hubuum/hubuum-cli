@@ -124,11 +124,11 @@ mod tests {
         let gateway = gateway(&transport);
         let id = QueryUsageDeclarationId::new(7).unwrap();
         gateway
-            .query_usage_for_class(42.into(), QueryUsageCommand::Create(pattern()))
+            .query_usage_for_class(42.try_into().unwrap(), QueryUsageCommand::Create(pattern()))
             .unwrap();
         gateway
             .query_usage_for_class(
-                42.into(),
+                42.try_into().unwrap(),
                 QueryUsageCommand::Replace {
                     id,
                     request: QueryUsageReplaceRequest {
@@ -140,7 +140,7 @@ mod tests {
             .unwrap();
         gateway
             .query_usage_for_class(
-                42.into(),
+                42.try_into().unwrap(),
                 QueryUsageCommand::Delete {
                     id,
                     expected_revision: ResourceRevision::new(2).unwrap(),
@@ -168,7 +168,7 @@ mod tests {
         );
         let error = gateway(&transport)
             .query_usage_for_class(
-                42.into(),
+                42.try_into().unwrap(),
                 QueryUsageCommand::Delete {
                     id: QueryUsageDeclarationId::new(7).unwrap(),
                     expected_revision: ResourceRevision::INITIAL,

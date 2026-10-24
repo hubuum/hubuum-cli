@@ -239,7 +239,7 @@ impl From<ClassComputationState> for ClassComputationStateRecord {
     fn from(value: ClassComputationState) -> Self {
         Self {
             class_id: value.class_id.into(),
-            evaluation_revision: value.evaluation_revision,
+            evaluation_revision: value.evaluation_revision.get(),
             rebuild_status: value.rebuild_status,
             active_task_id: value.active_task_id.map(Into::into),
             last_error: value.last_error,

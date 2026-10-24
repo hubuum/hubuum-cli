@@ -11,6 +11,8 @@ use smooth_json::Flattener;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_value, Map, Value};
 
+use hubuum_query::RelatedObjectFilters;
+
 use hubuum_filter::{scalar_text, select_values, OutputEnvelope, Selector};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -21,7 +23,7 @@ use super::{
 use crate::autocomplete::{
     bool, classes, collections, computed_fields, object_aggregate_dimensions,
     object_aggregate_measures, object_aggregate_sort, object_aggregate_where, object_data_columns,
-    object_sort, object_where, objects_from_class,
+    object_sort, object_where, objects_from_class, related_classes,
 };
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
@@ -43,8 +45,8 @@ use crate::output::{
 };
 use crate::services::{
     AppServices, CreateObjectInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
-    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
-    RelatedGraphLimit, RelationTraversalOptions,
+    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectListInput,
+    ObjectUpdateInput, RelatedGraphLimit, RelationTraversalOptions,
 };
 use crate::terminal::terminal_width;
 
@@ -115,11 +117,12 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 CommandDocs {
                     about: Some("List objects"),
                     long_about: Some(
-                        "List objects with server-side filtering and sorting. Dotted data fields referenced by --where are included as text and pipeline columns by default; use --include-where-results false to keep the normal data-column layout.",
+                        "List objects with server-side filtering and sorting. Use --related ALIAS=CLASS and --related-where ALIAS.FIELD OP VALUE to require matching related objects, optionally with --related-depth ALIAS=DEPTH (default 1). Dotted data fields referenced by --where are included as text and pipeline columns by default; use --include-where-results false to keep the normal data-column layout.",
                     ),
                     examples: Some(
                         r#"--class Hosts --where json_data.facts.operating_system.major_version lt 8
---class Hosts --where data.environment equals production --include-where-results false"#,
+--class Hosts --where data.environment equals production --include-where-results false
+--class Hosts --related room=Rooms --related-depth room=2 --related-where room.name equals B701"#,
                     ),
                 },
             ),
@@ -1817,6 +1820,31 @@ pub struct ObjectList {
     )]
     pub where_clauses: Vec<String>,
     #[option(
+        long = "related",
+        help = "Related group: ALIAS=CLASS (exact name, repeatable)",
+        nargs = 1,
+        autocomplete = "related_classes"
+    )]
+    pub related: Vec<String>,
+    #[option(
+        long = "related-id",
+        help = "Related group: ALIAS=CLASS_ID (repeatable)",
+        nargs = 1
+    )]
+    pub related_ids: Vec<String>,
+    #[option(
+        long = "related-depth",
+        help = "Related depth: ALIAS=DEPTH (1-10, default 1)",
+        nargs = 1
+    )]
+    pub related_depths: Vec<String>,
+    #[option(
+        long = "related-where",
+        help = "Related predicate: ALIAS.FIELD OP VALUE (repeatable)",
+        nargs = 3
+    )]
+    pub related_where: Vec<String>,
+    #[option(
         long = "sort",
         help = "Sort clause: 'field asc|desc', including S:key or P:key",
         nargs = 2,
@@ -1860,12 +1888,32 @@ pub struct ObjectList {
     pub computed: Vec<String>,
 }
 
+impl ObjectList {
+    fn related_filters(&self) -> Result<RelatedObjectFilters, AppError> {
+        let mut filters = RelatedObjectFilters::default();
+        for definition in &self.related {
+            filters.add_class(definition)?;
+        }
+        for definition in &self.related_ids {
+            filters.add_class_id(definition)?;
+        }
+        for depth in &self.related_depths {
+            filters.set_depth(depth)?;
+        }
+        for clause in &self.related_where {
+            filters.add_where(clause)?;
+        }
+        Ok(filters)
+    }
+}
+
 impl CliCommand for ObjectList {
     const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
     const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
 
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query: ObjectList = Self::parse_tokens(tokens)?;
+        let related = query.related_filters()?;
         let computed_selection =
             ComputedFieldSelection::resolve(&query.computed, query.class.as_deref())?;
         let include_where_results = query.include_where_results.unwrap_or(true);
@@ -1892,11 +1940,13 @@ impl CliCommand for ObjectList {
                 .sorts
                 .iter()
                 .any(|sort| sort.field.starts_with("S:") || sort.field.starts_with("P:"));
-        let objects = services
-            .gateway()
-            .list_objects(&list_query, include_computed)?;
         let where_result_data_keys =
             where_result_data_keys(&list_query.filters, include_where_results);
+        let objects = services.gateway().list_objects(
+            &ObjectListInput::new(list_query)
+                .include_computed(include_computed)
+                .related(related),
+        )?;
         render_object_list_page(
             objects.class_schema(),
             tokens,

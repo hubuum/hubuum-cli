@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn history_show_accepts_exactly_one_selector() {
         assert!(matches!(
-            history_selector(Some(1498.into()), None).expect("id should be accepted"),
+            history_selector(Some(1498.try_into().unwrap()), None).expect("id should be accepted"),
             HistorySelector::Id(id) if id.get() == 1498
         ));
         assert!(matches!(
@@ -346,9 +346,11 @@ mod tests {
                 .expect("timestamp should be accepted"),
             HistorySelector::At(at) if at == crate::services::parse_timestamp("2026-07-21T20:17:03Z").unwrap()
         ));
-        assert!(
-            history_selector(Some(1498.into()), Some("2026-07-21T20:17:03Z".to_string())).is_err()
-        );
+        assert!(history_selector(
+            Some(1498.try_into().unwrap()),
+            Some("2026-07-21T20:17:03Z".to_string())
+        )
+        .is_err());
         assert!(history_selector(None, None).is_err());
     }
 }

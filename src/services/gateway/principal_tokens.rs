@@ -294,7 +294,7 @@ mod tests {
         }))
         .expect("source token should deserialize");
 
-        let request = CloneTokenInput::new(20.into())
+        let request = CloneTokenInput::new(20.try_into().unwrap())
             .request_for(&source)
             .expect("clone request should build");
         let value = to_value(request).expect("clone request should serialize");
@@ -326,7 +326,7 @@ mod tests {
         }))
         .expect("source token should deserialize");
 
-        let request = CloneTokenInput::new(20.into())
+        let request = CloneTokenInput::new(20.try_into().unwrap())
             .name(Some("new-name".to_string()))
             .description(Some("new description".to_string()))
             .expires_at(Some("2030-01-01T00:00:00Z".to_string()))

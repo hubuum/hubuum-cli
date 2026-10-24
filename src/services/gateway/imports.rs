@@ -1,5 +1,5 @@
 use super::credential_approvals::send_approved;
-use hubuum_client::{CredentialOperation, FullImportRequest};
+use hubuum_client::{CredentialOperation, FullImportRequest, TaskId};
 
 use crate::diagnostics::client_call;
 use crate::domain::{ImportResultRecord, TaskRecord};
@@ -50,7 +50,7 @@ impl HubuumGateway {
         Ok(TaskRecord::from(task))
     }
 
-    pub fn import_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
+    pub fn import_task(&self, task_id: TaskId) -> Result<TaskRecord, AppError> {
         Ok(TaskRecord::from(client_call("imports.get", || {
             self.client().imports().get(task_id)
         })?))
@@ -58,7 +58,7 @@ impl HubuumGateway {
 
     pub fn import_results(
         &self,
-        task_id: i32,
+        task_id: TaskId,
         query: &ListQuery,
     ) -> Result<PagedResult<ImportResultRecord>, AppError> {
         let validated_sorts = validate_sort_clauses(&query.sorts, IMPORT_RESULT_SORT_SPECS)?;

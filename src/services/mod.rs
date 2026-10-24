@@ -27,11 +27,11 @@ pub use gateway::{
     ExportScopeInput, ExportSource, GroupUpdateInput, HistoricalQuery, HistoryInput,
     HistoryListInput, HubuumGateway, InvocationSubject, InvokeRemoteTargetInput, ListTasksInput,
     NewTokenInput, ObjectAggregateDimensionInput, ObjectAggregateInput,
-    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectUpdateInput,
-    QueryUsageCommand, RelatedGraphLimit, RelatedObjectOptions, RelationRoot, RelationTarget,
-    RelationTraversalOptions, RemoteAuthConfigInput, RenewTokenInput, ResourceScope,
-    RestoreMonitor, RunBackupInput, RunExportInput, SchemaOperation, SearchInput, SearchKind,
-    SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,
+    ObjectAggregateMeasureInput, ObjectAggregateSortInput, ObjectDataPatchInput, ObjectListInput,
+    ObjectUpdateInput, QueryUsageCommand, RelatedGraphLimit, RelatedObjectOptions, RelationRoot,
+    RelationTarget, RelationTraversalOptions, RemoteAuthConfigInput, RenewTokenInput,
+    ResourceScope, RestoreMonitor, RunBackupInput, RunExportInput, SchemaOperation, SearchInput,
+    SearchKind, SourceTokenRevocation, SubmitImportInput, TaskLookupInput, TokenStateFilter,
     UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
 };
 pub use gateway::{CredentialActivityInput, CredentialOwner, HydrationOptions};

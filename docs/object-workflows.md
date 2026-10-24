@@ -58,6 +58,51 @@ error instead of partial results; it is not a page size or output truncation.
 Omitting `--limit` keeps the server's default. Zero is rejected by the CLI.
 Use `--max-depth` to narrow traversal when a graph is too large.
 
+## Filter lists by related objects
+
+The development CLI can restrict `object list` to objects connected to matching
+objects in another class. Filtering happens on the server before pagination:
+
+```sh
+hubuum-cli object list --class Hosts --related room=Rooms --related-depth room=2 --related-where room.name equals B701
+hubuum-cli object list --class Hosts --related room=Rooms --related-depth room=2 --related-where room.data.floor gte 3 --computed all --all
+hubuum-cli object list --class Hosts --related-id rack=42 --related-where rack.name starts_with rack- --include-total
+```
+
+`--related ALIAS=CLASS` selects an exact class name. Quote the whole assignment
+for names containing spaces, such as `--related 'room=Server Rooms'`. Numeric
+class names stay names; use `--related-id ALIAS=ID` for positive IDs. The options
+may appear in any order. A group without `--related-where` requires any reachable
+object in its target class.
+
+Repeat `--related-where ALIAS.FIELD OP VALUE` to require every predicate to match
+**the same related object**. Repeat `--related` with distinct aliases for separate
+existence tests, combined with AND; those tests may match different targets.
+Traversal follows either relationship direction, excludes the root object itself,
+and respects server permissions. Depth defaults to 1 (direct neighbors); each
+`--related-depth ALIAS=DEPTH` sets one group's maximum distance from 1 through 10.
+Negated field operators still require a related object; `not_equals` does not mean
+"has no relationship". Use [structured search](search.md#query-files) for that,
+OR expressions, or negation of a whole related predicate.
+
+Fields are `id`, `name`, `description`, `collection_id`, `revision`, `created_at`,
+`updated_at`, and dotted `data.*` / `json_data.*` paths. They use the same operator
+and value grammar as `--where`. Related computed fields and JSON array selectors
+are unsupported. Related fields filter the targets; displayed rows and pipeline
+fields remain the source objects.
+
+At most four groups are allowed. Aliases contain 1–64 ASCII letters, digits, or
+underscores and cannot start with a digit. Duplicate aliases, repeated depths,
+undeclared aliases, invalid class IDs, depths, fields, operators, and JSON paths
+fail before resource lookup. Server query budgets still apply.
+
+These options combine with ordinary `--where`, `--sort`, `--computed`, `--limit`,
+`--cursor`, `--include-total`, `--all`, and output pipelines. Keep all groups and
+predicates unchanged when reusing a cursor; the REPL's next-page command preserves
+them. Computed-field sorting still fetches and sorts all matching objects locally
+and rejects a server cursor. REPL completion offers class names after `ALIAS=`,
+declared aliases and target fields for `--related-where`, and supported operators.
+
 ## Hydrate paths to a target class
 
 ```sh

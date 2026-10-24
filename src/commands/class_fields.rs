@@ -1,3 +1,4 @@
+use crate::services::ObjectListInput;
 use std::collections::{BTreeMap, BTreeSet};
 
 use cli_command_derive::CommandArgs;
@@ -186,9 +187,9 @@ fn inspect_class_fields(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let objects = services
-        .gateway()
-        .list_objects(&list_query, !computed_fields.is_empty())?;
+    let objects = services.gateway().list_objects(
+        &ObjectListInput::new(list_query).include_computed(!computed_fields.is_empty()),
+    )?;
     render_class_fields(
         objects.objects(),
         &computed_fields,

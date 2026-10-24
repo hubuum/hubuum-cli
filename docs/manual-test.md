@@ -1,9 +1,22 @@
 # Manual Test Checklist
 
-This checklist covers the development CLI, which uses `hubuum_client` 0.17.0. That client
+This checklist covers the development CLI, which uses `hubuum_client` 0.19.0. That client
 library targets Hubuum server v0.0.20. It intentionally uses the current
 terms `collection` and `export`; old `namespace` and `report` commands are not
 kept for compatibility.
+
+## Related object lists
+
+- Declare groups by exact class name and by positive ID; check that numeric class
+  names remain names. Try names containing spaces, punctuation, and Unicode.
+- Verify direct (default) and depth-two filters, two predicates on one target,
+  and two aliases matching different targets. A group with no predicates should
+  require a relationship, and negated predicates should still require a target.
+- Combine related groups with ordinary filters, computed values, local computed
+  sorting, page limits, total counts, cursors, `--all`, and pipelines.
+- Check REPL alias/field/operator completion and that `next` preserves all groups.
+- Confirm invalid IDs, duplicate aliases/depths, missing aliases, more than four
+  groups, invalid fields/operators, and invalid JSON paths fail before lookup.
 
 ## Setup
 

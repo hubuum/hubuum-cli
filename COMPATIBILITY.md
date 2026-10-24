@@ -2,8 +2,9 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
-`hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. The development CLI uses
+`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20. Released CLI
+v0.0.19 uses client 0.17.0 with the same server target.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,6 +13,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| Unreleased | 0.19.0 | 0.0.20 | Validated SDK IDs and related-object list filters |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
@@ -31,6 +33,13 @@ against other server versions is not guaranteed.
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
 ## Before upgrading
+
+The development branch upgrades to client 0.19.0 and adds
+[related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects).
+**Breaking validation:** zero and negative resource IDs are rejected locally;
+replace sentinel IDs in scripts or fixtures with positive resource IDs. The
+server target, backup formats, and session caches are unchanged. See the
+[upgrade verification](docs/compatibility-evidence.md#unreleased-client-v0190-and-related-object-lists).
 
 CLI v0.0.19 targets server v0.0.20 through client 0.17.0. Upgrading from CLI
 v0.0.18 requires no server upgrade. When upgrading older installations, upgrade

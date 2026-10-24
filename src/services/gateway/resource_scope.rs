@@ -130,17 +130,17 @@ mod tests {
     fn object_scope_requires_one_valid_class_and_object_selector() {
         assert!(ResourceScope::class(None, None).is_err());
         assert!(ResourceScope::class(Some(" ".into()), None).is_err());
-        assert!(ResourceScope::class(Some("Hosts".into()), Some(1.into())).is_err());
-        assert!(ResourceScope::class(None, Some(0.into())).is_err());
-        let class = || ResourceScope::class(None, Some(1.into())).unwrap();
+        assert!(ResourceScope::class(Some("Hosts".into()), Some(1.try_into().unwrap())).is_err());
+        assert!("0".parse::<super::ClassId>().is_err());
+        let class = || ResourceScope::class(None, Some(1.try_into().unwrap())).unwrap();
         assert!(class().require_object().is_err());
-        assert!(class().with_object(None, Some((-1).into())).is_err());
+        assert!("-1".parse::<super::ObjectId>().is_err());
         assert!(class().with_object(Some(" ".into()), None).is_err());
         assert!(class()
-            .with_object(Some("host".into()), Some(2.into()))
+            .with_object(Some("host".into()), Some(2.try_into().unwrap()))
             .is_err());
         assert!(class()
-            .with_object(None, Some(2.into()))
+            .with_object(None, Some(2.try_into().unwrap()))
             .unwrap()
             .require_object()
             .is_ok());
