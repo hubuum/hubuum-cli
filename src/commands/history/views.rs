@@ -7,7 +7,8 @@ use hubuum_client::{
 };
 
 use crate::autocomplete::{
-    classes, history_direction, history_sort, objects_from_class, relation_history_sort,
+    classes, history_direction, history_sort, history_times, objects_from_class,
+    relation_history_sort,
 };
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::commands::builder::{catalog_command, CommandDocs};
@@ -15,7 +16,7 @@ use crate::commands::{
     normalize_server_page_size, render_json_record, required_option, response_format, CliCommand,
     PageSelection,
 };
-use crate::domain::HistoryPageRecord;
+use crate::domain::{HistoryComparison, HistoryPageRecord};
 use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::{append_json, OutputFormatter};
 use crate::list_query::{append_paging_footer, warn_on_partial_pipeline};
@@ -32,8 +33,8 @@ pub(super) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 "class",
                 ClassTimeline::default(),
                 docs(
-                    "Navigate class history markers",
-                    "--class-id 1 --direction older --limit 20",
+                    "Navigate class history and field changes",
+                    "--class-id 1 --direction older --limit 20\n--class-id 1 --against-latest",
                 ),
             ),
         )
@@ -43,8 +44,8 @@ pub(super) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 "object",
                 ObjectTimeline::default(),
                 docs(
-                    "Navigate object history markers",
-                    "--class-id 1 --object-id 2 --anchor 42 --direction newer",
+                    "Navigate object history and field changes",
+                    "--class-id 1 --object-id 2 --anchor 42 --direction newer\n--class Hosts --name escher.uio.no --against-latest",
                 ),
             ),
         )
@@ -142,16 +143,18 @@ macro_rules! timeline_command {
     ($name:ident { $($fields:tt)* } |$query:ident| $scope:expr) => {
         history_page_command!($name {
             $($fields)*
-            #[option(long = "from", help = "Inclusive RFC3339 entry creation time")]
+            #[option(long = "from", help = "Inclusive entry time: RFC3339, UTC date/time, or time ago")]
             from: Option<String>,
-            #[option(long = "until", help = "Exclusive RFC3339 entry creation time")]
+            #[option(long = "until", help = "Exclusive entry time: RFC3339, UTC date/time, or time ago")]
             until: Option<String>,
-            #[option(long = "at", help = "Seek timestamp; mutually exclusive with --anchor")]
+            #[option(long = "at", help = "Seek time: RFC3339, UTC date/time, or time ago; exclusive with --anchor", autocomplete = "history_times")]
             at: Option<String>,
             #[option(long = "anchor", help = "Seek past this history ID, excluding the entry")]
             anchor: Option<HistoryId>,
             #[option(long = "direction", help = "older (default) or newer", autocomplete = "history_direction")]
             direction: Option<String>,
+            #[option(long = "against-latest", help = "Compare each entry to the newest retained snapshot, outside any selected window", flag = true)]
+            against_latest: bool,
         } |$query, services, tokens| {
             let page = $query.page()?;
             let scope = $scope;
@@ -169,7 +172,9 @@ macro_rules! timeline_command {
                 (None, Some(anchor)) => options.anchor(anchor)?,
                 (None, None) => options,
             };
-            render_page(tokens, &services.gateway().historical_view(scope, HistoricalQuery::Timeline(options), page, PageSelection::from_all($query.all))?)
+            let comparison = if $query.against_latest { HistoryComparison::Latest } else { HistoryComparison::Previous };
+            let result = services.gateway().historical_view(scope, HistoricalQuery::TimelineWithChanges { options, comparison }, page, PageSelection::from_all($query.all))?;
+            render_timeline_page(tokens, &result)
         });
     }
 }
@@ -197,7 +202,7 @@ history_page_command!(ObjectNameHistory {
 });
 
 history_page_command!(HistoricalObjects {
-    #[option(long = "at", help = "As-of RFC3339 timestamp")]
+    #[option(long = "at", help = "As-of time: RFC3339, UTC date/time, or time ago (e.g. 1d3h)", autocomplete = "history_times")]
     at: String,
     #[option(long = "revision", help = "Positive resource revision")]
     revision: Option<i64>,
@@ -215,7 +220,7 @@ history_page_command!(HistoricalRelations {
     name: Option<String>,
     #[option(long = "object-id", help = "Positive object ID; omit for class relations")]
     object_id: Option<ObjectId>,
-    #[option(long = "at", help = "As-of RFC3339 timestamp; omit to read changes")]
+    #[option(long = "at", help = "As-of time: RFC3339, UTC date/time, or time ago; omit to read changes", autocomplete = "history_times")]
     at: Option<String>,
     #[option(long = "sort", help = "history_id or -history_id", autocomplete = "relation_history_sort")]
     sort: Option<String>,
@@ -244,7 +249,11 @@ struct HistoricalComputed {
     name: Option<String>,
     #[option(long = "object-id", help = "Positive object ID")]
     object_id: Option<ObjectId>,
-    #[option(long = "at", help = "As-of RFC3339 timestamp")]
+    #[option(
+        long = "at",
+        help = "As-of time: RFC3339, UTC date/time, or time ago (e.g. 1d3h)",
+        autocomplete = "history_times"
+    )]
     at: Option<String>,
 }
 
@@ -311,6 +320,20 @@ fn render_page(tokens: &CommandTokenizer, page: &HistoryPageRecord) -> Result<()
         } else {
             rows.items.format_noreturn()?;
         }
+    }
+    append_paging_footer(tokens, &rows)
+}
+
+fn render_timeline_page(
+    tokens: &CommandTokenizer,
+    page: &HistoryPageRecord,
+) -> Result<(), AppError> {
+    let rows = page.rows()?;
+    warn_on_partial_pipeline(&rows)?;
+    if matches!(response_format(tokens)?, OutputFormat::Json) {
+        append_json(page)?;
+    } else {
+        page.timeline_rows()?.format_noreturn()?;
     }
     append_paging_footer(tokens, &rows)
 }

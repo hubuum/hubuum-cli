@@ -53,8 +53,17 @@ Debug: command took 18.750 ms; 2 client API calls; 2 HTTP attempts
     2. QueryOp.page: 10.500 ms (ok)
       request GET /api/v1/classes/{class_id}/: 10.400 ms (ok)
         HTTP GET attempt 1: 9.700 ms [status 200] (ok)
+    format_output: 2.000 ms
   render: 0.800 ms
+    write_output: 0.750 ms
 ```
+
+`format_output` measures conversion of structured results into the requested
+display format; it can appear under `execute` because commands prepare their
+output before returning.
+`write_output` measures writing and flushing stdout, which can include waiting
+for the terminal or a downstream process. These are nested timings, so do not
+add them to their parent stage's duration. Rendering does not fetch history.
 
 Text, JSONL, CSV, and TSV reports go to stderr. With `--output json` (or `--json`)
 and `--debug`, the response is an object containing the original result in `data`

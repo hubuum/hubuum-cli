@@ -1,5 +1,8 @@
 use super::TableRenderable;
-use crate::domain::{HistoricalRelationRecord, HistoryRecord};
+use crate::domain::{HistoricalRelationRecord, HistoryRecord, HistoryTimelineRecord};
+use crate::errors::AppError;
+use crate::output::append_line;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 fn snapshot_field(snapshot: &Value, key: &str) -> String {
@@ -35,6 +38,49 @@ impl TableRenderable for HistoryRecord {
             })
             .collect()
     }
+}
+
+impl TableRenderable for HistoryTimelineRecord {
+    fn headers() -> Vec<&'static str> {
+        vec!["history_id", "revision", "valid_from", "changes"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        let timestamp = snapshot_field(self.snapshot(), "valid_from");
+        let timestamp = DateTime::parse_from_rfc3339(&timestamp)
+            .map(|time| {
+                time.with_timezone(&Utc)
+                    .format("%Y-%m-%d\n%H:%M:%S%.f")
+                    .to_string()
+            })
+            .unwrap_or(timestamp);
+        vec![
+            snapshot_field(self.snapshot(), "history_id"),
+            snapshot_field(self.snapshot(), "revision"),
+            timestamp,
+            self.snapshot()["changes"]["summary"]
+                .as_str()
+                .unwrap_or("Unavailable")
+                .to_owned(),
+        ]
+    }
+}
+
+pub(crate) fn append_history_changes(records: &[HistoryRecord]) -> Result<(), AppError> {
+    for record in records {
+        let Some(changes) = record.changes() else {
+            continue;
+        };
+        append_line(format!(
+            "\nChanges for history #{} (revision {}):",
+            snapshot_field(record.snapshot(), "history_id"),
+            snapshot_field(record.snapshot(), "revision")
+        ))?;
+        for line in changes.lines() {
+            append_line(format!("  {line}"))?;
+        }
+    }
+    Ok(())
 }
 impl TableRenderable for HistoricalRelationRecord {
     fn headers() -> Vec<&'static str> {

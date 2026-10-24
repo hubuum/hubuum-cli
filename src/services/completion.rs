@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, SecondsFormat, Utc};
+use hubuum_client::{HistoryPageOptions, HistoryTimelineOptions};
 use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
@@ -13,8 +15,9 @@ use crate::domain::{
 };
 use crate::errors::AppError;
 use crate::json_schema::{schema_json_pointers, schema_paths};
+use crate::list_query::PageSelection;
 use crate::list_query::{ListQuery, SortClause, SortDirectionArg};
-use crate::services::{AuditListInput, AuditScope, ListTasksInput};
+use crate::services::{AuditListInput, AuditScope, HistoricalQuery, ListTasksInput, ResourceScope};
 
 use super::gateway::HubuumGateway;
 use super::AppServices;
@@ -45,6 +48,7 @@ struct CompletionSnapshot {
     event_delivery_ids: Option<Vec<String>>,
     user_token_ids: HashMap<String, Vec<String>>,
     service_account_token_ids: HashMap<String, Vec<String>>,
+    history_times: HashMap<ResourceScope, TimedCompletion<Vec<String>>>,
 }
 
 #[derive(Clone)]
@@ -99,6 +103,33 @@ impl CompletionContext {
 
     pub fn classes(&self, prefix: &str) -> Vec<String> {
         self.complete(prefix, CompletionKind::Classes)
+    }
+
+    pub fn history_times(&self, prefix: &str, parts: &[String]) -> Vec<String> {
+        if get_config().completion.disable_api_related {
+            return Vec::new();
+        }
+        let scope = (|| -> Result<ResourceScope, AppError> {
+            let class_id = option_value(parts, "--class-id")
+                .map(|id| id.parse())
+                .transpose()?;
+            let object_id = option_value(parts, "--object-id")
+                .map(|id| id.parse())
+                .transpose()?;
+            ResourceScope::class(option_value(parts, "--class"), class_id)?
+                .with_object(option_value(parts, "--name"), object_id)
+        })();
+        let Ok(scope) = scope else {
+            return Vec::new();
+        };
+        self.runtime
+            .block_on(
+                self.services
+                    .completion_store()
+                    .load_history_times(self.services.gateway(), scope),
+            )
+            .map(|values| history_time_candidates(&values, prefix))
+            .unwrap_or_default()
     }
 
     pub fn collections(&self, prefix: &str) -> Vec<String> {
@@ -431,6 +462,55 @@ impl CompletionContext {
 }
 
 impl CompletionStore {
+    async fn load_history_times(
+        &self,
+        gateway: Arc<HubuumGateway>,
+        scope: ResourceScope,
+    ) -> Result<Vec<String>, AppError> {
+        if let Ok(snapshot) = self.snapshot.read() {
+            if let Some(cached) = snapshot
+                .history_times
+                .get(&scope)
+                .and_then(|cache| cache.fresh_value(Duration::from_secs(30), Instant::now()))
+            {
+                return Ok(cached);
+            }
+        }
+        let query_scope = scope.clone();
+        let fetched = spawn_blocking(move || {
+            let records = gateway
+                .historical_view(
+                    query_scope,
+                    HistoricalQuery::Timeline(HistoryTimelineOptions::default()),
+                    HistoryPageOptions::default().limit(250)?,
+                    PageSelection::All,
+                )?
+                .rows()?;
+            Ok::<_, AppError>(
+                records
+                    .items
+                    .iter()
+                    .filter_map(|record| {
+                        DateTime::parse_from_rfc3339(record.snapshot()["valid_from"].as_str()?)
+                            .ok()
+                            .map(|time| {
+                                time.with_timezone(&Utc)
+                                    .to_rfc3339_opts(SecondsFormat::AutoSi, true)
+                            })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await
+        .map_err(|error| AppError::CommandExecutionError(error.to_string()))??;
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            snapshot
+                .history_times
+                .insert(scope, TimedCompletion::new(fetched.clone()));
+        }
+        Ok(fetched)
+    }
+
     pub(crate) fn invalidate_volatile(&self) {
         if let Ok(mut snapshot) = self.snapshot.write() {
             let observed_fields_by_class = std::mem::take(&mut snapshot.observed_fields_by_class);
@@ -861,6 +941,22 @@ fn filter_item_prefix(values: &[CompletionItem], prefix: &str) -> Vec<Completion
         .collect()
 }
 
+fn history_time_candidates(values: &[String], prefix: &str) -> Vec<String> {
+    let length = [4, 7, 10, 13, 16, 19]
+        .into_iter()
+        .find(|length| *length > prefix.len());
+    values
+        .iter()
+        .filter(|value| value.starts_with(prefix))
+        .filter_map(|value| {
+            let candidate = value.get(..length.unwrap_or(value.len()))?;
+            (candidate != prefix).then(|| candidate.to_owned())
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn option_value(parts: &[String], long: &str) -> Option<String> {
     parts.iter().enumerate().find_map(|(index, part)| {
         if part == long {
@@ -979,6 +1075,101 @@ mod tests {
         merged_json_pointers, token_principal_name, CompletionKind, CompletionStore, HubuumGateway,
         ObservedObjectDataFields, TimedCompletion,
     };
+
+    #[test]
+    fn history_time_completion_advances_one_component_and_only_offers_observed_times() {
+        let values = [
+            "2026-01-01T15:01:02.123456Z",
+            "2026-01-02T16:02:03Z",
+            "2026-03-01T00:00:00Z",
+        ]
+        .map(str::to_owned);
+        for (prefix, expected) in [
+            ("", vec!["2026"]),
+            ("202", vec!["2026"]),
+            ("2026", vec!["2026-01", "2026-03"]),
+            ("2026-0", vec!["2026-01", "2026-03"]),
+            ("2026-01", vec!["2026-01-01", "2026-01-02"]),
+            ("2026-01-01", vec!["2026-01-01T15"]),
+            ("2026-01-01T15", vec!["2026-01-01T15:01"]),
+            ("2026-01-01T15:01", vec!["2026-01-01T15:01:02"]),
+            ("2026-01-01T15:01:02", vec!["2026-01-01T15:01:02.123456Z"]),
+            ("2026-02", vec![]),
+            ("1d", vec![]),
+            ("2026-01-02T16:02:03Z", vec![]),
+        ] {
+            assert_eq!(
+                super::history_time_candidates(&values, prefix),
+                expected,
+                "{prefix}"
+            );
+        }
+    }
+
+    #[test]
+    fn history_time_completion_fetches_all_pages_and_caches_per_resource() {
+        use crate::services::ResourceScope;
+        let transport = MockTransport::default();
+        let marker = |time| {
+            json!([{"id":2,"collection_id":1,"hubuum_class_id":1,"name":"host","revision":1,
+            "history_id":10,"op":"update","valid_from":time,"valid_to":null}])
+        };
+        let mut first =
+            TransportResponse::json(StatusCode::OK, &marker("2025-12-31T23:30:00-01:00")).unwrap();
+        first
+            .headers
+            .insert("x-next-cursor", "older".parse().unwrap());
+        transport.push_response(first);
+        transport.push_response(
+            TransportResponse::json(StatusCode::OK, &marker("2025-11-01T00:00:00Z")).unwrap(),
+        );
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap()
+            .authenticate(Token::new("test-token"));
+        let gateway = Arc::new(HubuumGateway::new(Arc::new(client)));
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let store = CompletionStore::default();
+        let scope = ResourceScope::class(None, Some(1.try_into().unwrap()))
+            .unwrap()
+            .with_object(None, Some(2.try_into().unwrap()))
+            .unwrap();
+        let values = runtime
+            .block_on(store.load_history_times(gateway.clone(), scope.clone()))
+            .unwrap();
+        assert_eq!(values, ["2026-01-01T00:30:00Z", "2025-11-01T00:00:00Z"]);
+        assert_eq!(
+            runtime
+                .block_on(store.load_history_times(gateway.clone(), scope.clone()))
+                .unwrap(),
+            values
+        );
+        assert_eq!(transport.requests().len(), 2);
+        assert!(transport.requests()[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "older"));
+        transport.push_response(TransportResponse::json(StatusCode::OK, &json!([])).unwrap());
+        let class_scope = ResourceScope::class(None, Some(1.try_into().unwrap())).unwrap();
+        assert!(runtime
+            .block_on(store.load_history_times(gateway.clone(), class_scope))
+            .unwrap()
+            .is_empty());
+        store.snapshot.write().unwrap().history_times.insert(
+            scope.clone(),
+            TimedCompletion::new_at(values, Instant::now() - Duration::from_secs(31)),
+        );
+        transport.push_response(TransportResponse::json(StatusCode::OK, &json!([])).unwrap());
+        assert!(runtime
+            .block_on(store.load_history_times(gateway, scope))
+            .unwrap()
+            .is_empty());
+        assert_eq!(transport.requests().len(), 4);
+        store.invalidate_volatile();
+        assert!(store.snapshot.read().unwrap().history_times.is_empty());
+    }
 
     #[test]
     fn filter_prefix_matches_start_of_value() {

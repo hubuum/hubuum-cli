@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Added
+
+- Accept UTC date/time prefixes in history `--at` selectors, from a year through
+  a second. `history show`, `history class`, and `history object` return every
+  retained change in the interval, following all timeline pages. Full RFC3339
+  timestamps retain their as-of meaning; other historical views use the start
+  of a shortened date's interval.
+- Accept relative history times such as `1mo1w4d3h44m1s`, with an optional leading
+  `-`, and `now`. Use `mo` for calendar months and `m` for minutes.
+- Complete history `--at` values progressively through observed years, months,
+  days, and times using cached retained timeline timestamps.
+- Show field changes in class/object history listings, including nested data
+  paths and before/after values. Missing preceding revisions are explicit;
+  `--all` enables comparisons across page boundaries.
+- Add a compact `changes` column to `history timeline class` and `history
+  timeline object`. Compare each entry with the preceding retained entry across
+  page and window boundaries, or use `--against-latest` to compare each entry
+  with the newest retained snapshot. JSON and pipelines retain marker fields
+  and pagination metadata and include the comparison mode, reference history
+  ID, and summary in each item's `changes` object.
+- Include separate `format_output` and `write_output` timings in command
+  diagnostics to distinguish formatting from writing and flushing stdout.
+
+### Changed
+
+- Render nested detail objects and arrays as indented fields and list entries,
+  including credential activity `creation` and `sources`. Structured JSON and
+  pipeline values retain their original types and contents.
+- Fetch comparison snapshots and shortened-date matches through paginated
+  history-list requests instead of one request per entry. Stop once all needed
+  snapshots are found, subject to the 1,000-page / 100,000-snapshot scan bounds.
+- Align replacement paths with addition/removal paths in mixed history change
+  summaries. Summaries containing only replacements remain unindented.
+- Skip the previous-entry timeline lookup when the oldest displayed entry is
+  the initial creation. Include batched snapshot reads in the client API count.
+- Resolve the row-band theme once per dense table, avoid unnecessary row copies
+  and header-width scans, and lock stdout once when writing prepared output.
+- These CLI features use the existing server v0.0.20 endpoints and client
+  0.19.0 dependency. The declared server target, OpenAPI surface, dependencies,
+  and MSRV are unchanged.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-20"></span>
 

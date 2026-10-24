@@ -136,11 +136,21 @@ impl ReplCompleter {
                                 return completion(&self.completion, context.prefix, &parts)
                                     .into_iter()
                                     .map(|value| {
-                                        dynamic_value_suggestion(
+                                        let continuing_history_time = context.option_name == "--at"
+                                            && resolved
+                                                .command_path
+                                                .first()
+                                                .is_some_and(|part| part == "history")
+                                            && !value.ends_with('Z');
+                                        let mut suggestion = dynamic_value_suggestion(
                                             value,
                                             context.replacement_start,
                                             context.replacement_end,
-                                        )
+                                        );
+                                        if continuing_history_time {
+                                            suggestion.append_whitespace = false;
+                                        }
+                                        suggestion
                                     })
                                     .collect();
                             }

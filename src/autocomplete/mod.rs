@@ -4,6 +4,8 @@ mod events;
 mod exports;
 mod filters;
 mod groups;
+mod history;
+pub use history::history_times;
 mod objects;
 mod search;
 mod shared;

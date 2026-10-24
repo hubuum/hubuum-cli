@@ -1,7 +1,7 @@
 mod views;
 
 use cli_command_derive::CommandArgs;
-use hubuum_client::{ClassId, HistoryId, HubuumDateTime, ObjectId};
+use hubuum_client::{ClassId, HistoryId, ObjectId};
 use serde::{Deserialize, Serialize};
 
 use super::builder::{catalog_command, CommandDocs};
@@ -9,12 +9,14 @@ use super::{
     normalize_server_page_size, option_or_pos, render_json_record, render_list_page, CliCommand,
     PageSelection,
 };
-use crate::autocomplete::{classes, objects_from_class};
+use crate::autocomplete::{classes, history_times, objects_from_class};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
+use crate::domain::{HistoryRecord, HistoryTime};
 use crate::errors::{AppError, ReauthenticationRetry};
-use crate::services::{
-    parse_timestamp, AppServices, HistoryInput, HistoryListInput, ResourceScope,
-};
+use crate::formatting::append_history_changes;
+use crate::list_query::PagedResult;
+use crate::output::{has_pipeline, RenderFormat};
+use crate::services::{AppServices, HistoryInput, HistoryListInput, ResourceScope};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
@@ -48,9 +50,9 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 "show",
                 HistoryShow::default(),
                 CommandDocs {
-                    about: Some("Show one class or object history record"),
+                    about: Some("Show class or object history records"),
                     long_about: Some(
-                        "Shows a complete class history record, or an object history record when --name or --object-id is supplied. Select exactly one version with --id or --at. ID lookup uses the resource-scoped history endpoint. Use --class-id and --object-id to read retained history without resolving a live name.",
+                        "Shows a complete class history record, or an object history record when --name or --object-id is supplied. Select a version with --id or an RFC3339/relative --at instant. A shortened UTC date/time selects all changes in that interval. ID lookup uses the resource-scoped history endpoint. Use --class-id and --object-id to read retained history without resolving a live name.",
                     ),
                     examples: Some(
                         "--class Hosts --name host.example.org --id 1498\n--class Hosts --name host.example.org --at 2026-07-21T20:17:03Z\n--class Hosts --id 42",
@@ -82,7 +84,11 @@ pub struct HistoryShow {
     pub object_id: Option<ObjectId>,
     #[option(long = "id", help = "History record ID")]
     pub id: Option<HistoryId>,
-    #[option(long = "at", help = "As-of RFC3339 timestamp")]
+    #[option(
+        long = "at",
+        help = "UTC date/time prefix, RFC3339 instant, or time ago (e.g. 1d3h)",
+        autocomplete = "history_times"
+    )]
     pub at: Option<String>,
 }
 
@@ -108,7 +114,7 @@ impl HistoryArgs {
                 ));
             }
             return Ok(HistoryInput::At {
-                at: parse_timestamp(&at)?,
+                at: HistoryTime::parse(&at)?,
                 include_total: self.include_total,
             });
         }
@@ -125,7 +131,7 @@ impl HistoryArgs {
 
 enum HistorySelector {
     Id(HistoryId),
-    At(HubuumDateTime),
+    At(HistoryTime),
 }
 
 impl CliCommand for HistoryShow {
@@ -140,7 +146,17 @@ impl CliCommand for HistoryShow {
 
         let record = match history_selector(query.id, query.at)? {
             HistorySelector::Id(id) => services.gateway().history_record_by_id(scope, id)?,
-            HistorySelector::At(at) => services.gateway().history_record_at(scope, at)?,
+            HistorySelector::At(at) if at.end().is_some() => {
+                let records = services.gateway().history(
+                    scope,
+                    HistoryInput::At {
+                        at,
+                        include_total: false,
+                    },
+                )?;
+                return render_history_page(tokens, &records);
+            }
+            HistorySelector::At(at) => services.gateway().history_record_at(scope, at.start())?,
         };
 
         render_json_record(tokens, &record)
@@ -153,7 +169,7 @@ fn history_selector(
 ) -> Result<HistorySelector, AppError> {
     match (id, at) {
         (Some(id), None) => Ok(HistorySelector::Id(id)),
-        (None, Some(at)) => Ok(HistorySelector::At(parse_timestamp(&at)?)),
+        (None, Some(at)) => Ok(HistorySelector::At(HistoryTime::parse(&at)?)),
         (Some(_), Some(_)) => Err(AppError::InvalidOption(
             "--id and --at are mutually exclusive".to_string(),
         )),
@@ -172,7 +188,11 @@ pub struct ClassHistory {
         help = "Positive class ID; mutually exclusive with --class"
     )]
     pub class_id: Option<ClassId>,
-    #[option(long = "at", help = "As-of RFC3339 timestamp")]
+    #[option(
+        long = "at",
+        help = "UTC date/time prefix, RFC3339 instant, or time ago (e.g. 1d3h)",
+        autocomplete = "history_times"
+    )]
     pub at: Option<String>,
     #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
@@ -215,7 +235,7 @@ impl CliCommand for ClassHistory {
             }
             .into_input()?,
         )?;
-        render_list_page(tokens, &history)
+        render_history_page(tokens, &history)
     }
 }
 
@@ -239,7 +259,11 @@ pub struct ObjectHistory {
         help = "Positive object ID; mutually exclusive with --name"
     )]
     pub object_id: Option<ObjectId>,
-    #[option(long = "at", help = "As-of RFC3339 timestamp")]
+    #[option(
+        long = "at",
+        help = "UTC date/time prefix, RFC3339 instant, or time ago (e.g. 1d3h)",
+        autocomplete = "history_times"
+    )]
     pub at: Option<String>,
     #[option(long = "limit", help = "Page size (server maximum: 250)")]
     pub limit: Option<usize>,
@@ -290,8 +314,19 @@ impl CliCommand for ObjectHistory {
             }
             .into_input()?,
         )?;
-        render_list_page(tokens, &history)
+        render_history_page(tokens, &history)
     }
+}
+
+fn render_history_page(
+    tokens: &CommandTokenizer,
+    history: &PagedResult<HistoryRecord>,
+) -> Result<(), AppError> {
+    render_list_page(tokens, history)?;
+    if super::render_format(tokens)? == RenderFormat::Text && !has_pipeline()? {
+        append_history_changes(&history.items)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -344,7 +379,7 @@ mod tests {
         assert!(matches!(
             history_selector(None, Some("2026-07-21T20:17:03Z".to_string()))
                 .expect("timestamp should be accepted"),
-            HistorySelector::At(at) if at == crate::services::parse_timestamp("2026-07-21T20:17:03Z").unwrap()
+            HistorySelector::At(at) if at.start() == crate::services::parse_timestamp("2026-07-21T20:17:03Z").unwrap()
         ));
         assert!(history_selector(
             Some(1498.try_into().unwrap()),

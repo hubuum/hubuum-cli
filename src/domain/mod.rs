@@ -27,6 +27,8 @@ mod events;
 mod exports;
 mod groups;
 mod history;
+mod history_time;
+pub(crate) use history_time::HistoryTime;
 mod identity;
 mod imports;
 mod json_record;
@@ -98,4 +100,7 @@ pub use task_output::TaskOutput;
 pub use tasks::{TaskEventRecord, TaskQueueStateRecord, TaskRecord};
 pub use users::{CreatedUser, UserRecord};
 
-pub(crate) use history::{HistoricalRelationRecord, HistoryPageRecord, HistoryRecord};
+pub(crate) use history::{
+    HistoricalRelationRecord, HistoryComparison, HistoryPageRecord, HistoryRecord,
+    HistoryTimelineRecord, TimelineChanges,
+};

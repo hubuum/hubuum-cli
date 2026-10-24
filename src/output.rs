@@ -24,10 +24,11 @@ use crate::config::get_config;
 use crate::diagnostics::{self, DebugReport};
 use crate::errors::AppError;
 use crate::models::{
-    EmptyResult, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
+    EmptyResult, OutputColor, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth,
+    TableWrap,
 };
 use crate::terminal::terminal_width;
-use crate::theme::{color_choice, paint, ThemeRole};
+use crate::theme::{active_theme, color_choice, paint, ThemeRole};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
@@ -141,11 +142,13 @@ impl OutputSnapshot {
 }
 
 pub fn print_rendered(text: &str) -> Result<(), AppError> {
-    let stdout = stdout();
-    let mut stream = AutoStream::new(stdout, color_choice());
-    stream.write_all(text.as_bytes())?;
-    stream.flush()?;
-    Ok(())
+    diagnostics::stage_sync("write_output", || {
+        let stdout = stdout();
+        let mut stream = AutoStream::new(stdout.lock(), color_choice());
+        stream.write_all(text.as_bytes())?;
+        stream.flush()?;
+        Ok(())
+    })
 }
 
 #[derive(Debug, Default)]
@@ -523,7 +526,7 @@ fn render_semantic_with_table_headers(
     format: RenderFormat,
     table_headers: TableHeaders,
 ) -> Result<Vec<String>, AppError> {
-    match format {
+    diagnostics::stage_sync("format_output", || match format {
         RenderFormat::Text => render_semantic_text(envelope, table_headers),
         RenderFormat::Json => Ok(to_string_pretty(envelope.value())?
             .lines()
@@ -532,7 +535,7 @@ fn render_semantic_with_table_headers(
         RenderFormat::Jsonl => Ok(render_jsonl(envelope.value())?),
         RenderFormat::Csv => render_delimited(envelope, ','),
         RenderFormat::Tsv => render_delimited(envelope, '\t'),
-    }
+    })
 }
 
 pub(crate) fn render_semantic_item(
@@ -615,7 +618,11 @@ fn render_rows_text(
     envelope: &OutputEnvelope,
     table_headers: TableHeaders,
 ) -> Result<Vec<String>, AppError> {
-    let rows = value_array(envelope.value());
+    let rows = envelope
+        .value()
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     if rows.is_empty() {
         return if get_config().output.empty_result == EmptyResult::Message {
             Ok(vec!["No results.".to_string()])
@@ -624,12 +631,12 @@ fn render_rows_text(
         };
     }
 
-    let columns = display_columns(envelope, &rows);
+    let columns = display_columns(envelope, rows);
     if get_config().output.table_style == TableStyle::Dense {
-        return Ok(render_dense_rows(&rows, &columns, table_headers));
+        return Ok(render_dense_rows(rows, &columns, table_headers));
     }
 
-    let headers = column_headers(&columns, &rows, table_headers);
+    let headers = column_headers(&columns, rows, table_headers);
     let mut table = Table::new();
     if !headers.is_empty() {
         table.set_header(headers.clone());
@@ -656,6 +663,13 @@ fn render_rows_text(
 }
 
 fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) {
+    if !columns
+        .iter()
+        .zip(headers)
+        .any(|(column, header)| grouped_header_path(column, header).is_some())
+    {
+        return;
+    }
     let widths = table.column_max_content_widths();
     let full_width = matches!(
         table.content_arrangement(),
@@ -707,9 +721,52 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
     Ok(columns
         .iter()
         .map(|column| {
-            render_detail_field(column, &cell_text(envelope.value().get(column)), padding)
+            let value = envelope.value().get(column).unwrap_or(&Value::Null);
+            if matches!(value, Value::Object(_) | Value::Array(_)) {
+                format!("{column}:\n{}", nested_detail_text(value, 2).join("\n"))
+            } else {
+                render_detail_field(column, &cell_text(Some(value)), padding)
+            }
         })
         .collect())
+}
+
+fn nested_detail_text(value: &Value, indent: usize) -> Vec<String> {
+    let prefix = " ".repeat(indent);
+    match value {
+        Value::Object(fields) if !fields.is_empty() => {
+            let padding = fields.keys().map(String::len).max().unwrap_or_default();
+            fields
+                .iter()
+                .flat_map(|(key, value)| {
+                    if matches!(value, Value::Object(_) | Value::Array(_)) {
+                        let mut lines = vec![format!("{prefix}{key}:")];
+                        lines.extend(nested_detail_text(value, indent + 2));
+                        lines
+                    } else {
+                        render_detail_field(key, &semantic_scalar(value), padding)
+                            .lines()
+                            .map(|line| format!("{prefix}{line}"))
+                            .collect()
+                    }
+                })
+                .collect()
+        }
+        Value::Array(values) if !values.is_empty() => values
+            .iter()
+            .flat_map(|value| {
+                let mut lines = nested_detail_text(value, indent + 2);
+                if let Some(first) = lines.first_mut() {
+                    first.replace_range(indent..indent + 2, "- ");
+                }
+                lines
+            })
+            .collect(),
+        value => semantic_scalar(value)
+            .split('\n')
+            .map(|line| format!("{prefix}{line}"))
+            .collect(),
+    }
 }
 
 pub(crate) fn render_detail_field(column: &str, value: &str, padding: usize) -> String {
@@ -829,6 +886,10 @@ fn render_dense_rows(
     table_headers: TableHeaders,
 ) -> Vec<String> {
     let config = get_config();
+    let band_theme = (!matches!(config.output.table_bands, TableBands::Never)
+        && !matches!(config.output.color, OutputColor::Never))
+    .then(active_theme)
+    .and_then(Result::ok);
     render_dense_rows_with_band(
         rows,
         columns,
@@ -838,7 +899,14 @@ fn render_dense_rows(
             &config.output.table_wrap,
             terminal_width(),
         ),
-        apply_row_band,
+        |index, line| {
+            if index.is_multiple_of(2) {
+                if let Some(theme) = &band_theme {
+                    return paint_theme(theme, ThemeRole::TableBand, line);
+                }
+            }
+            line
+        },
     )
 }
 
@@ -1199,19 +1267,6 @@ fn render_dense_line<'a>(values: impl IntoIterator<Item = &'a str>, widths: &[us
         .join(" | ")
 }
 
-fn apply_row_band(index: usize, line: String) -> String {
-    match get_config().output.table_bands {
-        TableBands::Never => line,
-        TableBands::Auto | TableBands::Always => {
-            if index.is_multiple_of(2) {
-                paint(ThemeRole::TableBand, line)
-            } else {
-                line
-            }
-        }
-    }
-}
-
 fn value_array(value: &Value) -> Vec<Value> {
     value.as_array().cloned().unwrap_or_default()
 }
@@ -1303,7 +1358,7 @@ fn set_table_width_from_terminal(table: &mut Table, terminal_width: Option<usize
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{json, Value};
     use serial_test::serial;
     use std::collections::HashMap;
 
@@ -1804,6 +1859,35 @@ mod tests {
         assert_eq!(
             rendered,
             "diff: {\n        \"before\": \"580 GB\",\n        \"after\": \"581 GB\"\n      }\n"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn nested_detail_records_and_arrays_are_indented_without_changing_json() {
+        init_config(AppConfig::default()).unwrap();
+        let value = json!({"creation": {"issuer_id": 1, "method": "login"},
+            "sources": [{"address": "192.0.2.1", "note": "first\nsecond"}, {"address": "192.0.2.2"}],
+            "empty": [], "missing": null, "values": [null, ""]});
+        reset_output().unwrap();
+        set_semantic_output(OutputEnvelope::detail(value.clone(), Vec::new())).unwrap();
+        let snapshot = take_output().unwrap();
+        let rendered = snapshot.render();
+        assert!(
+            rendered.contains("creation:\n  issuer_id: 1\n  method   : login"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("sources:\n  - address: 192.0.2.1\n    note   : first\n             second\n  - address: 192.0.2.2"), "{rendered}");
+        assert!(rendered.contains("empty:\n  []"), "{rendered}");
+        assert!(rendered.contains("values:\n  - null\n  - \n"), "{rendered}");
+        assert!(!rendered.contains("{\""));
+        assert_eq!(snapshot.semantic[0].value(), &value);
+        reset_output().unwrap();
+        set_render_format(RenderFormat::Json).unwrap();
+        set_semantic_output(OutputEnvelope::detail(value.clone(), Vec::new())).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&take_output().unwrap().render()).unwrap(),
+            value
         );
     }
 

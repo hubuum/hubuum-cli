@@ -3,13 +3,13 @@ use crate::diagnostics::client_call;
 use crate::errors::AppError;
 use hubuum_client::{ClassId, ObjectId};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 enum ResourceSelector<I> {
     Name(String),
     Id(I),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ResourceScope {
     class: ResourceSelector<ClassId>,
     object: Option<ResourceSelector<ObjectId>>,

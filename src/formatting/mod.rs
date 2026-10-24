@@ -6,6 +6,7 @@ mod core;
 mod exports;
 mod groups;
 mod history;
+pub(crate) use history::append_history_changes;
 mod identity;
 mod imports;
 mod json_record;

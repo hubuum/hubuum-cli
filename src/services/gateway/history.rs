@@ -1,23 +1,24 @@
 use std::collections::HashSet;
 
+mod comparisons;
+
 use hubuum_client::types::SortDirection;
 use hubuum_client::{
     client::sync::HistoryRequest, HistoryId, HistoryPageOptions, HistoryTimelineOptions,
     HubuumDateTime, ObjectHistoryOptions, RelationHistoryOptions,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{from_value, Value};
 
 use super::shared::parse_single_sort;
 use super::{HubuumGateway, ObjectScope, ResourceScope};
 use crate::diagnostics::client_call;
-use crate::domain::{HistoryPageRecord, HistoryRecord, JsonRecord};
+use crate::domain::{HistoryComparison, HistoryPageRecord, HistoryRecord, HistoryTime, JsonRecord};
 use crate::errors::AppError;
 use crate::list_query::{PageSelection, PagedResult, ServerPageSize};
 
 pub enum HistoryInput {
     At {
-        at: HubuumDateTime,
+        at: HistoryTime,
         include_total: bool,
     },
     List(HistoryListInput),
@@ -58,6 +59,10 @@ impl HistoryListInput {
 
 pub enum HistoricalQuery {
     Timeline(HistoryTimelineOptions),
+    TimelineWithChanges {
+        options: HistoryTimelineOptions,
+        comparison: HistoryComparison,
+    },
     ObjectName {
         name: String,
         options: ObjectHistoryOptions,
@@ -80,7 +85,10 @@ impl HubuumGateway {
     ) -> Result<PagedResult<HistoryRecord>, AppError> {
         let input = match input {
             HistoryInput::At { at, include_total } => {
-                let record = self.history_record_at(scope, at)?;
+                if at.end().is_some() {
+                    return self.history_in_window(scope, at, include_total);
+                }
+                let record = self.history_record_at(scope, at.start())?;
                 return Ok(PagedResult {
                     items: vec![HistoryRecord::new(record)?],
                     next_cursor: None,
@@ -95,6 +103,50 @@ impl HubuumGateway {
             Some(object) => history_results(self.client().object_history(class, object), &input),
             None => history_results(self.client().class_history(class), &input),
         }
+    }
+
+    fn history_in_window(
+        &self,
+        scope: ResourceScope,
+        at: HistoryTime,
+        include_total: bool,
+    ) -> Result<PagedResult<HistoryRecord>, AppError> {
+        // Resolve live names once so every entry belongs to the same identity.
+        let (class, object) = self.resolve_resource_scope(scope)?;
+        let scope = ResourceScope::class(None, Some(class))?.with_object(None, object)?;
+        let markers = self
+            .historical_view(
+                scope.clone(),
+                HistoricalQuery::Timeline(
+                    HistoryTimelineOptions::default().window(Some(at.start()), at.end())?,
+                ),
+                HistoryPageOptions::default().limit(250)?,
+                PageSelection::All,
+            )?
+            .rows()?;
+        let ids = markers
+            .items
+            .iter()
+            .map(HistoryRecord::history_id)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut snapshots = self.history_snapshots(scope, ids.iter().copied().collect())?;
+        let items = ids
+            .into_iter()
+            .map(|id| {
+                snapshots.remove(&id).ok_or_else(|| {
+                    AppError::InvalidOption(format!(
+                        "History entry {id} became unavailable; restart the query"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        let count = items.len();
+        Ok(PagedResult {
+            items: HistoryRecord::with_changes(items),
+            next_cursor: None,
+            returned_count: count,
+            total_count: include_total.then_some(count as u64),
+        })
     }
 
     pub fn history_record_by_id(
@@ -162,8 +214,9 @@ impl HubuumGateway {
         selection: PageSelection,
     ) -> Result<HistoryPageRecord, AppError> {
         let (class, object) = self.resolve_resource_scope(scope)?;
-        collect_history_pages(page, selection, |page| match &query {
-            HistoricalQuery::Timeline(options) => match object {
+        let result = collect_history_pages(page, selection, |page| match &query {
+            HistoricalQuery::Timeline(options)
+            | HistoricalQuery::TimelineWithChanges { options, .. } => match object {
                 Some(object) => HistoryPageRecord::records(client_call(
                     "client.object_history_timeline",
                     || {
@@ -221,7 +274,13 @@ impl HubuumGateway {
                 }?;
                 HistoryPageRecord::envelope(response, "relations")
             }
-        })
+        })?;
+        if let HistoricalQuery::TimelineWithChanges { comparison, .. } = query {
+            let scope = ResourceScope::class(None, Some(class))?.with_object(None, object)?;
+            self.timeline_changes(scope, result, comparison)
+        } else {
+            Ok(result)
+        }
     }
 }
 
@@ -264,9 +323,7 @@ fn collect_history_pages(
 }
 
 pub(crate) fn parse_timestamp(value: &str) -> Result<HubuumDateTime, AppError> {
-    from_value(Value::String(value.to_owned())).map_err(|_| {
-        AppError::InvalidOption("Expected an RFC3339 timestamp with a timezone".into())
-    })
+    Ok(HistoryTime::parse(value)?.start())
 }
 
 fn history_results<T: DeserializeOwned + Serialize>(
@@ -289,11 +346,12 @@ fn history_results<T: DeserializeOwned + Serialize>(
         PagedResult::from_page(client_call("history.page", || request.page())?, |item| item)
     };
     Ok(PagedResult {
-        items: page
-            .items
-            .into_iter()
-            .map(HistoryRecord::new)
-            .collect::<Result<_, _>>()?,
+        items: HistoryRecord::with_changes(
+            page.items
+                .into_iter()
+                .map(HistoryRecord::new)
+                .collect::<Result<_, _>>()?,
+        ),
         next_cursor: page.next_cursor,
         returned_count: page.returned_count,
         total_count: page.total_count,

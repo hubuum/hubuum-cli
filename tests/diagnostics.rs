@@ -115,12 +115,14 @@ fn debug_keeps_text_and_other_renderers_on_stderr() {
     for format in ["text", "jsonl", "csv", "tsv"] {
         cargo_bin_cmd!("hubuum-cli")
             .env("XDG_CONFIG_HOME", directory.path())
-            .args(["version", "--debug", "--output", format])
+            .args(["theme", "list", "--debug", "--output", format])
             .assert()
             .success()
             .stderr(contains("0 client API calls"))
             .stderr(contains("  execute:"))
-            .stderr(contains("  render:"));
+            .stderr(contains("  render:"))
+            .stderr(contains("format_output:"))
+            .stderr(contains("write_output:"));
     }
 }
 

@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use hubuum_client::{blocking::Client, MockTransport, Token, TransportResponse};
 use reqwest::{header::HeaderValue, Method, StatusCode};
 use serde_json::{from_str, json, Value};
@@ -15,6 +17,8 @@ use crate::repl::SharedReplState;
 use crate::services::AppServices;
 
 const AT: &str = "2026-10-23T00:00:00Z";
+
+mod timeline;
 
 async fn execute(transport: &MockTransport, command: &str) -> Result<CommandOutcome, AppError> {
     let previous = get_config();
@@ -155,11 +159,14 @@ async fn timelines_preserve_navigation_across_pages_and_reject_cursor_cycles() {
         Some("private-cursor"),
     );
     respond(&transport, json!([object_history(2)]), None);
+    respond(&transport, json!([]), None);
+    respond(&transport, json!([object_history(2)]), None);
     let result = output(execute(&transport, "history timeline object --class-id 1 --object-id 2 --anchor 42 --direction newer --from 2026-10-01T00:00:00Z --until 2026-11-01T00:00:00Z --all --output json").await.unwrap());
     assert_eq!(result["items"].as_array().unwrap().len(), 2);
     assert_eq!(result["page_limit"], 1);
     assert!(result["next_cursor"].is_null());
-    for request in transport.requests() {
+    assert_eq!(transport.requests().len(), 4);
+    for request in &transport.requests()[..2] {
         assert_eq!(request.url.path(), "/api/v1/classes/1/2/history/timeline");
         let query = request.url.query().unwrap();
         assert!(query.contains("anchor=42"));
@@ -289,6 +296,7 @@ async fn structured_history_formats_keep_retention_context() {
 #[serial]
 async fn invalid_historical_and_hydration_options_fail_before_requests() {
     for command in [
+        "history show --class Hosts --at 2026-02-29", "history show --class Hosts --at 1m1m",
         "history show --class-id -1 --id 42", "history object --class-id 1",
         "history show --class Hosts --class-id 1 --id 42",
         "history timeline class --class-id 1 --at 2026-10-23T00:00:00Z --anchor 42",
@@ -444,6 +452,144 @@ async fn history_listing_tables_have_revision_columns_and_json_keeps_data() {
         .unwrap(),
     );
     assert_eq!(value[0]["data"]["retained"], "secret snapshot");
+}
+
+#[tokio::test]
+#[serial]
+async fn history_prefix_fetches_every_marker_page_and_complete_matching_snapshot() {
+    for command in ["history show", "history object"] {
+        let transport = MockTransport::default();
+        let mut first = object_history(2);
+        first["history_id"] = json!(90002);
+        first["revision"] = json!(3);
+        first["op"] = json!("update");
+        first["data"] = json!({"memory": 581});
+        let mut second = object_history(2);
+        second["op"] = json!("update");
+        second["data"] = json!({"memory": 580});
+        respond(&transport, json!([first]), Some("older"));
+        respond(&transport, json!([second]), None);
+        respond(&transport, json!([first, second]), None);
+        let result = output(
+            execute(
+                &transport,
+                &format!("{command} --class-id 1 --object-id 2 --at 2026-10 --output json"),
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(result.as_array().unwrap().len(), 2);
+        assert_eq!(result[0]["data"], first["data"]);
+        assert_eq!(result[1]["data"], second["data"]);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        for request in &requests[..2] {
+            assert_eq!(request.url.path(), "/api/v1/classes/1/2/history/timeline");
+            let params = request.url.query_pairs().collect::<HashMap<_, _>>();
+            assert_eq!(params["from"], "2026-10-01T00:00:00+00:00");
+            assert_eq!(params["until"], "2026-11-01T00:00:00+00:00");
+        }
+        assert!(requests[1]
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "cursor" && value == "older"));
+        assert_eq!(requests[2].url.path(), "/api/v1/classes/1/2/history");
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn history_prefix_without_changes_returns_an_empty_result() {
+    let transport = MockTransport::default();
+    respond(&transport, json!([]), None);
+    let result = output(
+        execute(
+            &transport,
+            "history class --class-id 1 --at 2026-10-23T15 --include-total --output json",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result["items"], json!([]));
+    assert_eq!(result["total_count"], 0);
+    assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn exact_and_relative_history_times_use_as_of_endpoints() {
+    for at in ["2026-10-23T00:00:00Z", "1d3h44m1s", "-1d3h44m1s"] {
+        let transport = MockTransport::default();
+        respond(&transport, object_history(2), None);
+        let before = Utc::now() - ChronoDuration::seconds(99_841);
+        let result = output(
+            execute(
+                &transport,
+                &format!("history show --class-id 1 --object-id 2 --at {at} --output json"),
+            )
+            .await
+            .unwrap(),
+        );
+        let after = Utc::now() - ChronoDuration::seconds(99_841);
+        assert_eq!(result["history_id"], 90001);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url.path(), "/api/v1/classes/1/2/history/as-of");
+        let sent = requests[0]
+            .url
+            .query_pairs()
+            .find(|(key, _)| key == "at")
+            .unwrap()
+            .1;
+        let sent = DateTime::parse_from_rfc3339(&sent).unwrap();
+        if at == AT {
+            assert_eq!(sent, DateTime::parse_from_rfc3339(AT).unwrap());
+        } else {
+            assert!(sent >= before && sent <= after);
+        }
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn history_listing_displays_nested_field_changes() {
+    let transport = MockTransport::default();
+    let mut before = object_history(2);
+    before["op"] = json!("update");
+    before["data"] = json!({"memory": {"total": "580 GB"}});
+    let mut after = before.clone();
+    after["revision"] = json!(3);
+    after["history_id"] = json!(90002);
+    after["data"] = json!({"memory": {"total": "581 GB"}});
+    respond(&transport, json!([after, before]), None);
+    let result = execute(&transport, "history object --class-id 1 --object-id 2")
+        .await
+        .unwrap()
+        .output
+        .render();
+    assert!(result.contains("Changes for history #90002"), "{result}");
+    assert!(result.contains("/data/memory/total"), "{result}");
+    assert!(result.contains("580 GB"), "{result}");
+    assert!(result.contains("581 GB"), "{result}");
+}
+
+#[tokio::test]
+#[serial]
+async fn credential_activity_text_displays_creation_and_sources_as_nested_fields() {
+    let transport = MockTransport::default();
+    respond(&transport, service_account(), None);
+    respond(&transport, activity(0, None), None);
+    let result = execute(
+        &transport,
+        "service-account token activity --name collector --token-id 42",
+    )
+    .await
+    .unwrap();
+    let text = result.output.render();
+    assert!(text.contains("creation:\n  address"), "{text}");
+    assert!(text.contains("sources:\n  - address"), "{text}");
+    assert!(!text.contains("{\""), "{text}");
+    assert!(result.output.semantic[0].value()["sources"].is_array());
 }
 
 #[tokio::test]

@@ -619,6 +619,13 @@ pub(crate) async fn stage<T>(name: &'static str, operation: impl Future<Output =
     result
 }
 
+pub(crate) fn stage_sync<T>(name: &'static str, operation: impl FnOnce() -> T) -> T {
+    let span = debug_span!(target: TARGET, "cli.stage", stage = name, finished = field::Empty);
+    let result = span.in_scope(operation);
+    span.record("finished", true);
+    result
+}
+
 pub(crate) fn spawn_blocking<F, R>(operation: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
