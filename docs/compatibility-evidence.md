@@ -2,9 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. The development CLI uses
-`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20. Released CLI
-v0.0.19 uses client 0.17.0 with the same server target.
+and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -13,7 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Unreleased | 0.19.0 | 0.0.20 | Validated SDK IDs and related-object list filters |
+| 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
@@ -58,7 +57,10 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
 
-## Unreleased: client v0.19.0 and related object lists
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="unreleased-client-v0190-and-related-object-lists"></span>
+
+## CLI v0.0.20: client v0.19.0 and related object lists
 
 Verified on 2026-10-24 with published crates.io `hubuum_client` 0.19.0, checksum
 `1e26a5598f35bd7fc547ba8601cbcb29a8c921af4b8909f031a9995ea3b1a0e3`.
