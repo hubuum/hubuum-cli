@@ -1616,10 +1616,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#unreleased-client-v0190-and-related-object-lists" class="md-nav__link">
+  <a href="#cli-v0020-client-v0190-and-related-object-lists" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: client v0.19.0 and related object lists
+        CLI v0.0.20: client v0.19.0 and related object lists
       </span>
     </span>
   </a>
@@ -1941,10 +1941,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#unreleased-client-v0190-and-related-object-lists" class="md-nav__link">
+  <a href="#cli-v0020-client-v0190-and-related-object-lists" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Unreleased: client v0.19.0 and related object lists
+        CLI v0.0.20: client v0.19.0 and related object lists
       </span>
     </span>
   </a>
@@ -2121,9 +2121,8 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. The development CLI uses
-<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20. Released CLI
-v0.0.19 uses client 0.17.0 with the same server target.
+and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2139,10 +2138,10 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
-<td>Unreleased</td>
+<td>0.0.20</td>
 <td>0.19.0</td>
 <td>0.0.20</td>
-<td>Validated SDK IDs and related-object list filters</td>
+<td>Related-object list filters, richer pipelines, structured output, and validated SDK IDs</td>
 </tr>
 <tr>
 <td>0.0.19</td>
@@ -2272,7 +2271,9 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
-<h2 id="unreleased-client-v0190-and-related-object-lists">Unreleased: client v0.19.0 and related object lists<a class="headerlink" href="#unreleased-client-v0190-and-related-object-lists" title="Permanent link">&para;</a></h2>
+<!-- markdownlint-disable-next-line MD033 -->
+<p><span id="unreleased-client-v0190-and-related-object-lists"></span></p>
+<h2 id="cli-v0020-client-v0190-and-related-object-lists">CLI v0.0.20: client v0.19.0 and related object lists<a class="headerlink" href="#cli-v0020-client-v0190-and-related-object-lists" title="Permanent link">&para;</a></h2>
 <p>Verified on 2026-10-24 with published crates.io <code>hubuum_client</code> 0.19.0, checksum
 <code>1e26a5598f35bd7fc547ba8601cbcb29a8c921af4b8909f031a9995ea3b1a0e3</code>.
 Only the SDK package changed in <code>Cargo.lock</code>; no other direct or transitive

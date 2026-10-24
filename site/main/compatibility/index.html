@@ -619,6 +619,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0020-client-v0190" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.20: client v0.19.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0019-client-v0170" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1935,6 +1946,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0020-client-v0190" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.20: client v0.19.0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0019-client-v0170" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2065,9 +2087,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. The development CLI uses
-<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20. Released CLI
-v0.0.19 uses client 0.17.0 with the same server target.
+and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2083,10 +2104,10 @@ against other server versions is not guaranteed.</p>
 </thead>
 <tbody>
 <tr>
-<td>Unreleased</td>
+<td>0.0.20</td>
 <td>0.19.0</td>
 <td>0.0.20</td>
-<td>Validated SDK IDs and related-object list filters</td>
+<td>Related-object list filters, richer pipelines, structured output, and validated SDK IDs</td>
 </tr>
 <tr>
 <td>0.0.19</td>
@@ -2193,12 +2214,17 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
-<p>The development branch upgrades to client 0.19.0 and adds
+<p>CLI v0.0.20 upgrades to client 0.19.0 and adds
 <a href="../object-workflows/#filter-lists-by-related-objects">related-object list filters</a>.
 <strong>Breaking validation:</strong> zero and negative resource IDs are rejected locally;
 replace sentinel IDs in scripts or fixtures with positive resource IDs. The
 server target, backup formats, and session caches are unchanged. See the
-<a href="../compatibility-evidence/#unreleased-client-v0190-and-related-object-lists">upgrade verification</a>.</p>
+<a href="../compatibility-evidence/#cli-v0020-client-v0190-and-related-object-lists">upgrade verification</a>.</p>
+<p><strong>Breaking pipeline and validation changes in v0.0.20:</strong> review the
+<a href="../changelog/#v0-0-20">release migration notes</a> for changed integer sums,
+array projection and grouping behavior, reserved DSL words, structured response
+selectors, and rejected combinations of command options. The notes include
+replacement syntax for scripts and adjustments for Rust library callers.</p>
 <p>CLI v0.0.19 targets server v0.0.20 through client 0.17.0. Upgrading from CLI
 v0.0.18 requires no server upgrade. When upgrading older installations, upgrade
 server API, workers, and restore executors together before using versioned login.
@@ -2234,6 +2260,10 @@ aliased as <code>--debug</code>; the host now reserves this flag for command dia
 <h2 id="verification-evidence">Verification evidence<a class="headerlink" href="#verification-evidence" title="Permanent link">&para;</a></h2>
 <p><a href="../compatibility-evidence/">Detailed evidence and historical migrations</a> retain tested
 image identities, dates, suite results, and earlier compatibility limits.</p>
+<h2 id="cli-v0020-client-v0190">CLI v0.0.20: client v0.19.0<a class="headerlink" href="#cli-v0020-client-v0190" title="Permanent link">&para;</a></h2>
+<p>See <a href="../compatibility-evidence/#cli-v0020-client-v0190-and-related-object-lists">CLI v0.0.20 evidence</a>
+for related-object filtering, SDK validation, and pinned live integration checks.
+The server target remains v0.0.20; backup and saved-session formats are unchanged.</p>
 <h2 id="cli-v0019-client-v0170">CLI v0.0.19: client v0.17.0<a class="headerlink" href="#cli-v0019-client-v0170" title="Permanent link">&para;</a></h2>
 <p>See <a href="../compatibility-evidence/#cli-v0019-client-v0170">CLI v0.0.19 evidence</a>
 for persistent sessions, historical views, the room graph wrapper, and pinned

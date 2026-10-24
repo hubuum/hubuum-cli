@@ -1694,7 +1694,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[Unreleased]">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0020-2026-10-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.20] - 2026-10-24
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.20] - 2026-10-24">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2288,7 +2299,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[Unreleased]">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0020-2026-10-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.20] - 2026-10-24
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[0.0.20] - 2026-10-24">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2820,19 +2842,18 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<!-- markdownlint-disable-next-line MD033 -->
+<p><span id="v0-0-20"></span></p>
+<h2 id="0020-2026-10-24">[0.0.20] - 2026-10-24<a class="headerlink" href="#0020-2026-10-24" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
-<li>
-<p>Filter <code>object list</code> by related objects with repeatable <code>--related ALIAS=CLASS</code>
+<li>Filter <code>object list</code> by related objects with repeatable <code>--related ALIAS=CLASS</code>
   or <code>--related-id ALIAS=ID</code>, <code>--related-depth ALIAS=DEPTH</code>, and
   <code>--related-where ALIAS.FIELD OP VALUE</code>. Support up to four groups, depth 1–10,
-  ordinary pagination, computed output and sorting, pipelines, and REPL completion.</p>
-</li>
-<li>
-<p>Add local typed string predicates <code>CONTAINS</code>, <code>ICONTAINS</code>, <code>STARTS_WITH</code>,
+  ordinary pagination, computed output and sorting, pipelines, and REPL completion.</li>
+<li>Add local typed string predicates <code>CONTAINS</code>, <code>ICONTAINS</code>, <code>STARTS_WITH</code>,
   <code>ENDS_WITH</code>, <code>IEQUALS</code>, and opt-in <code>FUZZY</code>, including negated forms. Existing
-  regex filters retain their syntax and meaning.</p>
-</li>
+  regex filters retain their syntax and meaning.</li>
 <li>Add relative datetime operands <code>now</code> and <code>now-Ns/m/h/d</code> with one clock sample
   per pipeline application and an injectable library clock.</li>
 <li>Add optional selector diagnostics through <code>CHECK STRICT</code> / <code>CHECK ALLOW</code> and
@@ -2876,23 +2897,19 @@
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
-<li>
-<p>Upgrade published <code>hubuum_client</code> from 0.17.0 to 0.19.0 and adapt to validated
+<li>Upgrade published <code>hubuum_client</code> from 0.17.0 to 0.19.0 and adapt to validated
   resource IDs and computed revisions. <strong>Breaking validation:</strong> zero and negative
   resource IDs now fail locally, including IDs in deserialized server responses.
   Replace invalid or sentinel IDs in scripts and fixtures with real positive IDs.
   Computation revision zero remains valid. The server v0.0.20 target, pinned image,
   OpenAPI routes, blocking-only client features, MSRV declarations, backup formats,
-  and saved-session formats are unchanged; no server or cache migration is needed.</p>
-</li>
-<li>
-<p><strong>Breaking filter behavior:</strong> integer-only sums now serialize as integers;
+  and saved-session formats are unchanged; no server or cache migration is needed.</li>
+<li><strong>Breaking filter behavior:</strong> integer-only sums now serialize as integers;
   consumers requiring floating-point values must convert them explicitly.
   Array exclusions in a single <code>P</code> stage use original indexes; use separate
   stages for sequential removals. Repeated group keys no longer multiply member
   counts; use <code>U tags AS tag | G tag | C</code> to count occurrences. Unroll collisions
-  now fail; migrate to <code>U selector AS item</code> and select fields under <code>item</code>.</p>
-</li>
+  now fail; migrate to <code>U selector AS item</code> and select fields under <code>item</code>.</li>
 <li><strong>Breaking DSL/API additions:</strong> <code>H</code>, <code>HELP</code>, and <code>CHECK</code> are reserved stage
   words; search for them with <code>F H</code>, <code>F HELP</code>, or <code>F CHECK</code>. Quote a field named
   <code>ROWS</code> after <code>P</code> to distinguish it from <code>P ROWS</code>. Library callers matching
