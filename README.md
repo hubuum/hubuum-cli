@@ -4,20 +4,22 @@
 <span id="a-cli-for-hubuum"></span>
 
 Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI **v0.0.20** (2026-10-24) uses Rust client **0.19.0** and targets server
+CLI **v0.0.21** (2026-10-24) uses Rust client **0.19.0** and targets server
 **v0.0.20**. Hubuum is under active development before 1.0.
 
-This release adds [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects),
-typed text and relative-time pipeline predicates, and structured output across
-commands. Review the [migration notes](CHANGELOG.md#v0-0-20) for stricter
-input validation and changes to pipeline selectors and array handling.
+This release adds [flexible history times and timeline comparisons](docs/history.md),
+including shortened UTC dates, relative times, and comparisons against the latest
+retained entry. Nested details are easier to read, and diagnostics separate
+formatting from stdout writes. See the [release notes](CHANGELOG.md#v0-0-21).
+Upgrading from v0.0.20 requires no migration; earlier upgrades should review
+the [v0.0.20 migration notes](CHANGELOG.md#v0-0-20).
 
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
 
 ## Release binaries
 
 Download and extract the archive for your platform from
-[release v0.0.20](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.20).
+[release v0.0.21](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.21).
 Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
 on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See [binary details](docs/updates.md).
@@ -34,7 +36,7 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-CLI v0.0.20 uses client **0.19.0** and targets server **v0.0.20**.
+CLI v0.0.21 uses client **0.19.0** and targets server **v0.0.20**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).

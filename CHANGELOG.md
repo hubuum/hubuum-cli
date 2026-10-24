@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-21"></span>
+
+## [0.0.21] - 2026-10-24
+
 ### Added
 
 - Accept UTC date/time prefixes in history `--at` selectors, from a year through
