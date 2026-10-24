@@ -4,6 +4,11 @@
 
 ### Added
 
+- Filter `object list` by related objects with repeatable `--related ALIAS=CLASS`
+  or `--related-id ALIAS=ID`, `--related-depth ALIAS=DEPTH`, and
+  `--related-where ALIAS.FIELD OP VALUE`. Support up to four groups, depth 1–10,
+  ordinary pagination, computed output and sorting, pipelines, and REPL completion.
+
 - Add local typed string predicates `CONTAINS`, `ICONTAINS`, `STARTS_WITH`,
   `ENDS_WITH`, `IEQUALS`, and opt-in `FUZZY`, including negated forms. Existing
   regex filters retain their syntax and meaning.
@@ -19,6 +24,8 @@
 
 ### Fixed
 
+- Reject related-object JSON paths with empty segments, including doubled dots
+  immediately after `data` or `json_data`, instead of silently changing the path.
 - Preserve large integers in numeric casts, comparisons, sorting, distinct, and
   representable integer sums. Reuse compiled regexes and cast literals across
   rows and pipeline applications.
@@ -47,6 +54,14 @@
   deserialization as well as through protocol parsing.
 
 ### Changed
+
+- Upgrade published `hubuum_client` from 0.17.0 to 0.19.0 and adapt to validated
+  resource IDs and computed revisions. **Breaking validation:** zero and negative
+  resource IDs now fail locally, including IDs in deserialized server responses.
+  Replace invalid or sentinel IDs in scripts and fixtures with real positive IDs.
+  Computation revision zero remains valid. The server v0.0.20 target, pinned image,
+  OpenAPI routes, blocking-only client features, MSRV declarations, backup formats,
+  and saved-session formats are unchanged; no server or cache migration is needed.
 
 - **Breaking filter behavior:** integer-only sums now serialize as integers;
   consumers requiring floating-point values must convert them explicitly.

@@ -288,8 +288,7 @@ pub fn build_related_object_tree(
             .copied()
             .filter(|object_id| *object_id != root_object_id)
             .filter(|object_id| {
-                !ignore_same_class
-                    || object_class_map.get(object_id).copied().unwrap_or_default() != root_class_id
+                !ignore_same_class || object_class_map.get(object_id) != Some(&root_class_id)
             })
             .filter(|object_id| nodes.contains_key(object_id))
             .collect::<Vec<_>>();
@@ -495,18 +494,18 @@ mod tests {
             related_object(12, 4, 1, "B701", &[9, 11, 12]),
         ];
         let class_map = HashMap::from([
-            (2.into(), class(2, 1, "Contacts")),
-            (3.into(), class(3, 1, "Jacks")),
-            (4.into(), class(4, 1, "Rooms")),
+            (2.try_into().unwrap(), class(2, 1, "Contacts")),
+            (3.try_into().unwrap(), class(3, 1, "Jacks")),
+            (4.try_into().unwrap(), class(4, 1, "Rooms")),
         ]);
-        let collection_map = HashMap::from([(1.into(), collection(1, "default"))]);
+        let collection_map = HashMap::from([(1.try_into().unwrap(), collection(1, "default"))]);
 
         let tree = build_related_object_tree(
             &objects,
             &class_map,
             &collection_map,
-            9.into(),
-            1.into(),
+            9.try_into().unwrap(),
+            1.try_into().unwrap(),
             false,
         );
 
@@ -525,18 +524,18 @@ mod tests {
             related_object(12, 4, 1, "Room-1", &[9, 10, 11, 12]),
         ];
         let class_map = HashMap::from([
-            (1.into(), class(1, 1, "Hosts")),
-            (3.into(), class(3, 1, "Jacks")),
-            (4.into(), class(4, 1, "Rooms")),
+            (1.try_into().unwrap(), class(1, 1, "Hosts")),
+            (3.try_into().unwrap(), class(3, 1, "Jacks")),
+            (4.try_into().unwrap(), class(4, 1, "Rooms")),
         ]);
-        let collection_map = HashMap::from([(1.into(), collection(1, "default"))]);
+        let collection_map = HashMap::from([(1.try_into().unwrap(), collection(1, "default"))]);
 
         let tree = build_related_object_tree(
             &objects,
             &class_map,
             &collection_map,
-            9.into(),
-            1.into(),
+            9.try_into().unwrap(),
+            1.try_into().unwrap(),
             true,
         );
 
@@ -553,17 +552,17 @@ mod tests {
             related_object(12, 4, 1, "Room-1", &[9, 10, 11, 12]),
         ];
         let class_map = HashMap::from([
-            (3.into(), class(3, 1, "Jacks")),
-            (4.into(), class(4, 1, "Rooms")),
+            (3.try_into().unwrap(), class(3, 1, "Jacks")),
+            (4.try_into().unwrap(), class(4, 1, "Rooms")),
         ]);
-        let collection_map = HashMap::from([(1.into(), collection(1, "default"))]);
+        let collection_map = HashMap::from([(1.try_into().unwrap(), collection(1, "default"))]);
 
         let tree = build_related_object_tree(
             &objects,
             &class_map,
             &collection_map,
-            9.into(),
-            1.into(),
+            9.try_into().unwrap(),
+            1.try_into().unwrap(),
             true,
         );
 
@@ -580,9 +579,9 @@ mod tests {
             related_class(3, 1, "Rooms", &[1, 2, 3]),
             related_class(2, 1, "Jacks", &[1, 2]),
         ];
-        let collection_map = HashMap::from([(1.into(), collection(1, "default"))]);
+        let collection_map = HashMap::from([(1.try_into().unwrap(), collection(1, "default"))]);
 
-        let tree = build_related_class_tree(&classes, &collection_map, 1.into(), true);
+        let tree = build_related_class_tree(&classes, &collection_map, 1.try_into().unwrap(), true);
 
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].label(), "Jacks");

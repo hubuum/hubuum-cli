@@ -529,3 +529,83 @@ async fn object_history_accepts_a_positional_object_after_a_class_selector() {
         );
     }
 }
+
+#[tokio::test]
+#[serial]
+async fn related_object_lists_preserve_filters_across_pages_and_computed_modes() {
+    for options in ["", "--computed all", "--computed all --sort S:rank desc"] {
+        let transport = MockTransport::default();
+        let fixture: Value =
+            from_str(include_str!("../../tests/fixtures/object-show.json")).unwrap();
+        let mut class = fixture["root_class"].clone();
+        class["collection"] = fixture["collections"][0].clone();
+        let mut first = fixture["graph"]["objects"][0].clone();
+        first["name"] = json!("host-1");
+        first["computed"] = json!({"shared":{"revision":0,"materialization_stale":false,"values":{"rank":2},"errors":{}}});
+        let mut second = first.clone();
+        second["id"] = json!(999);
+        second["name"] = json!("host-2");
+        respond(&transport, class, None);
+        respond(&transport, json!([first]), Some("next-page"));
+        respond(&transport, json!([second]), None);
+        let command = format!("object list --class Hosts --related 'room=Server Rooms / ø &=1' --related-id rack=42 --related-depth room=2 --related-where room.name equals 'B 701' --related-where room.data.floor gte 3 --related-where rack.name not_equals retired --where name contains host --limit 1 --all {options} --output json | P name");
+        let result = output(execute(&transport, &command).await.unwrap());
+        assert_eq!(result, json!([{"name":"host-1"},{"name":"host-2"}]));
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 3);
+        for request in &requests[1..] {
+            let pairs: Vec<_> = request.url.query_pairs().collect();
+            for (key, value) in [
+                ("related.room.class.name", "Server Rooms / ø &=1"),
+                ("related.room.depth__lte", "2"),
+                ("related.room.object.name__equals", "B 701"),
+                ("related.room.object.json_data__gte", "floor=3"),
+                ("related.rack.class.id", "42"),
+                ("related.rack.depth__lte", "1"),
+                ("related.rack.object.name__not_equals", "retired"),
+                ("name__contains", "host"),
+            ] {
+                assert!(
+                    pairs.iter().any(|(k, v)| k == key && v == value),
+                    "{key}={value}: {pairs:?}"
+                );
+            }
+            assert_eq!(
+                pairs.iter().any(|(k, v)| k == "include" && v == "computed"),
+                !options.is_empty()
+            );
+        }
+        assert!(requests[2]
+            .url
+            .query_pairs()
+            .any(|(k, v)| k == "cursor" && v == "next-page"));
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn invalid_related_options_and_resource_ids_fail_before_lookup() {
+    for command in [
+        "object list --class Hosts --related room=Rooms --related room=Racks",
+        "object list --class Hosts --related room=Rooms --related-id room=1",
+        "object list --class Hosts --related-id room=0",
+        "object list --class Hosts --related bad.alias=Rooms",
+        "object list --class Hosts --related room=Rooms --related-depth room=0",
+        "object list --class Hosts --related room=Rooms --related-depth room=11",
+        "object list --class Hosts --related-depth missing=2",
+        "object list --class Hosts --related-where missing.name equals B701",
+        "object list --class Hosts --related room=Rooms --related-where room.data..floor equals x",
+        "object list --class Hosts --related room=Rooms --related-where room.data.a..b equals x",
+        "object list --class Hosts --related room=Rooms --related-where room.name gt x",
+        "object list --class Hosts --related room=Rooms --related-where room.S:rank equals 1",
+        "object list --class Hosts --related a=A --related b=B --related c=C --related d=D --related e=E",
+        "backup show --task 0",
+        "import show --id 0",
+        "class schema work Hosts --task 0",
+        "user token revoke --username alice --token-id 0",
+    ] {
+        let transport = MockTransport::default();
+        assert!(execute(&transport, command).await.is_err(), "{command}");
+        assert!(transport.requests().is_empty(), "{command}");
+    }
+}

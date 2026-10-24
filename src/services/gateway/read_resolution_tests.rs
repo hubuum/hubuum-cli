@@ -1,3 +1,4 @@
+use super::ObjectListInput;
 use std::sync::Arc;
 
 use hubuum_client::{blocking::Client, Class, MockTransport, Token, TransportResponse};
@@ -161,7 +162,9 @@ fn object_lists_reuse_the_class_for_plain_computed_and_sorted_output() {
         };
         let query =
             list_query_from_raw(&["class equals Hosts".to_string()], &sorts, None, None).unwrap();
-        let result = gateway.list_objects(&query, include_computed).unwrap();
+        let result = gateway
+            .list_objects(&ObjectListInput::new(query).include_computed(include_computed))
+            .unwrap();
         let page = result.objects();
         assert_eq!(result.class_schema(), Some(&class["json_schema"]));
         let mut expected = f["expected"].clone();
@@ -295,10 +298,10 @@ fn same_class_object_relation_resolution_queries_objects_once() {
     }))
     .unwrap();
     let objects = gateway
-        .object_map_for_relation(&[relation], 9.into(), 9.into())
+        .object_map_for_relation(&[relation], 9.try_into().unwrap(), 9.try_into().unwrap())
         .unwrap();
-    assert_eq!(objects[&42.into()].name, "nommo.uio.no");
-    assert_eq!(objects[&43.into()].name, "second");
+    assert_eq!(objects[&42.try_into().unwrap()].name, "nommo.uio.no");
+    assert_eq!(objects[&43.try_into().unwrap()].name, "second");
     assert_eq!(transport.requests().len(), 1);
 }
 
@@ -348,10 +351,17 @@ fn missing_collection_resolution_keeps_pagination() {
     );
     let classes = [from_value::<Class>(f["root_class"].clone()).unwrap()];
     let collections = gateway
-        .collection_map_with_classes([7.into(), 8.into(), 7.into()], &classes)
+        .collection_map_with_classes(
+            [
+                7.try_into().unwrap(),
+                8.try_into().unwrap(),
+                7.try_into().unwrap(),
+            ],
+            &classes,
+        )
         .unwrap();
-    assert_eq!(collections[&7.into()].name, "Math");
-    assert_eq!(collections[&8.into()].name, "Facilities");
+    assert_eq!(collections[&7.try_into().unwrap()].name, "Math");
+    assert_eq!(collections[&8.try_into().unwrap()].name, "Facilities");
     let requests = transport.requests();
     assert_eq!(requests.len(), 2);
     assert!(requests[1]
@@ -469,7 +479,7 @@ fn delegated_sink_lookup_uses_only_the_collection_discovery_endpoint() {
     let (gateway, transport) = gateway([json!([sink])]);
     assert_eq!(
         gateway
-            .collection_event_sink_id_by_name(7.into(), "notifications")
+            .collection_event_sink_id_by_name(7.try_into().unwrap(), "notifications")
             .unwrap(),
         5
     );
@@ -483,7 +493,7 @@ fn subscription_sink_lookup_does_not_fall_back_on_permission_denial() {
     let (gateway, transport) = gateway([]);
     transport.push_response(TransportResponse::empty(StatusCode::FORBIDDEN));
     assert!(gateway
-        .subscription_sink_id_by_name(7.into(), "notifications")
+        .subscription_sink_id_by_name(7.try_into().unwrap(), "notifications")
         .is_err());
     assert_eq!(transport.requests().len(), 1);
 }
@@ -504,7 +514,7 @@ fn subscription_sink_lookup_preserves_legacy_admin_workflows() {
     );
     assert_eq!(
         gateway
-            .subscription_sink_id_by_name(7.into(), "notifications")
+            .subscription_sink_id_by_name(7.try_into().unwrap(), "notifications")
             .unwrap(),
         5
     );
@@ -536,7 +546,9 @@ fn scoped_sink_discovery_rejects_unsupported_queries_before_sending() {
                     ..Default::default()
                 }
             };
-            assert!(gateway.collection_event_sinks(7.into(), &query).is_err());
+            assert!(gateway
+                .collection_event_sinks(7.try_into().unwrap(), &query)
+                .is_err());
             assert!(transport.requests().is_empty());
         }
     }

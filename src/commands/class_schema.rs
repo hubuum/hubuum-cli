@@ -2,8 +2,9 @@ use std::str::FromStr;
 
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
-    ComplianceStatus, SchemaActivationPolicy, SchemaActivationRequest, SchemaObjectUrlTemplate,
-    SchemaPageOptions, SchemaRepairReportRequest, SchemaRevision, SchemaStageRequest,
+    ComplianceStatus, ExportTemplateId, SchemaActivationPolicy, SchemaActivationRequest,
+    SchemaObjectUrlTemplate, SchemaPageOptions, SchemaRepairReportRequest, SchemaRevision,
+    SchemaStageRequest, TaskId,
 };
 use hubuum_filter::OutputEnvelope;
 use serde_json::Value;
@@ -467,7 +468,7 @@ impl CliCommand for SchemaActivate {
             SchemaRevision::new(query.revision)?,
             SchemaActivationRequest {
                 expected_active_revision: SchemaRevision::new(query.expected_active_revision)?,
-                impact_task_id: query.impact_task.map(Into::into),
+                impact_task_id: query.impact_task.map(TaskId::new).transpose()?,
                 policy: if query.allow_pending.unwrap_or(false) {
                     SchemaActivationPolicy::AllowPending
                 } else {
@@ -501,7 +502,7 @@ impl CliCommand for SchemaWork {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
-        let operation = SchemaOperation::Work(query.task.into());
+        let operation = SchemaOperation::Work(TaskId::new(query.task)?);
         render_schema_output(
             tokens,
             &services.gateway().schema_operation(&class, operation)?,
@@ -526,7 +527,7 @@ impl CliCommand for SchemaCancel {
     fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
         let query = Self::parse_tokens(tokens)?;
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
-        let operation = SchemaOperation::Cancel(query.task.into());
+        let operation = SchemaOperation::Cancel(TaskId::new(query.task)?);
         render_schema_output(
             tokens,
             &services.gateway().schema_operation(&class, operation)?,
@@ -556,7 +557,7 @@ impl CliCommand for SchemaReport {
         let request = None;
         let html = services
             .gateway()
-            .schema_report(&class, query.task.into(), request)?;
+            .schema_report(&class, TaskId::new(query.task)?, request)?;
         set_semantic_output(OutputEnvelope::message(Value::String(html)))?;
         Ok(())
     }
@@ -587,11 +588,11 @@ impl CliCommand for SchemaGenerateReport {
         let class = required_option_or_pos(query.class, tokens, 0, "class")?;
         let request = Some(SchemaRepairReportRequest {
             object_url_template: SchemaObjectUrlTemplate::new(query.object_url_template)?,
-            template_id: query.template_id.map(Into::into),
+            template_id: query.template_id.map(ExportTemplateId::new).transpose()?,
         });
         let html = services
             .gateway()
-            .schema_report(&class, query.task.into(), request)?;
+            .schema_report(&class, TaskId::new(query.task)?, request)?;
         set_semantic_output(OutputEnvelope::message(Value::String(html)))?;
         Ok(())
     }

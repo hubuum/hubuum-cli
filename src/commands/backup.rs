@@ -1,4 +1,5 @@
 use super::OfflineExecution;
+use hubuum_client::TaskId;
 use std::fs::{read_to_string, symlink_metadata};
 use std::io::ErrorKind;
 use std::io::Write;
@@ -206,7 +207,7 @@ impl CliCommand for BackupSubmit {
 #[derive(Debug, Clone, CommandArgs, Default)]
 pub struct BackupShow {
     #[option(long = "task", help = "Backup task ID")]
-    task: Option<i32>,
+    task: Option<TaskId>,
 }
 
 impl CliCommand for BackupShow {
@@ -228,7 +229,7 @@ impl CliCommand for BackupShow {
 #[derive(Debug, Clone, CommandArgs, Default)]
 pub struct BackupDownload {
     #[option(long = "task", help = "Completed backup task ID")]
-    task: Option<i32>,
+    task: Option<TaskId>,
     #[option(
         short = "f",
         long = "file",

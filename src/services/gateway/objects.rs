@@ -5,6 +5,7 @@ use hubuum_client::{
     Class, ClassId, Collection, CollectionId, ComputedObject, FilterOperator, Object,
     ObjectDataPatchDocument, ObjectPatch, ObjectPost, QueryFilter,
 };
+use hubuum_query::RelatedObjectFilters;
 use json_patch::{patch as apply_json_patch, Patch};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -40,6 +41,33 @@ impl ObjectLabels {
         Ok(self
             .object(&object.object)
             .with_computed(serde_json::to_value(object.computed)?))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectListInput {
+    query: ListQuery,
+    include_computed: bool,
+    related: RelatedObjectFilters,
+}
+
+impl ObjectListInput {
+    pub fn new(query: ListQuery) -> Self {
+        Self {
+            query,
+            include_computed: false,
+            related: RelatedObjectFilters::default(),
+        }
+    }
+
+    pub fn include_computed(mut self, include: bool) -> Self {
+        self.include_computed = include;
+        self
+    }
+
+    pub fn related(mut self, related: RelatedObjectFilters) -> Self {
+        self.related = related;
+        self
     }
 }
 
@@ -374,11 +402,9 @@ impl HubuumGateway {
         Ok(())
     }
 
-    pub fn list_objects(
-        &self,
-        query: &ListQuery,
-        include_computed: bool,
-    ) -> Result<ObjectListPage, AppError> {
+    pub fn list_objects(&self, input: &ObjectListInput) -> Result<ObjectListPage, AppError> {
+        let query = &input.query;
+        let include_computed = input.include_computed;
         let validated = validate_filter_clauses(&query.filters, OBJECT_FILTER_SPECS)?;
         let object_sorts = validate_object_sort_clauses(query)?;
         let has_computed_sort = object_sorts
@@ -410,17 +436,20 @@ impl HubuumGateway {
             self.client().classes().get_by_name(class_filter.value())
         })?;
 
-        let filters = validated
+        let mut filters = validated
             .iter()
             .filter(|clause| clause.spec().public_name() != "class")
             .map(|clause| self.resolve_validated_filter(clause))
             .collect::<Result<Vec<_>, _>>()?;
+        if has_computed_sort || include_computed {
+            filters.extend(input.related.computed_filters());
+        }
         let page = if has_computed_sort {
             self.list_objects_sorted_locally(class.resource(), filters, query, &object_sorts)?
         } else if include_computed {
             self.list_computed_objects(class.resource(), filters, query, &validated_sorts)?
         } else {
-            self.list_plain_objects(class.resource(), filters, query, &validated_sorts)?
+            self.list_plain_objects(class.resource(), filters, input, &validated_sorts)?
         };
         Ok(ObjectListPage::new(
             page,
@@ -481,14 +510,15 @@ impl HubuumGateway {
         &self,
         class: &Class,
         filters: Vec<QueryFilter>,
-        query: &ListQuery,
+        input: &ObjectListInput,
         sorts: &[ValidatedSortClause],
     ) -> Result<PagedResult<ResolvedObjectRecord>, AppError> {
-        let page = fetch_query_results(
-            self.client().objects(class.id).query().filters(filters),
-            query,
-            sorts,
-        )?;
+        let mut request = self.client().objects(class.id).query().filters(filters);
+        for related in input.related.sdk_filters() {
+            request = request.related(related)?;
+        }
+        let request = request.filters(input.related.predicate_filters());
+        let page = fetch_query_results(request, &input.query, sorts)?;
         let labels = self.object_labels(class, page.items.iter())?;
         Ok(page.map(|item| labels.object(&item)))
     }

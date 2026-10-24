@@ -100,19 +100,19 @@ fn related_audit_is_opt_in_and_limited_to_class_or_object_scope() {
         .audit_events(AuditScope::Global, input.clone())
         .is_err());
     assert!(gateway
-        .audit_events(AuditScope::Collection(3.into()), input.clone())
+        .audit_events(AuditScope::Collection(3.try_into().unwrap()), input.clone())
         .is_err());
     assert!(transport.requests().is_empty());
     respond(&transport, json!([]));
     respond(&transport, json!([]));
     gateway
-        .audit_events(AuditScope::Class(42.into()), input)
+        .audit_events(AuditScope::Class(42.try_into().unwrap()), input)
         .unwrap();
     gateway
         .audit_events(
             AuditScope::Object {
-                class_id: 42.into(),
-                object_id: 7.into(),
+                class_id: 42.try_into().unwrap(),
+                object_id: 7.try_into().unwrap(),
             },
             AuditListInput::default(),
         )
@@ -139,20 +139,20 @@ fn preview_and_test_use_distinct_typed_routes_and_preserve_source_identity() {
         "attempts":0,"next_attempt_at":"2026-10-13T00:00:00Z","created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T00:00:00Z"}),
     );
     let request = EventNotificationRequest {
-        subscription_id: 7.into(),
+        subscription_id: 7.try_into().unwrap(),
         event_id: "11111111-1111-4111-8111-111111111111".into(),
     };
     let gateway = gateway(&transport);
     assert_eq!(
         gateway
-            .preview_event_notification(9.into(), request.clone())
+            .preview_event_notification(9.try_into().unwrap(), request.clone())
             .unwrap()
             .value["payload"]["text"],
         "preview"
     );
     assert_eq!(
         gateway
-            .test_event_notification(9.into(), request)
+            .test_event_notification(9.try_into().unwrap(), request)
             .unwrap()
             .value["purpose"],
         "test"

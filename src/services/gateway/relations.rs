@@ -393,7 +393,7 @@ impl HubuumGateway {
             .iter()
             .map(|class_name| {
                 self.class_handle_by_name(class_name)
-                    .map(|class| class.id().into())
+                    .map(|class| class.id())
             })
             .collect::<Result<Vec<_>, _>>()?;
         let filters = validated
@@ -1426,7 +1426,7 @@ mod tests {
             "updated_at": "2026-07-25T12:00:00Z"
         }))
         .expect("class relation should deserialize");
-        let class_relation_map = HashMap::from([(7.into(), class_relation)]);
+        let class_relation_map = HashMap::from([(7.try_into().unwrap(), class_relation)]);
         let relations = (1..=26)
             .map(|id| {
                 from_value::<ObjectRelation>(json!({
@@ -1447,11 +1447,15 @@ mod tests {
             .expect("all relation object names should resolve");
 
         assert_eq!(
-            objects.get(&1.into()).map(|object| object.name.as_str()),
+            objects
+                .get(&1.try_into().unwrap())
+                .map(|object| object.name.as_str()),
             Some("First resolved object")
         );
         assert_eq!(
-            objects.get(&101.into()).map(|object| object.name.as_str()),
+            objects
+                .get(&101.try_into().unwrap())
+                .map(|object| object.name.as_str()),
             Some("Second resolved object")
         );
         let requests = transport.requests();

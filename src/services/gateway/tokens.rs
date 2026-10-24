@@ -268,8 +268,8 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use hubuum_client::{
-        blocking::Client, Class, Collection, MockTransport, Object, Token, TokenResourceScope,
-        TransportResponse,
+        blocking::Client, Class, Collection, MockTransport, Object, ObjectId, Token,
+        TokenResourceScope, TransportResponse,
     };
     use reqwest::StatusCode;
     use serde_json::{from_value, json, to_value};
@@ -325,16 +325,16 @@ mod tests {
         let class = class(8, &collection, "Hosts");
         let object = object(9, 8, 7, "host.example.org");
         let resources = vec![
-            TokenResourceScope::Collection(7.into()),
-            TokenResourceScope::Class(8.into()),
-            TokenResourceScope::Object(9.into()),
-            TokenResourceScope::Object(10.into()),
+            TokenResourceScope::Collection(7.try_into().unwrap()),
+            TokenResourceScope::Class(8.try_into().unwrap()),
+            TokenResourceScope::Object(9.try_into().unwrap()),
+            TokenResourceScope::Object(10.try_into().unwrap()),
         ];
         let resolved = resolve_token_resources(
             &resources,
-            &HashMap::from([(7.into(), collection)]),
-            &HashMap::from([(8.into(), class)]),
-            &HashMap::from([(9.into(), object)]),
+            &HashMap::from([(7.try_into().unwrap(), collection)]),
+            &HashMap::from([(8.try_into().unwrap(), class)]),
+            &HashMap::from([(9.try_into().unwrap(), object)]),
         );
         let value = to_value(resolved).expect("resolved scopes should serialize");
 
@@ -364,8 +364,10 @@ mod tests {
             .authenticate(Token::new("secret"));
         let gateway = HubuumGateway::new(Arc::new(client));
         let mut resolver = TokenScopeResolver::new(&gateway);
-        let class_ids = vec![1.into(), 2.into()];
-        let object_ids = (1..=60).map(Into::into).collect::<Vec<_>>();
+        let class_ids = vec![1.try_into().unwrap(), 2.try_into().unwrap()];
+        let object_ids = (1..=60)
+            .map(|id| ObjectId::new(id).unwrap())
+            .collect::<Vec<_>>();
 
         resolver
             .resolve_objects_from_scoped_classes(&class_ids, &object_ids)
@@ -396,8 +398,8 @@ mod tests {
             .authenticate(Token::new("secret"));
         let gateway = HubuumGateway::new(Arc::new(client));
         let mut resolver = TokenScopeResolver::new(&gateway);
-        let class_ids = vec![1.into()];
-        let object_ids = vec![9.into(), 10.into()];
+        let class_ids = vec![1.try_into().unwrap()];
+        let object_ids = vec![9.try_into().unwrap(), 10.try_into().unwrap()];
 
         resolver
             .resolve_objects_from_scoped_classes(&class_ids, &object_ids)
@@ -409,7 +411,7 @@ mod tests {
         assert_eq!(
             resolver
                 .objects
-                .get(&9.into())
+                .get(&9.try_into().unwrap())
                 .map(|object| object.name.as_str()),
             Some("host.example.org")
         );

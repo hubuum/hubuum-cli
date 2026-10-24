@@ -2,8 +2,9 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.19 uses
-`hubuum_client` 0.17.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. The development CLI uses
+`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20. Released CLI
+v0.0.19 uses client 0.17.0 with the same server target.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,6 +13,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| Unreleased | 0.19.0 | 0.0.20 | Validated SDK IDs and related-object list filters |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
@@ -55,6 +57,65 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## Unreleased: client v0.19.0 and related object lists
+
+Verified on 2026-10-24 with published crates.io `hubuum_client` 0.19.0, checksum
+`1e26a5598f35bd7fc547ba8601cbcb29a8c921af4b8909f031a9995ea3b1a0e3`.
+Only the SDK package changed in `Cargo.lock`; no other direct or transitive
+package was upgraded. Its blocking-only feature selection and Rust 1.88 MSRV
+are unchanged. The CLI still declares no MSRV, and `hubuum-session` retains
+Rust 1.89. Server v0.0.20, its OpenAPI routes, backup output 10 / restore input
+6–10, and persistent-session formats remain unchanged. No server or cache
+migration is needed.
+
+The immutable server image used for the complete live CLI suite was:
+
+```text
+ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a
+```
+
+The SDK's [0.19 migration guide](https://github.com/hubuum/hubuum-client-rust/blob/v0.19.0/docs/migration-0.19.md)
+describes its breaking Rust APIs. CLI adapters now construct checked IDs,
+retain typed relation exclusions, read computed revisions explicitly, and
+avoid default/sentinel IDs in graph filtering and fixtures. **Breaking input
+validation:** replace zero or negative resource IDs in scripts and fixtures
+with real positive IDs. Invalid IDs in server responses also fail deserialization;
+computation revision zero remains valid.
+
+The functional addition from SDK 0.18 is related-object filtering for class
+object lists. `object list` now exposes it through named groups, exact names or
+IDs, bounded depth, and field predicates. The query workspace crate owns
+validation. Typed SDK helpers encode plain-list group selectors and depth;
+validated dynamic predicates use the existing query-filter representation.
+The SDK computed-object cursor lacks `related()`, so a small adapter supplies
+the equivalent parameters. Mock transport tests check both paths, including
+all-page fetches and locally sorted computed results. Existing structured
+search remains useful for OR and whole-predicate negation.
+
+The pinned live run verified direct versus depth-two traversal, name/ID class
+selectors, JSON target filters, predicates matching the same target, distinct
+groups matching different targets, self-exclusion, computed output and sorting,
+total counts, cursor continuation, all-page output, and semantic pipelines.
+It also passed the complete existing delegated integration, session, history,
+credential, schema, query-usage, backup, restore, and recovery checks.
+
+Verification used Rust 1.98.0 and Python 3.12:
+
+- `cargo test --locked --workspace`: 897 passed; two opt-in native-keychain tests
+  remain ignored because no native credential service was available.
+- `cargo clippy --all-targets -- -D warnings` and workspace-wide Clippy passed.
+- `cargo fmt --all -- --check` and Markdown lint for all tracked Markdown passed.
+- `cargo +1.89.0 check --offline --locked -p hubuum-session` passed.
+- `python3.12 scripts/test-backup-restore.py --runtime podman` passed against the
+  pinned image above after building with the registry SDK.
+- CI-policy tests (18), wrapper tests, and shared documentation checks (22) passed.
+- The current RustSec audit and crates.io yank check passed for 449 packages,
+  using local temporary Cargo/advisory caches because NFS does not support the
+  audit tool's lock files.
+
+Cross-platform release builds and native credential-store checks remain CI
+checks; this Linux verification does not replace those platform gates.
 
 ## CLI v0.0.19: client v0.17.0
 

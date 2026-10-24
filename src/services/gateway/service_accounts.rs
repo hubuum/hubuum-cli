@@ -1,4 +1,4 @@
-use hubuum_client::TokenId;
+use hubuum_client::{GroupId, TokenId};
 
 use crate::diagnostics::client_call;
 use crate::domain::{
@@ -45,7 +45,7 @@ impl HubuumGateway {
             .service_accounts()
             .create_checked()
             .name(input.name)
-            .owner_group_id(input.owner_group_id);
+            .owner_group_id(GroupId::new(input.owner_group_id)?);
         if let Some(description) = input.description {
             create = create.description(description);
         }
@@ -244,6 +244,7 @@ impl HubuumGateway {
     }
 
     pub fn service_account_token_revoke(&self, name: &str, token_id: i32) -> Result<(), AppError> {
+        let token_id = TokenId::new(token_id)?;
         let handle = client_call("service_accounts.get_by_name", || {
             self.client().service_accounts().get_by_name(name)
         })?;
@@ -408,7 +409,7 @@ mod tests {
         let outcome = gateway
             .service_account_token_clone(
                 "mi-ansible-facts",
-                CloneTokenInput::new(20.into()).revoke_source(true),
+                CloneTokenInput::new(20.try_into().unwrap()).revoke_source(true),
             )
             .expect("token clone should succeed");
 
@@ -498,7 +499,7 @@ mod tests {
         let issued = gateway
             .service_account_token_renew(
                 "mi-ansible-facts",
-                20.into(),
+                20.try_into().unwrap(),
                 RenewTokenInput::new(Some("2026-12-31T23:59:59Z".to_string()))
                     .expect("expiry should parse"),
             )

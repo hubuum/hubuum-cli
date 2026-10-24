@@ -75,7 +75,7 @@ pub use object_aggregates::{
     ObjectAggregateDimensionInput, ObjectAggregateInput, ObjectAggregateMeasureInput,
     ObjectAggregateSortInput,
 };
-pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectUpdateInput};
+pub use objects::{CreateObjectInput, ObjectDataPatchInput, ObjectListInput, ObjectUpdateInput};
 pub use principal_tokens::{
     CloneTokenInput, CloneTokenOutcome, NewTokenInput, RenewTokenInput, SourceTokenRevocation,
     TokenStateFilter,

@@ -73,16 +73,16 @@ impl TaskDiscovery {
             }
             let value = clause.value.as_str();
             filters.push(match clause.field.as_str() {
-                "class_id" => TaskFilter::ClassId(ClassId::from(positive_id(value)?)),
-                "object_id" => TaskFilter::ObjectId(ObjectId::from(positive_id(value)?)),
+                "class_id" => TaskFilter::ClassId(ClassId::new(positive_id(value)?)?),
+                "object_id" => TaskFilter::ObjectId(ObjectId::new(positive_id(value)?)?),
                 "collection_id" => {
-                    TaskFilter::CollectionId(CollectionId::from(positive_id(value)?))
+                    TaskFilter::CollectionId(CollectionId::new(positive_id(value)?)?)
                 }
                 "class_relation" => {
-                    TaskFilter::ClassRelation(ClassRelationId::from(positive_id(value)?))
+                    TaskFilter::ClassRelation(ClassRelationId::new(positive_id(value)?)?)
                 }
                 "object_relation" => {
-                    TaskFilter::ObjectRelation(ObjectRelationId::from(positive_id(value)?))
+                    TaskFilter::ObjectRelation(ObjectRelationId::new(positive_id(value)?)?)
                 }
                 "schema_revision" => {
                     TaskFilter::SchemaRevision(SchemaRevision::new(value.parse()?)?)
@@ -95,7 +95,7 @@ impl TaskDiscovery {
                     TaskFilter::SchemaWorkStatus(parse_enum(value, &clause.field)?)
                 }
                 "remote_target_id" => {
-                    TaskFilter::RemoteTargetId(RemoteTargetId::from(positive_id(value)?))
+                    TaskFilter::RemoteTargetId(RemoteTargetId::new(positive_id(value)?)?)
                 }
                 "remote_side_effect_state" => {
                     TaskFilter::RemoteSideEffectState(parse_enum(value, &clause.field)?)
@@ -104,7 +104,7 @@ impl TaskDiscovery {
                     TaskFilter::ExportScopeKind(parse_enum(value, &clause.field)?)
                 }
                 "export_template_id" => {
-                    TaskFilter::ExportTemplateId(ExportTemplateId::from(positive_id(value)?))
+                    TaskFilter::ExportTemplateId(ExportTemplateId::new(positive_id(value)?)?)
                 }
                 "export_has_warnings" => TaskFilter::ExportHasWarnings(value.parse()?),
                 "export_truncated" => TaskFilter::ExportTruncated(value.parse()?),
@@ -125,7 +125,7 @@ impl TaskDiscovery {
                 "cancel_requested" => TaskFilter::CancelRequested(value.parse()?),
                 "terminal_reason" => TaskFilter::TerminalReason(parse_enum(value, &clause.field)?),
                 "trace_id" => TaskFilter::TraceId(TaskTraceId::new(value)?),
-                "submitted_by" => TaskFilter::SubmittedBy(PrincipalId::from(positive_id(value)?)),
+                "submitted_by" => TaskFilter::SubmittedBy(PrincipalId::new(positive_id(value)?)?),
                 "created_after" => TaskFilter::CreatedAfter(HubuumDateTime(
                     DateTime::parse_from_rfc3339(value)
                         .map_err(|_| {

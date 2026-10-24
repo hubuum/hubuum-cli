@@ -417,8 +417,11 @@ mod tests {
             .expect("client should build")
             .authenticate(Token::new("secret"));
 
-        let collections = fetch_entities_for_ids(&client.collections(), [1.into(), 2.into()])
-            .expect("all collection pages should resolve");
+        let collections = fetch_entities_for_ids(
+            &client.collections(),
+            [1.try_into().unwrap(), 2.try_into().unwrap()],
+        )
+        .expect("all collection pages should resolve");
 
         assert_eq!(collections.len(), 2);
         let requests = transport.requests();

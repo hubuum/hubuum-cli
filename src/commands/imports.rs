@@ -1,3 +1,4 @@
+use hubuum_client::TaskId;
 use std::fs::read_to_string;
 
 use cli_command_derive::CommandArgs;
@@ -279,7 +280,7 @@ fn complete_import_policy(prefix: &str, values: &[&str]) -> Vec<String> {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ImportShow {
     #[option(short = "i", long = "id", help = "Import task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskId>,
 }
 
 impl CliCommand for ImportShow {
@@ -302,7 +303,7 @@ impl CliCommand for ImportShow {
 #[derive(Debug, Serialize, Deserialize, Clone, CommandArgs, Default)]
 pub struct ImportResults {
     #[option(short = "i", long = "id", help = "Import task ID")]
-    pub id: Option<i32>,
+    pub id: Option<TaskId>,
     #[option(
         long = "sort",
         help = "Sort clause: 'field asc|desc'",

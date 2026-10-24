@@ -180,6 +180,76 @@ enum ClauseStage<'a> {
     Finished,
 }
 
+pub(crate) fn complete_related_where_clause(
+    parts: &[String],
+    clause: &str,
+    ends_with_space: bool,
+) -> Vec<FilterCompletion> {
+    use hubuum_query::RELATED_OBJECT_FILTER_FIELDS;
+
+    let aliases: Vec<_> = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| {
+            let definition = if part == "--related" || part == "--related-id" {
+                parts.get(index + 1)?.as_str()
+            } else {
+                part.strip_prefix("--related=")
+                    .or_else(|| part.strip_prefix("--related-id="))?
+            };
+            definition.split_once('=').map(|(alias, _)| alias)
+        })
+        .collect();
+    let candidate = |value: String, append_whitespace| FilterCompletion {
+        value,
+        description: None,
+        append_whitespace,
+    };
+    let Some((alias, rest)) = clause.split_once('.') else {
+        return aliases
+            .into_iter()
+            .filter(|alias| alias.starts_with(clause))
+            .map(|alias| candidate(format!("{alias}."), false))
+            .collect();
+    };
+    if !aliases.contains(&alias) {
+        return Vec::new();
+    }
+    let stage = if !ends_with_space && !rest.chars().any(char::is_whitespace) {
+        ClauseStage::Field { prefix: rest }
+    } else {
+        clause_stage_with_fields(rest, ends_with_space, RELATED_OBJECT_FILTER_FIELDS, &[])
+    };
+    match stage {
+        ClauseStage::Field { prefix } => RELATED_OBJECT_FILTER_FIELDS
+            .iter()
+            .filter(|spec| spec.public_name().starts_with(prefix))
+            .map(|spec| {
+                candidate(
+                    format!(
+                        "{alias}.{}{}",
+                        spec.public_name(),
+                        if spec.is_json_root() { "." } else { "" }
+                    ),
+                    !spec.is_json_root(),
+                )
+            })
+            .collect(),
+        ClauseStage::Operator { field, prefix } => {
+            let Some((spec, _)) = resolve_filter_field_spec(RELATED_OBJECT_FILTER_FIELDS, field)
+            else {
+                return Vec::new();
+            };
+            completion_operators(spec.operator_profile())
+                .iter()
+                .filter(|operator| operator.starts_with(prefix))
+                .map(|operator| candidate((*operator).into(), true))
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 fn clause_stage<'a>(
     clause: &'a str,

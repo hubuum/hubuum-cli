@@ -133,7 +133,7 @@ impl InvocationSubject {
                 relation_id: gateway
                     .get_class_relation_by_pair(from.as_str(), to.as_str())?
                     .id
-                    .into(),
+                    .try_into()?,
             },
             Self::ObjectRelation { from, to } => RemoteInvocationSubject::ObjectRelation {
                 relation_id: gateway
@@ -144,7 +144,7 @@ impl InvocationSubject {
                         object_b: Some(to.object().to_owned()),
                     })?
                     .id
-                    .into(),
+                    .try_into()?,
             },
         })
     }

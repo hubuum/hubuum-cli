@@ -1,6 +1,6 @@
 use hubuum_client::{
     CollectionPatch, CollectionPermissionsResponse, CollectionPost, GroupPermissionsResult,
-    GroupResult,
+    GroupResult, PrincipalId,
 };
 
 use crate::diagnostics::client_call;
@@ -175,6 +175,7 @@ impl HubuumGateway {
         collection: &str,
         principal_id: i32,
     ) -> Result<Vec<GroupPermissionsRecord>, AppError> {
+        let principal_id = PrincipalId::new(principal_id)?;
         let collection = client_call("collections.get_by_name", || {
             self.client().collections().get_by_name(collection)
         })?;

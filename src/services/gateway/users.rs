@@ -291,6 +291,7 @@ impl HubuumGateway {
     }
 
     pub fn user_token_revoke(&self, username: &str, token_id: i32) -> Result<(), AppError> {
+        let token_id = TokenId::new(token_id)?;
         let handle = client_call("users.get_by_name", || {
             self.client().users().get_by_name(username)
         })?;

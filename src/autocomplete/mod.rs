@@ -20,18 +20,18 @@ pub use events::{
     principal_names, remote_targets, service_accounts, users, webhook_targets,
 };
 pub use exports::{export_missing_data_policies, export_scope_kinds, export_templates};
-pub(crate) use filters::complete_where_clause;
 pub use filters::{
     class_where, collection_where, export_where, group_where, object_aggregate_where, object_where,
     relation_class_direct_where, relation_class_graph_where, relation_class_list_where,
     relation_object_direct_where, relation_object_graph_where, relation_object_where, task_where,
     user_where,
 };
+pub(crate) use filters::{complete_related_where_clause, complete_where_clause};
 pub use groups::groups;
 pub use objects::{
     computed_field_paths, computed_fields, object_aggregate_dimensions, object_aggregate_measures,
     object_aggregate_sort, objects_from_class, objects_from_class_a, objects_from_class_b,
-    objects_from_root_class,
+    objects_from_root_class, related_classes,
 };
 pub use shared::{
     bool, command_aliases, computed_operations, computed_result_types, config_keys, config_values,

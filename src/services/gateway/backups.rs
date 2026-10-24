@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use hubuum_client::{
     blocking::Client, BackupRequest, CredentialOperation, RestoreCapability, RestoreConfirmRequest,
-    RestoreId, Unauthenticated,
+    RestoreId, TaskId, Unauthenticated,
 };
 
 use crate::diagnostics::client_call;
@@ -23,7 +23,7 @@ impl RestoreMonitor {
     pub fn status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
         let response = client_call("client.restore_status", || {
             self.client.restore_status(
-                RestoreId::from(receipt.restore_id()),
+                RestoreId::new(receipt.restore_id())?,
                 &RestoreCapability::new(receipt.capability()),
             )
         })?;
@@ -94,13 +94,13 @@ impl HubuumGateway {
         })?))
     }
 
-    pub fn backup_task(&self, task_id: i32) -> Result<TaskRecord, AppError> {
+    pub fn backup_task(&self, task_id: TaskId) -> Result<TaskRecord, AppError> {
         Ok(TaskRecord(client_call("backups.get", || {
             self.client().backups().get(task_id)
         })?))
     }
 
-    pub fn backup_output(&self, task_id: i32) -> Result<BackupArtifact, AppError> {
+    pub fn backup_output(&self, task_id: TaskId) -> Result<BackupArtifact, AppError> {
         BackupArtifact::from_document(client_call("backups.output", || {
             self.client().backups().output(task_id)
         })?)
@@ -142,7 +142,7 @@ impl HubuumGateway {
     pub fn restore_status(&self, receipt: &RestoreReceipt) -> Result<RestoreRecord, AppError> {
         let response = client_call("restores.status", || {
             self.client().restores().status(
-                RestoreId::from(receipt.restore_id()),
+                RestoreId::new(receipt.restore_id())?,
                 &RestoreCapability::new(receipt.capability()),
             )
         })?;
@@ -156,7 +156,7 @@ impl HubuumGateway {
             receipt.sha256(),
         );
         let client = self.client();
-        let id = RestoreId::from(receipt.restore_id());
+        let id = RestoreId::new(receipt.restore_id())?;
         let response = match client_call("restores.confirm", || {
             client.restores().confirm(id, request.clone())
         }) {

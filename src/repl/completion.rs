@@ -8,7 +8,8 @@ use shlex::split;
 
 use crate::app::AppRuntime;
 use crate::autocomplete::{
-    complete_search_predicate, complete_sort_clause, complete_where_clause, file_paths,
+    complete_related_where_clause, complete_search_predicate, complete_sort_clause,
+    complete_where_clause, file_paths,
 };
 use crate::catalog::{CompletionSpec, OptionSpec};
 use crate::config::get_config;
@@ -256,13 +257,21 @@ impl ReplCompleter {
         let replacement_start = quoted.start
             + clause_active_token_offset(quoted.clause_prefix, quoted.clause_ends_with_space);
         Some(
-            complete_where_clause(
-                &self.completion,
-                &resolved.command_path,
-                &parts,
-                quoted.clause_prefix,
-                quoted.clause_ends_with_space,
-            )
+            if quoted.related && resolved.command_path == ["object", "list"] {
+                complete_related_where_clause(
+                    &parts,
+                    quoted.clause_prefix,
+                    quoted.clause_ends_with_space,
+                )
+            } else {
+                complete_where_clause(
+                    &self.completion,
+                    &resolved.command_path,
+                    &parts,
+                    quoted.clause_prefix,
+                    quoted.clause_ends_with_space,
+                )
+            }
             .into_iter()
             .map(|candidate| {
                 where_suggestion(
@@ -290,8 +299,23 @@ impl ReplCompleter {
             // Search takes a single quoted predicate; open quotes are handled above.
             return None;
         }
-        let context =
-            clause_option_context(parts, "--where", 3, start, pos, word, ends_with_space)?;
+        let related = (command_path == ["object", "list"])
+            .then(|| {
+                clause_option_context(
+                    parts,
+                    "--related-where",
+                    3,
+                    start,
+                    pos,
+                    word,
+                    ends_with_space,
+                )
+            })
+            .flatten();
+        let is_related = related.is_some();
+        let context = related.or_else(|| {
+            clause_option_context(parts, "--where", 3, start, pos, word, ends_with_space)
+        })?;
         if context.is_complete && !ends_with_space {
             return Some(vec![suggestion_with_whitespace(
                 context.prefix.to_string(),
@@ -306,13 +330,21 @@ impl ReplCompleter {
         }
 
         Some(
-            complete_where_clause(
-                &self.completion,
-                command_path,
-                parts,
-                &context.clause_prefix,
-                context.clause_ends_with_space,
-            )
+            if is_related {
+                complete_related_where_clause(
+                    parts,
+                    &context.clause_prefix,
+                    context.clause_ends_with_space,
+                )
+            } else {
+                complete_where_clause(
+                    &self.completion,
+                    command_path,
+                    parts,
+                    &context.clause_prefix,
+                    context.clause_ends_with_space,
+                )
+            }
             .into_iter()
             .map(|candidate| {
                 where_suggestion(
@@ -1439,6 +1471,7 @@ fn safe_prefix_end(line: &str, pos: usize) -> usize {
 }
 
 struct QuotedWhereContext<'a> {
+    related: bool,
     command_prefix: &'a str,
     clause_prefix: &'a str,
     clause_ends_with_space: bool,
@@ -1446,8 +1479,11 @@ struct QuotedWhereContext<'a> {
 }
 
 fn quoted_where_context(prefix_line: &str) -> Option<QuotedWhereContext<'_>> {
-    let where_index = prefix_line.rfind("--where")?;
-    let after_option = &prefix_line[where_index + "--where".len()..];
+    let (where_index, option) = ["--where", "--related-where"]
+        .into_iter()
+        .filter_map(|option| prefix_line.rfind(option).map(|index| (index, option)))
+        .max_by_key(|(index, _)| *index)?;
+    let after_option = &prefix_line[where_index + option.len()..];
     let spaces = after_option.len() - after_option.trim_start().len();
     let after_spaces = &after_option[spaces..];
     let quote = after_spaces.chars().next()?;
@@ -1459,9 +1495,10 @@ fn quoted_where_context(prefix_line: &str) -> Option<QuotedWhereContext<'_>> {
         return None;
     }
 
-    let start = where_index + "--where".len() + spaces + quote.len_utf8();
+    let start = where_index + option.len() + spaces + quote.len_utf8();
     Some(QuotedWhereContext {
-        command_prefix: &prefix_line[..where_index + "--where".len()],
+        related: option == "--related-where",
+        command_prefix: &prefix_line[..where_index + option.len()],
         clause_prefix: quoted,
         clause_ends_with_space: quoted.ends_with(' '),
         start,
@@ -1893,6 +1930,29 @@ mod tests {
     #[test]
     fn quoted_where_context_ignores_closed_quotes() {
         assert!(quoted_where_context("collection list --where 'name icontains foo'").is_none());
+    }
+
+    #[test]
+    fn related_filter_completion_handles_aliases_fields_and_operators() {
+        let (_runtime, mut completer) = search_task_completer();
+        for quote in ["", "'"] {
+            for (clause, expected) in [
+                ("r", "room."),
+                ("room.na", "room.name"),
+                ("room.name", "room.name"),
+                ("room.name ", "equals"),
+                ("room.data.floor ", "gte"),
+            ] {
+                let line = format!("object list --class Hosts --related room=Rooms --related-where {quote}{clause}");
+                let suggestions = completer.suggestions(&line, line.len());
+                assert!(
+                    suggestions
+                        .iter()
+                        .any(|suggestion| suggestion.value == expected),
+                    "{line}: {suggestions:?}"
+                );
+            }
+        }
     }
 
     #[test]

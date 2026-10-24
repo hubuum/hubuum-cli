@@ -376,8 +376,8 @@ mod tests {
             "collection_id": 2
         }));
 
-        assert_eq!(record.audit_actor_user_id(), Some(1.into()));
-        assert_eq!(record.audit_collection_id(), Some(2.into()));
+        assert_eq!(record.audit_actor_user_id(), Some(1.try_into().unwrap()));
+        assert_eq!(record.audit_collection_id(), Some(2.try_into().unwrap()));
 
         let record =
             record.with_audit_resource_names(Some("admin".to_string()), Some("Hosts".to_string()));

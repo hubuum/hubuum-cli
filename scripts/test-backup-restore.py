@@ -445,6 +445,38 @@ def main():
                     cli("relation", "object", "create", "--class-a", room_classes["Jacks"]["name"],
                         "--object-a", jack, "--class-b", room_classes["Hosts"]["name"],
                         "--object-b", "host.example")
+            # Related predicates share the ordinary object-list paging and output path.
+            hosts = ["object", "list", "--class", room_classes["Hosts"]["name"]]
+            room_group = ["--related", "room=" + room_classes["Rooms"]["name"],
+                          "--related-where", "room.name", "equals", "B701"]
+            assert cli(*hosts, *room_group, "|", "C") == [0]  # Direct is the default.
+            room_group += ["--related-depth", "room=2"]
+            assert cli(*hosts, *room_group, "|", "C") == [1]
+            assert cli(*hosts, *room_group, "--computed", "all", "|", "C") == [1]
+            assert cli(*hosts, *room_group, "--computed", "all", "--sort", "S:rank", "desc",
+                       "--all", "|", "C") == [1]
+            assert cli(*hosts, "--related-id", f'jack={room_classes["Jacks"]["id"]}',
+                       "--related-where", "jack.name", "equals", "jack-a",
+                       "--related-where", "jack.data.comment", "equals", "first jack", "|", "C") == [1]
+            # Two conditions in one alias must match one target, not two different Jacks.
+            assert cli(*hosts, "--related", "jack=" + room_classes["Jacks"]["name"],
+                       "--related-where", "jack.name", "equals", "jack-b",
+                       "--related-where", "jack.data.comment", "equals", "first jack", "|", "C") == [0]
+            assert cli(*hosts, "--related", "a=" + room_classes["Jacks"]["name"],
+                       "--related", "b=" + room_classes["Jacks"]["name"],
+                       "--related-where", "a.name", "equals", "jack-a",
+                       "--related-where", "b.name", "equals", "jack-b", "|", "C") == [1]
+            jacks = ["object", "list", "--class", room_classes["Jacks"]["name"],
+                     *room_group, "--sort", "name", "asc", "--limit", "1", "--include-total"]
+            page = cli(*jacks)
+            assert page["total_count"] == 3 and len(page["items"]) == 1 and page["next_cursor"], page
+            next_page = cli(*jacks, "--cursor", page["next_cursor"])
+            assert next_page["items"][0]["name"] != page["items"][0]["name"]
+            assert cli(*jacks, "--all", "|", "C") == [3]
+            assert cli("object", "list", "--class", room_classes["Rooms"]["name"],
+                       *room_group, "|", "C") == [0]  # Traversal excludes the root itself.
+            print("PASS: related object filters, depth, same-target groups, JSON predicates, computed output, pagination, and pipelines", flush=True)
+
             graph_args = ["relation", "object", "graph", "--root-class", room_classes["Rooms"]["name"],
                           "--root-object", "B701", "--max-depth", "2"]
             plain_graph = cli(*graph_args)
