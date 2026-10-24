@@ -292,6 +292,8 @@ mod tests {
             "room.id equals abc",
             "room.created_at equals yesterday",
             "room.data equals x",
+            "room.data..floor equals x",
+            "room.json_data...floor equals x",
             "room.data.a..b equals x",
             "room.data.a,b equals x",
             "room.data.a=b equals x",

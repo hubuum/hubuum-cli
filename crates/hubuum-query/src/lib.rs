@@ -280,8 +280,8 @@ pub fn resolve_filter_field_spec(
         value if value == spec.public_name => Some((*spec, Vec::new())),
         value if spec.json_root && value.starts_with(&format!("{}.", spec.public_name)) => {
             let path = value
-                .trim_start_matches(spec.public_name)
-                .trim_start_matches('.')
+                .strip_prefix(spec.public_name)?
+                .strip_prefix('.')?
                 .split('.')
                 .map(str::to_string)
                 .collect::<Vec<_>>();

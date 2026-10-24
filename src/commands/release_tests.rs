@@ -594,6 +594,7 @@ async fn invalid_related_options_and_resource_ids_fail_before_lookup() {
         "object list --class Hosts --related room=Rooms --related-depth room=11",
         "object list --class Hosts --related-depth missing=2",
         "object list --class Hosts --related-where missing.name equals B701",
+        "object list --class Hosts --related room=Rooms --related-where room.data..floor equals x",
         "object list --class Hosts --related room=Rooms --related-where room.data.a..b equals x",
         "object list --class Hosts --related room=Rooms --related-where room.name gt x",
         "object list --class Hosts --related room=Rooms --related-where room.S:rank equals 1",

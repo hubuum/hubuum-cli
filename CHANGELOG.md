@@ -24,6 +24,8 @@
 
 ### Fixed
 
+- Reject related-object JSON paths with empty segments, including doubled dots
+  immediately after `data` or `json_data`, instead of silently changing the path.
 - Preserve large integers in numeric casts, comparisons, sorting, distinct, and
   representable integer sums. Reuse compiled regexes and cast literals across
   rows and pipeline applications.

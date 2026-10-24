@@ -66,7 +66,7 @@ objects in another class. Filtering happens on the server before pagination:
 ```sh
 hubuum-cli object list --class Hosts --related room=Rooms --related-depth room=2 --related-where room.name equals B701
 hubuum-cli object list --class Hosts --related room=Rooms --related-depth room=2 --related-where room.data.floor gte 3 --computed all --all
-hubuum-cli object list --class Hosts --related-id rack=42 --related-where rack.name starts_with rack- --include-total
+hubuum-cli object list --class Hosts --related-id rack=42 --related-where rack.name startswith rack- --include-total
 ```
 
 `--related ALIAS=CLASS` selects an exact class name. Quote the whole assignment
