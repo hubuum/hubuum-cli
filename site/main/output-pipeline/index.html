@@ -2009,23 +2009,44 @@ redirect the result. The same validation keeps command filters such as
 <code>--where age &gt; 3</code> intact. POSIX one-shot invocations must escape or quote <code>|</code>,
 <code>&gt;</code>, and <code>&gt;&gt;</code> so the shell passes them to the CLI.</p>
 <h2 id="remaining-boundaries">Remaining Boundaries<a class="headerlink" href="#remaining-boundaries" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Some command-specific branches still append direct rendered lines. Those
-  branches continue to support conservative line stages: <code>grep</code>, <code>reject</code>,
-  <code>head</code>, <code>tail</code>, <code>sort line</code>, and <code>count</code>.</li>
-<li>New command output should use shared semantic emitters rather than
-  <code>append_line</code> for normal result data.</li>
-<li>Do not add behavior that depends on parsing table glyph output.</li>
-</ul>
+<p>Commands with custom text presentations expose their complete response to
+pipelines and structured renderers. This includes version information, config
+paths and preference updates, theme previews, alias updates, issued tokens,
+task output, computed previews, class and group details, and relation graphs.
+Normal text invocations retain their readable summaries. Theme previews return
+the theme definition, including roles and license, in structured output.</p>
+<p>Use the response's field names instead of parsing labels or table glyphs:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>version | VALUE cli_version
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>config paths | VALUE user
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>theme preview catppuccin-mocha | P name license
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>class show Hosts | P class.name objects related_classes
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>group show --groupname operators | P group members
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>relation object graph --root-class Hosts --root-object host-1 | P objects relations
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>task output 123 | JQ '.ImportResults'
+</code></pre></div>
+<p><strong>Pipeline migration:</strong> composite class/group details, relation graphs, and
+shared computed-field lists and mutations now provide one complete response
+document. For example, use <code>class.name</code> for the class name, <code>group.groupname</code> for
+the group name, and <code>definitions</code>/<code>state</code> for shared computed lists. Select
+<code>definition</code>/<code>state</code> for a computed mutation. Mutation confirmations expose
+<code>message</code>; token responses expose <code>token</code> and <code>expires_at</code>. Existing list-table
+selectors such as <code>Name</code> remain available on ordinary list commands.</p>
+<p>Human-only output, such as help text, retains line stages: <code>grep</code>, <code>reject</code>,
+<code>head</code>, <code>tail</code>, <code>sort line</code>, and <code>count</code>. New result data should use shared
+semantic emitters. Reserve <code>append_line</code> for text presentation and auxiliary
+messages; auxiliary lines accompanying semantic data are excluded from JSON,
+JSONL, CSV, and TSV payloads. JSON debug responses retain them in <code>messages</code>.</p>
 <h2 id="table-controls">Table controls<a class="headerlink" href="#table-controls" title="Permanent link">&para;</a></h2>
 <p>Table rendering can be tuned per run or with config keys:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>plain<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>dense<span class="w"> </span>--table-bands<span class="w"> </span>auto<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>--table-width<span class="w"> </span>full<span class="w"> </span>--table-wrap<span class="w"> </span><span class="m">40</span><span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>hubuum-cli<span class="w"> </span>--empty-result<span class="w"> </span>silent<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">0</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>full
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>none
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>plain<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>--table-style<span class="w"> </span>dense<span class="w"> </span>--table-bands<span class="w"> </span>auto<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>hubuum-cli<span class="w"> </span>--table-width<span class="w"> </span>full<span class="w"> </span>--table-wrap<span class="w"> </span><span class="m">40</span><span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>hubuum-cli<span class="w"> </span>--empty-result<span class="w"> </span>silent<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--where<span class="w"> </span>name<span class="w"> </span>equals<span class="w"> </span>__no_matching_host__
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>full
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--table-headers<span class="w"> </span>none
 </code></pre></div>
+<p>The empty-result example assumes no object is named <code>__no_matching_host__</code>.
+Page sizes must be positive; <code>--limit 0</code> is rejected before lookup.</p>
 <p>Grouped headers are the default for text tables. Dotted paths stay on one line
 when they fit the column, or wrap between path segments when space is limited.
 Compact columns keep their widths based on row content and individual path
@@ -2037,9 +2058,9 @@ with <code>hubuum-cli config set --key output.table_headers --value none</code>.
 <code>output.table_width</code>, <code>output.table_wrap</code>, <code>output.table_bands</code>, and
 <code>output.empty_result</code>.</p>
 <p>Large payload options can read from explicit value sources. This is opt-in per option, so ordinary values such as remote target URLs remain literal.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>item-1<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"imported"</span><span class="w"> </span>--data<span class="w"> </span>file://payload.json
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"devices"</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--schema<span class="w"> </span>https://example.com/schema.json<span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>item-1<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"imported"</span><span class="w"> </span>--data<span class="w"> </span>file://payload.json
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>Device<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span><span class="s2">"devices"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>--class<span class="w"> </span>Device<span class="w"> </span>--schema<span class="w"> </span>https://example.com/schema.json<span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
 </code></pre></div>
 
 

@@ -1698,6 +1698,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Added
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1737,7 +1748,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1848,7 +1859,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
+  <a href="#added_2" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1887,7 +1898,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_2" class="md-nav__link">
+  <a href="#added_3" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1937,7 +1948,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_3" class="md-nav__link">
+  <a href="#added_4" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -1987,7 +1998,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_4" class="md-nav__link">
+  <a href="#added_5" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2048,7 +2059,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added_5" class="md-nav__link">
+  <a href="#added_6" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2281,6 +2292,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Added
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fixed" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2320,7 +2342,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#added_1" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2431,7 +2453,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
+  <a href="#added_2" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2470,7 +2492,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_2" class="md-nav__link">
+  <a href="#added_3" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2520,7 +2542,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_3" class="md-nav__link">
+  <a href="#added_4" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2570,7 +2592,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#added_4" class="md-nav__link">
+  <a href="#added_5" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2631,7 +2653,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added_5" class="md-nav__link">
+  <a href="#added_6" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Added
@@ -2798,8 +2820,43 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add local typed string predicates <code>CONTAINS</code>, <code>ICONTAINS</code>, <code>STARTS_WITH</code>,
+  <code>ENDS_WITH</code>, <code>IEQUALS</code>, and opt-in <code>FUZZY</code>, including negated forms. Existing
+  regex filters retain their syntax and meaning.</li>
+<li>Add relative datetime operands <code>now</code> and <code>now-Ns/m/h/d</code> with one clock sample
+  per pipeline application and an injectable library clock.</li>
+<li>Add optional selector diagnostics through <code>CHECK STRICT</code> / <code>CHECK ALLOW</code> and
+  <code>PipelineSettings</code>, with available paths and spelling suggestions.</li>
+<li>Add <code>P ROWS</code> for projection aligned by original array-member addresses and
+  <code>U selector AS item</code> for unrolling into a named field without promoting members.</li>
+<li>Add offline <code>H</code> / <code>HELP [verb|topic|CURRENT]</code> to explain options and the current
+  statement without executing its command. The existing <code>help pipe</code> topics use
+  the same reference; help and diagnostic options support REPL completion.</li>
+</ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Preserve large integers in numeric casts, comparisons, sorting, distinct, and
+  representable integer sums. Reuse compiled regexes and cast literals across
+  rows and pipeline applications.</li>
+<li>Resolve projection removals against original addresses before compacting arrays,
+  and share quote/escape handling across pipeline, predicate, comma-list,
+  completion, and redirect scanning.</li>
+<li>Count each input row once per distinct group-key combination, even when an
+  array repeats a key. Reject unroll field collisions instead of silently
+  overwriting parent values.</li>
+<li>Preserve structured response data through pipelines for version and config
+  paths, preference and alias updates, theme previews, issued tokens, task
+  output and submission, computed previews and mutations, class/group details,
+  and relation graphs. Mutation confirmations expose a semantic message.</li>
+<li>Render legacy JSON responses through the shared pipeline and final renderer.
+  Exclude auxiliary text from structured payloads while retaining it in JSON
+  debug messages. Theme previews now honor structured output formats.</li>
+<li>Preserve object details and historical context in JSONL, CSV, and TSV views.
+  Count empty search results as zero records instead of counting status text.</li>
+<li>Replace obsolete <code>--limit 0</code> empty-result examples with a valid unmatched
+  name filter; page sizes must be positive.</li>
 <li>Apply pipelines consistently to offline commands, including configuration and
   theme inspection, through the shared catalog command handler.</li>
 <li>Validate task IDs, page sizes, computed-field revisions and patches, export
@@ -2809,6 +2866,31 @@
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
+<li><strong>Breaking filter behavior:</strong> integer-only sums now serialize as integers;
+  consumers requiring floating-point values must convert them explicitly.
+  Array exclusions in a single <code>P</code> stage use original indexes; use separate
+  stages for sequential removals. Repeated group keys no longer multiply member
+  counts; use <code>U tags AS tag | G tag | C</code> to count occurrences. Unroll collisions
+  now fail; migrate to <code>U selector AS item</code> and select fields under <code>item</code>.</li>
+<li><strong>Breaking DSL/API additions:</strong> <code>H</code>, <code>HELP</code>, and <code>CHECK</code> are reserved stage
+  words; search for them with <code>F H</code>, <code>F HELP</code>, or <code>F CHECK</code>. Quote a field named
+  <code>ROWS</code> after <code>P</code> to distinguish it from <code>P ROWS</code>. Library callers matching
+  <code>PipeStage</code>, <code>PredicateOperator</code>, or <code>TypedLiteral</code> exhaustively must handle
+  the added variants. New local text/time predicates are rejected by server
+  search with guidance to use a local pipeline.</li>
+<li>Add <code>strsim</code> 0.11.1 as a direct <code>hubuum-filter</code> dependency for fuzzy matching
+  and selector suggestions; this version was already in the workspace lockfile.
+  This filtering change does not alter the declared Hubuum server target,
+  OpenAPI surface, or MSRV.</li>
+<li><strong>Breaking pipeline changes:</strong> commands with custom text responses now expose
+  their JSON fields to pipelines. Replace filters on rendered labels with field
+  selectors such as <code>VALUE cli_version</code>, <code>VALUE token</code>, or <code>VALUE message</code>.
+  Composite class/group details, relation graphs, and shared computed lists and
+  mutations provide one complete response document; use nested selectors such
+  as <code>class.name</code>, <code>group.groupname</code>, <code>objects</code>, <code>relations</code>, <code>definitions</code>, or <code>state</code>.
+  Ordinary list-table selectors and unpiped text/JSON response shapes remain
+  unchanged, except that <code>theme preview --output json</code> now returns the theme
+  definition. See <a href="../output-pipeline/#remaining-boundaries">output pipelines</a>.</li>
 <li><strong>Breaking validation changes:</strong> history <code>--at</code> rejects pagination/sort flags;
   named export templates reject ad-hoc relation options; remote calls reject
   selectors unrelated to their subject; related-export specifications reject
@@ -2818,7 +2900,7 @@
   failure invariants. Valid template exports retain the legacy <code>--scope</code> syntax.</li>
 </ul>
 <h2 id="0019-2026-10-23">[0.0.19] - 2026-10-23<a class="headerlink" href="#0019-2026-10-23" title="Permanent link">&para;</a></h2>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Add <code>relation object graph --data</code> to include object data in JSON graph output
   without additional object lookups.</li>
@@ -2921,7 +3003,7 @@
   class and object lookups.</li>
 </ul>
 <h2 id="0017-2026-10-19">[0.0.17] - 2026-10-19<a class="headerlink" href="#0017-2026-10-19" title="Permanent link">&para;</a></h2>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Include versioned, structured command diagnostics in JSON output when <code>--debug</code>
   is enabled: elapsed milliseconds, API/HTTP/custom transport counts, and nested
@@ -2938,7 +3020,7 @@
   without debug and diagnostic reports for other output formats are unchanged.</li>
 </ul>
 <h2 id="0016-2026-10-19">[0.0.16] - 2026-10-19<a class="headerlink" href="#0016-2026-10-19" title="Permanent link">&para;</a></h2>
-<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Add shared <code>--debug</code> diagnostics for command duration and each client-library
   API operation, including its duration and success or failure. Reports use
@@ -2965,7 +3047,7 @@
   when needed instead of always stacking every segment.</li>
 </ul>
 <h2 id="0015-2026-10-19">[0.0.15] - 2026-10-19<a class="headerlink" href="#0015-2026-10-19" title="Permanent link">&para;</a></h2>
-<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Add administrator <code>event sink preview</code> and <code>test</code> commands using an audit event
   UUID and subscription ID. Preview renders without delivery; test queues a real
@@ -3070,7 +3152,7 @@
 <li>Honor <code>object show --output json</code> consistently with <code>--json</code>.</li>
 </ul>
 <h2 id="0014-2026-10-06">[0.0.14] - 2026-10-06<a class="headerlink" href="#0014-2026-10-06" title="Permanent link">&para;</a></h2>
-<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
+<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Manage collection-owned webhooks with <code>event sink list|show|create|update|delete
   --collection NAME</code>, including chat presets with <code>--destination-url-file PATH</code>.
@@ -3174,7 +3256,7 @@
   updates no longer require changes or rebuilds in this repository.</p>
 </li>
 </ul>
-<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
+<h3 id="added_6">Added<a class="headerlink" href="#added_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li>In-place binary updates with <code>self-update</code> and a metadata-only <code>--check</code>,
   available in the CLI and REPL without Hubuum login. The new <code>hubuum-update</code>

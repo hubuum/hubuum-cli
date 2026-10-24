@@ -907,6 +907,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Search And Filter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#selector-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Selector Diagnostics
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1921,6 +1938,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Search And Filter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#selector-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Selector Diagnostics
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2146,7 +2180,22 @@ legacy filter forms unchanged. Precedence is parentheses, <code>NOT</code>, a fi
 </code></pre></div>
 <p>Typed tests support <code>=</code>, <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>~</code>, <code>!~</code>,
 <code>MATCHES</code>, <code>[NOT] IN [...]</code>, <code>IS [NOT] NULL</code>, and <code>IS [NOT] MISSING</code>.
-Keywords are ASCII case-insensitive. Double-quoted strings use JSON escapes;
+Explicit string tests also support <code>[NOT] CONTAINS</code>, <code>[NOT] ICONTAINS</code>,
+<code>[NOT] STARTS_WITH</code>, <code>[NOT] ENDS_WITH</code>, <code>[NOT] IEQUALS</code>, and <code>[NOT] FUZZY</code>.
+These accept quoted strings and optional <code>AS str</code>; they do not interpret their
+operands as regexes. <code>CONTAINS</code>, <code>STARTS_WITH</code>, and <code>ENDS_WITH</code> are case-sensitive.
+<code>ICONTAINS</code> and <code>IEQUALS</code> use Unicode simple case folding, as regex <code>(?i)</code> does.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>object list --class Hosts | F WHERE Name ICONTAINS "web."
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>object list --class Hosts | F WHERE Name FUZZY "servre"
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>object list --class Hosts | F WHERE Name NOT CONTAINS "retired"
+</code></pre></div>
+<p>Fuzzy matching is opt-in. It lowercases both strings, accepts a substring match,
+or compares the complete value and its alphanumeric words using Damerau–Levenshtein
+distance (including adjacent transpositions). Queries of 3–5 characters allow
+one edit; queries of 6 or more allow two. Shorter queries require a substring;
+empty fuzzy queries are rejected. It filters rows without ranking them.
+Regex matching and existing bare searches retain their meanings.</p>
+<p>Keywords are ASCII case-insensitive. Double-quoted strings use JSON escapes;
 single-quoted strings accept <code>\\</code> and <code>\'</code> and otherwise preserve their text.
 Numbers, booleans, and <code>null</code> are unquoted JSON literals; strings must be
 quoted, so <code>3</code> differs from <code>"3"</code>.</p>
@@ -2154,23 +2203,51 @@ quoted, so <code>3</code> differs from <code>"3"</code>.</p>
 explicit. Invalid literals fail while parsing. An invalid selected value stops
 evaluation and reports the stage, selector, cast, 1-based row, and offending
 JSON value. Boolean evaluation short-circuits left to right.</p>
+<p>Numeric casts, comparisons, sorting, and distinct preserve exact JSON integers,
+including values above 2^53. Under <code>AS num</code>, equivalent forms such as <code>1</code>, <code>1.0</code>, and <code>"1"</code> have the
+same numeric identity. Uncast JSON distinct keeps its existing equality policy. Integer-only sums return integers
+when their totals fit the JSON signed/unsigned 64-bit range; larger totals or
+sums containing floating-point inputs use floating point. Averages use floating
+point. Numeric casts do not accept partial numbers, NaN, or infinity.</p>
+<p>Datetime comparisons accept unquoted <code>now</code> and <code>now-Ns</code>, <code>now-Nm</code>, <code>now-Nh</code>, or
+<code>now-Nd</code>, with a nonnegative integer duration. A day is exactly 86400 seconds.
+All relative operands share one clock sample per pipeline application; reusing
+a parsed pipeline samples again. <code>AS datetime</code> is required. Absolute datetime
+strings still require RFC3339 with an explicit offset. Invalid or overflowing
+durations fail; relative operands are not supported in <code>IN</code> lists.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>task events 123 --all | F WHERE created_at AS datetime &gt;= now-24h
+</code></pre></div>
+<p>These are local filters over fetched data. Relative-time and text operators do
+not extend the server-side structured search subset.</p>
 <p>Positive comparisons, matches, and <code>IN</code> are existential for fanout selectors.
 Their negative forms require at least one selected value and require every
 selected value to pass, so a missing selector does not satisfy <code>!=</code>, <code>!~</code>, or
 <code>NOT IN</code>. <code>IS NULL</code> detects selected JSON null; <code>IS MISSING</code> detects no selector
 matches. Their <code>IS NOT</code> forms and general <code>NOT</code> are exact logical negations.</p>
 <p><code>?</code> removes empty values, or keeps rows where a selector is truthy:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>object list --class Hosts | ?
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>object list --class Hosts | ? data.network.interfaces[]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>object list --class Hosts | ?
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>object list --class Hosts | ? data.network.interfaces[]
+</code></pre></div>
+<h3 id="selector-diagnostics">Selector Diagnostics<a class="headerlink" href="#selector-diagnostics" title="Permanent link">&para;</a></h3>
+<p><code>CHECK STRICT</code> opts into errors when an explicit selector matches no record in
+a nonempty input. Errors identify the stage and selector, list available paths,
+and suggest nearby spellings. <code>CHECK ALLOW</code> restores the default permissive
+policy. This checks filters, projection keep terms, sorting, grouping, distinct,
+unroll, and value extraction; broad searches and projection drop terms remain
+permissive. Empty inputs and empty fanout/slice selections never fail this check. <code>IS MISSING</code> tests, and other
+tests of the same selector within that predicate, are exempt.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>object list --class Hosts | CHECK STRICT | S Name
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>object list --class Hosts | CHECK STRICT | F WHERE owner IS MISSING OR owner == "ops"
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>object list --class Hosts | CHECK ALLOW | P optional_field
 </code></pre></div>
 <h2 id="projection-and-values">Projection And Values<a class="headerlink" href="#projection-and-values" title="Permanent link">&para;</a></h2>
 <p><code>P</code> selects columns. Selectors can be separated by spaces or commas.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>object list --class Hosts | P Name os_version
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>object list --class Hosts | P Name,data.cpu.cores
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>object list --class Hosts | P Name AS Host, data.network.interfaces[].ipv4 AS Addresses
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>object list --class Hosts | P Name data !data.secrets
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>object list --class Hosts | P data.network.interfaces !data.network.interfaces[].mac
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>object list --class Hosts | P Name os_version
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>object list --class Hosts | P Name,data.cpu.cores
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>object list --class Hosts | P Name AS Host, data.network.interfaces[].ipv4 AS Addresses
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>object list --class Hosts | P Name data !data.secrets
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>object list --class Hosts | P data.network.interfaces !data.network.interfaces[].mac
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>object show --class Hosts host-1 --computed S:average_load --computed P:note | P Name S:average_load P:note
 </code></pre></div>
 <p>Prefix a selector with <code>!</code> to remove its matches from the projected value. Drop
 terms use the same dotted fields, indexes, negative indexes, fanout, and slices
@@ -2178,6 +2255,10 @@ as keep terms. A terminal index removes that array element, a terminal slice
 removes the selected range, and a terminal <code>[]</code> or <code>[*]</code> empties the selected
 array. Missing paths are harmless. Array traversal must be explicit, so use
 <code>!items[].secret</code>, not <code>!items.secret</code>, to remove a field from every item.
+All drop terms in one stage resolve against original source addresses before
+arrays are compacted. Drops targeting newly introduced aliases resolve against
+the original projected value. For example, <code>P !items[0] !items[1]</code> removes the
+original first two items. Use separate <code>P</code> stages for sequential removals.
 An optional <code>AS</code> alias creates one top-level output field. No selector match
 becomes null, one match stays scalar, and multiple matches become an array. If
 any term uses <code>AS</code>, commas are required between every term so alias boundaries
@@ -2196,22 +2277,33 @@ retained for semantic pipe operations. Computation errors are represented as
 available to the pipeline automatically. Explicit <code>--computed</code> values replace
 the class default; <code>--computed none</code> disables it for one command.</p>
 <p><code>VALUE</code> and <code>VAL</code> extract selected leaves as a value list:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>object list --class Hosts | VALUE data.network.interfaces[*].ipv4
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>object list --class Hosts | VAL Name
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>object list --class Hosts | VALUE data.network.interfaces[*].ipv4
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>object list --class Hosts | VAL Name
 </code></pre></div>
+<p><code>P ROWS</code> explicitly produces rows from fanout or slice selections. Static fields
+repeat for each selected member; dynamic fields align by original member address.
+A missing member field stays absent, and selected nulls and duplicate values
+remain data. It neither zips unrelated arrays nor forms a Cartesian product.
+Output names are full selectors unless aliased. A requested fanout with no
+matches produces no rows. With no fanout or slice, it projects one row per input.
+Drop fields in a preceding <code>P</code> stage; <code>P ROWS</code> accepts keep terms only.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>object list --class Hosts | P ROWS Name AS Host, data.network.interfaces[].ipv4 AS IP, data.network.interfaces[].mac AS MAC
+</code></pre></div>
+<p>After grouping, <code>P ROWS</code> transforms visible summaries and preserves attached
+member rows in each resulting group.</p>
 <h2 id="stable-distinct">Stable Distinct<a class="headerlink" href="#stable-distinct" title="Permanent link">&para;</a></h2>
 <p><code>D</code> and <code>distinct</code> retain the first occurrence and preserve input order, shape,
 and column metadata. With no keys, equality uses the complete visible JSON
 value and ignores object field order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>object list --class Hosts | D
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>object list --class Hosts | D
 </code></pre></div>
 <p>Comma-separated keys form an ordered selector tuple. A fanout selector's whole
 ordered sequence participates in equality; it is not reduced to its first
 match. Missing is a distinct sentinel and does not equal a selected JSON null.
 Keys accept the shared strict casts <code>str</code>, <code>num</code>, <code>bool</code>, <code>ip</code>, <code>datetime</code>,
 <code>version</code>, and <code>natural</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>object list --class Hosts | D owner, os_version
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>object list --class Hosts | D data.network.interfaces[].ipv4 AS ip
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>object list --class Hosts | D owner, os_version
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>object list --class Hosts | D data.network.interfaces[].ipv4 AS ip
 </code></pre></div>
 <p>Distinct supports empty, line, row, value, and grouped collections while
 rejecting detail and message output explicitly. Whole-value line distinct uses
@@ -2220,18 +2312,18 @@ summaries, and duplicate whole groups are removed without merging hidden member
 rows.</p>
 <h2 id="sorting-limits-and-counts">Sorting, Limits, And Counts<a class="headerlink" href="#sorting-limits-and-counts" title="Permanent link">&para;</a></h2>
 <p>Sort ascending by default:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>object list --class Hosts | S os_version
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>object list --class Hosts | S os_version
 </code></pre></div>
 <p>Use <code>!</code> or <code>desc</code> for descending order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>object list --class Hosts | S !os_version
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>object list --class Hosts | sort os_version desc
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>object list --class Hosts | S !os_version
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>object list --class Hosts | sort os_version desc
 </code></pre></div>
 <p>Keys can be comma-separated. They compare lexicographically in declaration
 order, and rows equal on every key retain their original order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>object list --class Hosts | S state asc, updated_at desc AS datetime, Name AS natural
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>object list --class Hosts | S state asc, updated_at desc AS datetime, Name AS natural
 </code></pre></div>
 <p>Each key accepts these modifiers in order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>selector [asc|desc] [AS cast] [USING first|min|max] [NULLS FIRST|LAST]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>selector [asc|desc] [AS cast] [USING first|min|max] [NULLS FIRST|LAST]
 </code></pre></div>
 <p>The strict casts are <code>str</code>, <code>num</code>, <code>bool</code>, <code>ip</code>, <code>datetime</code>, <code>version</code>, and
 <code>natural</code>. Invalid strict casts stop the stage and identify the key, selector,
@@ -2246,18 +2338,18 @@ selector or a selection containing no non-null values supplies a null key.
 Nulls default to last for both ascending and descending sorts; override this
 per key with <code>NULLS FIRST</code> or <code>NULLS LAST</code>.</p>
 <p>Use casts when text ordering is not right:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>object list --class Hosts | S data.cpu.cores AS num
-<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>object list --class Hosts | S data.network.interfaces[0].ipv4 AS ip
-<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>object list --class Hosts | S data.network.interfaces[].ipv4 AS str USING min, Name AS natural
-<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>object list --class Hosts | S data.cpu.cores AS num
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>object list --class Hosts | S data.network.interfaces[0].ipv4 AS ip
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>object list --class Hosts | S data.network.interfaces[].ipv4 AS str USING min, Name AS natural
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num
 </code></pre></div>
 <p>Limit rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>object list --class Hosts | L 10
-<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>object list --class Hosts | L 10 20
-<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>object list --class Hosts | tail 5
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>object list --class Hosts | L 10
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>object list --class Hosts | L 10 20
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>object list --class Hosts | tail 5
 </code></pre></div>
 <p>Count rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>object list --class Hosts | F os_version 26 | C
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>object list --class Hosts | F os_version 26 | C
 </code></pre></div>
 <h2 id="grouping-and-aggregates">Grouping And Aggregates<a class="headerlink" href="#grouping-and-aggregates" title="Permanent link">&para;</a></h2>
 <p>These stages operate locally on the current semantic rows. They do not call the
@@ -2283,33 +2375,37 @@ so they cannot make a retained group member-empty. A pre-existing empty group
 is retained or removed solely by the same visible-summary predicate as any
 other group.</p>
 <p>Group by one or more fields:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>object list --class Hosts | G os_version AS "OS Version"
-<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>object list --class Hosts | G os_version AS "OS Version" data.cpu.arch AS Architecture
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>object list --class Hosts | G os_version AS "OS Version"
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>object list --class Hosts | G os_version AS "OS Version" data.cpu.arch AS Architecture
 </code></pre></div>
 <p>Group aliases must be unique. Aggregate aliases cannot reuse a group alias or
 an earlier aggregate alias; collisions fail instead of overwriting a visible
 value while leaving duplicate column metadata.</p>
 <p>Array selectors fan out group membership:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>object list --class Hosts | G data.network.interfaces[*].ipv4 AS IPv4
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>object list --class Hosts | G data.network.interfaces[*].ipv4 AS IPv4
 </code></pre></div>
+<p>A row joins each distinct group-key combination once, even if a fanout repeats
+a value. To count occurrences instead of input rows, unroll first, for example
+<code>U tags AS tag | G tag | C</code>. Selector aggregates such as <code>count(tags[])</code> still
+count every selected occurrence within each retained member row.</p>
 <p>Aggregate grouped rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts
-<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>object list --class Hosts | G os_version AS "OS Version" | A sum(data.cpu.cores) AS Cores
-<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>object list --class Hosts | G os_version AS "OS Version" | A avg(data.cpu.cores) AS "Average Cores"
-<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>object list --class Hosts | G os_version AS "OS Version" | A min(Name) AS First
-<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>object list --class Hosts | G os_version AS "OS Version" | A max(Name) AS Last
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>object list --class Hosts | G os_version AS "OS Version" | A sum(data.cpu.cores) AS Cores
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>object list --class Hosts | G os_version AS "OS Version" | A avg(data.cpu.cores) AS "Average Cores"
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>object list --class Hosts | G os_version AS "OS Version" | A min(Name) AS First
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>object list --class Hosts | G os_version AS "OS Version" | A max(Name) AS Last
 </code></pre></div>
 <p><code>count(selector)</code> counts every non-null selector match, including every fanout
 occurrence. <code>count_distinct(selector)</code> excludes missing and null values and uses
 the same canonical JSON equality as <code>D</code>, including object-field-order
 independence. Both work in grouped and global aggregation:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>object list --class Hosts | G rack | A count(data.network.interfaces[].ipv4) AS Addresses
-<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>object list --class Hosts | G rack | A count_distinct(data.owner) AS Owners
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>object list --class Hosts | G rack | A count(data.network.interfaces[].ipv4) AS Addresses
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>object list --class Hosts | G rack | A count_distinct(data.owner) AS Owners
 </code></pre></div>
 <p>Use <code>A GLOBAL</code> for one aggregate row over the current <code>Empty</code>, <code>Rows</code>, or
 <code>Values</code> collection. Commas separate aggregate terms, and all final output names
 must be unique:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>object list --class Hosts --all | A GLOBAL count AS Hosts, count(data.owner) AS Owned, count_distinct(os_version) AS Versions
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>object list --class Hosts --all | A GLOBAL count AS Hosts, count(data.owner) AS Owned, count_distinct(os_version) AS Versions
 </code></pre></div>
 <p>Global aggregation consumes its input and always returns exactly one <code>Rows</code>
 record. Counts are zero on empty input; numeric and ordered aggregates without
@@ -2324,27 +2420,34 @@ in current row and selector order. Missing and null matches are skipped; no
 contributing value produces JSON null. Sort before <code>G</code> or <code>A GLOBAL</code> to make
 event boundaries explicit and reproducible.</p>
 <p>Find the complete time range for one task's events:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>task events &lt;task-id&gt; --all | S created_at asc AS datetime | A GLOBAL first(created_at) AS First, last(created_at) AS Last
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>task events &lt;task-id&gt; --all | S created_at asc AS datetime | A GLOBAL first(created_at) AS First, last(created_at) AS Last
 </code></pre></div>
 <p>Find the first and last visible audit event for each action:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>audit list --all | S occurred_at asc AS datetime | G action | A first(occurred_at) AS First | A last(occurred_at) AS Last | Z
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>audit list --all | S occurred_at asc AS datetime | G action | A first(occurred_at) AS First | A last(occurred_at) AS Last | Z
 </code></pre></div>
 <p>Aggregates are ordinary visible output columns, so later stages can filter,
 sort, project, or redirect them:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num | L 10
-<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | F Hosts&gt;=2
+<div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | S Hosts desc AS num | L 10
+<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | F Hosts&gt;=2
 </code></pre></div>
 <p><code>C</code> after grouping returns one count row per group:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>object list --class Hosts | G os_version AS "OS Version" | C
+<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>object list --class Hosts | G os_version AS "OS Version" | C
 </code></pre></div>
 <p><code>Z</code> collapses grouped output to group and aggregate columns:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | Z
+<div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>object list --class Hosts | G os_version AS "OS Version" | A count AS Hosts | Z
 </code></pre></div>
 <p>Before <code>G</code>, <code>U</code> unrolls member arrays into rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
+<div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>object list --class Hosts | U data.network.interfaces | P Name ipv4 mac
 </code></pre></div>
 <p>After <code>G</code>, <code>U</code> instead unrolls an array in the visible group summary and keeps
 the original member rows attached to every resulting group.</p>
+<p>The unaliased <code>U</code> form promotes object-member fields into the parent record and
+rejects collisions instead of overwriting parent data. Use <code>U selector AS item</code>
+to place each selected member in a new top-level field while preserving parent
+fields. The destination must not already exist. Subsequent selectors can use
+<code>item.name</code> without losing the parent's <code>name</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>object list --class Hosts | U data.network.interfaces AS interface | P Name interface.ipv4
+</code></pre></div>
 <h2 id="shape-contracts">Shape Contracts<a class="headerlink" href="#shape-contracts" title="Permanent link">&para;</a></h2>
 <p>Every pipeline value has one of seven shapes: <code>Empty</code>, <code>Lines</code>, <code>Rows</code>,
 <code>Detail</code>, <code>Message</code>, <code>Values</code>, or <code>Groups</code>. A stage validates its input shape
@@ -2489,6 +2592,16 @@ derives <code>Empty</code>, <code>Rows</code>, <code>Detail</code>, <code>Messag
 <td>Groups</td>
 </tr>
 <tr>
+<td><code>P ROWS</code></td>
+<td>Rows</td>
+<td>error</td>
+<td>Rows</td>
+<td>Rows</td>
+<td>Rows</td>
+<td>error</td>
+<td>Groups</td>
+</tr>
+<tr>
 <td><code>G</code></td>
 <td>Groups</td>
 <td>error</td>
@@ -2529,7 +2642,7 @@ derives <code>Empty</code>, <code>Rows</code>, <code>Detail</code>, <code>Messag
 <td>Rows</td>
 </tr>
 <tr>
-<td><code>U</code></td>
+<td><code>U</code>, <code>U ... AS ...</code></td>
 <td>same</td>
 <td>error</td>
 <td>same</td>
@@ -2537,6 +2650,26 @@ derives <code>Empty</code>, <code>Rows</code>, <code>Detail</code>, <code>Messag
 <td>error</td>
 <td>same</td>
 <td>same</td>
+</tr>
+<tr>
+<td><code>CHECK STRICT</code>, <code>CHECK ALLOW</code></td>
+<td>same</td>
+<td>same</td>
+<td>same</td>
+<td>same</td>
+<td>same</td>
+<td>same</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>H</code>, <code>HELP</code></td>
+<td>Lines</td>
+<td>Lines</td>
+<td>Lines</td>
+<td>Lines</td>
+<td>Lines</td>
+<td>Lines</td>
+<td>Lines</td>
 </tr>
 <tr>
 <td><code>JQ</code></td>
@@ -2582,8 +2715,8 @@ Selecting one of those renderers does not change which lines reach the stages.</
 <h2 id="jq">JQ<a class="headerlink" href="#jq" title="Permanent link">&para;</a></h2>
 <p><code>JQ</code> evaluates a jq-compatible expression against the current semantic payload
 using the in-process <code>jaq</code> interpreter:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>object list --json --class Hosts | JQ 'map({Name, os_version})'
-<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a>object list --json --class Hosts | JQ '.[] | .Name'
+<div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>object list --json --class Hosts | JQ 'map({Name, os_version})'
+<a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a>object list --json --class Hosts | JQ '.[] | .Name'
 </code></pre></div>
 <p>Zero jq outputs become empty semantic output, one output keeps its natural
 shape, and multiple outputs are collected into semantic rows or values. JQ
@@ -2593,14 +2726,14 @@ they preserve Hubuum table metadata and completions.</p>
 <h2 id="selectors">Selectors<a class="headerlink" href="#selectors" title="Permanent link">&para;</a></h2>
 <p>Selectors are shared by filter, projection, sorting, grouping, and value
 extraction.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>Name                              top-level field
-<a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a>os_version                        top-level field
-<a id="__codelineno-38-3" name="__codelineno-38-3" href="#__codelineno-38-3"></a>data.owner                        dotted path
-<a id="__codelineno-38-4" name="__codelineno-38-4" href="#__codelineno-38-4"></a>data.network.interfaces[0]        array index
-<a id="__codelineno-38-5" name="__codelineno-38-5" href="#__codelineno-38-5"></a>data.network.interfaces[-1]       negative index
-<a id="__codelineno-38-6" name="__codelineno-38-6" href="#__codelineno-38-6"></a>data.network.interfaces[*]        array fanout
-<a id="__codelineno-38-7" name="__codelineno-38-7" href="#__codelineno-38-7"></a>data.network.interfaces[]         array fanout
-<a id="__codelineno-38-8" name="__codelineno-38-8" href="#__codelineno-38-8"></a>data.network.interfaces[:2]       slice
+<div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>Name                              top-level field
+<a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a>os_version                        top-level field
+<a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a>data.owner                        dotted path
+<a id="__codelineno-43-4" name="__codelineno-43-4" href="#__codelineno-43-4"></a>data.network.interfaces[0]        array index
+<a id="__codelineno-43-5" name="__codelineno-43-5" href="#__codelineno-43-5"></a>data.network.interfaces[-1]       negative index
+<a id="__codelineno-43-6" name="__codelineno-43-6" href="#__codelineno-43-6"></a>data.network.interfaces[*]        array fanout
+<a id="__codelineno-43-7" name="__codelineno-43-7" href="#__codelineno-43-7"></a>data.network.interfaces[]         array fanout
+<a id="__codelineno-43-8" name="__codelineno-43-8" href="#__codelineno-43-8"></a>data.network.interfaces[:2]       slice
 </code></pre></div>
 <p>Dotted and indexed selectors are strict path lookups. Bare quick search remains
 permissive and can match keys or values. Malformed selectors fail while the
@@ -2613,10 +2746,10 @@ escape syntax for selector metacharacters. Colons remain ordinary field-name
 characters, including in computed-field selectors such as <code>S:average_load</code>.</p>
 <h2 id="redirects">Redirects<a class="headerlink" href="#redirects" title="Permanent link">&para;</a></h2>
 <p>Redirects run after pipe stages:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>object list --class Hosts | P Name os_version &gt; hosts.txt
-<a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a>object list --class Hosts | P Name os_version &gt;&gt; hosts.txt
-<a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a>object list --json --class Hosts | P Name os_version &gt; each:hosts/{Name}.json
-<a id="__codelineno-39-4" name="__codelineno-39-4" href="#__codelineno-39-4"></a>object list --class Hosts | VALUE Name &gt; each:names/{value}.txt
+<div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>object list --class Hosts | P Name os_version &gt; hosts.txt
+<a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a>object list --class Hosts | P Name os_version &gt;&gt; hosts.txt
+<a id="__codelineno-44-3" name="__codelineno-44-3" href="#__codelineno-44-3"></a>object list --json --class Hosts | P Name os_version &gt; each:hosts/{Name}.json
+<a id="__codelineno-44-4" name="__codelineno-44-4" href="#__codelineno-44-4"></a>object list --class Hosts | VALUE Name &gt; each:names/{value}.txt
 </code></pre></div>
 <p><code>each:&lt;template&gt;</code> writes one file per semantic row or value. Placeholders use
 the same field names as the current output, plus <code>{value}</code> for <code>VALUE</code> output
@@ -2634,22 +2767,42 @@ command before <code>&gt;</code> would otherwise be invalid.</p>
 <p>Redirect files honor the configured color mode. <code>auto</code> and <code>never</code> strip ANSI
 styling from non-terminal files; <code>always</code> preserves it. In one-shot POSIX shell
 commands, escape application-level operators, for example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\|</span><span class="w"> </span>P<span class="w"> </span>Name<span class="w"> </span>os_version<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>hosts.txt
-<a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\|</span><span class="w"> </span>VALUE<span class="w"> </span>Name<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>each:/tmp/host-<span class="o">{</span>value<span class="o">}</span>.txt
+<div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\|</span><span class="w"> </span>P<span class="w"> </span>Name<span class="w"> </span>os_version<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>hosts.txt
+<a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span><span class="se">\|</span><span class="w"> </span>VALUE<span class="w"> </span>Name<span class="w"> </span><span class="se">\&gt;</span><span class="w"> </span>each:/tmp/host-<span class="o">{</span>value<span class="o">}</span>.txt
 </code></pre></div>
 <h2 id="help">Help<a class="headerlink" href="#help" title="Permanent link">&para;</a></h2>
-<p>Use focused help topics in the REPL:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>help pipe
-<a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a>help pipe search
-<a id="__codelineno-41-3" name="__codelineno-41-3" href="#__codelineno-41-3"></a>help pipe project
-<a id="__codelineno-41-4" name="__codelineno-41-4" href="#__codelineno-41-4"></a>help pipe sort
-<a id="__codelineno-41-5" name="__codelineno-41-5" href="#__codelineno-41-5"></a>help pipe limit
-<a id="__codelineno-41-6" name="__codelineno-41-6" href="#__codelineno-41-6"></a>help pipe group
-<a id="__codelineno-41-7" name="__codelineno-41-7" href="#__codelineno-41-7"></a>help pipe selectors
-<a id="__codelineno-41-8" name="__codelineno-41-8" href="#__codelineno-41-8"></a>help pipe shapes
-<a id="__codelineno-41-9" name="__codelineno-41-9" href="#__codelineno-41-9"></a>help pipe redirects
-<a id="__codelineno-41-10" name="__codelineno-41-10" href="#__codelineno-41-10"></a>help pipe jq
+<p><code>H</code> and <code>HELP</code> show the available stages and topics. Append them as the final
+stage to explain the current statement without executing its command, fetching
+data, or applying transformations. <code>H CURRENT</code> lists parsed stages and accepted
+input shapes. Actual input shapes, values, and selector availability are checked
+when the statement is executed. <code>H F</code>, <code>HELP P</code>, and other verb/topic operands
+give focused syntax, semantics, and examples. These work offline in both the
+REPL and one-shot invocations.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>H
+<a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a>HELP F
+<a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a>object list --class Hosts | F WHERE Name FUZZY "servre" | S Name | H CURRENT
 </code></pre></div>
+<p>In a POSIX shell, <code>--command</code> preserves typed DSL quotes, for example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a>hubuum-cli<span class="w"> </span>--command<span class="w"> </span><span class="s1">'object list | F WHERE Name ICONTAINS "web" | HELP CURRENT'</span>
+<a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span><span class="se">\|</span><span class="w"> </span>HELP<span class="w"> </span>F
+</code></pre></div>
+<p>The existing focused help topics use the same reference:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a>help pipe
+<a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a>help pipe search
+<a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a>help pipe project
+<a id="__codelineno-48-4" name="__codelineno-48-4" href="#__codelineno-48-4"></a>help pipe sort
+<a id="__codelineno-48-5" name="__codelineno-48-5" href="#__codelineno-48-5"></a>help pipe limit
+<a id="__codelineno-48-6" name="__codelineno-48-6" href="#__codelineno-48-6"></a>help pipe group
+<a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a>help pipe selectors
+<a id="__codelineno-48-8" name="__codelineno-48-8" href="#__codelineno-48-8"></a>help pipe shapes
+<a id="__codelineno-48-9" name="__codelineno-48-9" href="#__codelineno-48-9"></a>help pipe redirects
+<a id="__codelineno-48-10" name="__codelineno-48-10" href="#__codelineno-48-10"></a>help pipe jq
+<a id="__codelineno-48-11" name="__codelineno-48-11" href="#__codelineno-48-11"></a>help pipe check
+<a id="__codelineno-48-12" name="__codelineno-48-12" href="#__codelineno-48-12"></a>help pipe help
+</code></pre></div>
+<p><code>H</code>, <code>HELP</code>, and <code>CHECK</code> are reserved stage words. Use <code>F HELP</code> or <code>F CHECK</code>
+when those words are search text. Quote a field named <code>ROWS</code> when it follows
+<code>P</code>, for example <code>P 'ROWS' name</code>, to avoid the row-producing projection syntax.</p>
 
 
 

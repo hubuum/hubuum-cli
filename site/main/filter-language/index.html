@@ -1342,6 +1342,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#help-and-statement-inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Help And Statement Inspection
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bounded-jq" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1891,6 +1902,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#help-and-statement-inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Help And Statement Inspection
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bounded-jq" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2008,8 +2030,11 @@ the input.</p>
 <ul>
 <li>broad, value-only, key-only, field, reject, and truthiness filtering;</li>
 <li>typed boolean predicates with explicit casts, null/missing tests, fanout,
-  quoted JSON literals, and <code>NOT</code>/<code>AND</code>/<code>OR</code> composition;</li>
+  quoted JSON literals, <code>NOT</code>/<code>AND</code>/<code>OR</code> composition, literal text operators,
+  opt-in fuzzy matching, and relative datetime operands;</li>
 <li>projection with validated output aliases and selector-based value extraction;</li>
+<li>explicit <code>P ROWS</code> projection aligned by source array-member addresses,
+  simultaneous array removals, and collision-checked <code>U selector AS item</code>;</li>
 <li>stable multi-key sorting with strict scalar, date, version, natural, and
   IPv4/IPv6 casts, fanout reduction, and null order;</li>
 <li>stable distinct over whole visible JSON values or typed selector tuples;</li>
@@ -2018,6 +2043,14 @@ the input.</p>
   collapse, and array unroll; and</li>
 <li>JQ-compatible transforms through the in-process <code>jaq</code> evaluator.</li>
 </ul>
+<p>Integer comparisons, numeric casts, distinct, and sorting retain exact JSON
+integer values. Integer-only sums retain an integer result while it fits the
+JSON i64/u64 range. Group membership counts each input row once per distinct
+key combination, independently of repeated fanout values.</p>
+<p><code>Pipeline</code> retains compiled filter plans, including regexes and cast literals.
+All relative-time operands use one clock sample per application; reusing a
+pipeline refreshes that sample. The shared quote/escape scanner handles stage
+boundaries, comma lists, typed string literals, and host redirect scanning.</p>
 <p>Selectors support dotted fields, indexes, negative indexes, array fanout with
 <code>[]</code> or <code>[*]</code>, and slices. Selectors are validated when parsed or constructed.</p>
 <p>The full delivered syntax and shape matrix live in the repository's
@@ -2036,6 +2069,24 @@ key- or value-only searches without embedding application policy in the crate:</
 <p>Pass the settings to <code>Pipeline::apply_with_settings</code> or
 <code>apply_pipeline_with_settings</code>. Values selected through an envelope's explicit
 visible columns remain searchable.</p>
+<p><code>PipelineSettings::with_missing_selector_policy(MissingSelectorPolicy::Error)</code>
+enables selector diagnostics; <code>CHECK STRICT</code> does the same within the DSL, and
+<code>CHECK ALLOW</code> restores the default. Missing-selector checks allow empty inputs
+and explicit <code>IS MISSING</code> tests. <code>with_evaluation_time(SystemTime)</code> supplies a
+fixed clock for deterministic relative-time evaluation.</p>
+<h2 id="help-and-statement-inspection">Help And Statement Inspection<a class="headerlink" href="#help-and-statement-inspection" title="Permanent link">&para;</a></h2>
+<p><code>H</code> and <code>HELP</code> list the language options. <code>H F</code>, <code>HELP P</code>, and other verb/topic
+operands explain individual features. Terminal <code>H CURRENT</code> describes preceding
+pipeline stages without evaluating them. <code>statement_help</code> lets a CLI handle
+this request before command dispatch, authentication, or any effects.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">use</span><span class="w"> </span><span class="n">hubuum_filter</span><span class="p">::</span><span class="n">statement_help</span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kd">let</span><span class="w"> </span><span class="n">help</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">statement_help</span><span class="p">(</span><span class="s">"delete-record 123 | F WHERE name FUZZY 'servre' | H CURRENT"</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="fm">assert!</span><span class="p">(</span><span class="n">help</span><span class="p">.</span><span class="n">unwrap</span><span class="p">().</span><span class="n">contains</span><span class="p">(</span><span class="s">"F WHERE"</span><span class="p">));</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="p">#</span><span class="w"> </span><span class="nb">Ok</span><span class="p">::</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">hubuum_filter</span><span class="p">::</span><span class="n">PipelineError</span><span class="o">&gt;</span><span class="p">(())</span>
+</code></pre></div>
+<p>The shared <code>help_topics</code>, <code>topic_help</code>, and <code>verb_summaries</code> APIs support host
+help menus. Rendering and command execution remain the caller's responsibility.</p>
 <h2 id="bounded-jq">Bounded JQ<a class="headerlink" href="#bounded-jq" title="Permanent link">&para;</a></h2>
 <p><code>validate_bounded_jq_expression</code> and <code>evaluate_bounded_jq</code> expose a separately
 bounded JQ subset for callers that evaluate untrusted workflow expressions.

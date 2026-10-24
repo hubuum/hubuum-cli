@@ -2585,7 +2585,7 @@ from the corresponding token list are suggested.</p>
 <p>Check output controls:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>object list --class Hosts --limit 5 --table-style dense --table-bands auto
 <a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>object list --class Hosts --limit 5 --table-width full --table-wrap 40
-<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>object list --class Hosts --limit 0 --empty-result silent
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>object list --class Hosts --where name equals __no_matching_host__ --empty-result silent
 <a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a>object list --class Hosts --where json_data.facts.operating_system.major_version = 10
 <a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>object list --class Hosts --where json_data.facts.operating_system.major_version = 10 --table-headers full
 <a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a>object list --class Hosts --limit 5 --table-headers none
@@ -2606,21 +2606,33 @@ from the corresponding token list are suggested.</p>
 <li><code>--table-headers full</code> restores flat, complete dotted paths for one command.</li>
 <li><code>--table-headers none</code> suppresses the table header rows.</li>
 <li>Theme selection works at runtime and persists through config when requested.</li>
+<li>The unmatched-name query produces no output with <code>--empty-result silent</code>.
+  Choose a name absent from the test dataset; <code>--limit 0</code> is invalid.</li>
 </ul>
+<p>Check structured responses from commands with custom text presentations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>version | VALUE cli_version
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>config paths | P user write_target
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>theme preview catppuccin-mocha --output json
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a>theme preview catppuccin-mocha | VALUE name
+<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>class show Hosts --output json | P class.name objects related_classes
+</code></pre></div>
+<p>Expected results: field selectors operate on response data, JSON theme previews
+contain the theme definition, and structured output contains no text headings
+or auxiliary hints. Plain text invocations keep their usual presentation.</p>
 <h2 id="administrative-configuration-backups-and-restore">Administrative Configuration, Backups, And Restore<a class="headerlink" href="#administrative-configuration-backups-and-restore" title="Permanent link">&para;</a></h2>
 <p>With an administrator account, inspect the redacted server configuration and
 exercise backup handling:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>admin config
-<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>admin config --output json
-<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>backup submit
-<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a>backup show &lt;task-id&gt;
-<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>backup download &lt;task-id&gt; --file /tmp/hubuum-smoke-backup.json
-<a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a>backup create --file /tmp/hubuum-smoke-backup-direct.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>admin config
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>admin config --output json
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>backup submit
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>backup show &lt;task-id&gt;
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>backup download &lt;task-id&gt; --file /tmp/hubuum-smoke-backup.json
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a>backup create --file /tmp/hubuum-smoke-backup-direct.json
 </code></pre></div>
 <p>Only on a disposable server, test the destructive two-step restore flow:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>restore stage --file /tmp/hubuum-smoke-backup.json --receipt /tmp/hubuum-smoke-restore.json
-<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>restore status --receipt /tmp/hubuum-smoke-restore.json
-<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>restore confirm --receipt /tmp/hubuum-smoke-restore.json --yes
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>restore stage --file /tmp/hubuum-smoke-backup.json --receipt /tmp/hubuum-smoke-restore.json
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>restore status --receipt /tmp/hubuum-smoke-restore.json
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>restore confirm --receipt /tmp/hubuum-smoke-restore.json --yes
 </code></pre></div>
 <p>Expected results:</p>
 <ul>
@@ -2632,15 +2644,15 @@ exercise backup handling:</p>
 </ul>
 <h2 id="cleanup">Cleanup<a class="headerlink" href="#cleanup" title="Permanent link">&para;</a></h2>
 <p>Remove temporary resources in dependency order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>relation object delete --class-a SmokeHost --object-a smoke-1 --class-b SmokeService --object-b service-1
-<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>relation class delete --class-a SmokeHost --class-b SmokeService
-<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>object delete --class SmokeService --name service-1
-<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a>object delete --class SmokeHost --name smoke-created
-<a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>object delete --class SmokeHost --name smoke-2
-<a id="__codelineno-33-6" name="__codelineno-33-6" href="#__codelineno-33-6"></a>object delete --class SmokeHost --name smoke-1
-<a id="__codelineno-33-7" name="__codelineno-33-7" href="#__codelineno-33-7"></a>class delete SmokeService
-<a id="__codelineno-33-8" name="__codelineno-33-8" href="#__codelineno-33-8"></a>class delete SmokeHost
-<a id="__codelineno-33-9" name="__codelineno-33-9" href="#__codelineno-33-9"></a>collection delete cli-smoke
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>relation object delete --class-a SmokeHost --object-a smoke-1 --class-b SmokeService --object-b service-1
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>relation class delete --class-a SmokeHost --class-b SmokeService
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>object delete --class SmokeService --name service-1
+<a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a>object delete --class SmokeHost --name smoke-created
+<a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a>object delete --class SmokeHost --name smoke-2
+<a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>object delete --class SmokeHost --name smoke-1
+<a id="__codelineno-34-7" name="__codelineno-34-7" href="#__codelineno-34-7"></a>class delete SmokeService
+<a id="__codelineno-34-8" name="__codelineno-34-8" href="#__codelineno-34-8"></a>class delete SmokeHost
+<a id="__codelineno-34-9" name="__codelineno-34-9" href="#__codelineno-34-9"></a>collection delete cli-smoke
 </code></pre></div>
 <p>If a cleanup step fails because a resource was not created or was already
 removed, continue with the remaining cleanup commands.</p>
