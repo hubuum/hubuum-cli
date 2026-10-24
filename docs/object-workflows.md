@@ -60,7 +60,7 @@ Use `--max-depth` to narrow traversal when a graph is too large.
 
 ## Filter lists by related objects
 
-The development CLI can restrict `object list` to objects connected to matching
+CLI v0.0.20 can restrict `object list` to objects connected to matching
 objects in another class. Filtering happens on the server before pagination:
 
 ```sh

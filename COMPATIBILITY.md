@@ -2,9 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. The development CLI uses
-`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20. Released CLI
-v0.0.19 uses client 0.17.0 with the same server target.
+and reproducibly tests its Hubuum server target. CLI v0.0.20 uses
+`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -13,7 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
-| Unreleased | 0.19.0 | 0.0.20 | Validated SDK IDs and related-object list filters |
+| 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and query observation controls |
 | 0.0.18 | 0.16.0 | 0.0.20 | Rotating interactive sessions and backup format 10 |
 | 0.0.17 | 0.15.1 | 0.0.19 | Previous release; structured JSON command diagnostics |
@@ -34,12 +33,18 @@ against other server versions is not guaranteed.
 
 ## Before upgrading
 
-The development branch upgrades to client 0.19.0 and adds
+CLI v0.0.20 upgrades to client 0.19.0 and adds
 [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects).
 **Breaking validation:** zero and negative resource IDs are rejected locally;
 replace sentinel IDs in scripts or fixtures with positive resource IDs. The
 server target, backup formats, and session caches are unchanged. See the
-[upgrade verification](docs/compatibility-evidence.md#unreleased-client-v0190-and-related-object-lists).
+[upgrade verification](docs/compatibility-evidence.md#cli-v0020-client-v0190-and-related-object-lists).
+
+**Breaking pipeline and validation changes in v0.0.20:** review the
+[release migration notes](CHANGELOG.md#v0-0-20) for changed integer sums,
+array projection and grouping behavior, reserved DSL words, structured response
+selectors, and rejected combinations of command options. The notes include
+replacement syntax for scripts and adjustments for Rust library callers.
 
 CLI v0.0.19 targets server v0.0.20 through client 0.17.0. Upgrading from CLI
 v0.0.18 requires no server upgrade. When upgrading older installations, upgrade
@@ -81,6 +86,12 @@ aliased as `--debug`; the host now reserves this flag for command diagnostics.
 
 [Detailed evidence and historical migrations](docs/compatibility-evidence.md) retain tested
 image identities, dates, suite results, and earlier compatibility limits.
+
+## CLI v0.0.20: client v0.19.0
+
+See [CLI v0.0.20 evidence](docs/compatibility-evidence.md#cli-v0020-client-v0190-and-related-object-lists)
+for related-object filtering, SDK validation, and pinned live integration checks.
+The server target remains v0.0.20; backup and saved-session formats are unchanged.
 
 ## CLI v0.0.19: client v0.17.0
 

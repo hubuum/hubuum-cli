@@ -2,13 +2,17 @@
 
 ## [Unreleased]
 
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-20"></span>
+
+## [0.0.20] - 2026-10-24
+
 ### Added
 
 - Filter `object list` by related objects with repeatable `--related ALIAS=CLASS`
   or `--related-id ALIAS=ID`, `--related-depth ALIAS=DEPTH`, and
   `--related-where ALIAS.FIELD OP VALUE`. Support up to four groups, depth 1–10,
   ordinary pagination, computed output and sorting, pipelines, and REPL completion.
-
 - Add local typed string predicates `CONTAINS`, `ICONTAINS`, `STARTS_WITH`,
   `ENDS_WITH`, `IEQUALS`, and opt-in `FUZZY`, including negated forms. Existing
   regex filters retain their syntax and meaning.
@@ -62,7 +66,6 @@
   Computation revision zero remains valid. The server v0.0.20 target, pinned image,
   OpenAPI routes, blocking-only client features, MSRV declarations, backup formats,
   and saved-session formats are unchanged; no server or cache migration is needed.
-
 - **Breaking filter behavior:** integer-only sums now serialize as integers;
   consumers requiring floating-point values must convert them explicitly.
   Array exclusions in a single `P` stage use original indexes; use separate

@@ -4,20 +4,20 @@
 <span id="a-cli-for-hubuum"></span>
 
 Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI **v0.0.19** (2026-10-23) uses Rust client **0.17.0** and targets server
+CLI **v0.0.20** (2026-10-24) uses Rust client **0.19.0** and targets server
 **v0.0.20**. Hubuum is under active development before 1.0.
 
-This release restores persistent logins and adds
-[historical views](docs/history.md), credential activity, hydration, and query
-observation controls. The room wrapper now fetches placement and object data
-with a depth-two graph.
+This release adds [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects),
+typed text and relative-time pipeline predicates, and structured output across
+commands. Review the [migration notes](CHANGELOG.md#v0-0-20) for stricter
+input validation and changes to pipeline selectors and array handling.
 
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
 
 ## Release binaries
 
 Download and extract the archive for your platform from
-[release v0.0.19](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.19).
+[release v0.0.20](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.20).
 Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
 on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See [binary details](docs/updates.md).
@@ -34,10 +34,7 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-The development branch uses client **0.19.0** with the same server target and
-adds [related-object list filters](docs/object-workflows.md#filter-lists-by-related-objects).
-
-CLI v0.0.19 uses client **0.17.0** and targets server **v0.0.20**.
+CLI v0.0.20 uses client **0.19.0** and targets server **v0.0.20**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).
@@ -47,7 +44,7 @@ for memory-only use or opt into macOS Keychain/Linux Secret Service. The server
 target and backup format 10 are unchanged from v0.0.18. See
 [authentication migration](docs/authentication.md).
 **Breaking for wrapper-only upgrades:** upgrade `hubuum-room` together with
-CLI v0.0.19; the wrapper requires `relation object graph --data`.
+CLI v0.0.19 or newer; the wrapper requires `relation object graph --data`.
 
 ## Usage
 
