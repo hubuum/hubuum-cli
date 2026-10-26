@@ -1099,10 +1099,71 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#editing-colors-from-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Editing Colors From the CLI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-theme-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Custom Theme Files
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structural-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Structural Roles
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#value-classifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Value Classifiers
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Value Classifiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#values-inside-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Values Inside Lists
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tuning-classification-and-styles" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tuning Classification and Styles
       </span>
     </span>
   </a>
@@ -1825,10 +1886,71 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#editing-colors-from-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Editing Colors From the CLI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-theme-files" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         Custom Theme Files
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#structural-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Structural Roles
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#value-classifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Value Classifiers
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Value Classifiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#values-inside-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Values Inside Lists
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tuning-classification-and-styles" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tuning Classification and Styles
       </span>
     </span>
   </a>
@@ -1865,8 +1987,10 @@
 
 
 <h1 id="color-themes">Color Themes<a class="headerlink" href="#color-themes" title="Permanent link">&para;</a></h1>
-<p>Hubuum CLI colors are role based. A theme maps roles such as <code>heading</code>,
-<code>command</code>, <code>prompt</code>, and <code>table_band</code> to terminal colors.</p>
+<p>Hubuum CLI colors are role based. A theme maps structural roles such as <code>key</code>,
+<code>table_header</code>, <code>title</code>, <code>border</code>, and <code>message</code>, and classified field values,
+to terminal colors. Classification happens during text rendering, after pipeline
+transforms; JSON, JSONL, CSV, and TSV retain their original data without styling.</p>
 <p>Bundled public palettes are limited to MIT licensed, or clearly MIT-compatible,
 sources. The current bundled external palettes are:</p>
 <ul>
@@ -1982,7 +2106,8 @@ without obscuring semantic status.</p>
 <p>Preview a theme without changing config:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="go">hubuum-cli theme preview catppuccin-mocha</span>
 </code></pre></div>
-<p>The preview includes a dense table with alternating row bands. The selected
+<p>The preview includes structural roles, sample value classifications, and a dense
+table with alternating row bands. The selected
 theme's <code>table_band</code> role controls the shaded rows, independently of the active
 theme and the configured table style. Normal command output applies that role
 only to dense tables when <code>output.table_bands</code> is <code>auto</code> or <code>always</code>.</p>
@@ -1999,19 +2124,56 @@ theme.</p>
 <p>File redirects use the same color mode. <code>auto</code> treats files as non-terminals
 and strips ANSI styling, <code>never</code> also strips it, and <code>always</code> preserves styling
 codes in the file.</p>
+<h2 id="editing-colors-from-the-cli">Editing Colors From the CLI<a class="headerlink" href="#editing-colors-from-the-cli" title="Permanent link">&para;</a></h2>
+<p>Use <code>theme set ROLE</code> to change a structural role or value category in the active
+theme. Preview the proposed change, then run it without <code>--preview</code> to save:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="go">theme set url --fg teal --bg none --preview</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">theme set url --fg teal --bg none</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="go">theme set key --fg ansi:bright-cyan</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="go">theme set table_header --fg '#e879f9' --bg ansi256:235</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="go">theme set network --fg '#38bdf8'</span>
+</code></pre></div>
+<p><code>--preview</code> displays the proposed theme without writing configuration, changing
+the active theme, or syncing preferences. Add <code>--output json</code> to inspect the
+proposed theme and the edited role's effective style. Both previewing and saving
+work without a server connection. In an authenticated REPL, saving also follows
+the existing <code>settings.store_on_server</code> preference-sync setting.</p>
+<p>The role can also be supplied as <code>--role ROLE</code>. Role names are the lowercase
+names in the tables below, including <code>key</code>, <code>table_header</code>, <code>title</code>, <code>message</code>,
+<code>url</code>, <code>ipv4</code>, <code>cidr</code>, <code>mac</code>, and <code>null_like</code>. The shared <code>network</code> role controls
+IP addresses, CIDRs, and MAC addresses unless they have individual overrides.
+This command edits styles; classifier enablement and command prefixes remain
+custom theme file settings.</p>
+<p>Supply at least one of <code>--fg</code> or <code>--bg</code>. Colors accept <code>#rrggbb</code>, <code>ansi:&lt;name&gt;</code>,
+<code>ansi256:&lt;0-255&gt;</code>, bare ANSI names such as <code>cyan</code> or <code>bright-red</code>, and <code>teal</code>
+(<code>#008080</code>). For either option, <code>none</code> and <code>default</code> mean the terminal's default
+foreground or no background. They explicitly clear the channel; they do not
+restore inheritance. Omitted options preserve the existing channel, and edits
+preserve bold and dimmed effects.</p>
+<p>Overrides are saved in the normal CLI configuration under
+<code>output.theme_overrides.&lt;theme&gt;.&lt;role&gt;</code> and reloaded immediately. They apply to
+the named theme, so switching themes retains each theme's own edits. Bundled
+definitions and custom theme files are left intact. For example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">[output.theme_overrides.rose-pink.url]</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">fg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"#008080"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">bg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"default"</span>
+</code></pre></div>
+<p>Remove that role's table from the configuration to restore its theme-file or
+palette defaults. <code>config unset --key output.theme_overrides</code> removes all saved
+color overrides.</p>
 <h2 id="custom-theme-files">Custom Theme Files<a class="headerlink" href="#custom-theme-files" title="Permanent link">&para;</a></h2>
 <p>Set <code>output.theme_file</code> or pass <code>--theme-file</code> to load additional local themes.
 Custom theme files are TOML and may inherit from a built-in or another custom
 theme.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[[theme]]</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"night-ops"</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">display_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Night Ops"</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">inherits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"hubuum-dark"</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">[theme.roles]</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"#7ee787"</span><span class="w"> </span><span class="p">}</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">heading</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:cyan"</span><span class="p">,</span><span class="w"> </span><span class="n">bold</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">table_band</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">bg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi256:235"</span><span class="w"> </span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[[theme]]</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"night-ops"</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">display_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Night Ops"</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">inherits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"hubuum-dark"</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="k">[theme.roles]</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"#7ee787"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">heading</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:cyan"</span><span class="p">,</span><span class="w"> </span><span class="n">bold</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">table_band</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">bg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi256:235"</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 <p>Valid color forms are:</p>
 <ul>
@@ -2019,7 +2181,231 @@ theme.</p>
 <li><code>ansi:&lt;name&gt;</code>, such as <code>ansi:green</code> or <code>ansi:bright-cyan</code></li>
 <li><code>ansi256:&lt;0-255&gt;</code></li>
 </ul>
-<p>Custom theme names must use lowercase letters, numbers, and dashes.</p>
+<p>Custom theme names must use lowercase letters, numbers, and dashes.
+Role styles accept <code>fg</code>, <code>bg</code>, <code>bold</code>, and <code>dimmed</code>. Both effects default to false
+in explicit role overrides; for example, <code>null_like = { dimmed = true }</code> dims
+null and empty values using the terminal's normal foreground.</p>
+<h2 id="structural-roles">Structural Roles<a class="headerlink" href="#structural-roles" title="Permanent link">&para;</a></h2>
+<p>The renderer assigns these roles based on the element's purpose, independently
+of its text. A header named <code>true</code> remains a header; a message containing <code>42</code>
+remains a message.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Used for</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>key</code></td>
+<td>Detail field names, including nested keys</td>
+<td><code>heading</code></td>
+</tr>
+<tr>
+<td><code>table_header</code></td>
+<td>Table column headers</td>
+<td><code>heading</code></td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td>Help titles, section headings, preview titles</td>
+<td><code>heading</code></td>
+</tr>
+<tr>
+<td><code>border</code></td>
+<td>Table borders and dense-table separators</td>
+<td><code>muted</code></td>
+</tr>
+<tr>
+<td><code>message</code></td>
+<td>Semantic confirmation and empty-result messages</td>
+<td>Normal text</td>
+</tr>
+<tr>
+<td><code>table_band</code></td>
+<td>Alternating dense-table row backgrounds</td>
+<td>Palette background</td>
+</tr>
+<tr>
+<td><code>error</code>, <code>warning</code></td>
+<td>Error and warning messages</td>
+<td>Palette status colors</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>Interactive prompt</td>
+<td>Palette prompt color</td>
+</tr>
+<tr>
+<td><code>heading</code></td>
+<td>Shared default for keys, headers, and titles</td>
+<td>Palette heading color</td>
+</tr>
+<tr>
+<td><code>muted</code></td>
+<td>Explicit muted presentation and null-like defaults</td>
+<td>Palette muted color</td>
+</tr>
+</tbody>
+</table>
+<p>Existing theme files continue to work. Defaults follow overrides: changing
+<code>heading</code> updates keys, table headers, and titles unless those roles have explicit
+overrides. <code>theme show NAME</code> lists the effective style for every role and the
+classifier settings.</p>
+<h2 id="value-classifiers">Value Classifiers<a class="headerlink" href="#value-classifiers" title="Permanent link">&para;</a></h2>
+<p>There are twelve categories. Classification uses the entire trimmed scalar value;
+it does not highlight matching substrings within ordinary text. Boolean and
+null-like matching ignores ASCII case. Classification does not rewrite the value
+or change its semantic type.</p>
+<table>
+<thead>
+<tr>
+<th>Category / role</th>
+<th>Recognizes</th>
+<th>Default style</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>number</code></td>
+<td>Signed integers, decimals, scientific notation, e.g. <code>-42</code>, <code>.5</code>, <code>6.02e23</code></td>
+<td>Prompt foreground, without bold</td>
+</tr>
+<tr>
+<td><code>ipv4</code></td>
+<td>Valid IPv4 addresses, e.g. <code>192.168.0.1</code></td>
+<td><code>network</code></td>
+</tr>
+<tr>
+<td><code>ipv6</code></td>
+<td>Valid IPv6 addresses, e.g. <code>2001:db8::1</code></td>
+<td><code>network</code></td>
+</tr>
+<tr>
+<td><code>boolean_true</code></td>
+<td><code>true</code></td>
+<td><code>number</code></td>
+</tr>
+<tr>
+<td><code>boolean_false</code></td>
+<td><code>false</code></td>
+<td><code>number</code></td>
+</tr>
+<tr>
+<td><code>null_like</code></td>
+<td><code>null</code>, <code>none</code>, <code>nil</code>, <code>n/a</code></td>
+<td><code>muted</code> with terminal dimming</td>
+</tr>
+<tr>
+<td><code>command</code></td>
+<td>Configured command prefix followed by whitespace or end of text</td>
+<td>Palette command/success color</td>
+</tr>
+<tr>
+<td><code>cidr</code></td>
+<td>IPv4/prefix <code>0–32</code> or IPv6/prefix <code>0–128</code>, e.g. <code>192.168.0.1/24</code>, <code>2001:db8::/32</code></td>
+<td><code>network</code></td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>Valid <code>YYYY-MM-DD</code> dates, RFC3339 timestamps, and <code>YYYY-MM-DDTHH:MM:SS[.fraction]</code> timestamps without a timezone</td>
+<td><code>number</code></td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td>Absolute URLs with <code>://</code> and a host, plus <code>file:///</code> URLs</td>
+<td><code>command</code></td>
+</tr>
+<tr>
+<td><code>mac</code></td>
+<td>Six hexadecimal octets with colons/dashes, or three dotted groups of four digits</td>
+<td><code>network</code></td>
+</tr>
+<tr>
+<td>Ordinary / <code>value</code></td>
+<td>Everything else, including empty text</td>
+<td>Normal text; empty/whitespace values use <code>null_like</code> styling</td>
+</tr>
+</tbody>
+</table>
+<p>All bundled themes use their base accent for network values. The shared <code>network</code>
+role takes the theme's <code>command</code> foreground without bold, keeping IPv4, IPv6,
+networks in CIDR notation, and MAC addresses in the theme's color family. Override
+<code>network</code> to change them together, or override individual roles separately.</p>
+<p>Null-like, empty, and whitespace-only values default to muted coloring plus the
+terminal's dim effect in every theme. Empty text is still classified as ordinary;
+the renderer applies its null-like presentation afterward. Blank cells remain
+blank, without introducing placeholder text. Custom <code>null_like</code> overrides can
+set <code>dimmed</code> explicitly.</p>
+<p>Recognition order is booleans, null-like, numbers, IP addresses, CIDRs, dates,
+URLs, MAC addresses, then commands. The first match wins. CIDRs may include host
+bits. MAC examples are <code>00:1a:2b:3c:4d:5e</code>, <code>00-1a-2b-3c-4d-5e</code>, and
+<code>001a.2b3c.4d5e</code>. A twelve-digit string is a number, not a MAC address.</p>
+<p>There are no classifiers for hostnames or units such as <code>10 MB</code>. Ambiguous dates
+such as <code>01/02/2026</code>, bare URLs without a
+scheme, <code>mailto:</code> addresses, and malformed values remain ordinary text. Numbers
+use decimal syntax, excluding <code>NaN</code>, infinity, hexadecimal, and digit separators.
+Timezone-free timestamps such as <code>2020-07-30T11:46:02</code> use the date style without
+assuming or converting a timezone.
+Existing blank rendering of missing/null table and top-level detail cells is
+preserved; a visible <code>null</code> is classified as null-like.</p>
+<p><code>muted</code> is a presentation role applied after classification, not a value
+category. Each category can have its own style, including separate true/false
+styles. An empty style such as <code>ipv6 = {}</code> selects normal text for that category.
+Dense-table bands combine with value styles; an explicit value background takes
+precedence over the band background. Wrapping retains the original field's
+classification on every displayed line.</p>
+<h3 id="values-inside-lists">Values Inside Lists<a class="headerlink" href="#values-inside-lists" title="Permanent link">&para;</a></h3>
+<p>Inline JSON lists classify each scalar item individually, including scalar values
+in nested lists or objects. For example, both addresses in
+<code>["129.240.222.179","192.168.50.193"]</code> use the network color. This also applies to
+address, broadcast, netmask, and network lists in flattened facts.</p>
+<p>Brackets, commas, quotes, whitespace, and object keys stay neutral. The renderer
+preserves the original JSON text, including escaped strings and numeric notation;
+it decodes string contents only for classification. Category overrides and disabled
+classifiers apply to list items. Invalid JSON lists remain ordinary text.</p>
+<p>Detail fields, extracted values, and table cells share this behavior. Wrapped
+items retain their classification, and dense-table row bands remain intact.
+JSON, JSONL, CSV, and TSV output keeps the original values without added styling.</p>
+<h2 id="tuning-classification-and-styles">Tuning Classification and Styles<a class="headerlink" href="#tuning-classification-and-styles" title="Permanent link">&para;</a></h2>
+<p>Configure classifiers alongside role overrides in a custom theme:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">[[theme]]</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"network-ops"</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">inherits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"hubuum-dark"</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="k">[theme.roles]</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:cyan"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">table_header</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:cyan"</span><span class="p">,</span><span class="w"> </span><span class="n">bold</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:green"</span><span class="p">,</span><span class="w"> </span><span class="n">bold</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="n">border</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:bright-black"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">message</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:green"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="n">number</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:cyan"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="n">network</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:green"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="n">null_like</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:bright-black"</span><span class="p">,</span><span class="w"> </span><span class="n">dimmed</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="n">boolean_false</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:yellow"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="n">cidr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:magenta"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">fg</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"ansi:blue"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{}</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="k">[theme.classifiers]</span>
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="n">disabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"date"</span><span class="p">]</span>
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="n">command_prefixes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"hubuum-cli"</span><span class="p">,</span><span class="w"> </span><span class="s2">"osp"</span><span class="p">]</span>
+</code></pre></div>
+<p>By default all classifiers are enabled and the command prefix is <code>hubuum-cli</code>.
+Prefix matching is case-sensitive and requires whitespace or the end of the
+value after the prefix, so <code>hubuum-client</code> is ordinary text. Prefixes must be
+nonempty, trimmed, and free of control characters. An empty prefix list disables
+command recognition.</p>
+<p><code>disabled</code> accepts category names from the table (<code>ordinary</code> names the fallback
+category). A disabled category falls back to ordinary styling without trying
+another classifier. Unknown names, including <code>muted</code>, are rejected.</p>
+<p>Child themes inherit classifier settings when they omit <code>[theme.classifiers]</code>.
+Providing that table replaces the inherited settings; omitted fields then use
+their defaults. Role overrides inherit individually. Changing <code>number</code> updates
+numbers, booleans, and dates that still use its default style. Changing <code>network</code>
+updates IP addresses, CIDRs, and MACs that still use its default style.</p>
 
 
 

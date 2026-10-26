@@ -2615,8 +2615,14 @@ from the corresponding token list are suggested.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>theme list
 <a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>theme preview catppuccin-mocha
 <a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>theme use solarized-dark
-<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>config show | P key value | F output.theme
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>theme set url --fg teal --bg none --preview
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>theme set url --fg teal --bg none
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a>theme preview
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>config show | P key value | F output.theme
 </code></pre></div>
+<p>The first <code>theme set</code> previews teal URLs without saving; the second persists
+the change for Solarized Dark. Subsequent output and previews should use teal
+URLs, preserve other colors, and keep null-like values dimmed.</p>
 <p>Check output controls:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>object list --class Hosts --limit 5 --table-style dense --table-bands auto
 <a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>object list --class Hosts --limit 5 --table-width full --table-wrap 40
