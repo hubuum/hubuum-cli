@@ -1,3 +1,4 @@
+use hubuum_theme::{RoleStyleOverride, ThemeRole};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
@@ -11,6 +12,8 @@ use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, SessionStorage,
     TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
 };
+
+pub type ThemeOverrides = BTreeMap<String, BTreeMap<ThemeRole, RoleStyleOverride>>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigState {
@@ -146,6 +149,8 @@ pub struct UserOutputPreferences {
     pub format: OutputFormat,
     pub color: OutputColor,
     pub theme: String,
+    #[serde(default)]
+    pub theme_overrides: ThemeOverrides,
     pub padding: i8,
     pub table_style: TableStyle,
     #[serde(default)]
@@ -175,6 +180,7 @@ impl UserPreferences {
                 format: config.output.format.clone(),
                 color: config.output.color,
                 theme: config.output.theme.clone(),
+                theme_overrides: config.output.theme_overrides.clone(),
                 padding: config.output.padding,
                 table_style: config.output.table_style.clone(),
                 table_headers: config.output.table_headers,
@@ -246,6 +252,8 @@ pub struct OutputConfig {
     pub color: OutputColor,
     pub theme: String,
     pub theme_file: String,
+    #[serde(default)]
+    pub theme_overrides: ThemeOverrides,
     pub padding: i8,
     pub table_style: TableStyle,
     pub table_headers: TableHeaders,
@@ -307,6 +315,7 @@ impl Default for AppConfig {
                 color: Defaults::OUTPUT_COLOR,
                 theme: Defaults::OUTPUT_THEME.to_string(),
                 theme_file: Defaults::OUTPUT_THEME_FILE.to_string(),
+                theme_overrides: ThemeOverrides::new(),
                 padding: Defaults::OUTPUT_PADDING,
                 table_style: Defaults::OUTPUT_TABLE_STYLE,
                 table_headers: Defaults::OUTPUT_TABLE_HEADERS,

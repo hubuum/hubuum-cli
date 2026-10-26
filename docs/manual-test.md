@@ -525,8 +525,15 @@ Check runtime ergonomics:
 theme list
 theme preview catppuccin-mocha
 theme use solarized-dark
+theme set url --fg teal --bg none --preview
+theme set url --fg teal --bg none
+theme preview
 config show | P key value | F output.theme
 ```
+
+The first `theme set` previews teal URLs without saving; the second persists
+the change for Solarized Dark. Subsequent output and previews should use teal
+URLs, preserve other colors, and keep null-like values dimmed.
 
 Check output controls:
 

@@ -4,6 +4,11 @@
 
 ### Added
 
+- Add `theme set ROLE --fg COLOR --bg COLOR` for per-theme structural and
+  classifier color overrides, saved in CLI configuration and reloaded immediately.
+  `none`/`default` clear the selected color channel while omitted options preserve
+  it; bold and dimmed effects remain intact. `--preview` shows the proposed theme
+  without saving or activating it. Both preview and local saving work offline.
 - Theme detail keys, table headers, titles, borders, and messages independently.
   Classify text field values as numbers, IPv4, IPv6, true, false, null-like,
   commands, CIDRs, ISO dates/RFC3339 timestamps, URLs, MAC addresses, or ordinary

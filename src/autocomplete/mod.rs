@@ -40,7 +40,7 @@ pub use shared::{
     export_content_types, file_paths, object_data_columns, output_formats, principal_kinds,
     query_usage_operations, query_usage_types, remote_auth_types, remote_http_methods,
     remote_subject_kinds, remote_subject_types, search_kinds, task_kinds, task_statuses,
-    theme_names,
+    theme_colors, theme_names, theme_roles,
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{

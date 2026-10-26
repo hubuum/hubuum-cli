@@ -91,6 +91,54 @@ File redirects use the same color mode. `auto` treats files as non-terminals
 and strips ANSI styling, `never` also strips it, and `always` preserves styling
 codes in the file.
 
+## Editing Colors From the CLI
+
+Use `theme set ROLE` to change a structural role or value category in the active
+theme. Preview the proposed change, then run it without `--preview` to save:
+
+```console
+theme set url --fg teal --bg none --preview
+theme set url --fg teal --bg none
+theme set key --fg ansi:bright-cyan
+theme set table_header --fg '#e879f9' --bg ansi256:235
+theme set network --fg '#38bdf8'
+```
+
+`--preview` displays the proposed theme without writing configuration, changing
+the active theme, or syncing preferences. Add `--output json` to inspect the
+proposed theme and the edited role's effective style. Both previewing and saving
+work without a server connection. In an authenticated REPL, saving also follows
+the existing `settings.store_on_server` preference-sync setting.
+
+The role can also be supplied as `--role ROLE`. Role names are the lowercase
+names in the tables below, including `key`, `table_header`, `title`, `message`,
+`url`, `ipv4`, `cidr`, `mac`, and `null_like`. The shared `network` role controls
+IP addresses, CIDRs, and MAC addresses unless they have individual overrides.
+This command edits styles; classifier enablement and command prefixes remain
+custom theme file settings.
+
+Supply at least one of `--fg` or `--bg`. Colors accept `#rrggbb`, `ansi:<name>`,
+`ansi256:<0-255>`, bare ANSI names such as `cyan` or `bright-red`, and `teal`
+(`#008080`). For either option, `none` and `default` mean the terminal's default
+foreground or no background. They explicitly clear the channel; they do not
+restore inheritance. Omitted options preserve the existing channel, and edits
+preserve bold and dimmed effects.
+
+Overrides are saved in the normal CLI configuration under
+`output.theme_overrides.<theme>.<role>` and reloaded immediately. They apply to
+the named theme, so switching themes retains each theme's own edits. Bundled
+definitions and custom theme files are left intact. For example:
+
+```toml
+[output.theme_overrides.rose-pink.url]
+fg = "#008080"
+bg = "default"
+```
+
+Remove that role's table from the configuration to restore its theme-file or
+palette defaults. `config unset --key output.theme_overrides` removes all saved
+color overrides.
+
 ## Custom Theme Files
 
 Set `output.theme_file` or pass `--theme-file` to load additional local themes.

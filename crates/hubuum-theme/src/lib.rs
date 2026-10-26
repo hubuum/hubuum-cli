@@ -12,6 +12,8 @@ use toml::from_str as parse_toml;
 
 mod classify;
 pub use classify::{ValueCategory, ValueClassifier};
+mod overrides;
+pub use overrides::{ColorOverride, RoleStyleOverride};
 
 pub const DEFAULT_THEME: &str = "hubuum-dark";
 
@@ -45,6 +47,35 @@ pub enum ThemeRole {
 }
 
 impl ThemeRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Muted => "muted",
+            Self::Prompt => "prompt",
+            Self::Heading => "heading",
+            Self::Command => "command",
+            Self::TableBand => "table_band",
+            Self::Key => "key",
+            Self::TableHeader => "table_header",
+            Self::Title => "title",
+            Self::Border => "border",
+            Self::Message => "message",
+            Self::Number => "number",
+            Self::Network => "network",
+            Self::Ipv4 => "ipv4",
+            Self::Ipv6 => "ipv6",
+            Self::BooleanTrue => "boolean_true",
+            Self::BooleanFalse => "boolean_false",
+            Self::NullLike => "null_like",
+            Self::Cidr => "cidr",
+            Self::Date => "date",
+            Self::Url => "url",
+            Self::Mac => "mac",
+            Self::Value => "value",
+        }
+    }
+
     pub const ALL: [ThemeRole; 24] = [
         ThemeRole::Error,
         ThemeRole::Warning,
@@ -84,6 +115,28 @@ impl ThemeRole {
     }
 }
 
+impl Display for ThemeRole {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ThemeRole {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|role| role.as_str() == value)
+            .ok_or_else(|| {
+                format!(
+                    "Unknown theme role '{value}'. Use one of: {}",
+                    Self::ALL.map(Self::as_str).join(", ")
+                )
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Theme {
     pub name: String,
@@ -95,6 +148,16 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// Apply only the supplied color channels, preserving effects and other colors.
+    pub fn apply_role_overrides(&mut self, overrides: &BTreeMap<ThemeRole, RoleStyleOverride>) {
+        // Parents precede roles that inherit their styles, regardless of map ordering.
+        for role in ThemeRole::ALL {
+            if let Some(patch) = overrides.get(&role) {
+                self.roles.insert(role, patch.apply(self.role_style(role)));
+            }
+        }
+    }
+
     pub fn style(&self, role: ThemeRole) -> Style {
         self.role_style(role).into_style()
     }
@@ -278,6 +341,10 @@ impl ThemeCatalog {
 
     pub fn get(&self, name: &str) -> Option<&Theme> {
         self.themes.get(name)
+    }
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Theme> {
+        self.themes.get_mut(name)
     }
 }
 
