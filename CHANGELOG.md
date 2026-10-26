@@ -9,6 +9,9 @@
   commands, CIDRs, ISO dates/RFC3339 timestamps, URLs, MAC addresses, or ordinary
   text. Custom themes can override category styles, disable classifiers, and
   configure command prefixes (default: `hubuum-cli`). Muted remains a style.
+- Dim null-like and empty/whitespace values in every bundled theme. Default IP,
+  CIDR/network, and MAC colors to each theme's base accent through the shared
+  `network` role. Custom role styles support `dimmed`; blank cells remain blank.
 - Show structural roles and classified sample values in `theme preview`, and
   effective inherited role styles in `theme show`. Existing theme files retain
   compatible defaults; machine-readable output and color-disabled text remain
@@ -19,9 +22,12 @@
 ### Changed
 
 - **Breaking (Rust theme API only):** `Theme` now owns private classifier
-  settings and `ThemeRole` has new variants. Downstream Rust callers must use
+  settings, `ThemeRole` has new variants, and `RoleStyle` has a `dimmed` field.
+  Downstream Rust callers must use
   `resolve_theme` or `catalog` instead of struct literals and update exhaustive
   role matches. Use `role_style` for effective styles, including fallback roles.
+  Construct styles with `RoleStyle::new(...).with_dimmed(...)` or add `dimmed`
+  to existing style literals.
   CLI configuration and existing theme files require no migration.
 - Reduce `class fields` (and its `object fields` alias) requests by resolving the
   class once and skipping unused collection labels. Move sampled data and

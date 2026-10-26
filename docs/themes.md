@@ -116,6 +116,9 @@ Valid color forms are:
 - `ansi256:<0-255>`
 
 Custom theme names must use lowercase letters, numbers, and dashes.
+Role styles accept `fg`, `bg`, `bold`, and `dimmed`. Both effects default to false
+in explicit role overrides; for example, `null_like = { dimmed = true }` dims
+null and empty values using the terminal's normal foreground.
 
 ## Structural Roles
 
@@ -150,17 +153,28 @@ ASCII case. Classification does not rewrite the value or change its semantic typ
 | Category / role | Recognizes | Default style |
 | --- | --- | --- |
 | `number` | Signed integers, decimals, scientific notation, e.g. `-42`, `.5`, `6.02e23` | Prompt foreground, without bold |
-| `ipv4` | Valid IPv4 addresses, e.g. `192.168.0.1` | `number` |
-| `ipv6` | Valid IPv6 addresses, e.g. `2001:db8::1` | `number` |
+| `ipv4` | Valid IPv4 addresses, e.g. `192.168.0.1` | `network` |
+| `ipv6` | Valid IPv6 addresses, e.g. `2001:db8::1` | `network` |
 | `boolean_true` | `true` | `number` |
 | `boolean_false` | `false` | `number` |
-| `null_like` | `null`, `none`, `nil`, `n/a` | `muted` |
+| `null_like` | `null`, `none`, `nil`, `n/a` | `muted` with terminal dimming |
 | `command` | Configured command prefix followed by whitespace or end of text | Palette command/success color |
-| `cidr` | IPv4/prefix `0–32` or IPv6/prefix `0–128`, e.g. `192.168.0.1/24`, `2001:db8::/32` | `number` |
+| `cidr` | IPv4/prefix `0–32` or IPv6/prefix `0–128`, e.g. `192.168.0.1/24`, `2001:db8::/32` | `network` |
 | `date` | Valid `YYYY-MM-DD` dates and RFC3339 timestamps with a timezone | `number` |
 | `url` | Absolute URLs with `://` and a host, plus `file:///` URLs | `command` |
-| `mac` | Six hexadecimal octets with colons/dashes, or three dotted groups of four digits | `number` |
-| Ordinary / `value` | Everything else, including empty text | Normal text |
+| `mac` | Six hexadecimal octets with colons/dashes, or three dotted groups of four digits | `network` |
+| Ordinary / `value` | Everything else, including empty text | Normal text; empty/whitespace values use `null_like` styling |
+
+All bundled themes use their base accent for network values. The shared `network`
+role takes the theme's `command` foreground without bold, keeping IPv4, IPv6,
+networks in CIDR notation, and MAC addresses in the theme's color family. Override
+`network` to change them together, or override individual roles separately.
+
+Null-like, empty, and whitespace-only values default to muted coloring plus the
+terminal's dim effect in every theme. Empty text is still classified as ordinary;
+the renderer applies its null-like presentation afterward. Blank cells remain
+blank, without introducing placeholder text. Custom `null_like` overrides can
+set `dimmed` explicitly.
 
 Recognition order is booleans, null-like, numbers, IP addresses, CIDRs, dates,
 URLs, MAC addresses, then commands. The first match wins. CIDRs may include host
@@ -197,6 +211,8 @@ title = { fg = "ansi:green", bold = true }
 border = { fg = "ansi:bright-black" }
 message = { fg = "ansi:green" }
 number = { fg = "ansi:cyan" }
+network = { fg = "ansi:green" }
+null_like = { fg = "ansi:bright-black", dimmed = true }
 boolean_false = { fg = "ansi:yellow" }
 cidr = { fg = "ansi:magenta" }
 url = { fg = "ansi:blue" }
@@ -219,5 +235,6 @@ another classifier. Unknown names, including `muted`, are rejected.
 
 Child themes inherit classifier settings when they omit `[theme.classifiers]`.
 Providing that table replaces the inherited settings; omitted fields then use
-their defaults. Role overrides inherit individually, and changing `number`
-updates all categories that still use its default style.
+their defaults. Role overrides inherit individually. Changing `number` updates
+numbers, booleans, and dates that still use its default style. Changing `network`
+updates IP addresses, CIDRs, and MACs that still use its default style.

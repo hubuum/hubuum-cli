@@ -31,6 +31,7 @@ pub enum ThemeRole {
     Border,
     Message,
     Number,
+    Network,
     Ipv4,
     Ipv6,
     BooleanTrue,
@@ -44,7 +45,7 @@ pub enum ThemeRole {
 }
 
 impl ThemeRole {
-    pub const ALL: [ThemeRole; 23] = [
+    pub const ALL: [ThemeRole; 24] = [
         ThemeRole::Error,
         ThemeRole::Warning,
         ThemeRole::Muted,
@@ -58,6 +59,7 @@ impl ThemeRole {
         ThemeRole::Border,
         ThemeRole::Message,
         ThemeRole::Number,
+        ThemeRole::Network,
         ThemeRole::Ipv4,
         ThemeRole::Ipv6,
         ThemeRole::BooleanTrue,
@@ -73,14 +75,9 @@ impl ThemeRole {
     fn fallback(self) -> Option<Self> {
         match self {
             Self::Key | Self::TableHeader | Self::Title => Some(Self::Heading),
-            Self::Border | Self::NullLike => Some(Self::Muted),
-            Self::Ipv4
-            | Self::Ipv6
-            | Self::BooleanTrue
-            | Self::BooleanFalse
-            | Self::Cidr
-            | Self::Date
-            | Self::Mac => Some(Self::Number),
+            Self::Border => Some(Self::Muted),
+            Self::Ipv4 | Self::Ipv6 | Self::Cidr | Self::Mac => Some(Self::Network),
+            Self::BooleanTrue | Self::BooleanFalse | Self::Date => Some(Self::Number),
             Self::Url => Some(Self::Command),
             _ => None,
         }
@@ -110,10 +107,14 @@ impl Theme {
         if let Some(fallback) = role.fallback() {
             return self.role_style(fallback);
         }
-        if role == ThemeRole::Number {
-            return RoleStyle::new(self.role_style(ThemeRole::Prompt).fg, None, false);
+        match role {
+            ThemeRole::Number => RoleStyle::new(self.role_style(ThemeRole::Prompt).fg, None, false),
+            ThemeRole::Network => {
+                RoleStyle::new(self.role_style(ThemeRole::Command).fg, None, false)
+            }
+            ThemeRole::NullLike => self.role_style(ThemeRole::Muted).with_dimmed(true),
+            _ => RoleStyle::default(),
         }
-        RoleStyle::default()
     }
 
     pub fn classify(&self, text: &str) -> ValueCategory {
@@ -125,7 +126,13 @@ impl Theme {
     }
 
     pub fn value_style(&self, text: &str) -> Style {
-        self.style(self.classify(text).role())
+        // Empty text remains an ordinary value; muting is a presentation decision.
+        let role = if text.trim().is_empty() {
+            ThemeRole::NullLike
+        } else {
+            self.classify(text).role()
+        };
+        self.style(role)
     }
 }
 
@@ -143,11 +150,23 @@ pub struct RoleStyle {
     pub bg: Option<ColorSpec>,
     #[serde(default)]
     pub bold: bool,
+    #[serde(default)]
+    pub dimmed: bool,
 }
 
 impl RoleStyle {
     pub const fn new(fg: Option<ColorSpec>, bg: Option<ColorSpec>, bold: bool) -> Self {
-        Self { fg, bg, bold }
+        Self {
+            fg,
+            bg,
+            bold,
+            dimmed: false,
+        }
+    }
+
+    pub const fn with_dimmed(mut self, dimmed: bool) -> Self {
+        self.dimmed = dimmed;
+        self
     }
 
     pub fn into_style(self) -> Style {
@@ -156,6 +175,9 @@ impl RoleStyle {
             .bg_color(self.bg.map(ColorSpec::into_color));
         if self.bold {
             style = style.bold();
+        }
+        if self.dimmed {
+            style = style.dimmed();
         }
         style
     }
@@ -503,7 +525,11 @@ fn validate_theme(theme: &Theme) -> Result<(), ThemeError> {
             && role.fallback().is_none()
             && !matches!(
                 role,
-                ThemeRole::Number | ThemeRole::Message | ThemeRole::Value
+                ThemeRole::Number
+                    | ThemeRole::Network
+                    | ThemeRole::NullLike
+                    | ThemeRole::Message
+                    | ThemeRole::Value
             )
         {
             return Err(ThemeError::MissingRole {
@@ -1121,6 +1147,7 @@ mod tests {
             [theme.roles]
             heading = { fg = "ansi:magenta", bold = true }
             number = { fg = "ansi:blue" }
+            network = { fg = "ansi:blue" }
             boolean_false = { fg = "ansi:red" }
             [theme.classifiers]
             disabled = ["date"]
@@ -1131,6 +1158,7 @@ mod tests {
             inherits = "parent"
             [theme.roles]
             number = { fg = "ansi:cyan" }
+            network = { fg = "ansi:cyan" }
             ipv6 = {}
         "#,
         )
@@ -1155,12 +1183,71 @@ mod tests {
         assert_eq!(theme.classify("hubuum-cli list"), ValueCategory::Ordinary);
         assert_eq!(
             theme.style(ThemeRole::NullLike),
-            theme.style(ThemeRole::Muted)
+            theme.style(ThemeRole::Muted).dimmed()
         );
         assert_eq!(paint(theme, ThemeRole::Value, "  hello  "), "  hello  ");
         assert_eq!(
             paint_style(theme.value_style("  42  "), "  42  "),
             "\x1b[36m  42  \x1b[0m"
+        );
+    }
+
+    #[test]
+    fn every_palette_dims_empty_values_and_uses_its_base_color_for_networks() {
+        use anstyle::Effects;
+
+        for theme in builtin_themes() {
+            let muted = theme.style(ThemeRole::Muted).dimmed();
+            for text in ["", " \t\n", "null", "NONE", "Nil", "N/A"] {
+                assert_eq!(theme.value_style(text), muted, "{}: {text:?}", theme.name);
+            }
+            assert_eq!(theme.classify(""), ValueCategory::Ordinary);
+            assert_eq!(theme.value_style("ordinary text"), Style::new());
+            let base = theme.style(ThemeRole::Command).get_fg_color();
+            assert!(base.is_some(), "{}", theme.name);
+            for text in [
+                "192.168.0.1",
+                "2001:db8::1",
+                "192.168.0.0/24",
+                "2001:db8::/32",
+                "00:1a:2b:3c:4d:5e",
+                "001a.2b3c.4d5e",
+            ] {
+                let style = theme.value_style(text);
+                assert_eq!(style.get_fg_color(), base, "{}: {text}", theme.name);
+                assert!(
+                    !style.get_effects().contains(Effects::DIMMED),
+                    "{}: {text}",
+                    theme.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn network_base_and_dimmed_overrides_remain_tunable() {
+        let mut theme = resolve_theme(DEFAULT_THEME, None).unwrap();
+        theme
+            .roles
+            .insert(ThemeRole::Command, role_ansi(AnsiColor::Magenta, true));
+        theme
+            .roles
+            .insert(ThemeRole::Number, role_ansi(AnsiColor::Blue, false));
+        assert_eq!(
+            theme.role_style(ThemeRole::Ipv4),
+            role_ansi(AnsiColor::Magenta, false)
+        );
+        assert_eq!(
+            theme.role_style(ThemeRole::Cidr),
+            role_ansi(AnsiColor::Magenta, false)
+        );
+        let style: RoleStyle = parse_toml("fg = 'ansi:red'\ndimmed = true").unwrap();
+        theme.roles.insert(ThemeRole::NullLike, style);
+        assert_eq!(theme.value_style("null"), style.into_style());
+        assert_eq!(theme.value_style("  "), style.into_style());
+        assert_eq!(
+            style.with_dimmed(false).into_style(),
+            Style::new().fg_color(Some(AnsiColor::Red.into()))
         );
     }
 

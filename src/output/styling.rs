@@ -53,13 +53,20 @@ impl OutputStyling {
         }
         // Native cell styles are applied after comfy-table measures and wraps text.
         // Explicit resets keep the surrounding border style out of ordinary cells.
-        cell.fg(table_color(style.get_fg_color()))
-            .bg(table_color(style.get_bg_color()))
-            .add_attribute(if style.get_effects().contains(Effects::BOLD) {
-                Attribute::Bold
-            } else {
-                Attribute::NormalIntensity
-            })
+        let mut cell = cell
+            .fg(table_color(style.get_fg_color()))
+            .bg(table_color(style.get_bg_color()));
+        let effects = style.get_effects();
+        if effects.contains(Effects::BOLD) {
+            cell = cell.add_attribute(Attribute::Bold);
+        }
+        if effects.contains(Effects::DIMMED) {
+            cell = cell.add_attribute(Attribute::Dim);
+        }
+        if effects == Effects::default() {
+            cell = cell.add_attribute(Attribute::NormalIntensity);
+        }
+        cell
     }
 
     pub(super) fn table(&self, table: &mut Table) -> String {
@@ -70,6 +77,16 @@ impl OutputStyling {
             table.enforce_styling();
         }
         let text = table.to_string();
+        // Every native styled cell starts with its background color. Reset border
+        // intensity there, before the cell's own bold/dim attributes are emitted.
+        // NormalIntensity cannot be combined with those attributes on Cell: the
+        // backend emits it last, which would cancel the requested effects.
+        let text = if self.theme.is_some() {
+            text.replace("\x1b[49m", "\x1b[22m\x1b[49m")
+                .replace("\x1b[48;", "\x1b[22m\x1b[48;")
+        } else {
+            text
+        };
         let border = self.style(ThemeRole::Border);
         // Cell resets restore the surrounding border, including vertical separators.
         // This styles structure without interpreting border-like characters in data.
@@ -88,5 +105,38 @@ fn table_color(color: Option<AnsiStyleColor>) -> Color {
             g: color.1,
             b: color.2,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anstyle::AnsiColor;
+    use hubuum_theme::{resolve_theme, ColorSpec, RoleStyle};
+
+    use super::*;
+
+    #[test]
+    fn dimmed_cells_reset_border_intensity_before_applying_their_own_effects() {
+        let mut theme = resolve_theme("hubuum-dark", None).unwrap();
+        theme.roles.insert(
+            ThemeRole::Border,
+            RoleStyle::new(Some(ColorSpec::ansi(AnsiColor::Red)), None, true).with_dimmed(true),
+        );
+        let styling = OutputStyling::preview(&theme);
+        let mut table = Table::new();
+        table.add_row([
+            styling.cell("null", styling.value_style("null")),
+            styling.cell("ordinary", styling.value_style("ordinary")),
+        ]);
+        let text = styling.table(&mut table);
+        // Clear inherited bold/dim before applying cell colors and the null's dim.
+        assert!(
+            text.contains("\x1b[22m\x1b[49m\x1b[38;5;8m\x1b[2m"),
+            "{text:?}"
+        );
+        assert!(
+            text.contains("\x1b[22m\x1b[49m\x1b[39m\x1b[22m"),
+            "{text:?}"
+        );
     }
 }

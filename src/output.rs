@@ -1441,6 +1441,7 @@ mod tests {
             json!({"data.sample.value": "12345678901234567890", "other": "ordinary | text"}),
             json!({"data.sample.value": "2001:db8::1", "other": "false"}),
             json!({"data.sample.value": "2024-02-29", "other": "null"}),
+            json!({"data.sample.value": null, "other": ""}),
         ];
         let envelope = OutputEnvelope::rows(rows, vec!["data.sample.value".into(), "other".into()]);
         for style in [
@@ -1471,6 +1472,41 @@ mod tests {
             let plain = take_output().unwrap().render();
             assert!(!plain.contains('\x1b'), "{style}");
             assert_eq!(without_ansi(&colored), plain, "{style}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn all_themes_render_null_and_empty_cells_dimmed_in_dense_and_bordered_tables() {
+        use hubuum_theme::theme_names;
+
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"value": null}),
+                json!({"value": ""}),
+                json!({"value": "  "}),
+                json!({"value": "NULL"}),
+                json!({"value": "ordinary"}),
+            ],
+            vec!["value".into()],
+        );
+        for name in theme_names() {
+            for style in [TableStyle::Dense, TableStyle::Rounded] {
+                let mut config = AppConfig::default();
+                config.output.theme = name.clone();
+                config.output.color = OutputColor::Always;
+                config.output.table_style = style.clone();
+                config.output.table_bands = TableBands::Never;
+                init_config(config).unwrap();
+                let rendered = super::render_rows_text(&envelope, TableHeaders::None)
+                    .unwrap()
+                    .join("\n");
+                assert_eq!(
+                    rendered.matches("\x1b[2m").count(),
+                    4,
+                    "{name} {style}: {rendered:?}"
+                );
+            }
         }
     }
 

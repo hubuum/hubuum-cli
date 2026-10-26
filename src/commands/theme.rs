@@ -324,6 +324,7 @@ fn render_theme_detail(name: &str) -> Result<(), AppError> {
                 "foreground": style.fg.map(|color| color.to_string()).unwrap_or_default(),
                 "background": style.bg.map(|color| color.to_string()).unwrap_or_default(),
                 "bold": style.bold,
+                "dimmed": style.dimmed,
             })
         })
         .collect::<Vec<_>>();
