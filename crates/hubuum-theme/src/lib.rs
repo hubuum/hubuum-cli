@@ -10,6 +10,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 use toml::from_str as parse_toml;
 
+mod classify;
+pub use classify::{ValueCategory, ValueClassifier};
+
 pub const DEFAULT_THEME: &str = "hubuum-dark";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -22,10 +25,26 @@ pub enum ThemeRole {
     Heading,
     Command,
     TableBand,
+    Key,
+    TableHeader,
+    Title,
+    Border,
+    Message,
+    Number,
+    Ipv4,
+    Ipv6,
+    BooleanTrue,
+    BooleanFalse,
+    NullLike,
+    Cidr,
+    Date,
+    Url,
+    Mac,
+    Value,
 }
 
 impl ThemeRole {
-    pub const ALL: [ThemeRole; 7] = [
+    pub const ALL: [ThemeRole; 23] = [
         ThemeRole::Error,
         ThemeRole::Warning,
         ThemeRole::Muted,
@@ -33,7 +52,39 @@ impl ThemeRole {
         ThemeRole::Heading,
         ThemeRole::Command,
         ThemeRole::TableBand,
+        ThemeRole::Key,
+        ThemeRole::TableHeader,
+        ThemeRole::Title,
+        ThemeRole::Border,
+        ThemeRole::Message,
+        ThemeRole::Number,
+        ThemeRole::Ipv4,
+        ThemeRole::Ipv6,
+        ThemeRole::BooleanTrue,
+        ThemeRole::BooleanFalse,
+        ThemeRole::NullLike,
+        ThemeRole::Cidr,
+        ThemeRole::Date,
+        ThemeRole::Url,
+        ThemeRole::Mac,
+        ThemeRole::Value,
     ];
+
+    fn fallback(self) -> Option<Self> {
+        match self {
+            Self::Key | Self::TableHeader | Self::Title => Some(Self::Heading),
+            Self::Border | Self::NullLike => Some(Self::Muted),
+            Self::Ipv4
+            | Self::Ipv6
+            | Self::BooleanTrue
+            | Self::BooleanFalse
+            | Self::Cidr
+            | Self::Date
+            | Self::Mac => Some(Self::Number),
+            Self::Url => Some(Self::Command),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,15 +93,39 @@ pub struct Theme {
     pub display_name: String,
     pub license: ThemeLicense,
     pub roles: BTreeMap<ThemeRole, RoleStyle>,
+    #[serde(default)]
+    classifiers: ValueClassifier,
 }
 
 impl Theme {
     pub fn style(&self, role: ThemeRole) -> Style {
-        self.roles
-            .get(&role)
-            .copied()
-            .unwrap_or_default()
-            .into_style()
+        self.role_style(role).into_style()
+    }
+
+    /// Resolve explicit overrides before palette-relative defaults.
+    pub fn role_style(&self, role: ThemeRole) -> RoleStyle {
+        if let Some(style) = self.roles.get(&role) {
+            return *style;
+        }
+        if let Some(fallback) = role.fallback() {
+            return self.role_style(fallback);
+        }
+        if role == ThemeRole::Number {
+            return RoleStyle::new(self.role_style(ThemeRole::Prompt).fg, None, false);
+        }
+        RoleStyle::default()
+    }
+
+    pub fn classify(&self, text: &str) -> ValueCategory {
+        self.classifiers.classify(text)
+    }
+
+    pub fn classifiers(&self) -> &ValueClassifier {
+        &self.classifiers
+    }
+
+    pub fn value_style(&self, text: &str) -> Style {
+        self.style(self.classify(text).role())
     }
 }
 
@@ -207,7 +282,13 @@ pub enum ThemeError {
 }
 
 pub fn paint(theme: &Theme, role: ThemeRole, text: impl AsRef<str>) -> String {
-    let style = theme.style(role);
+    paint_style(theme.style(role), text)
+}
+
+pub fn paint_style(style: Style, text: impl AsRef<str>) -> String {
+    if style == Style::new() || text.as_ref().is_empty() {
+        return text.as_ref().to_string();
+    }
     format!(
         "{}{}{}",
         style.render(),
@@ -324,6 +405,8 @@ struct ThemeDefinition {
     inherits: Option<String>,
     #[serde(default)]
     roles: BTreeMap<ThemeRole, RoleStyle>,
+    #[serde(default)]
+    classifiers: Option<ValueClassifier>,
 }
 
 fn build_custom_themes(
@@ -378,16 +461,17 @@ fn build_custom_theme(
         .as_deref()
         .unwrap_or(DEFAULT_THEME)
         .to_string();
-    let mut roles = if let Some(theme) = builtin_base.get(&base_name) {
-        theme.roles.clone()
+    let base = if let Some(theme) = builtin_base.get(&base_name) {
+        theme.clone()
     } else if definitions.contains_key(&base_name) {
-        build_custom_theme(&base_name, definitions, builtin_base, built, stack)?.roles
+        build_custom_theme(&base_name, definitions, builtin_base, built, stack)?
     } else {
         return Err(ThemeError::UnknownBaseTheme {
             theme: name.to_string(),
             base: base_name,
         });
     };
+    let mut roles = base.roles;
 
     for (role, style) in &definition.roles {
         roles.insert(*role, *style);
@@ -404,6 +488,7 @@ fn build_custom_theme(
             source: None,
         },
         roles,
+        classifiers: definition.classifiers.clone().unwrap_or(base.classifiers),
     };
     validate_theme(&theme)?;
     built.insert(theme.name.clone(), theme.clone());
@@ -414,7 +499,13 @@ fn build_custom_theme(
 fn validate_theme(theme: &Theme) -> Result<(), ThemeError> {
     validate_theme_name(&theme.name)?;
     for role in ThemeRole::ALL {
-        if !theme.roles.contains_key(&role) {
+        if !theme.roles.contains_key(&role)
+            && role.fallback().is_none()
+            && !matches!(
+                role,
+                ThemeRole::Number | ThemeRole::Message | ThemeRole::Value
+            )
+        {
             return Err(ThemeError::MissingRole {
                 theme: theme.name.clone(),
                 role,
@@ -447,6 +538,7 @@ fn theme(
         display_name: display_name.to_string(),
         license,
         roles,
+        classifiers: ValueClassifier::default(),
     };
     validate_theme(&theme).expect("built-in theme should be complete");
     theme
@@ -888,12 +980,16 @@ mod tests {
     #[test]
     fn builtins_define_every_role() {
         for theme in builtin_themes() {
+            validate_theme(&theme).unwrap();
             for role in ThemeRole::ALL {
-                assert!(
-                    theme.roles.contains_key(&role),
-                    "{} missing {role:?}",
-                    theme.name
-                );
+                if !matches!(role, ThemeRole::Value | ThemeRole::Message) {
+                    assert_ne!(
+                        theme.role_style(role),
+                        RoleStyle::default(),
+                        "{}: {role:?}",
+                        theme.name
+                    );
+                }
             }
         }
     }
@@ -1010,6 +1106,62 @@ mod tests {
             build_custom_themes(file.theme, &builtins),
             Err(ThemeError::DuplicateTheme(_))
         ));
+    }
+
+    #[test]
+    fn inherited_role_defaults_follow_overrides_and_classifiers() {
+        let builtins = builtin_themes()
+            .into_iter()
+            .map(|theme| (theme.name.clone(), theme))
+            .collect();
+        let file: ThemeFile = parse_toml(
+            r#"
+            [[theme]]
+            name = "parent"
+            [theme.roles]
+            heading = { fg = "ansi:magenta", bold = true }
+            number = { fg = "ansi:blue" }
+            boolean_false = { fg = "ansi:red" }
+            [theme.classifiers]
+            disabled = ["date"]
+            command_prefixes = ["osp"]
+
+            [[theme]]
+            name = "child"
+            inherits = "parent"
+            [theme.roles]
+            number = { fg = "ansi:cyan" }
+            ipv6 = {}
+        "#,
+        )
+        .unwrap();
+        let themes = build_custom_themes(file.theme, &builtins).unwrap();
+        let theme = themes.iter().find(|theme| theme.name == "child").unwrap();
+        assert_eq!(
+            theme.role_style(ThemeRole::TableHeader),
+            role_ansi(AnsiColor::Magenta, true)
+        );
+        assert_eq!(
+            theme.role_style(ThemeRole::Ipv4),
+            role_ansi(AnsiColor::Cyan, false)
+        );
+        assert_eq!(theme.role_style(ThemeRole::Ipv6), RoleStyle::default());
+        assert_eq!(
+            theme.role_style(ThemeRole::BooleanFalse),
+            role_ansi(AnsiColor::Red, false)
+        );
+        assert_eq!(theme.classify("2024-02-29"), ValueCategory::Ordinary);
+        assert_eq!(theme.classify("osp list"), ValueCategory::Command);
+        assert_eq!(theme.classify("hubuum-cli list"), ValueCategory::Ordinary);
+        assert_eq!(
+            theme.style(ThemeRole::NullLike),
+            theme.style(ThemeRole::Muted)
+        );
+        assert_eq!(paint(theme, ThemeRole::Value, "  hello  "), "  hello  ");
+        assert_eq!(
+            paint_style(theme.value_style("  42  "), "  42  "),
+            "\x1b[36m  42  \x1b[0m"
+        );
     }
 
     #[test]

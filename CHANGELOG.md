@@ -2,8 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- Theme detail keys, table headers, titles, borders, and messages independently.
+  Classify text field values as numbers, IPv4, IPv6, true, false, null-like,
+  commands, CIDRs, ISO dates/RFC3339 timestamps, URLs, MAC addresses, or ordinary
+  text. Custom themes can override category styles, disable classifiers, and
+  configure command prefixes (default: `hubuum-cli`). Muted remains a style.
+- Show structural roles and classified sample values in `theme preview`, and
+  effective inherited role styles in `theme show`. Existing theme files retain
+  compatible defaults; machine-readable output and color-disabled text remain
+  unstyled. The theme crate now directly uses the already locked `chrono` and
+  `url` packages; no dependency versions, server target, OpenAPI surface, or MSRV
+  change.
+
 ### Changed
 
+- **Breaking (Rust theme API only):** `Theme` now owns private classifier
+  settings and `ThemeRole` has new variants. Downstream Rust callers must use
+  `resolve_theme` or `catalog` instead of struct literals and update exhaustive
+  role matches. Use `role_style` for effective styles, including fallback roles.
+  CLI configuration and existing theme files require no migration.
 - Reduce `class fields` (and its `object fields` alias) requests by resolving the
   class once and skipping unused collection labels. Move sampled data and
   computed values directly into field discovery without cloning object data.

@@ -1,6 +1,7 @@
+use std::io::stdout;
 use std::path::{Path, PathBuf};
 
-use anstream::ColorChoice;
+use anstream::{AutoStream, ColorChoice};
 use dirs::home_dir;
 use hubuum_theme::{
     catalog as theme_catalog, paint as paint_theme, resolve_theme as resolve_hubuum_theme, Theme,
@@ -42,6 +43,13 @@ pub fn active_theme() -> Result<Theme, ThemeError> {
         &cfg.output.theme,
         theme_file_path(&cfg.output.theme_file).as_deref(),
     )
+}
+
+/// Resolve once per rendered document, skipping work when the sink has no color.
+pub(crate) fn output_theme() -> Option<Theme> {
+    (AutoStream::new(stdout(), color_choice()).current_choice() != ColorChoice::Never)
+        .then(active_theme)
+        .and_then(Result::ok)
 }
 
 pub fn available_themes() -> Result<ThemeCatalog, ThemeError> {

@@ -1439,9 +1439,11 @@ name = "hubuum-theme"
 version = "0.0.1"
 dependencies = [
  "anstyle",
+ "chrono",
  "serde",
  "thiserror 2.0.21",
  "toml",
+ "url",
 ]
 
 [[package]]

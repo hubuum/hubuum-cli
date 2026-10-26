@@ -1,7 +1,7 @@
 use super::OfflineExecution;
 use cli_command_derive::CommandArgs;
 use hubuum_filter::OutputEnvelope;
-use hubuum_theme::{paint, ThemeError};
+use hubuum_theme::{paint, paint_style, ThemeError};
 use serde::Serialize;
 use serde_json::json;
 
@@ -190,7 +190,7 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
 
     append_line(paint(
         &theme,
-        ThemeRole::Heading,
+        ThemeRole::Title,
         format!("Theme: {}", theme.display_name),
     ))?;
     append_line(format!("  Name: {}", theme.name))?;
@@ -224,10 +224,41 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
         "  {}",
         paint(&theme, ThemeRole::Muted, "Muted status text")
     ))?;
+    for (role, label) in [
+        (ThemeRole::Key, "Detail key"),
+        (ThemeRole::TableHeader, "Table header"),
+        (ThemeRole::Title, "Title"),
+        (ThemeRole::Border, "Borders: | --- |"),
+        (ThemeRole::Message, "Message: example confirmation"),
+    ] {
+        append_line(format!("  {}", paint(&theme, role, label)))?;
+    }
+    append_line("")?;
+    append_line(paint(&theme, ThemeRole::Title, "Value classifications"))?;
+    for value in [
+        "42",
+        "192.168.0.1",
+        "2001:db8::1",
+        "true",
+        "false",
+        "null",
+        "hubuum-cli object list",
+        "192.168.0.0/24",
+        "2026-10-26",
+        "https://example.org",
+        "00:1a:2b:3c:4d:5e",
+        "ordinary text",
+    ] {
+        append_line(format!(
+            "  {:<14} {}",
+            format!("{:?}", theme.classify(value)),
+            paint_style(theme.value_style(value), value)
+        ))?;
+    }
     append_line("")?;
     append_line(paint(
         &theme,
-        ThemeRole::Heading,
+        ThemeRole::Title,
         "Dense table with alternating row bands",
     ))?;
     append_lines(&render_dense_theme_preview(&theme))?;
@@ -284,10 +315,10 @@ fn render_theme_detail(name: &str) -> Result<(), AppError> {
         .get(name)
         .cloned()
         .ok_or_else(|| unknown_theme(name))?;
-    let rows = theme
-        .roles
-        .iter()
-        .map(|(role, style)| {
+    let rows = ThemeRole::ALL
+        .into_iter()
+        .map(|role| {
+            let style = theme.role_style(role);
             json!({
                 "role": format!("{role:?}"),
                 "foreground": style.fg.map(|color| color.to_string()).unwrap_or_default(),
@@ -300,8 +331,9 @@ fn render_theme_detail(name: &str) -> Result<(), AppError> {
         "name": theme.name,
         "display_name": theme.display_name,
         "license": theme.license.name,
-        "source": theme.license.source.unwrap_or_default(),
+        "source": theme.license.source.as_deref().unwrap_or_default(),
         "roles": rows,
+        "classifiers": theme.classifiers(),
     });
     set_semantic_output(OutputEnvelope::detail(
         detail,
@@ -311,6 +343,7 @@ fn render_theme_detail(name: &str) -> Result<(), AppError> {
             "license".to_string(),
             "source".to_string(),
             "roles".to_string(),
+            "classifiers".to_string(),
         ],
     ))
 }
