@@ -12,6 +12,10 @@ by task ID, and explicitly stage a reviewed candidate for impact analysis and
 activation. The REPL uses the same inventory for field completion. See the
 [schema workflow](docs/schema-evolution.md) and [release notes](CHANGELOG.md#v0-0-22).
 
+Customize human-readable output by value type and edit colors with `theme set`.
+Preview changes offline before saving per-theme foreground/background overrides.
+See [themes and color editing](docs/themes.md).
+
 Upgrade the server first. Field depth is limited to 0–32, and scripts should use
 structured `Source`/`Path` identity because display labels can collide. In JSON,
 JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts

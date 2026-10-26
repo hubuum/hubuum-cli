@@ -2,8 +2,25 @@
 
 ## [Unreleased]
 
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-22"></span>
+
+## [0.0.22] - 2026-10-26
+
+This release uses `hubuum_client` 0.20.0 and targets Hubuum Server v0.0.21.
+
 ### Added
 
+- `class schema suggest` with Strict, Balanced, and Expansive presets, bounded
+  samples, optional waiting, timeout, and idempotency keys. `suggestion --task`
+  retrieves the full reviewable report; `stage --from-suggestion` copies a
+  sample-valid candidate into the explicit impact and activation workflow.
+  Text output explains inference findings with unambiguous property paths;
+  JSON preserves the complete report.
+- Schema profiling task filters, metadata, preset completion, and task-ID
+  completion for retrieving and staging suggestions.
+- Structured field paths, per-type counts, contributing-object counts, computed
+  evaluation errors, and explicit sample/truncation metadata in field output.
 - Add `theme set ROLE --fg COLOR --bg COLOR` for per-theme structural and
   classifier color overrides, saved in CLI configuration and reloaded immediately.
   `none`/`default` clear the selected color channel while omitted options preserve
@@ -30,39 +47,7 @@
   `url` packages. List styling enables `serde_json/raw_value` and
   `comfy-table/custom_styling`, adding `ansi-str`, `ansitok`, `console`,
   `encode_unicode`, `arrayvec`, `minimal-lexical`, and `nom` 7 alongside the
-  existing `nom` 8. Existing dependency versions, server target, OpenAPI surface,
-  and MSRV are unchanged.
-
-### Changed
-
-- **Breaking (Rust theme API only):** `Theme` now owns private classifier
-  settings, `ThemeRole` has new variants, and `RoleStyle` has a `dimmed` field.
-  Downstream Rust callers must use
-  `resolve_theme` or `catalog` instead of struct literals and update exhaustive
-  role matches. Use `role_style` for effective styles, including fallback roles.
-  Construct styles with `RoleStyle::new(...).with_dimmed(...)` or add `dimmed`
-  to existing style literals.
-  CLI configuration and existing theme files require no migration.
-
-<!-- markdownlint-disable-next-line MD033 -->
-<span id="v0-0-22"></span>
-
-## [0.0.22] - 2026-10-26
-
-This release uses `hubuum_client` 0.20.0 and targets Hubuum Server v0.0.21.
-
-### Added
-
-- `class schema suggest` with Strict, Balanced, and Expansive presets, bounded
-  samples, optional waiting, timeout, and idempotency keys. `suggestion --task`
-  retrieves the full reviewable report; `stage --from-suggestion` copies a
-  sample-valid candidate into the explicit impact and activation workflow.
-  Text output explains inference findings with unambiguous property paths;
-  JSON preserves the complete report.
-- Schema profiling task filters, metadata, preset completion, and task-ID
-  completion for retrieving and staging suggestions.
-- Structured field paths, per-type counts, contributing-object counts, computed
-  evaluation errors, and explicit sample/truncation metadata in field output.
+  existing `nom` 8.
 
 ### Changed
 
@@ -79,6 +64,14 @@ This release uses `hubuum_client` 0.20.0 and targets Hubuum Server v0.0.21.
 - **Breaking diagnostic routing:** scripts capturing warning or error text from
   stdout in JSON, JSONL, CSV, or TSV mode must capture stderr instead. Debug JSON
   keeps diagnostics embedded in its response object.
+- **Breaking (Rust theme API only):** `Theme` now owns private classifier
+  settings, `ThemeRole` has new variants, and `RoleStyle` has a `dimmed` field.
+  Downstream Rust callers must use
+  `resolve_theme` or `catalog` instead of struct literals and update exhaustive
+  role matches. Use `role_style` for effective styles, including fallback roles.
+  Construct styles with `RoleStyle::new(...).with_dimmed(...)` or add `dimmed`
+  to existing style literals.
+  CLI configuration and existing theme files require no migration.
 
 ### Fixed
 

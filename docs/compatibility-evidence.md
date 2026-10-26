@@ -66,9 +66,9 @@ Immutable image: `ghcr.io/hubuum/hubuum-server@sha256:a5e1ad7a17281eefb4c1ed4da1
 Verified on 2026-10-26 with the published SDK and the immutable server image.
 The lockfile records the crates.io checksum, and the built CLI uses registry
 source from SDK commit `170f4c9e4d181eea14283267ee9c61ee068328c8`, with no local
-path patch. All 933 workspace tests passed; two platform-specific native-keychain
+path patch. All 964 workspace tests passed; two platform-specific native-keychain
 cases remain explicit CI checks. Strict workspace Clippy, formatting, a fresh
-executable build, and the dependency audit passed.
+executable build, and the 456-dependency audit passed.
 
 The canonical backup/restore driver passed sessions and concurrent processes,
 computed-cache behavior, query observations, notifications, history, graph
@@ -83,6 +83,14 @@ Suggestion commands cover three presets, task resumption, review, staging,
 whole-class impact, activation, and revalidation. Machine-format diagnostics use
 stderr so stdout and redirected files stay parseable; debug JSON retains its
 embedded diagnostic object. See the migration notes in the release changelog.
+
+The release also includes tunable output themes from PR #141. Offline checks
+verified that `theme set --preview` leaves configuration unchanged, saving
+persists the selected foreground/background overrides, and JSON remains unstyled
+even with `--color always`. Workspace regressions cover value classification,
+inherited styles, nested JSON formatting, and neutral continuation indentation.
+Existing CLI configuration and theme files require no migration; Rust consumers
+of the theme crate must follow the breaking API notes in the changelog.
 
 ## CLI v0.0.21: history selectors and comparisons
 
