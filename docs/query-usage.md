@@ -2,7 +2,7 @@
 
 Query-usage declarations describe JSON query patterns you expect to use on a
 class. They are separate from schema validation and do not promise an index or
-faster queries. The server introduced them in v0.0.19; this CLI targets v0.0.20.
+faster queries. The server introduced them in v0.0.19; this CLI targets v0.0.21.
 
 ## Manage declarations
 
