@@ -1952,6 +1952,9 @@ CLI <strong>v0.0.22</strong> (2026-10-26) uses Rust client <strong>0.20.0</stron
 by task ID, and explicitly stage a reviewed candidate for impact analysis and
 activation. The REPL uses the same inventory for field completion. See the
 <a href="../schema-evolution/">schema workflow</a> and <a href="../changelog/#v0-0-22">release notes</a>.</p>
+<p>Customize human-readable output by value type and edit colors with <code>theme set</code>.
+Preview changes offline before saving per-theme foreground/background overrides.
+See <a href="../themes/">themes and color editing</a>.</p>
 <p>Upgrade the server first. Field depth is limited to 0–32, and scripts should use
 structured <code>Source</code>/<code>Path</code> identity because display labels can collide. In JSON,
 JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts
