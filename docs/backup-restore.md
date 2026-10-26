@@ -1,19 +1,31 @@
 # Backup and restore
 
-CLI v0.0.21 uses `hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
+CLI v0.0.22 uses `hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-**Breaking server target:** upgrade to v0.0.20 before adopting this CLI. Replace empty or whitespace-only local principal names with new accounts
-and reassign group memberships; correct external names at the identity provider.
-Stop writers and retain a PostgreSQL snapshot and matching pre-upgrade binaries
-before applying migrations with `hubuum-admin --migrate`. Deploy matching API,
-worker, administrator, and restore-executor binaries together. Older event
-readers cannot read the authentication event catalog entry; binary-only rollback
-is unsupported. Direct connections require HTTP/1.1; a reverse proxy may accept
-HTTP/2 with HTTP/1.1 upstream connections.
-See the [server release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.20).
+**Breaking server target:** upgrade to v0.0.21 before adopting this CLI. Stop
+writers, retain a PostgreSQL snapshot and matching pre-upgrade binaries, and
+apply migrations during a quiet period with `hubuum-admin --migrate`. Deploy
+matching API, worker, administrator, template-worker, and restore-executor
+binaries together. Keep task workers enabled for durable computed-field repair.
+
+Backup and restore operations now spool private replayable files. Provide writable
+temporary disk at the server's `TMPDIR` (normally `/tmp`) and upgrade restore
+executors before staging new restores; old executors cannot read chunked stages.
+Complete or expire those stages before rolling back the migration. Administrator
+verification and restore enforce `--restore-max-upload-bytes`, including piped
+input; increase that explicit limit for larger artifacts. See the
+[server v0.0.21 release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.21).
+
+When upgrading from before v0.0.20, also replace empty or whitespace-only local
+principal names with new accounts and reassign group memberships; correct
+external names at the identity provider. Older event readers cannot read the
+authentication event catalog entry, and binary-only rollback is unsupported.
+Follow the [v0.0.20 migration notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.20).
+Direct connections require HTTP/1.1; a reverse proxy may accept HTTP/2 with
+HTTP/1.1 upstream connections.
 
 When upgrading from before 0.0.18, also follow the collection-sink migration;
 from before 0.0.17, follow the notification migration. Optional Treetop
@@ -21,7 +33,7 @@ installations require protocol 0.1 and compatible policy bundles. When upgrading
 from before 0.0.15, existing enforced objects start pending; request schema
 revalidation. Review [schema evolution](schema-evolution.md).
 
-**Breaking backup output:** server v0.0.20 creates format 10 backups, preserving
+Server v0.0.21 retains the format 10 backup output introduced in v0.0.20, preserving
 shared computed-definition history alongside query-usage declarations and
 directional relation labels.
 Older servers cannot restore format 10. Formats 6–9 remain accepted with the
@@ -84,7 +96,7 @@ returns `confirmed`, meaning the restore is queued. `--wait` polls until
 `succeeded`, `failed`, or `expired`; only `succeeded` exits successfully.
 Without `--wait`, confirmation returns immediately after acceptance.
 
-Server 0.0.20 retains the requirement for fresh approval from an unscoped human user before
+Server 0.0.21 retains the requirement for fresh approval from an unscoped human user before
 confirmation. `--yes` still confirms destructive intent, but does not replace
 password approval. Interactive sessions prompt for the acting human's current
 password. In scripts, place `--approval-password-file FILE` before `restore`
@@ -135,7 +147,7 @@ On other platforms, use a destination directory with suitable access controls.
 
 ## History-free restores and older artifacts
 
-Server 0.0.20 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
+Server 0.0.21 retains the 0.0.14 fix that preserves live resource revisions and creates current temporal
 snapshots when restoring a backup made with `--include-history false`. Default
 history-inclusive backups taken afterward remain restorable, including after
 further updates and deletions. Earlier history omitted from the artifact remains
@@ -152,7 +164,7 @@ validation.
 
 The earlier 0.0.13 error, `Full backup live revisions disagree with
 'collection_history'`, is covered by a regression check that now requires
-successful staging and a complete second-generation restore on 0.0.20.
+successful staging and a complete second-generation restore on 0.0.21.
 
 ## Reproduce the integration check
 

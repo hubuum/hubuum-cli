@@ -55,7 +55,6 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 ClassDelete::default(),
                 CommandDocs {
                     about: Some("Delete a class"),
-                    long_about: Some("On server v0.0.20, wait for all reindex/rebuild tasks for this class to finish before deletion. Concurrent deletion and rebuilding can deadlock on that server; inspect task list and use task wait first."),
                     ..CommandDocs::default()
                 },
             ),

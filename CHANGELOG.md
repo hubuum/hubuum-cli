@@ -21,6 +21,8 @@
   while keeping punctuation and object keys neutral. Preserve original escaping,
   spacing, numeric notation, wrapping, and machine-readable values. Recognize
   ISO timestamps without a timezone, such as `2020-07-30T11:46:02`, as dates.
+  Reset styles on each line of nested values so continuation indentation stays
+  neutral, including when value backgrounds or bold effects are configured.
 - Show structural roles and classified sample values in `theme preview`, and
   effective inherited role styles in `theme show`. Existing theme files retain
   compatible defaults; machine-readable output and color-disabled text remain
@@ -41,11 +43,48 @@
   Construct styles with `RoleStyle::new(...).with_dimmed(...)` or add `dimmed`
   to existing style literals.
   CLI configuration and existing theme files require no migration.
-- Reduce `class fields` (and its `object fields` alias) requests by resolving the
-  class once and skipping unused collection labels. Move sampled data and
-  computed values directly into field discovery without cloning object data.
-- Add `prepare_field_sample`, `summarize_fields`, and `prepare_field_output`
-  diagnostic timings to expose local field-discovery work.
+
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-22"></span>
+
+## [0.0.22] - 2026-10-26
+
+This release uses `hubuum_client` 0.20.0 and targets Hubuum Server v0.0.21.
+
+### Added
+
+- `class schema suggest` with Strict, Balanced, and Expansive presets, bounded
+  samples, optional waiting, timeout, and idempotency keys. `suggestion --task`
+  retrieves the full reviewable report; `stage --from-suggestion` copies a
+  sample-valid candidate into the explicit impact and activation workflow.
+  Text output explains inference findings with unambiguous property paths;
+  JSON preserves the complete report.
+- Schema profiling task filters, metadata, preset completion, and task-ID
+  completion for retrieving and staging suggestions.
+- Structured field paths, per-type counts, contributing-object counts, computed
+  evaluation errors, and explicit sample/truncation metadata in field output.
+
+### Changed
+
+- Update self-update verification to `self_update` 1.3.2, archive tests to `zip`
+  9.1.2, and the Markdown lint action to v25.
+- Use the server field-discovery API for `class fields`, its deprecated
+  `object fields` alias, and REPL computed/aggregate input completion. Ordinary
+  class names use one inventory request without downloading object payloads.
+  Retain the `prepare_field_output` diagnostic stage for rendering preparation.
+- **Breaking compatibility:** the new inventory and suggestion workflows require
+  Hubuum Server v0.0.21. Upgrade the server first. Discovery depth is now validated
+  as 0–32; scripts must use structured `Source`/`Path` identity rather than assuming
+  display field labels are unique. Examples are bounded display previews.
+- **Breaking diagnostic routing:** scripts capturing warning or error text from
+  stdout in JSON, JSONL, CSV, or TSV mode must capture stderr instead. Debug JSON
+  keeps diagnostics embedded in its response object.
+
+### Fixed
+
+- Keep JSON, JSONL, CSV, and TSV output parseable when discovery is truncated or
+  another warning occurs. Send warnings and errors to stderr for these formats,
+  including redirected output; debug JSON retains its embedded diagnostics.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-21"></span>

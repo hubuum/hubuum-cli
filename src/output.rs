@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Write as FmtWrite};
-use std::io::{stdout, Write};
+use std::io::{stderr, stdout, Write};
 use std::iter::{once, repeat_n};
 use std::ops::Range;
 
@@ -108,18 +108,11 @@ impl OutputSnapshot {
             };
             return self.render_debug_json(&data);
         }
-        let mut rendered = Vec::new();
-
-        rendered.extend(
-            self.warnings
-                .iter()
-                .map(|warning| paint(ThemeRole::Warning, format!("Warning: {warning}"))),
-        );
-        rendered.extend(
-            self.errors
-                .iter()
-                .map(|error| paint(ThemeRole::Error, format!("Error: {error}"))),
-        );
+        let mut rendered = if self.render_format == RenderFormat::Text {
+            self.diagnostic_lines()
+        } else {
+            Vec::new()
+        };
         rendered.extend(self.lines.iter().cloned());
 
         if rendered.is_empty() {
@@ -127,6 +120,34 @@ impl OutputSnapshot {
         } else {
             format!("{}\n", rendered.join("\n"))
         }
+    }
+
+    fn diagnostic_lines(&self) -> Vec<String> {
+        self.warnings
+            .iter()
+            .map(|warning| paint(ThemeRole::Warning, format!("Warning: {warning}")))
+            .chain(
+                self.errors
+                    .iter()
+                    .map(|error| paint(ThemeRole::Error, format!("Error: {error}"))),
+            )
+            .collect()
+    }
+
+    pub(crate) fn print_stderr(&self) -> Result<(), AppError> {
+        // Text retains inline notices; debug JSON already embeds them.
+        if self.render_format == RenderFormat::Text
+            || (self.render_format == RenderFormat::Json && self.debug.is_some())
+        {
+            return Ok(());
+        }
+        let stderr = stderr();
+        let mut stream = AutoStream::new(stderr.lock(), color_choice());
+        for line in self.diagnostic_lines() {
+            writeln!(stream, "{line}")?;
+        }
+        stream.flush()?;
+        Ok(())
     }
 
     pub(crate) fn render_debug_json(&self, data: &Value) -> String {
@@ -145,6 +166,11 @@ impl OutputSnapshot {
             to_string_pretty(&response).expect("JSON values serialize")
         )
     }
+}
+
+pub(crate) fn print_snapshot(snapshot: &OutputSnapshot) -> Result<(), AppError> {
+    snapshot.print_stderr()?;
+    print_rendered(&snapshot.render())
 }
 
 pub fn print_rendered(text: &str) -> Result<(), AppError> {
@@ -465,7 +491,7 @@ pub(crate) fn flush_stream_output() -> Result<(), AppError> {
         output.errors.clear();
         snapshot
     };
-    print_rendered(&snapshot.render())
+    print_snapshot(&snapshot)
 }
 
 pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {
@@ -806,11 +832,14 @@ fn nested_detail_text(value: &Value, indent: usize, styling: &OutputStyling) -> 
                 lines
             })
             .collect(),
-        value => styling
-            .value(&semantic_scalar(value))
-            .split('\n')
-            .map(|line| format!("{prefix}{line}"))
-            .collect(),
+        value => {
+            let text = semantic_scalar(value);
+            let styled = styling.styled_value(&text);
+            styled
+                .painted_lines()
+                .map(|line| format!("{prefix}{line}"))
+                .collect()
+        }
     }
 }
 
@@ -825,12 +854,7 @@ fn styled_detail_field(
     styling: &OutputStyling,
 ) -> String {
     let styled = styling.styled_value(value);
-    let mut offset = 0;
-    let mut lines = value.split('\n').map(|line| {
-        let range = offset..offset + line.len();
-        offset += line.len() + 1;
-        styled.paint_range(range, Style::new())
-    });
+    let mut lines = styled.painted_lines();
     let first = lines.next().unwrap_or_default();
     let key = styling.paint(ThemeRole::Key, format!("{column:<padding$}"));
     let mut rendered = format!("{key}: {first}");
@@ -1634,6 +1658,25 @@ mod tests {
             assert!(!rendered.contains('\x1b'), "{format:?}");
             assert!(rendered.contains("2024-02-29"));
         }
+    }
+
+    #[test]
+    fn nested_multiline_values_keep_indentation_outside_the_value_style() {
+        use hubuum_theme::{ColorSpec, RoleStyle, ThemeRole};
+        let mut theme = resolve_theme("hubuum-dark", None).unwrap();
+        theme.roles.insert(
+            ThemeRole::Value,
+            RoleStyle::new(None, Some(ColorSpec::ansi256(23)), true),
+        );
+        let styling = super::OutputStyling::preview(&theme);
+        let lines = super::nested_detail_text(&json!(["first\nsecond"]), 2, &styling);
+        assert_eq!(
+            lines,
+            [
+                format!("  - {}", styling.value("first")),
+                format!("    {}", styling.value("second")),
+            ]
+        );
     }
 
     #[test]

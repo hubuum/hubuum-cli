@@ -1,6 +1,6 @@
 [package]
 name = "hubuum-cli"
-version = "0.0.21"
+version = "0.0.22"
 edition = "2021"
 
 [workspace]
@@ -17,11 +17,11 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-hubuum_client = { version = "=0.19.0", default-features = false, features = ["blocking"] }
+hubuum_client = { version = "=0.20.0", default-features = false, features = ["blocking"] }
 
 [package.metadata.hubuum]
-server-version = "0.0.20"
-server-image = "ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8e2b9fad2f810b8621ff9a874dca534b9a23a"
+server-version = "0.0.21"
+server-image = "ghcr.io/hubuum/hubuum-server@sha256:a5e1ad7a17281eefb4c1ed4da172a80bf815840f78bde6390d1e42bb2d51e0b6"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

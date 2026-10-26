@@ -100,6 +100,16 @@ impl<'a> StyledValue<'a> {
         self.paint_range(0..self.text.len(), Style::new())
     }
 
+    /// Reset each line before the renderer adds continuation indentation.
+    pub(super) fn painted_lines(&self) -> impl Iterator<Item = String> + '_ {
+        let mut offset = 0;
+        self.text.split('\n').map(move |line| {
+            let range = offset..offset + line.len();
+            offset += line.len() + 1;
+            self.paint_range(range, Style::new())
+        })
+    }
+
     pub(super) fn paint_range(&self, range: Range<usize>, band: Style) -> String {
         let mut rendered = String::new();
         let mut offset = range.start;

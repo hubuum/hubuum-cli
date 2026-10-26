@@ -60,6 +60,14 @@ pub fn theme_colors(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -
     )
 }
 
+pub fn schema_profile_presets(
+    _ctx: &CompletionContext,
+    prefix: &str,
+    _parts: &[String],
+) -> Vec<String> {
+    complete_values(&["strict", "balanced", "expansive"], prefix)
+}
+
 pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
     complete_values(
         &[
@@ -69,6 +77,7 @@ pub fn task_kinds(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> 
             "reindex",
             "remotecall",
             "schema_validation",
+            "schema_profiling",
         ],
         prefix,
     )

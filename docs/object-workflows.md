@@ -154,8 +154,8 @@ hubuum-cli object list --class Hosts --computed all --output json
 ```
 
 In the REPL, data-field completion merges the selected class's JSON Schema with
-a sample of up to 100 objects, using the same depth-six traversal as
-`class fields`. This supplies escaped JSON Pointers for computed `--path`
+the server's bounded field inventory (up to 100 authorized objects at depth
+six), also used by `class fields`. This supplies escaped JSON Pointers for computed `--path`
 options and dotted paths for aggregate dimensions, measures, and filters.
 Inspected fields are cached for `cache.time` seconds (one hour by default) and
 the cache can be bypassed with `cache.disable`.
@@ -168,6 +168,20 @@ same object sample, so a computed definition with no sampled value still
 appears with an empty observation. The former `object fields --class <class>`
 spelling remains available as a deprecated compatibility alias and prints an
 exact replacement command when invoked.
+
+Discovery uses one request for ordinary class names; URL dot-segment names use
+the client's safe class-ID fallback. It does not download complete object
+payloads. `--depth` accepts 0–32 and `--containers` includes object and array
+paths. The existing object sample limit remains capped at 250 with a warning.
+
+`Count` counts value occurrences; `Objects` counts contributing sampled objects.
+JSON and semantic pipelines also retain `Path`, `TypeCounts`, `Errors`,
+`ExampleTruncated`, `Sampled`, `Depth`, `Containers`, and `Truncation`. Identify
+fields by `Source` and structured `Path`; display labels can collide. Examples
+are bounded display previews, not values to parse as source JSON. Truncation
+warnings remain visible even when no fields are returned. Counts never describe
+the whole class. Array path completions start at index zero; select the index
+needed by your computed input or aggregate expression.
 
 Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 `--computed S:<key>` and `--computed P:<key>` options to select individual
