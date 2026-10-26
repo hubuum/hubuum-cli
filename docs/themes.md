@@ -146,9 +146,10 @@ classifier settings.
 
 ## Value Classifiers
 
-There are twelve categories. Classification uses the entire trimmed field value;
-it does not highlight matching substrings. Boolean and null-like matching ignores
-ASCII case. Classification does not rewrite the value or change its semantic type.
+There are twelve categories. Classification uses the entire trimmed scalar value;
+it does not highlight matching substrings within ordinary text. Boolean and
+null-like matching ignores ASCII case. Classification does not rewrite the value
+or change its semantic type.
 
 | Category / role | Recognizes | Default style |
 | --- | --- | --- |
@@ -160,7 +161,7 @@ ASCII case. Classification does not rewrite the value or change its semantic typ
 | `null_like` | `null`, `none`, `nil`, `n/a` | `muted` with terminal dimming |
 | `command` | Configured command prefix followed by whitespace or end of text | Palette command/success color |
 | `cidr` | IPv4/prefix `0–32` or IPv6/prefix `0–128`, e.g. `192.168.0.1/24`, `2001:db8::/32` | `network` |
-| `date` | Valid `YYYY-MM-DD` dates and RFC3339 timestamps with a timezone | `number` |
+| `date` | Valid `YYYY-MM-DD` dates, RFC3339 timestamps, and `YYYY-MM-DDTHH:MM:SS[.fraction]` timestamps without a timezone | `number` |
 | `url` | Absolute URLs with `://` and a host, plus `file:///` URLs | `command` |
 | `mac` | Six hexadecimal octets with colons/dashes, or three dotted groups of four digits | `network` |
 | Ordinary / `value` | Everything else, including empty text | Normal text; empty/whitespace values use `null_like` styling |
@@ -182,9 +183,11 @@ bits. MAC examples are `00:1a:2b:3c:4d:5e`, `00-1a-2b-3c-4d-5e`, and
 `001a.2b3c.4d5e`. A twelve-digit string is a number, not a MAC address.
 
 There are no classifiers for hostnames or units such as `10 MB`. Ambiguous dates
-such as `01/02/2026`, local timestamps without a timezone, bare URLs without a
+such as `01/02/2026`, bare URLs without a
 scheme, `mailto:` addresses, and malformed values remain ordinary text. Numbers
 use decimal syntax, excluding `NaN`, infinity, hexadecimal, and digit separators.
+Timezone-free timestamps such as `2020-07-30T11:46:02` use the date style without
+assuming or converting a timezone.
 Existing blank rendering of missing/null table and top-level detail cells is
 preserved; a visible `null` is classified as null-like.
 
@@ -194,6 +197,22 @@ styles. An empty style such as `ipv6 = {}` selects normal text for that category
 Dense-table bands combine with value styles; an explicit value background takes
 precedence over the band background. Wrapping retains the original field's
 classification on every displayed line.
+
+### Values Inside Lists
+
+Inline JSON lists classify each scalar item individually, including scalar values
+in nested lists or objects. For example, both addresses in
+`["129.240.222.179","192.168.50.193"]` use the network color. This also applies to
+address, broadcast, netmask, and network lists in flattened facts.
+
+Brackets, commas, quotes, whitespace, and object keys stay neutral. The renderer
+preserves the original JSON text, including escaped strings and numeric notation;
+it decodes string contents only for classification. Category overrides and disabled
+classifiers apply to list items. Invalid JSON lists remain ordinary text.
+
+Detail fields, extracted values, and table cells share this behavior. Wrapped
+items retain their classification, and dense-table row bands remain intact.
+JSON, JSONL, CSV, and TSV output keeps the original values without added styling.
 
 ## Tuning Classification and Styles
 

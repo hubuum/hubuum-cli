@@ -5,6 +5,8 @@ use hubuum_theme::{paint_style, Theme, ThemeRole};
 
 use crate::theme::output_theme;
 
+use super::value_styling::StyledValue;
+
 /// A single theme resolution shared by all cells in a rendering operation.
 #[derive(Default)]
 pub(super) struct OutputStyling {
@@ -43,7 +45,22 @@ impl OutputStyling {
     }
 
     pub(super) fn value(&self, text: &str) -> String {
-        paint_style(self.value_style(text), text)
+        self.styled_value(text).paint()
+    }
+
+    pub(super) fn styled_value<'a>(&self, text: &'a str) -> StyledValue<'a> {
+        StyledValue::new(text, self.theme.as_ref())
+    }
+
+    pub(super) fn value_cell(&self, text: &str) -> Cell {
+        let value = self.styled_value(text);
+        if !value.is_list() {
+            return self.cell(text, self.value_style(text));
+        }
+        // Keep inner resets distinct from cell boundaries: after an item, clear
+        // any surrounding border style before rendering neutral JSON syntax.
+        let painted = value.paint().replace("\x1b[0m", "\x1b[0m\x1b[22;39;49m");
+        self.cell(&painted, Style::new())
     }
 
     pub(super) fn cell(&self, text: &str, style: Style) -> Cell {
@@ -138,5 +155,27 @@ mod tests {
             text.contains("\x1b[22m\x1b[49m\x1b[39m\x1b[22m"),
             "{text:?}"
         );
+    }
+
+    #[test]
+    fn inline_list_items_restore_neutral_syntax_and_keep_dimmed_background_styles() {
+        let mut theme = resolve_theme("hubuum-dark", None).unwrap();
+        theme.roles.insert(
+            ThemeRole::NullLike,
+            RoleStyle::new(None, Some(ColorSpec::ansi256(23)), false).with_dimmed(true),
+        );
+        let styling = OutputStyling::preview(&theme);
+        let mut table = Table::new();
+        table.add_row([styling.value_cell(r#"["192.0.2.1",null]"#)]);
+        let text = styling.table(&mut table);
+        assert!(
+            text.contains("\x1b[32m192.0.2.1\x1b[0m\x1b[90m\x1b[22;39;49m\","),
+            "{text:?}"
+        );
+        assert!(
+            text.contains("\x1b[22m\x1b[48;5;23m\x1b[2mnull"),
+            "{text:?}"
+        );
+        assert!(text.contains("\x1b[22;39;49m]"), "{text:?}");
     }
 }

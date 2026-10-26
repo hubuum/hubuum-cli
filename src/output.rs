@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Write as FmtWrite};
 use std::io::{stdout, Write};
 use std::iter::{once, repeat_n};
+use std::ops::Range;
 
 use anstream::AutoStream;
 use anstyle::Style;
@@ -31,7 +32,9 @@ use crate::terminal::terminal_width;
 use crate::theme::{color_choice, paint, ThemeRole};
 
 mod styling;
+mod value_styling;
 use styling::OutputStyling;
+use value_styling::{over_band, StyledValue};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
@@ -674,7 +677,7 @@ fn render_rows_text(
                 .iter()
                 .map(|column| {
                     let text = cell_text(row.get(column));
-                    styling.cell(&text, styling.value_style(&text))
+                    styling.value_cell(&text)
                 })
                 .collect::<Vec<_>>(),
         );
@@ -821,16 +824,21 @@ fn styled_detail_field(
     padding: usize,
     styling: &OutputStyling,
 ) -> String {
-    let style = styling.value_style(value);
-    let mut lines = value.split('\n');
-    let first = paint_style(style, lines.next().unwrap_or_default());
+    let styled = styling.styled_value(value);
+    let mut offset = 0;
+    let mut lines = value.split('\n').map(|line| {
+        let range = offset..offset + line.len();
+        offset += line.len() + 1;
+        styled.paint_range(range, Style::new())
+    });
+    let first = lines.next().unwrap_or_default();
     let key = styling.paint(ThemeRole::Key, format!("{column:<padding$}"));
     let mut rendered = format!("{key}: {first}");
     let continuation_indent = " ".repeat(padding + 2);
     for line in lines {
         rendered.push('\n');
         rendered.push_str(&continuation_indent);
-        rendered.push_str(&paint_style(style, line));
+        rendered.push_str(&line);
     }
     rendered
 }
@@ -968,9 +976,12 @@ fn render_dense_rows_styled(
             *header = wrap_grouped_header(&path, *width);
         }
     }
-    let header_styles = vec![styling.style(ThemeRole::TableHeader); headers.len()];
+    let headers = headers
+        .iter()
+        .map(|header| StyledValue::plain(header, styling.style(ThemeRole::TableHeader)))
+        .collect::<Vec<_>>();
     let border = styling.style(ThemeRole::Border);
-    let mut lines = render_dense_cells(&headers, &widths, &header_styles, border);
+    let mut lines = render_dense_cells(&headers, &widths, Style::new(), border);
     lines.reserve(rows.len());
     for (index, row) in rows.iter().enumerate() {
         let cells = columns
@@ -982,14 +993,14 @@ fn render_dense_rows_styled(
         } else {
             Style::new()
         };
-        let styles = cells
+        let styled = cells
             .iter()
-            .map(|cell| over_band(styling.value_style(cell), band))
+            .map(|cell| styling.styled_value(cell))
             .collect::<Vec<_>>();
         lines.extend(render_dense_cells(
-            &cells,
+            &styled,
             &widths,
-            &styles,
+            band,
             over_band(border, band),
         ));
     }
@@ -1252,23 +1263,16 @@ fn column_header(column: &str) -> String {
     column.strip_prefix("data.").unwrap_or(column).to_string()
 }
 
-fn over_band(style: Style, band: Style) -> Style {
-    style
-        .fg_color(style.get_fg_color().or(band.get_fg_color()))
-        .bg_color(style.get_bg_color().or(band.get_bg_color()))
-        .effects(style.get_effects() | band.get_effects())
-}
-
 fn render_dense_cells(
-    values: &[String],
+    values: &[StyledValue<'_>],
     widths: &[usize],
-    styles: &[Style],
+    band: Style,
     border: Style,
 ) -> Vec<String> {
     let wrapped = values
         .iter()
         .zip(widths)
-        .map(|(value, width)| wrap_dense_cell(value, *width))
+        .map(|(value, width)| wrap_dense_cell(value.text(), *width))
         .collect::<Vec<_>>();
     let height = wrapped.iter().map(Vec::len).max().unwrap_or_default();
 
@@ -1277,11 +1281,9 @@ fn render_dense_cells(
             wrapped
                 .iter()
                 .zip(widths)
-                .zip(styles)
-                .map(|((cell, width), style)| {
-                    let value = cell.get(line).map(String::as_str).unwrap_or_default();
-                    let padding = width.saturating_sub(value.chars().count());
-                    paint_style(*style, format!("{value}{}", " ".repeat(padding)))
+                .zip(values)
+                .map(|((cell, width), value)| {
+                    value.paint_padded(cell.get(line).cloned().unwrap_or(0..0), *width, band)
                 })
                 .collect::<Vec<_>>()
                 .join(&paint_style(border, " | "))
@@ -1289,13 +1291,16 @@ fn render_dense_cells(
         .collect()
 }
 
-fn wrap_dense_cell(value: &str, width: usize) -> Vec<String> {
+fn wrap_dense_cell(value: &str, width: usize) -> Vec<Range<usize>> {
     let width = width.max(1);
+    let mut source_offset = 0;
     value
         .split('\n')
         .flat_map(|source_line| {
             let mut lines = Vec::new();
             let mut remaining = source_line.trim_start();
+            let mut offset = source_offset + source_line.len() - remaining.len();
+            source_offset += source_line.len() + 1;
             while remaining.chars().count() > width {
                 let hard_end = remaining
                     .char_indices()
@@ -1310,10 +1315,12 @@ fn wrap_dense_cell(value: &str, width: usize) -> Vec<String> {
                         (index > 0 && character.is_whitespace()).then_some(index)
                     })
                     .unwrap_or(hard_end);
-                lines.push(remaining[..split_at].trim_end().to_string());
-                remaining = remaining[split_at..].trim_start();
+                lines.push(offset..offset + remaining[..split_at].trim_end().len());
+                let next = remaining[split_at..].trim_start();
+                offset += remaining.len() - next.len();
+                remaining = next;
             }
-            lines.push(remaining.to_string());
+            lines.push(offset..offset + remaining.len());
             lines
         })
         .collect()
@@ -1427,7 +1434,7 @@ mod tests {
     use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, Pipeline, ProjectTerm};
     use hubuum_theme::resolve_theme;
 
-    fn without_ansi(text: &str) -> String {
+    pub(super) fn without_ansi(text: &str) -> String {
         use std::io::Write;
         let mut stream = anstream::AutoStream::new(Vec::new(), anstream::ColorChoice::Never);
         stream.write_all(text.as_bytes()).unwrap();
@@ -1442,6 +1449,7 @@ mod tests {
             json!({"data.sample.value": "2001:db8::1", "other": "false"}),
             json!({"data.sample.value": "2024-02-29", "other": "null"}),
             json!({"data.sample.value": null, "other": ""}),
+            json!({"data.sample.value": ["129.240.222.179", "192.168.50.193"], "other": r#"["2020-07-30T11:46:02",null,true,"å🙂"]"#}),
         ];
         let envelope = OutputEnvelope::rows(rows, vec!["data.sample.value".into(), "other".into()]);
         for style in [
@@ -1472,6 +1480,67 @@ mod tests {
             let plain = take_output().unwrap().render();
             assert!(!plain.contains('\x1b'), "{style}");
             assert_eq!(without_ansi(&colored), plain, "{style}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn inline_lists_color_items_in_details_tables_and_values_without_changing_data() {
+        let source = r#"["129.240.222.179","192.168.50.193"]"#;
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Always;
+        config.output.table_wrap = TableWrap::Never;
+        init_config(config.clone()).unwrap();
+        let detail = super::render_detail_field(
+            "facts.network.interfaces.ipv4_addresses.address",
+            source,
+            48,
+        );
+        assert!(detail
+            .contains("[\"\x1b[32m129.240.222.179\x1b[0m\",\"\x1b[32m192.168.50.193\x1b[0m\"]"));
+        let rows = OutputEnvelope::rows(
+            vec![json!({"addresses": ["129.240.222.179", "192.168.50.193"]})],
+            vec!["addresses".into()],
+        );
+        for style in [TableStyle::Dense, TableStyle::Rounded] {
+            config.output.table_style = style;
+            config.output.table_bands = TableBands::Never;
+            init_config(config.clone()).unwrap();
+            let lines = super::render_rows_text(&rows, TableHeaders::None)
+                .unwrap()
+                .join("\n");
+            assert!(
+                lines.contains("\x1b[32m129.240.222.179\x1b[0m"),
+                "{lines:?}"
+            );
+            assert!(lines.contains("\x1b[32m192.168.50.193\x1b[0m"), "{lines:?}");
+            assert!(without_ansi(&lines).contains(source));
+        }
+        let values = OutputEnvelope::values(vec![json!(source)]);
+        let rendered = super::render_semantic_text(&values, TableHeaders::Full)
+            .unwrap()
+            .join("\n");
+        assert_eq!(without_ansi(&rendered), source);
+        for envelope in [&rows, &values] {
+            for format in [
+                RenderFormat::Json,
+                RenderFormat::Jsonl,
+                RenderFormat::Csv,
+                RenderFormat::Tsv,
+            ] {
+                config.output.color = OutputColor::Always;
+                init_config(config.clone()).unwrap();
+                let colored =
+                    super::render_semantic_with_table_headers(envelope, format, TableHeaders::Full)
+                        .unwrap();
+                config.output.color = OutputColor::Never;
+                init_config(config.clone()).unwrap();
+                let plain =
+                    super::render_semantic_with_table_headers(envelope, format, TableHeaders::Full)
+                        .unwrap();
+                assert_eq!(colored, plain, "{format:?}");
+                assert!(!colored.join("\n").contains('\x1b'));
+            }
         }
     }
 

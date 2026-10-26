@@ -12,12 +12,19 @@
 - Dim null-like and empty/whitespace values in every bundled theme. Default IP,
   CIDR/network, and MAC colors to each theme's base accent through the shared
   `network` role. Custom role styles support `dimmed`; blank cells remain blank.
+- Color scalar items inside inline JSON lists, including nested lists and objects,
+  while keeping punctuation and object keys neutral. Preserve original escaping,
+  spacing, numeric notation, wrapping, and machine-readable values. Recognize
+  ISO timestamps without a timezone, such as `2020-07-30T11:46:02`, as dates.
 - Show structural roles and classified sample values in `theme preview`, and
   effective inherited role styles in `theme show`. Existing theme files retain
   compatible defaults; machine-readable output and color-disabled text remain
   unstyled. The theme crate now directly uses the already locked `chrono` and
-  `url` packages; no dependency versions, server target, OpenAPI surface, or MSRV
-  change.
+  `url` packages. List styling enables `serde_json/raw_value` and
+  `comfy-table/custom_styling`, adding `ansi-str`, `ansitok`, `console`,
+  `encode_unicode`, `arrayvec`, `minimal-lexical`, and `nom` 7 alongside the
+  existing `nom` 8. Existing dependency versions, server target, OpenAPI surface,
+  and MSRV are unchanged.
 
 ### Changed
 

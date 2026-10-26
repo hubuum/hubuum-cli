@@ -245,6 +245,7 @@ pub(crate) fn render_theme_preview(tokens: &CommandTokenizer) -> Result<(), AppE
         "hubuum-cli object list",
         "192.168.0.0/24",
         "2026-10-26",
+        "2020-07-30T11:46:02",
         "https://example.org",
         "00:1a:2b:3c:4d:5e",
         "ordinary text",

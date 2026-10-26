@@ -25,7 +25,7 @@ server-image = "ghcr.io/hubuum/hubuum-server@sha256:eaf59f8a4b4793030a78bc1637a8
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 semver = "1"
 cli_command_derive = { path = "./cli_command_derive" }
 hubuum-filter = { path = "./crates/hubuum-filter" }
@@ -67,7 +67,7 @@ tokio = { version = "1", features = [
     "rt-multi-thread",
     "sync",
 ] }
-comfy-table = "8"
+comfy-table = { version = "8", features = ["custom_styling"] }
 crossterm = "0.29"
 toml = "1"
 tempfile = "3"

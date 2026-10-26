@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use chrono::{DateTime, NaiveDate};
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -184,6 +184,26 @@ fn is_date(text: &str) -> bool {
         })
         && NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok())
         || DateTime::parse_from_rfc3339(text).is_ok()
+        || is_local_timestamp(text)
+}
+
+fn is_local_timestamp(text: &str) -> bool {
+    text.len() >= 19
+        && text
+            .bytes()
+            .take(19)
+            .enumerate()
+            .all(|(index, byte)| match index {
+                4 | 7 => byte == b'-',
+                10 => byte == b'T',
+                13 | 16 => byte == b':',
+                _ => byte.is_ascii_digit(),
+            })
+        && (text.len() == 19
+            || text[19..].strip_prefix('.').is_some_and(|fraction| {
+                !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit())
+            }))
+        && NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
 }
 
 fn is_url(text: &str) -> bool {
@@ -254,6 +274,8 @@ mod tests {
                     "2024-02-29",
                     "2026-10-26T12:34:56Z",
                     "2026-10-26T12:34:56.123+01:00",
+                    "2020-07-30T11:46:02",
+                    "2020-07-30T11:46:02.123456",
                 ],
             ),
             (
@@ -311,6 +333,12 @@ mod tests {
             "2026-1-01",
             "01/02/2026",
             "2026-10-26T25:00:00Z",
+            "2020-07-30T25:46:02",
+            "2023-02-29T11:46:02",
+            "2020-07-30T11:46",
+            "2020-07-30T11:46:02junk",
+            "2020-07-30T11:46:02.",
+            "2020-07-30T1:46:02.1",
             "https://",
             "https://host/with space",
             "www.example.org",
