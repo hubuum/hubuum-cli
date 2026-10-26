@@ -1321,7 +1321,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hubuum-cli"
-version = "0.0.21"
+version = "0.0.22"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1461,7 +1461,9 @@ dependencies = [
 
 [[package]]
 name = "hubuum_client"
-version = "0.19.0"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "843703427f65cd2dda274335b473c8f6bde1cd610e62d41e1dfb3b824421cb68"
 dependencies = [
  "chrono",
  "fastrand",

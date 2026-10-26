@@ -182,5 +182,6 @@ hubuum-cli history objects --class-id 10 --at 2026-10-23T12:00:00Z --all --outpu
 ## Server v0.0.20 deletion ordering
 
 Wait for class reindex or rebuild tasks to finish before deleting that class.
-Concurrent deletion and rebuild work can deadlock on server v0.0.20. Use
+Server v0.0.21 fixes concurrent deletion/rebuild deadlocks. When using the older
+v0.0.20 server, use
 `task list` to find pending work and `task wait ID` before `class delete`.

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+<!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-22"></span>
+
+## [0.0.22] - 2026-10-26
+
+This release uses `hubuum_client` 0.20.0 and targets Hubuum Server v0.0.21.
+
 ### Added
 
 - `class schema suggest` with Strict, Balanced, and Expansive presets, bounded
