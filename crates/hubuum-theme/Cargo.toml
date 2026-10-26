@@ -6,6 +6,8 @@ license = "MIT"
 
 [dependencies]
 anstyle = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
+url = "2"

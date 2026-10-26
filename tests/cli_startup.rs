@@ -380,6 +380,62 @@ fn theme_preview_includes_a_dense_banded_table() {
 }
 
 #[test]
+fn forced_table_colors_override_no_color_and_never_remains_unstyled() {
+    let directory = tempdir().unwrap();
+    let theme_file = directory.path().join("theme.toml");
+    write(
+        &theme_file,
+        r#"
+        [[theme]]
+        name = "table-colors"
+        [theme.roles]
+        table_header = { fg = "ansi:magenta" }
+        boolean_true = { fg = "ansi:blue" }
+    "#,
+    )
+    .unwrap();
+    for style in ["dense", "rounded"] {
+        let output = cargo_bin_cmd!("hubuum-cli")
+            .env("XDG_CONFIG_HOME", directory.path())
+            .env("NO_COLOR", "1")
+            .args([
+                "--color",
+                "always",
+                "--table-style",
+                style,
+                "--theme",
+                "table-colors",
+                "--theme-file",
+            ])
+            .arg(&theme_file)
+            .args(["config", "show"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let output = String::from_utf8(output).unwrap();
+        let (header, boolean) = if style == "dense" {
+            ("\x1b[35m", "\x1b[34m")
+        } else {
+            ("\x1b[38;5;5m", "\x1b[38;5;4m")
+        };
+        assert!(output.contains(header), "{style}: {output:?}");
+        assert!(output.contains(boolean), "{style}: {output:?}");
+        let output = cargo_bin_cmd!("hubuum-cli")
+            .env("XDG_CONFIG_HOME", directory.path())
+            .env("CLICOLOR_FORCE", "1")
+            .args(["--color", "never", "--table-style", style, "config", "show"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        assert!(!output.contains(&0x1b));
+    }
+}
+
+#[test]
 fn direct_command_redirects_to_an_unstyled_file() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("help.txt");

@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `theme set ROLE --fg COLOR --bg COLOR` for per-theme structural and
+  classifier color overrides, saved in CLI configuration and reloaded immediately.
+  `none`/`default` clear the selected color channel while omitted options preserve
+  it; bold and dimmed effects remain intact. `--preview` shows the proposed theme
+  without saving or activating it. Both preview and local saving work offline.
+- Theme detail keys, table headers, titles, borders, and messages independently.
+  Classify text field values as numbers, IPv4, IPv6, true, false, null-like,
+  commands, CIDRs, ISO dates/RFC3339 timestamps, URLs, MAC addresses, or ordinary
+  text. Custom themes can override category styles, disable classifiers, and
+  configure command prefixes (default: `hubuum-cli`). Muted remains a style.
+- Dim null-like and empty/whitespace values in every bundled theme. Default IP,
+  CIDR/network, and MAC colors to each theme's base accent through the shared
+  `network` role. Custom role styles support `dimmed`; blank cells remain blank.
+- Color scalar items inside inline JSON lists, including nested lists and objects,
+  while keeping punctuation and object keys neutral. Preserve original escaping,
+  spacing, numeric notation, wrapping, and machine-readable values. Recognize
+  ISO timestamps without a timezone, such as `2020-07-30T11:46:02`, as dates.
+  Reset styles on each line of nested values so continuation indentation stays
+  neutral, including when value backgrounds or bold effects are configured.
+- Show structural roles and classified sample values in `theme preview`, and
+  effective inherited role styles in `theme show`. Existing theme files retain
+  compatible defaults; machine-readable output and color-disabled text remain
+  unstyled. The theme crate now directly uses the already locked `chrono` and
+  `url` packages. List styling enables `serde_json/raw_value` and
+  `comfy-table/custom_styling`, adding `ansi-str`, `ansitok`, `console`,
+  `encode_unicode`, `arrayvec`, `minimal-lexical`, and `nom` 7 alongside the
+  existing `nom` 8. Existing dependency versions, server target, OpenAPI surface,
+  and MSRV are unchanged.
+
+### Changed
+
+- **Breaking (Rust theme API only):** `Theme` now owns private classifier
+  settings, `ThemeRole` has new variants, and `RoleStyle` has a `dimmed` field.
+  Downstream Rust callers must use
+  `resolve_theme` or `catalog` instead of struct literals and update exhaustive
+  role matches. Use `role_style` for effective styles, including fallback roles.
+  Construct styles with `RoleStyle::new(...).with_dimmed(...)` or add `dimmed`
+  to existing style literals.
+  CLI configuration and existing theme files require no migration.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-22"></span>
 

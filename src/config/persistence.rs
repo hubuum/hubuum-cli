@@ -1,4 +1,4 @@
-use hubuum_theme::catalog as theme_catalog;
+use hubuum_theme::{RoleStyleOverride, ThemeRole};
 use std::fs::{create_dir_all, read_to_string, write};
 use std::io::ErrorKind;
 use std::num::NonZeroUsize;
@@ -14,11 +14,34 @@ use crate::models::{
     EmptyResult, ObjectListDataColumns, OutputColor, OutputFormat, Protocol, SessionStorage,
     TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
 };
+use crate::theme::available_themes;
 
 use super::{
-    descriptor_for_key, get_config, get_config_state, ConfigKeyDescriptor, ConfigValueKind,
+    descriptor_for_key, get_config_state, ConfigKeyDescriptor, ConfigValueKind, ThemeOverrides,
     UserPreferences,
 };
+
+pub fn persist_theme_override(
+    theme: &str,
+    role: ThemeRole,
+    patch: RoleStyleOverride,
+) -> Result<PathBuf, AppError> {
+    validate_theme_name_config_value(theme)?;
+    let path = get_config_state().paths.write_target.clone();
+    let mut root = read_toml_file_for_update(&path)?;
+    let fields =
+        TomlValue::try_from(patch).map_err(|error| AppError::ConfigError(error.to_string()))?;
+    // Update only supplied channels, leaving other roles and config layers intact.
+    for (channel, value) in fields.as_table().expect("role override is a table") {
+        set_toml_path(
+            &mut root,
+            &format!("output.theme_overrides.{theme}.{role}.{channel}"),
+            value.clone(),
+        )?;
+    }
+    write_toml_file(&path, &root)?;
+    Ok(path)
+}
 
 pub fn set_persisted_value(key: &str, value: &str) -> Result<PathBuf, AppError> {
     if let Some(alias_name) = command_alias_key(key)? {
@@ -201,6 +224,12 @@ pub(super) fn parse_config_value(
             validate_theme_name_config_value(value)?;
             TomlValue::String(value.to_string())
         }
+        ConfigValueKind::ThemeOverrides => {
+            let overrides: ThemeOverrides =
+                parse_toml(value).map_err(|error| AppError::ConfigError(error.to_string()))?;
+            TomlValue::try_from(overrides)
+                .map_err(|error| AppError::ConfigError(error.to_string()))?
+        }
         ConfigValueKind::TableStyle => TomlValue::String(
             value
                 .parse::<TableStyle>()
@@ -271,10 +300,7 @@ pub(super) fn parse_config_value(
 }
 
 pub(super) fn validate_theme_name_config_value(value: &str) -> Result<(), AppError> {
-    let cfg = get_config();
-    let theme_file =
-        (!cfg.output.theme_file.is_empty()).then_some(Path::new(&cfg.output.theme_file));
-    let catalog = theme_catalog(theme_file).map_err(|err| {
+    let catalog = available_themes().map_err(|err| {
         AppError::ConfigError(format!("Could not load configured theme file: {err}"))
     })?;
     if catalog.get(value).is_some() {

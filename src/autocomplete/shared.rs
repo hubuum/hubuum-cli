@@ -2,6 +2,7 @@ use std::env::var_os;
 use std::fs::read_dir;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
+use hubuum_theme::ThemeRole;
 use shlex::split;
 
 use crate::config::{
@@ -23,6 +24,40 @@ pub fn theme_names(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) ->
         .into_iter()
         .filter(|value| value.starts_with(prefix))
         .collect()
+}
+
+pub fn theme_roles(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(&ThemeRole::ALL.map(ThemeRole::as_str), prefix)
+}
+
+pub fn theme_colors(_ctx: &CompletionContext, prefix: &str, _parts: &[String]) -> Vec<String> {
+    complete_values(
+        &[
+            "default",
+            "none",
+            "teal",
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "bright-black",
+            "bright-red",
+            "bright-green",
+            "bright-yellow",
+            "bright-blue",
+            "bright-magenta",
+            "bright-cyan",
+            "bright-white",
+            "ansi:",
+            "ansi256:",
+            "#",
+        ],
+        prefix,
+    )
 }
 
 pub fn schema_profile_presets(

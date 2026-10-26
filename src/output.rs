@@ -2,17 +2,19 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Write as FmtWrite};
 use std::io::{stderr, stdout, Write};
 use std::iter::{once, repeat_n};
+use std::ops::Range;
 
 use anstream::AutoStream;
+use anstyle::Style;
 use comfy_table::{
     presets::{ASCII_FULL, ASCII_MARKDOWN, NOTHING, UTF8_FULL, UTF8_HORIZONTAL_ONLY},
-    Cell, ColumnConstraint, ContentArrangement, Table, Width,
+    ColumnConstraint, ContentArrangement, Table, Width,
 };
 use hubuum_filter::{
     apply_pipeline_with_settings, group_summary_rows, OutputEnvelope, OutputShape, PipeStage,
     PipelineSettings,
 };
-use hubuum_theme::{paint as paint_theme, Theme as HubuumTheme};
+use hubuum_theme::{paint_style, Theme as HubuumTheme};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_json::{json, to_string, to_string_pretty, to_value, Value};
@@ -24,11 +26,15 @@ use crate::config::get_config;
 use crate::diagnostics::{self, DebugReport};
 use crate::errors::AppError;
 use crate::models::{
-    EmptyResult, OutputColor, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth,
-    TableWrap,
+    EmptyResult, OutputFormat, TableBands, TableHeaders, TableStyle, TableWidth, TableWrap,
 };
 use crate::terminal::terminal_width;
-use crate::theme::{active_theme, color_choice, paint, ThemeRole};
+use crate::theme::{color_choice, paint, ThemeRole};
+
+mod styling;
+mod value_styling;
+use styling::OutputStyling;
+use value_styling::{over_band, StyledValue};
 
 static OUTPUT_BUFFER: Lazy<Mutex<OutputBuffer>> = Lazy::new(|| Mutex::new(OutputBuffer::new()));
 
@@ -437,7 +443,10 @@ pub fn append_key_value<K: Display, V: Display>(
     value: V,
     padding: usize,
 ) -> Result<(), AppError> {
-    let line = format!("{key:<padding$} : {value}");
+    let styling = OutputStyling::active();
+    let key = styling.paint(ThemeRole::Key, format!("{key:<padding$}"));
+    let value = styling.value(&value.to_string());
+    let line = format!("{key} : {value}");
     append_line(line)
 }
 
@@ -575,7 +584,8 @@ pub(crate) fn render_semantic_item(
             OutputShape::Rows | OutputShape::Detail | OutputShape::Message => {
                 render_detail_text(&OutputEnvelope::detail(value.clone(), columns.to_vec()))?
             }
-            OutputShape::Values | OutputShape::Lines => vec![semantic_scalar(value)],
+            OutputShape::Values => vec![OutputStyling::active().value(&semantic_scalar(value))],
+            OutputShape::Lines => vec![semantic_scalar(value)],
             OutputShape::Groups => render_rows_text(
                 &OutputEnvelope::rows(group_summary_rows(value), Vec::new()),
                 get_config().output.table_headers,
@@ -617,11 +627,16 @@ fn render_semantic_text(
             .collect()),
         OutputShape::Rows => render_rows_text(envelope, table_headers),
         OutputShape::Detail => render_detail_text(envelope),
-        OutputShape::Message => Ok(vec![message_text(envelope.value())]),
-        OutputShape::Values => Ok(value_array(envelope.value())
-            .iter()
-            .map(semantic_scalar)
-            .collect()),
+        OutputShape::Message => Ok(vec![
+            OutputStyling::active().paint(ThemeRole::Message, message_text(envelope.value()))
+        ]),
+        OutputShape::Values => {
+            let styling = OutputStyling::active();
+            Ok(value_array(envelope.value())
+                .iter()
+                .map(|value| styling.value(&semantic_scalar(value)))
+                .collect())
+        }
         OutputShape::Groups => render_rows_text(
             &OutputEnvelope::rows(
                 group_summary_rows(envelope.value()),
@@ -651,7 +666,9 @@ fn render_rows_text(
         .unwrap_or_default();
     if rows.is_empty() {
         return if get_config().output.empty_result == EmptyResult::Message {
-            Ok(vec!["No results.".to_string()])
+            Ok(vec![
+                OutputStyling::active().paint(ThemeRole::Message, "No results.")
+            ])
         } else {
             Ok(Vec::new())
         };
@@ -663,9 +680,14 @@ fn render_rows_text(
     }
 
     let headers = column_headers(&columns, rows, table_headers);
+    let styling = OutputStyling::active();
     let mut table = Table::new();
     if !headers.is_empty() {
-        table.set_header(headers.clone());
+        table.set_header(
+            headers
+                .iter()
+                .map(|header| styling.cell(header, styling.style(ThemeRole::TableHeader))),
+        );
     }
     apply_table_style(&mut table, &get_config().output.table_style);
     apply_table_layout(
@@ -679,16 +701,28 @@ fn render_rows_text(
         table.add_row(
             columns
                 .iter()
-                .map(|column| cell_text(row.get(column)))
+                .map(|column| {
+                    let text = cell_text(row.get(column));
+                    styling.value_cell(&text)
+                })
                 .collect::<Vec<_>>(),
         );
     }
-    fit_table_headers(&mut table, &columns, &headers);
+    fit_table_headers(&mut table, &columns, &headers, &styling);
 
-    Ok(table.to_string().lines().map(str::to_string).collect())
+    Ok(styling
+        .table(&mut table)
+        .lines()
+        .map(str::to_string)
+        .collect())
 }
 
-fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) {
+fn fit_table_headers(
+    table: &mut Table,
+    columns: &[String],
+    headers: &[String],
+    styling: &OutputStyling,
+) {
     if !columns
         .iter()
         .zip(headers)
@@ -704,7 +738,7 @@ fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) 
     let mut cells = Vec::with_capacity(headers.len());
     for (index, (column, header)) in columns.iter().zip(headers).enumerate() {
         let Some(path) = grouped_header_path(column, header) else {
-            cells.push(Cell::new(header));
+            cells.push(styling.cell(header, styling.style(ThemeRole::TableHeader)));
             continue;
         };
         if !full_width {
@@ -720,7 +754,11 @@ fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) 
                 column.set_constraint(ColumnConstraint::UpperBoundary(Width::Fixed(width)));
             }
         }
-        cells.push(Cell::new(path).set_delimiter('.'));
+        cells.push(
+            styling
+                .cell(&path, styling.style(ThemeRole::TableHeader))
+                .set_delimiter('.'),
+        );
     }
     if !cells.is_empty() {
         table.set_header(cells);
@@ -728,6 +766,7 @@ fn fit_table_headers(table: &mut Table, columns: &[String], headers: &[String]) 
 }
 
 fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError> {
+    let styling = OutputStyling::active();
     let columns = if envelope.columns().is_empty() {
         envelope
             .value()
@@ -749,15 +788,19 @@ fn render_detail_text(envelope: &OutputEnvelope) -> Result<Vec<String>, AppError
         .map(|column| {
             let value = envelope.value().get(column).unwrap_or(&Value::Null);
             if matches!(value, Value::Object(_) | Value::Array(_)) {
-                format!("{column}:\n{}", nested_detail_text(value, 2).join("\n"))
+                format!(
+                    "{}:\n{}",
+                    styling.paint(ThemeRole::Key, column),
+                    nested_detail_text(value, 2, &styling).join("\n")
+                )
             } else {
-                render_detail_field(column, &cell_text(Some(value)), padding)
+                styled_detail_field(column, &cell_text(Some(value)), padding, &styling)
             }
         })
         .collect())
 }
 
-fn nested_detail_text(value: &Value, indent: usize) -> Vec<String> {
+fn nested_detail_text(value: &Value, indent: usize, styling: &OutputStyling) -> Vec<String> {
     let prefix = " ".repeat(indent);
     match value {
         Value::Object(fields) if !fields.is_empty() => {
@@ -766,11 +809,12 @@ fn nested_detail_text(value: &Value, indent: usize) -> Vec<String> {
                 .iter()
                 .flat_map(|(key, value)| {
                     if matches!(value, Value::Object(_) | Value::Array(_)) {
-                        let mut lines = vec![format!("{prefix}{key}:")];
-                        lines.extend(nested_detail_text(value, indent + 2));
+                        let mut lines =
+                            vec![format!("{prefix}{}:", styling.paint(ThemeRole::Key, key))];
+                        lines.extend(nested_detail_text(value, indent + 2, styling));
                         lines
                     } else {
-                        render_detail_field(key, &semantic_scalar(value), padding)
+                        styled_detail_field(key, &semantic_scalar(value), padding, styling)
                             .lines()
                             .map(|line| format!("{prefix}{line}"))
                             .collect()
@@ -781,29 +825,44 @@ fn nested_detail_text(value: &Value, indent: usize) -> Vec<String> {
         Value::Array(values) if !values.is_empty() => values
             .iter()
             .flat_map(|value| {
-                let mut lines = nested_detail_text(value, indent + 2);
+                let mut lines = nested_detail_text(value, indent + 2, styling);
                 if let Some(first) = lines.first_mut() {
                     first.replace_range(indent..indent + 2, "- ");
                 }
                 lines
             })
             .collect(),
-        value => semantic_scalar(value)
-            .split('\n')
-            .map(|line| format!("{prefix}{line}"))
-            .collect(),
+        value => {
+            let text = semantic_scalar(value);
+            let styled = styling.styled_value(&text);
+            styled
+                .painted_lines()
+                .map(|line| format!("{prefix}{line}"))
+                .collect()
+        }
     }
 }
 
 pub(crate) fn render_detail_field(column: &str, value: &str, padding: usize) -> String {
-    let mut lines = value.split('\n');
+    styled_detail_field(column, value, padding, &OutputStyling::active())
+}
+
+fn styled_detail_field(
+    column: &str,
+    value: &str,
+    padding: usize,
+    styling: &OutputStyling,
+) -> String {
+    let styled = styling.styled_value(value);
+    let mut lines = styled.painted_lines();
     let first = lines.next().unwrap_or_default();
-    let mut rendered = format!("{column:<padding$}: {first}");
+    let key = styling.paint(ThemeRole::Key, format!("{column:<padding$}"));
+    let mut rendered = format!("{key}: {first}");
     let continuation_indent = " ".repeat(padding + 2);
     for line in lines {
         rendered.push('\n');
         rendered.push_str(&continuation_indent);
-        rendered.push_str(line);
+        rendered.push_str(&line);
     }
     rendered
 }
@@ -912,11 +971,7 @@ fn render_dense_rows(
     table_headers: TableHeaders,
 ) -> Vec<String> {
     let config = get_config();
-    let band_theme = (!matches!(config.output.table_bands, TableBands::Never)
-        && !matches!(config.output.color, OutputColor::Never))
-    .then(active_theme)
-    .and_then(Result::ok);
-    render_dense_rows_with_band(
+    render_dense_rows_styled(
         rows,
         columns,
         table_headers,
@@ -925,23 +980,18 @@ fn render_dense_rows(
             &config.output.table_wrap,
             terminal_width(),
         ),
-        |index, line| {
-            if index.is_multiple_of(2) {
-                if let Some(theme) = &band_theme {
-                    return paint_theme(theme, ThemeRole::TableBand, line);
-                }
-            }
-            line
-        },
+        &OutputStyling::active(),
+        !matches!(config.output.table_bands, TableBands::Never),
     )
 }
 
-fn render_dense_rows_with_band(
+fn render_dense_rows_styled(
     rows: &[Value],
     columns: &[String],
     table_headers: TableHeaders,
     layout: DenseLayout<'_>,
-    mut band_row: impl FnMut(usize, String) -> String,
+    styling: &OutputStyling,
+    bands: bool,
 ) -> Vec<String> {
     let mut headers = column_headers(columns, rows, table_headers);
     let widths = dense_widths(rows, columns, &headers, layout);
@@ -950,18 +1000,33 @@ fn render_dense_rows_with_band(
             *header = wrap_grouped_header(&path, *width);
         }
     }
-    let mut lines = render_dense_headers(&headers, &widths);
+    let headers = headers
+        .iter()
+        .map(|header| StyledValue::plain(header, styling.style(ThemeRole::TableHeader)))
+        .collect::<Vec<_>>();
+    let border = styling.style(ThemeRole::Border);
+    let mut lines = render_dense_cells(&headers, &widths, Style::new(), border);
     lines.reserve(rows.len());
     for (index, row) in rows.iter().enumerate() {
         let cells = columns
             .iter()
             .map(|column| cell_text(row.get(column)))
             .collect::<Vec<_>>();
-        lines.extend(
-            render_dense_cells(&cells, &widths)
-                .into_iter()
-                .map(|line| band_row(index, line)),
-        );
+        let band = if bands && index.is_multiple_of(2) {
+            styling.style(ThemeRole::TableBand)
+        } else {
+            Style::new()
+        };
+        let styled = cells
+            .iter()
+            .map(|cell| styling.styled_value(cell))
+            .collect::<Vec<_>>();
+        lines.extend(render_dense_cells(
+            &styled,
+            &widths,
+            band,
+            over_band(border, band),
+        ));
     }
     lines
 }
@@ -980,7 +1045,7 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
     ];
 
     let config = get_config();
-    render_dense_rows_with_band(
+    render_dense_rows_styled(
         &rows,
         &columns,
         config.output.table_headers,
@@ -989,13 +1054,8 @@ pub(crate) fn render_dense_theme_preview(theme: &HubuumTheme) -> Vec<String> {
             &config.output.table_wrap,
             terminal_width(),
         ),
-        |index, line| {
-            if index.is_multiple_of(2) {
-                paint_theme(theme, ThemeRole::TableBand, line)
-            } else {
-                line
-            }
-        },
+        &OutputStyling::preview(theme),
+        true,
     )
 }
 
@@ -1109,10 +1169,6 @@ fn constrain_dense_widths(widths: &mut [usize], table_width: usize) {
         }
         excess -= reduction;
     }
-}
-
-fn render_dense_headers(headers: &[String], widths: &[usize]) -> Vec<String> {
-    render_dense_cells(headers, widths)
 }
 
 fn column_headers(columns: &[String], rows: &[Value], table_headers: TableHeaders) -> Vec<String> {
@@ -1231,33 +1287,44 @@ fn column_header(column: &str) -> String {
     column.strip_prefix("data.").unwrap_or(column).to_string()
 }
 
-fn render_dense_cells(values: &[String], widths: &[usize]) -> Vec<String> {
+fn render_dense_cells(
+    values: &[StyledValue<'_>],
+    widths: &[usize],
+    band: Style,
+    border: Style,
+) -> Vec<String> {
     let wrapped = values
         .iter()
         .zip(widths)
-        .map(|(value, width)| wrap_dense_cell(value, *width))
+        .map(|(value, width)| wrap_dense_cell(value.text(), *width))
         .collect::<Vec<_>>();
     let height = wrapped.iter().map(Vec::len).max().unwrap_or_default();
 
     (0..height)
         .map(|line| {
-            render_dense_line(
-                wrapped
-                    .iter()
-                    .map(|cell| cell.get(line).map(String::as_str).unwrap_or_default()),
-                widths,
-            )
+            wrapped
+                .iter()
+                .zip(widths)
+                .zip(values)
+                .map(|((cell, width), value)| {
+                    value.paint_padded(cell.get(line).cloned().unwrap_or(0..0), *width, band)
+                })
+                .collect::<Vec<_>>()
+                .join(&paint_style(border, " | "))
         })
         .collect()
 }
 
-fn wrap_dense_cell(value: &str, width: usize) -> Vec<String> {
+fn wrap_dense_cell(value: &str, width: usize) -> Vec<Range<usize>> {
     let width = width.max(1);
+    let mut source_offset = 0;
     value
         .split('\n')
         .flat_map(|source_line| {
             let mut lines = Vec::new();
             let mut remaining = source_line.trim_start();
+            let mut offset = source_offset + source_line.len() - remaining.len();
+            source_offset += source_line.len() + 1;
             while remaining.chars().count() > width {
                 let hard_end = remaining
                     .char_indices()
@@ -1272,25 +1339,15 @@ fn wrap_dense_cell(value: &str, width: usize) -> Vec<String> {
                         (index > 0 && character.is_whitespace()).then_some(index)
                     })
                     .unwrap_or(hard_end);
-                lines.push(remaining[..split_at].trim_end().to_string());
-                remaining = remaining[split_at..].trim_start();
+                lines.push(offset..offset + remaining[..split_at].trim_end().len());
+                let next = remaining[split_at..].trim_start();
+                offset += remaining.len() - next.len();
+                remaining = next;
             }
-            lines.push(remaining.to_string());
+            lines.push(offset..offset + remaining.len());
             lines
         })
         .collect()
-}
-
-fn render_dense_line<'a>(values: impl IntoIterator<Item = &'a str>, widths: &[usize]) -> String {
-    values
-        .into_iter()
-        .zip(widths.iter())
-        .map(|(value, width)| {
-            let padding = width.saturating_sub(value.chars().count());
-            format!("{value}{}", " ".repeat(padding))
-        })
-        .collect::<Vec<_>>()
-        .join(" | ")
 }
 
 fn value_array(value: &Value) -> Vec<Value> {
@@ -1391,7 +1448,7 @@ mod tests {
     use super::{
         add_error, add_warning, append_json_line, append_line,
         apply_table_layout_at_terminal_width, apply_table_style, column_headers,
-        render_dense_rows_with_band, render_dense_theme_preview, reset_output, set_pipeline,
+        render_dense_rows_styled, render_dense_theme_preview, reset_output, set_pipeline,
         set_render_format, set_semantic_output, take_output, DenseLayout, OutputSnapshot,
         RenderFormat,
     };
@@ -1400,6 +1457,267 @@ mod tests {
     use comfy_table::Table;
     use hubuum_filter::{OutputEnvelope, OutputShape, PipeStage, Pipeline, ProjectTerm};
     use hubuum_theme::resolve_theme;
+
+    pub(super) fn without_ansi(text: &str) -> String {
+        use std::io::Write;
+        let mut stream = anstream::AutoStream::new(Vec::new(), anstream::ColorChoice::Never);
+        stream.write_all(text.as_bytes()).unwrap();
+        String::from_utf8(stream.into_inner()).unwrap()
+    }
+
+    #[test]
+    #[serial]
+    fn value_styles_preserve_every_table_layout_and_semantic_payload() {
+        let rows = vec![
+            json!({"data.sample.value": "12345678901234567890", "other": "ordinary | text"}),
+            json!({"data.sample.value": "2001:db8::1", "other": "false"}),
+            json!({"data.sample.value": "2024-02-29", "other": "null"}),
+            json!({"data.sample.value": null, "other": ""}),
+            json!({"data.sample.value": ["129.240.222.179", "192.168.50.193"], "other": r#"["2020-07-30T11:46:02",null,true,"å🙂"]"#}),
+        ];
+        let envelope = OutputEnvelope::rows(rows, vec!["data.sample.value".into(), "other".into()]);
+        for style in [
+            TableStyle::Dense,
+            TableStyle::Ascii,
+            TableStyle::Rounded,
+            TableStyle::Markdown,
+            TableStyle::Plain,
+            TableStyle::Compact,
+        ] {
+            let mut config = AppConfig::default();
+            config.output.table_style = style.clone();
+            config.output.table_bands = TableBands::Always;
+            config.output.table_width = TableWidth::Fixed(30);
+            config.output.table_wrap = TableWrap::Fixed(8);
+            config.output.color = OutputColor::Always;
+            init_config(config.clone()).unwrap();
+            reset_output().unwrap();
+            set_semantic_output(envelope.clone()).unwrap();
+            let snapshot = take_output().unwrap();
+            assert_eq!(snapshot.semantic[0].value(), envelope.value());
+            let colored = snapshot.render();
+            assert!(colored.contains('\x1b'), "{style}");
+            config.output.color = OutputColor::Never;
+            init_config(config).unwrap();
+            reset_output().unwrap();
+            set_semantic_output(envelope.clone()).unwrap();
+            let plain = take_output().unwrap().render();
+            assert!(!plain.contains('\x1b'), "{style}");
+            assert_eq!(without_ansi(&colored), plain, "{style}");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn inline_lists_color_items_in_details_tables_and_values_without_changing_data() {
+        let source = r#"["129.240.222.179","192.168.50.193"]"#;
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Always;
+        config.output.table_wrap = TableWrap::Never;
+        init_config(config.clone()).unwrap();
+        let detail = super::render_detail_field(
+            "facts.network.interfaces.ipv4_addresses.address",
+            source,
+            48,
+        );
+        assert!(detail
+            .contains("[\"\x1b[32m129.240.222.179\x1b[0m\",\"\x1b[32m192.168.50.193\x1b[0m\"]"));
+        let rows = OutputEnvelope::rows(
+            vec![json!({"addresses": ["129.240.222.179", "192.168.50.193"]})],
+            vec!["addresses".into()],
+        );
+        for style in [TableStyle::Dense, TableStyle::Rounded] {
+            config.output.table_style = style;
+            config.output.table_bands = TableBands::Never;
+            init_config(config.clone()).unwrap();
+            let lines = super::render_rows_text(&rows, TableHeaders::None)
+                .unwrap()
+                .join("\n");
+            assert!(
+                lines.contains("\x1b[32m129.240.222.179\x1b[0m"),
+                "{lines:?}"
+            );
+            assert!(lines.contains("\x1b[32m192.168.50.193\x1b[0m"), "{lines:?}");
+            assert!(without_ansi(&lines).contains(source));
+        }
+        let values = OutputEnvelope::values(vec![json!(source)]);
+        let rendered = super::render_semantic_text(&values, TableHeaders::Full)
+            .unwrap()
+            .join("\n");
+        assert_eq!(without_ansi(&rendered), source);
+        for envelope in [&rows, &values] {
+            for format in [
+                RenderFormat::Json,
+                RenderFormat::Jsonl,
+                RenderFormat::Csv,
+                RenderFormat::Tsv,
+            ] {
+                config.output.color = OutputColor::Always;
+                init_config(config.clone()).unwrap();
+                let colored =
+                    super::render_semantic_with_table_headers(envelope, format, TableHeaders::Full)
+                        .unwrap();
+                config.output.color = OutputColor::Never;
+                init_config(config.clone()).unwrap();
+                let plain =
+                    super::render_semantic_with_table_headers(envelope, format, TableHeaders::Full)
+                        .unwrap();
+                assert_eq!(colored, plain, "{format:?}");
+                assert!(!colored.join("\n").contains('\x1b'));
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn all_themes_render_null_and_empty_cells_dimmed_in_dense_and_bordered_tables() {
+        use hubuum_theme::theme_names;
+
+        let envelope = OutputEnvelope::rows(
+            vec![
+                json!({"value": null}),
+                json!({"value": ""}),
+                json!({"value": "  "}),
+                json!({"value": "NULL"}),
+                json!({"value": "ordinary"}),
+            ],
+            vec!["value".into()],
+        );
+        for name in theme_names() {
+            for style in [TableStyle::Dense, TableStyle::Rounded] {
+                let mut config = AppConfig::default();
+                config.output.theme = name.clone();
+                config.output.color = OutputColor::Always;
+                config.output.table_style = style.clone();
+                config.output.table_bands = TableBands::Never;
+                init_config(config).unwrap();
+                let rendered = super::render_rows_text(&envelope, TableHeaders::None)
+                    .unwrap()
+                    .join("\n");
+                assert_eq!(
+                    rendered.matches("\x1b[2m").count(),
+                    4,
+                    "{name} {style}: {rendered:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn custom_roles_apply_to_nested_details_values_and_messages_only_at_rendering() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("theme.toml");
+        std::fs::write(
+            &path,
+            r#"
+            [[theme]]
+            name = "test-output"
+            [theme.roles]
+            key = { fg = "ansi:red" }
+            number = { fg = "ansi:blue" }
+            boolean_false = { fg = "ansi:magenta" }
+            message = { fg = "ansi:yellow" }
+            [theme.classifiers]
+            disabled = ["date"]
+        "#,
+        )
+        .unwrap();
+        let mut config = AppConfig::default();
+        config.output.color = OutputColor::Always;
+        config.output.theme = "test-output".into();
+        config.output.theme_file = path.to_string_lossy().into();
+        init_config(config).unwrap();
+        let envelope = OutputEnvelope::detail(
+            json!({"nested": {"count": 42, "enabled": false, "date": "2024-02-29"}}),
+            vec![],
+        );
+        let lines = super::render_detail_text(&envelope).unwrap().join("\n");
+        assert!(lines.contains("\x1b[31mnested\x1b[0m"));
+        assert!(lines.contains("\x1b[34m42\x1b[0m"));
+        assert!(lines.contains("\x1b[35mfalse\x1b[0m"));
+        assert!(!lines.contains("m2024-02-29"));
+        let values = OutputEnvelope::values(vec![json!(42), json!(false)]);
+        let lines = super::render_semantic_text(&values, TableHeaders::Full).unwrap();
+        assert_eq!(lines, ["\x1b[34m42\x1b[0m", "\x1b[35mfalse\x1b[0m"]);
+        let message = OutputEnvelope::message(json!({"message": "42"}));
+        assert_eq!(
+            super::render_semantic_text(&message, TableHeaders::Full).unwrap(),
+            ["\x1b[33m42\x1b[0m"]
+        );
+        for format in [
+            RenderFormat::Json,
+            RenderFormat::Jsonl,
+            RenderFormat::Csv,
+            RenderFormat::Tsv,
+        ] {
+            let rendered =
+                super::render_semantic_with_table_headers(&envelope, format, TableHeaders::Full)
+                    .unwrap()
+                    .join("\n");
+            assert!(!rendered.contains('\x1b'), "{format:?}");
+            assert!(rendered.contains("2024-02-29"));
+        }
+    }
+
+    #[test]
+    fn nested_multiline_values_keep_indentation_outside_the_value_style() {
+        use hubuum_theme::{ColorSpec, RoleStyle, ThemeRole};
+        let mut theme = resolve_theme("hubuum-dark", None).unwrap();
+        theme.roles.insert(
+            ThemeRole::Value,
+            RoleStyle::new(None, Some(ColorSpec::ansi256(23)), true),
+        );
+        let styling = super::OutputStyling::preview(&theme);
+        let lines = super::nested_detail_text(&json!(["first\nsecond"]), 2, &styling);
+        assert_eq!(
+            lines,
+            [
+                format!("  - {}", styling.value("first")),
+                format!("    {}", styling.value("second")),
+            ]
+        );
+    }
+
+    #[test]
+    fn wrapped_dense_values_keep_their_category_and_band_background() {
+        use hubuum_theme::{ColorSpec, RoleStyle, ThemeRole};
+        let mut theme = resolve_theme("hubuum-dark", None).unwrap();
+        theme.roles.insert(
+            ThemeRole::Date,
+            RoleStyle::new(Some(ColorSpec::ansi(anstyle::AnsiColor::Blue)), None, false),
+        );
+        let rows = vec![json!({"date": "2024-02-29"})];
+        let columns = vec!["date".into()];
+        let lines = render_dense_rows_styled(
+            &rows,
+            &columns,
+            TableHeaders::None,
+            DenseLayout::new(&TableWidth::Auto, &TableWrap::Fixed(5), None),
+            &super::OutputStyling::preview(&theme),
+            true,
+        );
+        assert_eq!(lines.len(), 2);
+        assert_eq!(without_ansi(&lines.join("\n")), "2024-\n02-29");
+        for line in &lines {
+            assert!(line.contains("\x1b[34m"), "{line:?}");
+            assert!(line.contains("\x1b[48;5;236m"), "{line:?}");
+        }
+        theme.roles.insert(
+            ThemeRole::Date,
+            RoleStyle::new(None, Some(ColorSpec::ansi256(23)), false),
+        );
+        let lines = render_dense_rows_styled(
+            &rows,
+            &columns,
+            TableHeaders::None,
+            DenseLayout::new(&TableWidth::Auto, &TableWrap::Never, None),
+            &super::OutputStyling::preview(&theme),
+            true,
+        );
+        assert!(lines[0].contains("\x1b[48;5;23m"));
+        assert!(!lines[0].contains("\x1b[48;5;236m"));
+    }
 
     #[test]
     #[serial]
@@ -1478,12 +1796,13 @@ mod tests {
             "detail": "/tmp/config.toml",
         })];
         let columns = ["key", "value", "source", "detail"].map(str::to_string);
-        let lines = render_dense_rows_with_band(
+        let lines = render_dense_rows_styled(
             &rows,
             &columns,
             TableHeaders::Full,
             DenseLayout::new(&TableWidth::Auto, &TableWrap::Auto, Some(60)),
-            |_, line| line,
+            &super::OutputStyling::default(),
+            false,
         );
 
         assert!(lines.iter().all(|line| line.chars().count() <= 60));
@@ -2321,13 +2640,17 @@ mod tests {
     fn dense_theme_preview_bands_alternating_rows() {
         let theme = resolve_theme("rose-pink", None).expect("rose-pink theme");
         let lines = render_dense_theme_preview(&theme);
+        let band = theme
+            .style(crate::theme::ThemeRole::TableBand)
+            .render()
+            .to_string();
 
         assert_eq!(lines.len(), 5);
         assert!(lines[0].contains("Name"));
         assert!(lines[1].contains('\u{1b}'));
-        assert!(!lines[2].contains('\u{1b}'));
+        assert!(!lines[2].contains(&band));
         assert!(lines[3].contains('\u{1b}'));
-        assert!(!lines[4].contains('\u{1b}'));
+        assert!(!lines[4].contains(&band));
         assert!(lines[1].contains("edge-gateway-01"));
         assert!(lines[3].contains("storage-node-02"));
     }

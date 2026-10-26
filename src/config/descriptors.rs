@@ -12,6 +12,7 @@ pub(super) enum ConfigValueKind {
     OutputFormat,
     OutputColor,
     ThemeName,
+    ThemeOverrides,
     TableStyle,
     TableHeaders,
     TableWidth,
@@ -253,6 +254,13 @@ pub(super) const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         cli_arg: Some("theme_file"),
         env_var: "HUBUUM_CLI__OUTPUT__THEME_FILE",
         value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "output.theme_overrides",
+        cli_arg: None,
+        env_var: "HUBUUM_CLI__OUTPUT__THEME_OVERRIDES",
+        value_kind: ConfigValueKind::ThemeOverrides,
         sensitive: false,
     },
     ConfigKeyDescriptor {

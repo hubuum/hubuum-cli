@@ -566,11 +566,11 @@ impl CommandCatalog {
         } else {
             format!("Scope: {}", scope.join(" "))
         };
-        lines.push(paint(ThemeRole::Heading, title));
+        lines.push(paint(ThemeRole::Title, title));
 
         if !scope_spec.scopes.is_empty() {
             lines.push(String::new());
-            lines.push(paint(ThemeRole::Heading, "Scopes:"));
+            lines.push(paint(ThemeRole::Title, "Scopes:"));
             let name_width = scope_spec
                 .scopes
                 .keys()
@@ -590,7 +590,7 @@ impl CommandCatalog {
 
         if !scope_spec.commands.is_empty() {
             lines.push(String::new());
-            lines.push(paint(ThemeRole::Heading, "Commands:"));
+            lines.push(paint(ThemeRole::Title, "Commands:"));
             let command_width = scope_spec
                 .commands
                 .keys()
@@ -620,7 +620,7 @@ impl CommandCatalog {
         lines.extend(render_shell_help_lines());
 
         lines.push(String::new());
-        lines.push(paint(ThemeRole::Heading, "JSONPath:"));
+        lines.push(paint(ThemeRole::Title, "JSONPath:"));
         lines.push(format!(
             "  Use {} for object data selection syntax and examples.",
             paint_command("help jsonpath")
@@ -650,7 +650,7 @@ impl CommandCatalog {
             .ok_or_else(|| AppError::CommandNotFound(name.clone()))?;
 
         let mut help = String::new();
-        help.push_str(&paint(ThemeRole::Heading, command_path.join(" ")));
+        help.push_str(&paint(ThemeRole::Title, command_path.join(" ")));
         if let Some(about) = &command.about {
             help.push_str(" - ");
             help.push_str(about);
@@ -663,7 +663,7 @@ impl CommandCatalog {
         }
 
         if !command.options.is_empty() {
-            help.push_str(&paint(ThemeRole::Heading, "Options:"));
+            help.push_str(&paint(ThemeRole::Title, "Options:"));
             help.push('\n');
             for option in &command.options {
                 let mut names = Vec::new();
@@ -725,7 +725,7 @@ impl CommandCatalog {
         help.push('\n');
 
         if let Some(examples) = &command.examples {
-            help.push_str(&paint(ThemeRole::Heading, "Examples:"));
+            help.push_str(&paint(ThemeRole::Title, "Examples:"));
             help.push('\n');
             for line in examples.lines() {
                 let command = command_path.join(" ");
@@ -751,7 +751,7 @@ impl CommandCatalog {
     }
 
     pub fn render_jsonpath_help(&self) -> String {
-        let title = paint(ThemeRole::Heading, "JSONPath");
+        let title = paint(ThemeRole::Title, "JSONPath");
         let body = colorize_help_commands(
             r#"Use object show --path to select part of an object's data.
 JSONPath starts with '$', the root of the data, not the whole object.
@@ -872,7 +872,7 @@ fn render_pipe_help() -> String {
 
 fn render_pipe_help_lines() -> Vec<String> {
     vec![
-        paint(ThemeRole::Heading, "Pipe:"),
+        paint(ThemeRole::Title, "Pipe:"),
         format!(
             "  Use {} for output pipeline syntax, filters, projections, sorting, and examples.",
             paint_command("help pipe")
@@ -882,7 +882,7 @@ fn render_pipe_help_lines() -> Vec<String> {
 
 fn render_shell_help_lines() -> Vec<String> {
     vec![
-        paint(ThemeRole::Heading, "Shell:"),
+        paint(ThemeRole::Title, "Shell:"),
         format!(
             "  Use {} for REPL navigation, pagination, and exit commands.",
             paint_command("help shell")
@@ -902,15 +902,15 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
         let Some(help) = topic_help(topic) else {
             return Err(AppError::CommandNotFound(format!("pipe {topic}")));
         };
-        line!(paint(ThemeRole::Heading, format!("Pipe: {topic}")));
+        line!(paint(ThemeRole::Title, format!("Pipe: {topic}")));
         line!(colorize_help_commands(help));
         return Ok(lines.join("\n"));
     }
 
-    line!(paint(ThemeRole::Heading, "Pipe"));
+    line!(paint(ThemeRole::Title, "Pipe"));
     line!("Append pipe stages after a command to transform semantic output before table, JSON, JSONL, CSV, TSV, or text rendering.");
     line!("");
-    line!(paint(ThemeRole::Heading, "Topics:"));
+    line!(paint(ThemeRole::Title, "Topics:"));
     for topic in help_topics() {
         line!(format!(
             "  {} {}",
@@ -919,7 +919,7 @@ fn render_pipe_topic_help(topic: Option<&str>) -> Result<String, AppError> {
         ));
     }
     line!("");
-    line!(paint(ThemeRole::Heading, "Verbs:"));
+    line!(paint(ThemeRole::Title, "Verbs:"));
     for summary in verb_summaries() {
         line!(format!(
             "  {:<14} {:<9} {}",
@@ -956,7 +956,7 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     }
 
     if let Some(topic) = topic {
-        line!(paint(ThemeRole::Heading, format!("Shell: {topic}")));
+        line!(paint(ThemeRole::Title, format!("Shell: {topic}")));
         match topic {
             "navigation" => {
                 line!(format!(
@@ -1025,10 +1025,10 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
         return Ok(lines.join("\n"));
     }
 
-    line!(paint(ThemeRole::Heading, "Shell"));
+    line!(paint(ThemeRole::Title, "Shell"));
     line!("The REPL shell keeps a current scope, command history, and next-page state.");
     line!("");
-    line!(paint(ThemeRole::Heading, "Help:"));
+    line!(paint(ThemeRole::Title, "Help:"));
     line!(paint_command("  help"));
     line!(paint_command("  help <scope>"));
     line!(paint_command("  help <command>"));
@@ -1039,7 +1039,7 @@ fn render_shell_topic_help(topic: Option<&str>) -> Result<String, AppError> {
     line!(paint_command("  help shell <topic>"));
     line!(paint_command("  help jsonpath"));
     line!("");
-    line!(paint(ThemeRole::Heading, "Topics:"));
+    line!(paint(ThemeRole::Title, "Topics:"));
     line!(format!(
         "  {} Type a scope name to enter it.",
         paint_command("help shell navigation")
@@ -1135,7 +1135,7 @@ fn render_where_help(command_path: &[String]) -> Option<String> {
         .collect::<Vec<_>>();
 
     let mut help = String::new();
-    help.push_str(&paint(ThemeRole::Heading, "Where:"));
+    help.push_str(&paint(ThemeRole::Title, "Where:"));
     help.push('\n');
     help.push_str(&format!(
         "  Syntax: {}",
@@ -1194,7 +1194,7 @@ fn render_pagination_help(command: &CommandSpec) -> Option<String> {
     }
 
     let mut help = String::new();
-    help.push_str(&paint(ThemeRole::Heading, "Pagination:"));
+    help.push_str(&paint(ThemeRole::Title, "Pagination:"));
     help.push('\n');
     if option_names.contains(&"limit") {
         help.push_str(&format!(

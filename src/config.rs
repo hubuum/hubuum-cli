@@ -2,7 +2,7 @@ mod model;
 use model::{default_system_extension_roots, default_user_extension_roots};
 pub use model::{
     AppConfig, ConfigEntry, ConfigPaths, ConfigSource, ConfigState, OutputConfig, SelfUpdateConfig,
-    ServerConfig, UserPreferences,
+    ServerConfig, ThemeOverrides, UserPreferences,
 };
 mod descriptors;
 use descriptors::{ConfigKeyDescriptor, ConfigValueKind, CONFIG_KEYS};
@@ -10,7 +10,8 @@ mod loading;
 pub use loading::load_config;
 mod persistence;
 pub use persistence::{
-    persist_command_alias, persist_user_preferences, set_persisted_value, unset_persisted_value,
+    persist_command_alias, persist_theme_override, persist_user_preferences, set_persisted_value,
+    unset_persisted_value,
 };
 
 use clap::{parser::ValueSource, ArgMatches};
@@ -147,7 +148,8 @@ pub fn config_value_candidates(key: &str) -> Vec<String> {
         | ConfigValueKind::ComputedFieldSetMap
         | ConfigValueKind::PathList
         | ConfigValueKind::StringList
-        | ConfigValueKind::TomlTable => Vec::new(),
+        | ConfigValueKind::TomlTable
+        | ConfigValueKind::ThemeOverrides => Vec::new(),
         ConfigValueKind::String
         | ConfigValueKind::U16
         | ConfigValueKind::U64
@@ -352,6 +354,9 @@ fn apply_runtime_overrides(target: &mut AppConfig, source: &AppConfig, keys: &[S
             "output.color" => target.output.color = source.output.color,
             "output.theme" => target.output.theme = source.output.theme.clone(),
             "output.theme_file" => target.output.theme_file = source.output.theme_file.clone(),
+            "output.theme_overrides" => {
+                target.output.theme_overrides = source.output.theme_overrides.clone()
+            }
             "output.table_style" => target.output.table_style = source.output.table_style.clone(),
             "output.table_headers" => target.output.table_headers = source.output.table_headers,
             "output.table_width" => target.output.table_width = source.output.table_width.clone(),
@@ -547,6 +552,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
         "output.color" => ConfigValueRef::OutputColor(&config.output.color),
         "output.theme" => ConfigValueRef::String(&config.output.theme),
         "output.theme_file" => ConfigValueRef::String(&config.output.theme_file),
+        "output.theme_overrides" => ConfigValueRef::ThemeOverrides(&config.output.theme_overrides),
         "output.padding" => ConfigValueRef::I8(config.output.padding),
         "output.table_style" => ConfigValueRef::TableStyle(&config.output.table_style),
         "output.table_headers" => ConfigValueRef::TableHeaders(&config.output.table_headers),
@@ -572,6 +578,7 @@ fn config_value<'a>(config: &'a AppConfig, key: &str) -> ConfigValueRef<'a> {
 }
 
 enum ConfigValueRef<'a> {
+    ThemeOverrides(&'a ThemeOverrides),
     String(&'a str),
     OptionalString(Option<&'a str>),
     Bool(bool),
@@ -610,6 +617,7 @@ fn display_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String {
     }
 
     match value {
+        ConfigValueRef::ThemeOverrides(value) => toml::to_string_pretty(value).unwrap_or_default(),
         ConfigValueRef::String(value) => value.to_string(),
         ConfigValueRef::OptionalString(Some(value)) => value.to_string(),
         ConfigValueRef::OptionalString(None) => "<unset>".to_string(),
@@ -654,6 +662,7 @@ fn serialize_config_value(value: ConfigValueRef<'_>, sensitive: bool) -> String 
     }
 
     match value {
+        ConfigValueRef::ThemeOverrides(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::CommandAliases(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringListMap(value) => to_json_string(value).unwrap_or_default(),
         ConfigValueRef::StringNestedListMap(value) => to_json_string(value).unwrap_or_default(),
@@ -1757,6 +1766,8 @@ theme_file = "/machine/specific/themes.toml"
             ..AppConfig::default()
         };
         config.output.theme = "hubuum-light".to_string();
+        config.output.theme_overrides = parse_toml("[hubuum-light.url]\nfg = 'teal'\nbg = 'none'")
+            .expect("theme overrides should parse");
         let preferences = UserPreferences::from_config(&config);
 
         merge_user_preferences(&mut root, &preferences).expect("preferences should merge");
@@ -1789,6 +1800,16 @@ theme_file = "/machine/specific/themes.toml"
         assert_eq!(
             toml_get(&root, "output.theme_file").and_then(TomlValue::as_str),
             Some("/machine/specific/themes.toml")
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme_overrides.hubuum-light.url.fg")
+                .and_then(TomlValue::as_str),
+            Some("#008080")
+        );
+        assert_eq!(
+            toml_get(&root, "output.theme_overrides.hubuum-light.url.bg")
+                .and_then(TomlValue::as_str),
+            Some("default")
         );
         assert_eq!(
             toml_get(&root, "aliases.outdated-kernels").and_then(TomlValue::as_str),
