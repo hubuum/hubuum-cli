@@ -1945,7 +1945,7 @@ existing REPL session can be inspected or logged out. Logout revokes that sessio
 and clears only its matching saved family, preserving a newer login from another
 process. Explicit token-file configuration is reported without reading the file;
 use token revoke commands to revoke PATs and service tokens.</p>
-<p>The CLI uses the server v0.0.20 <code>/api/v1/auth</code> contract. Password login creates
+<p>The CLI uses the server v0.0.21 <code>/api/v1/auth</code> contract. Password login creates
 an automatically rotating session with client ID <code>hubuum-cli</code>.</p>
 <p>With the default file storage, the CLI saves the access and refresh credentials and their
 server deadlines in <code>sessions.json</code> under its data directory (on Linux,

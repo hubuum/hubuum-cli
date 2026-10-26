@@ -1979,8 +1979,8 @@ definitions. Paths are JSON Pointers into object <code>data</code>:</p>
 <a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>hubuum-cli<span class="w"> </span>object<span class="w"> </span>list<span class="w"> </span>--class<span class="w"> </span>Hosts<span class="w"> </span>--computed<span class="w"> </span>all<span class="w"> </span>--output<span class="w"> </span>json
 </code></pre></div>
 <p>In the REPL, data-field completion merges the selected class's JSON Schema with
-a sample of up to 100 objects, using the same depth-six traversal as
-<code>class fields</code>. This supplies escaped JSON Pointers for computed <code>--path</code>
+the server's bounded field inventory (up to 100 authorized objects at depth
+six), also used by <code>class fields</code>. This supplies escaped JSON Pointers for computed <code>--path</code>
 options and dotted paths for aggregate dimensions, measures, and filters.
 Inspected fields are cached for <code>cache.time</code> seconds (one hour by default) and
 the cache can be bypassed with <code>cache.disable</code>.</p>
@@ -1992,6 +1992,18 @@ same object sample, so a computed definition with no sampled value still
 appears with an empty observation. The former <code>object fields --class &lt;class&gt;</code>
 spelling remains available as a deprecated compatibility alias and prints an
 exact replacement command when invoked.</p>
+<p>Discovery uses one request for ordinary class names; URL dot-segment names use
+the client's safe class-ID fallback. It does not download complete object
+payloads. <code>--depth</code> accepts 0–32 and <code>--containers</code> includes object and array
+paths. The existing object sample limit remains capped at 250 with a warning.</p>
+<p><code>Count</code> counts value occurrences; <code>Objects</code> counts contributing sampled objects.
+JSON and semantic pipelines also retain <code>Path</code>, <code>TypeCounts</code>, <code>Errors</code>,
+<code>ExampleTruncated</code>, <code>Sampled</code>, <code>Depth</code>, <code>Containers</code>, and <code>Truncation</code>. Identify
+fields by <code>Source</code> and structured <code>Path</code>; display labels can collide. Examples
+are bounded display previews, not values to parse as source JSON. Truncation
+warnings remain visible even when no fields are returned. Counts never describe
+the whole class. Array path completions start at index zero; select the index
+needed by your computed input or aggregate expression.</p>
 <p>Without per-class configuration, computed values are off by default. Use repeatable, dynamically completed
 <code>--computed S:&lt;key&gt;</code> and <code>--computed P:&lt;key&gt;</code> options to select individual
 shared or personal fields, or <code>--computed all</code> to select every field:</p>

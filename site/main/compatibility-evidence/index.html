@@ -1616,6 +1616,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0022-discovery-and-schema-suggestions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.22: discovery and schema suggestions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0021-history-selectors-and-comparisons" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1952,6 +1963,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0022-discovery-and-schema-suggestions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.22: discovery and schema suggestions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0021-history-selectors-and-comparisons" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2143,8 +2165,8 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
-<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
+<code>hubuum_client</code> 0.20.0, which targets Hubuum server v0.0.21.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2159,6 +2181,12 @@ against other server versions is not guaranteed.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>0.0.22</td>
+<td>0.20.0</td>
+<td>0.0.21</td>
+<td>Published SDK and immutable server verified on 2026-10-26; complete discovery, suggestion, and restore workflows passed</td>
+</tr>
 <tr>
 <td>0.0.21</td>
 <td>0.19.0</td>
@@ -2299,6 +2327,27 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0022-discovery-and-schema-suggestions">CLI v0.0.22: discovery and schema suggestions<a class="headerlink" href="#cli-v0022-discovery-and-schema-suggestions" title="Permanent link">&para;</a></h2>
+<p>The release uses published <code>hubuum_client</code> 0.20.0 against Server v0.0.21.
+Immutable image: <code>ghcr.io/hubuum/hubuum-server@sha256:a5e1ad7a17281eefb4c1ed4da172a80bf815840f78bde6390d1e42bb2d51e0b6</code>.
+Verified on 2026-10-26 with the published SDK and the immutable server image.
+The lockfile records the crates.io checksum, and the built CLI uses registry
+source from SDK commit <code>170f4c9e4d181eea14283267ee9c61ee068328c8</code>, with no local
+path patch. All 933 workspace tests passed; two platform-specific native-keychain
+cases remain explicit CI checks. Strict workspace Clippy, formatting, a fresh
+executable build, and the dependency audit passed.</p>
+<p>The canonical backup/restore driver passed sessions and concurrent processes,
+computed-cache behavior, query observations, notifications, history, graph
+limits, structured pipelines, credential approvals, field inventory, and all
+three suggestion presets through explicit stage/impact/activation. It also
+passed schema operations, with- and without-history recovery, and
+second-generation restoration after further mutations.</p>
+<p><code>class fields</code> and REPL completion use bounded server inventories without fetching
+object payloads. Structured paths distinguish literal keys from array traversal.
+Suggestion commands cover three presets, task resumption, review, staging,
+whole-class impact, activation, and revalidation. Machine-format diagnostics use
+stderr so stdout and redirected files stay parseable; debug JSON retains its
+embedded diagnostic object. See the migration notes in the release changelog.</p>
 <h2 id="cli-v0021-history-selectors-and-comparisons">CLI v0.0.21: history selectors and comparisons<a class="headerlink" href="#cli-v0021-history-selectors-and-comparisons" title="Permanent link">&para;</a></h2>
 <p>Verified on 2026-10-24 with published <code>hubuum_client</code> 0.19.0 against the same
 immutable server v0.0.20 image as CLI v0.0.20:</p>

@@ -969,6 +969,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#suggest-a-schema-from-existing-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Suggest a schema from existing objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stage-inspect-activate" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1825,6 +1836,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#suggest-a-schema-from-existing-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Suggest a schema from existing objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stage-inspect-activate" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1909,7 +1931,7 @@
 
 
 <h1 id="schema-evolution-and-task-cancellation">Schema evolution and task cancellation<a class="headerlink" href="#schema-evolution-and-task-cancellation" title="Permanent link">&para;</a></h1>
-<p>CLI v0.0.21 uses <code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
+<p>CLI v0.0.22 uses <code>hubuum_client</code> 0.20.0, which targets Hubuum server v0.0.21.
 The schema lifecycle below was introduced in server v0.0.15.
 All schema policy writes use <code>class schema</code>. The old <code>--schema</code>/<code>-s</code> and
 <code>--validate</code>/<code>-v</code> flags on <code>class create</code> and <code>class modify</code> are removed.
@@ -1928,15 +1950,48 @@ pipelines to select diagnostic fields, or HTML repair reports for detailed revie
 or a local mutation. The server cannot filter the task list by class, so suggestions
 can include other classes; the work command still validates class ownership.
 Completion respects <code>completion.disable_api_related</code> and does not fetch findings.</p>
+<h2 id="suggest-a-schema-from-existing-objects">Suggest a schema from existing objects<a class="headerlink" href="#suggest-a-schema-from-existing-objects" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>fields<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">100</span><span class="w"> </span>--depth<span class="w"> </span><span class="m">6</span><span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>suggest<span class="w"> </span>Hosts<span class="w"> </span>--preset<span class="w"> </span>balanced<span class="w"> </span>--limit<span class="w"> </span><span class="m">100</span><span class="w"> </span>--wait
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>suggestion<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--from-suggestion<span class="w"> </span><span class="m">123</span><span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">124</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>activate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span><span class="w"> </span>--expected-active-revision<span class="w"> </span><span class="m">1</span><span class="w"> </span>--impact-task<span class="w"> </span><span class="m">124</span>
+</code></pre></div>
+<p>Use the returned task and revision IDs. <code>suggest</code> returns a profiling task
+immediately unless <code>--wait</code> is set. Waiting defaults to 120 seconds; use a
+positive <code>--timeout</code> to change it. A timeout stops polling without cancelling
+the server task. Inspect <code>task show --id ID</code>, then retrieve its report with
+<code>suggestion</code>. Use <code>task cancel --id ID</code> to request cancellation. An optional
+<code>--idempotency-key</code> preserves submission identity when retrying.</p>
+<p>Balanced preserves observed types, requires consistently present properties,
+and allows additional properties. Strict rejects mixed unrelated types and
+forbids additional properties. Expansive preserves types but makes properties
+optional and permits additional properties. All presets preserve nulls and
+infer from authorized object data, excluding computed values. The sample limit
+is 1–250; findings and truncation describe the bounded sample.</p>
+<p>Read the schema and findings before staging. A sample-valid candidate is not
+whole-class compatibility evidence. <code>--from-suggestion</code> requires <code>--validate</code>
+and cannot be combined with <code>--schema</code> or <code>--from-revision</code>. It copies the
+candidate without activating it. Blocked, insufficient, expired, or inaccessible
+reports cannot be staged. Reports expire after 24 hours; generate a new
+suggestion when needed. Discovery and profiling require class read access;
+staging, whole-class impact, and activation retain their existing permissions.</p>
+<p>The REPL completes presets and task IDs for <code>suggestion --task</code> and
+<code>stage --from-suggestion</code>. <code>task list --kind schema_profiling</code> finds profiling
+work; task details link the class and report. JSON output from <code>suggest --wait</code>
+and <code>suggestion</code> retains <code>task_id</code>, <code>schema</code>, findings, and sample metadata for
+semantic pipelines.</p>
 <h2 id="stage-inspect-activate">Stage, inspect, activate<a class="headerlink" href="#stage-inspect-activate" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>Hosts<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span>hosts
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>show<span class="w"> </span>Hosts<span class="w"> </span>--output<span class="w"> </span>json
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--schema<span class="w"> </span><span class="s1">'{"type":"object"}'</span><span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revisions<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revision<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>--output<span class="w"> </span>json
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>activate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span><span class="w"> </span>--expected-active-revision<span class="w"> </span><span class="m">1</span><span class="w"> </span>--impact-task<span class="w"> </span><span class="m">123</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>Hosts<span class="w"> </span>--collection<span class="w"> </span>main<span class="w"> </span>--description<span class="w"> </span>hosts
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>show<span class="w"> </span>Hosts<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--schema<span class="w"> </span><span class="s1">'{"type":"object"}'</span><span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revisions<span class="w"> </span>Hosts<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revision<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>activate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span><span class="w"> </span>--expected-active-revision<span class="w"> </span><span class="m">1</span><span class="w"> </span>--impact-task<span class="w"> </span><span class="m">123</span>
 </code></pre></div>
 <p>Replace example revisions and task IDs with returned values. Staging requires
 an explicit validation boolean unless copying a previous revision. Omit <code>--schema</code> to copy the active schema and
@@ -1944,9 +1999,9 @@ change only its validation setting. <code>--schema</code> accepts
 inline JSON, a <code>file://</code> local JSON file, or an HTTP(S) URL. To remove the schema, stage
 <code>--schema null --validate false</code>, then analyze and activate that revision.
 For example, preview enabling validation against the existing schema:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--validate<span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span>
 </code></pre></div>
 <p>Use the returned revision and task IDs. The active policy stays unchanged until
 explicit activation. Use <code>--validate false</code> to stage disabling validation while
@@ -1961,10 +2016,10 @@ refresh state and impact analysis before deliberately retrying.</p>
 explicitly permits existing pending/invalid objects and requires an unscoped
 administrator; new writes still obey the activated policy. Inspect <code>task_id</code> and
 <code>dependent_rebuild_task_id</code> in the response for follow-up work.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>abandon<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">3</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revalidate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>objects<span class="w"> </span>Hosts<span class="w"> </span>--status<span class="w"> </span>pending<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>objects<span class="w"> </span>Hosts<span class="w"> </span>--status<span class="w"> </span>pending<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span><span class="w"> </span>--after<span class="w"> </span><span class="m">100</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>abandon<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">3</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revalidate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>objects<span class="w"> </span>Hosts<span class="w"> </span>--status<span class="w"> </span>pending<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>objects<span class="w"> </span>Hosts<span class="w"> </span>--status<span class="w"> </span>pending<span class="w"> </span>--limit<span class="w"> </span><span class="m">50</span><span class="w"> </span>--after<span class="w"> </span><span class="m">100</span>
 </code></pre></div>
 <p>Compliance statuses are <code>valid</code>, <code>invalid</code>, <code>pending</code>, and <code>not_required</code>.
 Pages have limits of 1–100 (default 50). Follow compliance <code>next_after</code> even on
@@ -1973,11 +2028,11 @@ lists resume with <code>--after</code> set to the last returned revision. These 
 return one page per invocation. Administrative state and diagnostics require an
 unscoped administrator; compliance results respect object visibility.</p>
 <h2 id="return-to-a-previous-policy">Return to a previous policy<a class="headerlink" href="#return-to-a-previous-policy" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revisions<span class="w"> </span>Hosts
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--from-revision<span class="w"> </span><span class="m">4</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">8</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">125</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>activate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">8</span><span class="w"> </span>--expected-active-revision<span class="w"> </span><span class="m">7</span><span class="w"> </span>--impact-task<span class="w"> </span><span class="m">125</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>revisions<span class="w"> </span>Hosts
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>stage<span class="w"> </span>Hosts<span class="w"> </span>--from-revision<span class="w"> </span><span class="m">4</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>impact<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">8</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>work<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">125</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>activate<span class="w"> </span>Hosts<span class="w"> </span>--revision<span class="w"> </span><span class="m">8</span><span class="w"> </span>--expected-active-revision<span class="w"> </span><span class="m">7</span><span class="w"> </span>--impact-task<span class="w"> </span><span class="m">125</span>
 </code></pre></div>
 <p>Copying creates a new staged revision with the previous schema and validation
 setting; it does not reactivate or modify the historical revision. Use returned
@@ -1987,8 +2042,8 @@ Add <code>--validate true</code> or <code>--validate false</code> to override th
 <code>--from-revision</code> and <code>--schema</code> cannot be combined. This restores schema policy,
 not past object data.</p>
 <h2 id="repair-reports">Repair reports<a class="headerlink" href="#repair-reports" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>generate-report<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>--object-url-template<span class="w"> </span><span class="s1">'https://inventory.example/objects/{object_id}'</span><span class="w"> </span>&gt;<span class="w"> </span>repair.html
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>report<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>&gt;<span class="w"> </span>retained-repair.html
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>generate-report<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>--object-url-template<span class="w"> </span><span class="s1">'https://inventory.example/objects/{object_id}'</span><span class="w"> </span>&gt;<span class="w"> </span>repair.html
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>report<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span><span class="w"> </span>&gt;<span class="w"> </span>retained-repair.html
 </code></pre></div>
 <p>Generation uses saved findings and retains the HTML. Retrieval does not rerun
 validation. <code>--template-id</code> selects a stored HTML layout when generating.
@@ -1997,10 +2052,10 @@ budgets and the configured client response-size limit apply. Findings include
 object revisions, JSON Pointer locations, constraints, and explicit diagnostic
 omissions; actual scalar values are redacted.</p>
 <h2 id="task-cancellation">Task cancellation<a class="headerlink" href="#task-cancellation" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>cancel<span class="w"> </span><span class="m">123</span><span class="w"> </span>--reason<span class="w"> </span><span class="s1">'Withdraw queued work'</span><span class="w"> </span>--expected-status<span class="w"> </span>queued
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>list<span class="w"> </span>--kind<span class="w"> </span>schema_validation
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>cancel<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>cancel<span class="w"> </span><span class="m">123</span><span class="w"> </span>--reason<span class="w"> </span><span class="s1">'Withdraw queued work'</span><span class="w"> </span>--expected-status<span class="w"> </span>queued
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>show<span class="w"> </span><span class="m">123</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>hubuum-cli<span class="w"> </span>task<span class="w"> </span>list<span class="w"> </span>--kind<span class="w"> </span>schema_validation
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>hubuum-cli<span class="w"> </span>class<span class="w"> </span>schema<span class="w"> </span>cancel<span class="w"> </span>Hosts<span class="w"> </span>--task<span class="w"> </span><span class="m">123</span>
 </code></pre></div>
 <p><code>--expected-status</code> is optional. Use <code>queued</code> when running work must not be
 cancelled; a conflict means the status changed. Reasons must be nonblank,
@@ -2026,7 +2081,7 @@ restore-executor binaries. Revalidate existing enforced classes after migration.
 External authorization must grant <code>CancelTask</code>. Restart string-sorted pagination
 following the server upgrade. Review stored schemas against the server's stricter
 reference, complexity, data, and validation budgets before resuming writes.
-Server v0.0.15 introduced format 6; the current server v0.0.20 writes format 10
+Server v0.0.15 introduced format 6; the current server v0.0.21 writes format 10
 and accepts formats 6–10. See <a href="../backup-restore/">backup migration</a>.</p>
 <p>See the <a href="https://github.com/hubuum/hubuum/releases/tag/v0.0.15">server v0.0.15 release notes</a>
 and <a href="https://github.com/hubuum/hubuum/blob/v0.0.15/docs/json_schema_validation.md">schema validation limits</a>.</p>

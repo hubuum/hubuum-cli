@@ -2087,8 +2087,8 @@
 <h1 id="client-and-server-compatibility">Client and server compatibility<a class="headerlink" href="#client-and-server-compatibility" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
-<code>hubuum_client</code> 0.19.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
+<code>hubuum_client</code> 0.20.0, which targets Hubuum server v0.0.21.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2103,6 +2103,12 @@ against other server versions is not guaranteed.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>0.0.22</td>
+<td>0.20.0</td>
+<td>0.0.21</td>
+<td>Published SDK and immutable server verified on 2026-10-26; complete discovery, suggestion, and restore workflows passed</td>
+</tr>
 <tr>
 <td>0.0.21</td>
 <td>0.19.0</td>
@@ -2220,6 +2226,16 @@ against other server versions is not guaranteed.</p>
 </tbody>
 </table>
 <h2 id="before-upgrading">Before upgrading<a class="headerlink" href="#before-upgrading" title="Permanent link">&para;</a></h2>
+<p>CLI v0.0.22 requires Server v0.0.21 for discovery and suggestions. Apply the
+server migrations and upgrade its API, worker, template-worker, and restore
+executor together before updating the CLI. Provide writable temporary disk
+for backup and restore spooling; keep a pre-upgrade snapshot for rollback.</p>
+<p>Scripts must accept field depths of 0–32 and use <code>Source</code> plus structured <code>Path</code>
+for field identity. Display previews are bounded, and a passing schema sample
+does not prove whole-class compatibility. Stage, analyze impact, and activate
+explicitly. Machine-format diagnostics now use stderr; update scripts that
+previously captured warnings or errors from stdout. Debug JSON keeps diagnostics
+embedded. See <a href="../compatibility-evidence/#cli-v0022-discovery-and-schema-suggestions">release evidence</a>.</p>
 <p>CLI v0.0.21 adds flexible history times and timeline comparisons using the same
 client 0.19.0 and pinned server v0.0.20. Upgrading from v0.0.20 requires no
 server, backup, session, or script migration. Full RFC3339 history timestamps

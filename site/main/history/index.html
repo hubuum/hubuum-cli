@@ -1931,7 +1931,7 @@
 
 
 <h1 id="history-and-historical-views">History and historical views<a class="headerlink" href="#history-and-historical-views" title="Permanent link">&para;</a></h1>
-<p>CLI v0.0.21 uses client 0.19.0 against Hubuum server v0.0.20.
+<p>CLI v0.0.22 uses client 0.20.0 against Hubuum server v0.0.21.
 History describes retained snapshots. It does not promise a complete event ledger
 or reconstruct records that the server no longer retains.</p>
 <h2 id="select-an-identity-or-a-historical-name">Select an identity or a historical name<a class="headerlink" href="#select-an-identity-or-a-historical-name" title="Permanent link">&para;</a></h2>
@@ -2070,7 +2070,8 @@ receive this complete envelope:</p>
 </code></pre></div>
 <h2 id="server-v0020-deletion-ordering">Server v0.0.20 deletion ordering<a class="headerlink" href="#server-v0020-deletion-ordering" title="Permanent link">&para;</a></h2>
 <p>Wait for class reindex or rebuild tasks to finish before deleting that class.
-Concurrent deletion and rebuild work can deadlock on server v0.0.20. Use
+Server v0.0.21 fixes concurrent deletion/rebuild deadlocks. When using the older
+v0.0.20 server, use
 <code>task list</code> to find pending work and <code>task wait ID</code> before <code>class delete</code>.</p>
 
 

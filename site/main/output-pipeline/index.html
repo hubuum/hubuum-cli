@@ -2001,6 +2001,10 @@ each <code>each:</code> file contains its own result with the whole-command debu
 Warnings, errors, and plain-text messages are optional sibling arrays. See
 <a href="../commands/#command-diagnostics">command diagnostics</a> for the report schema and
 timing boundary. JSON output without debug keeps its existing shape.</p>
+<p>Without debug JSON, warnings and errors go to stderr for JSON, JSONL, CSV, and
+TSV output, including file redirects. Sampling warnings therefore remain visible
+without corrupting data consumed by another program. Text output keeps notices
+alongside the result.</p>
 <p>Redirect operators are standalone, whitespace-delimited tokens. Compact DSL
 comparisons such as <code>F age&gt;3</code> are not redirect candidates. Spaced comparisons
 such as <code>F WHERE age &gt; 3</code> remain predicates because redirect parsing requires

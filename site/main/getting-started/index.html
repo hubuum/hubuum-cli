@@ -1946,18 +1946,22 @@
 <!-- markdownlint-disable-next-line MD033 -->
 <p><span id="a-cli-for-hubuum"></span></p>
 <p>Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI <strong>v0.0.21</strong> (2026-10-24) uses Rust client <strong>0.19.0</strong> and targets server
-<strong>v0.0.20</strong>. Hubuum is under active development before 1.0.</p>
-<p>This release adds <a href="../history/">flexible history times and timeline comparisons</a>,
-including shortened UTC dates, relative times, and comparisons against the latest
-retained entry. Nested details are easier to read, and diagnostics separate
-formatting from stdout writes. See the <a href="../changelog/#v0-0-21">release notes</a>.
-Upgrading from v0.0.20 requires no migration; earlier upgrades should review
-the <a href="../changelog/#v0-0-20">v0.0.20 migration notes</a>.</p>
+CLI <strong>v0.0.22</strong> (2026-10-26) uses Rust client <strong>0.20.0</strong> and targets server
+<strong>v0.0.21</strong>. Hubuum is under active development before 1.0.</p>
+<p>Discover fields in one bounded request, generate a schema suggestion, resume it
+by task ID, and explicitly stage a reviewed candidate for impact analysis and
+activation. The REPL uses the same inventory for field completion. See the
+<a href="../schema-evolution/">schema workflow</a> and <a href="../changelog/#v0-0-22">release notes</a>.</p>
+<p>Upgrade the server first. Field depth is limited to 0–32, and scripts should use
+structured <code>Source</code>/<code>Path</code> identity because display labels can collide. In JSON,
+JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts
+capturing diagnostics from stdout must change. Debug JSON retains its embedded
+diagnostics. Earlier upgrades should also review the
+<a href="../changelog/#v0-0-20">v0.0.20 migration notes</a>.</p>
 <p><a href="https://hubuum.github.io/hubuum-cli/">Documentation</a> · <a href="https://hubuum.github.io/">Hubuum ecosystem</a></p>
 <h2 id="release-binaries">Release binaries<a class="headerlink" href="#release-binaries" title="Permanent link">&para;</a></h2>
 <p>Download and extract the archive for your platform from
-<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.21">release v0.0.21</a>.
+<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.22">release v0.0.22</a>.
 Verify its published SHA-256 checksum and place <code>hubuum-cli</code> (<code>hubuum-cli.exe</code>
 on Windows) on your <code>PATH</code>. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
@@ -1968,13 +1972,12 @@ x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
 See <a href="../updates/#updating-in-place">update and restart instructions</a> before
 installing it, including package-manager and platform restrictions.</p>
 <h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.21 uses client <strong>0.19.0</strong> and targets server <strong>v0.0.20</strong>.
+<p>CLI v0.0.22 uses client <strong>0.20.0</strong> and targets server <strong>v0.0.21</strong>.
 Check the <a href="../compatibility/">compatibility matrix</a> for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see <a href="../backup-restore/">backup and restore</a>.</p>
 <p>Password sessions persist in files by default; select <code>--session-storage none</code>
-for memory-only use or opt into macOS Keychain/Linux Secret Service. The server
-target and backup format 10 are unchanged from v0.0.18. See
+for memory-only use or opt into macOS Keychain/Linux Secret Service. Backup output remains format 10 and restore input supports formats 6–10. See
 <a href="../authentication/">authentication migration</a>.
 <strong>Breaking for wrapper-only upgrades:</strong> upgrade <code>hubuum-room</code> together with
 CLI v0.0.19 or newer; the wrapper requires <code>relation object graph --data</code>.</p>
