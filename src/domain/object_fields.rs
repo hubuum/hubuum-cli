@@ -1,143 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use hubuum_client::{ComputedObject, Object};
-use serde_json::Value;
+use hubuum_client::{ClassFieldInventory, FieldPathSegment, FieldSource};
 
 pub const DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT: usize = 100;
 pub const DEFAULT_OBJECT_FIELD_DEPTH: usize = 6;
-
-pub(crate) struct ClassFieldSample {
-    shared_keys: Vec<String>,
-    personal_keys: Vec<String>,
-    objects: Vec<ObjectFieldValues>,
-}
-
-impl ClassFieldSample {
-    pub(crate) fn new(
-        shared_keys: Vec<String>,
-        personal_keys: Vec<String>,
-        objects: Vec<ObjectFieldValues>,
-    ) -> Self {
-        Self {
-            shared_keys,
-            personal_keys,
-            objects,
-        }
-    }
-
-    pub(crate) fn shared_keys(&self) -> &[String] {
-        &self.shared_keys
-    }
-
-    pub(crate) fn personal_keys(&self) -> &[String] {
-        &self.personal_keys
-    }
-
-    pub(crate) fn objects(&self) -> &[ObjectFieldValues] {
-        &self.objects
-    }
-}
-
-pub(crate) struct ObjectFieldValues {
-    data: Option<Value>,
-    shared: BTreeMap<String, Value>,
-    personal: BTreeMap<String, Value>,
-}
-
-impl ObjectFieldValues {
-    pub(crate) fn data(&self) -> Option<&Value> {
-        self.data.as_ref()
-    }
-
-    pub(crate) fn shared(&self) -> &BTreeMap<String, Value> {
-        &self.shared
-    }
-
-    pub(crate) fn personal(&self) -> &BTreeMap<String, Value> {
-        &self.personal
-    }
-}
-
-impl From<Object> for ObjectFieldValues {
-    fn from(object: Object) -> Self {
-        Self {
-            data: object.data,
-            shared: BTreeMap::new(),
-            personal: BTreeMap::new(),
-        }
-    }
-}
-
-impl From<ComputedObject> for ObjectFieldValues {
-    fn from(object: ComputedObject) -> Self {
-        Self {
-            data: object.object.data,
-            shared: object.computed.shared.values,
-            personal: object
-                .computed
-                .personal
-                .map(|scope| scope.values)
-                .unwrap_or_default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ObjectDataPath {
-    display: String,
-    pointer: String,
-    segments: Vec<String>,
-}
-
-impl ObjectDataPath {
-    fn root() -> Self {
-        Self {
-            display: "data".to_string(),
-            pointer: String::new(),
-            segments: Vec::new(),
-        }
-    }
-
-    fn property(&self, name: &str) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push(name.to_string());
-        Self {
-            display: format!("{}.{}", self.display, name),
-            pointer: format!("{}/{}", self.pointer, escape_json_pointer_segment(name)),
-            segments,
-        }
-    }
-
-    fn array_item(&self) -> Self {
-        let mut segments = self.segments.clone();
-        segments.push("0".to_string());
-        Self {
-            display: format!("{}[*]", self.display),
-            pointer: format!("{}/0", self.pointer),
-            segments,
-        }
-    }
-
-    pub fn display(&self) -> &str {
-        &self.display
-    }
-
-    pub fn pointer(&self) -> &str {
-        &self.pointer
-    }
-
-    fn aggregate_path(&self) -> Option<String> {
-        self.segments
-            .iter()
-            .all(|segment| {
-                !segment.is_empty()
-                    && segment
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
-            })
-            .then(|| format!("data.{}", self.segments.join(".")))
-    }
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ObservedObjectDataFields {
@@ -146,152 +12,96 @@ pub struct ObservedObjectDataFields {
 }
 
 impl ObservedObjectDataFields {
+    /// Array completions start at index zero; literal property names remain literal.
+    pub fn from_inventory(inventory: &ClassFieldInventory) -> Self {
+        let mut pointers = BTreeSet::new();
+        let mut aggregates = BTreeSet::new();
+        for field in &inventory.fields {
+            if field.source != FieldSource::Data || field.path.is_empty() {
+                continue;
+            }
+            let Some(segments) = field
+                .path
+                .iter()
+                .map(|segment| match segment {
+                    FieldPathSegment::Property(name) => Some(name.as_str()),
+                    FieldPathSegment::ArrayItem => Some("0"),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            pointers.insert(format!(
+                "/{}",
+                segments
+                    .iter()
+                    .map(|segment| segment.replace('~', "~0").replace('/', "~1"))
+                    .collect::<Vec<_>>()
+                    .join("/")
+            ));
+            if segments.iter().all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+            }) {
+                aggregates.insert(format!("data.{}", segments.join(".")));
+            }
+        }
+        Self {
+            json_pointers: pointers.into_iter().collect(),
+            aggregate_paths: aggregates.into_iter().collect(),
+        }
+    }
+
     pub fn json_pointers(&self) -> &[String] {
         &self.json_pointers
     }
-
     pub fn aggregate_paths(&self) -> &[String] {
         &self.aggregate_paths
     }
 }
 
-pub fn visit_observed_data_fields<'a>(
-    data: impl IntoIterator<Item = &'a Value>,
-    max_depth: usize,
-    mut visitor: impl FnMut(&ObjectDataPath, &'a Value),
-) {
-    for value in data {
-        visit_value(
-            value,
-            &ObjectDataPath::root(),
-            0,
-            max_depth,
-            false,
-            &mut visitor,
-        );
-    }
-}
-
-pub fn observed_object_data_fields<'a>(
-    data: impl IntoIterator<Item = &'a Value>,
-    max_depth: usize,
-) -> ObservedObjectDataFields {
-    let mut pointers = BTreeSet::new();
-    let mut aggregate_paths = BTreeSet::new();
-    visit_observed_data_fields(data, max_depth, |path, _| {
-        pointers.insert(path.pointer().to_string());
-        if let Some(aggregate_path) = path.aggregate_path() {
-            aggregate_paths.insert(aggregate_path);
-        }
-    });
-    ObservedObjectDataFields {
-        json_pointers: pointers.into_iter().collect(),
-        aggregate_paths: aggregate_paths.into_iter().collect(),
-    }
-}
-
-fn visit_value<'a>(
-    value: &'a Value,
-    path: &ObjectDataPath,
-    depth: usize,
-    max_depth: usize,
-    visit_current: bool,
-    visitor: &mut impl FnMut(&ObjectDataPath, &'a Value),
-) {
-    if visit_current {
-        visitor(path, value);
-    }
-
-    if depth >= max_depth {
-        return;
-    }
-
-    match value {
-        Value::Object(object) => {
-            for (name, value) in object {
-                visit_value(
-                    value,
-                    &path.property(name),
-                    depth + 1,
-                    max_depth,
-                    true,
-                    visitor,
-                );
-            }
-        }
-        Value::Array(values) => {
-            let item_path = path.array_item();
-            for value in values {
-                visit_value(value, &item_path, depth + 1, max_depth, true, visitor);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
-}
-
-fn escape_json_pointer_segment(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
-}
-
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use super::*;
+    use serde_json::{json, Value};
 
-    use super::observed_object_data_fields;
+    fn fields(paths: Vec<Value>) -> ObservedObjectDataFields {
+        let fields = paths.into_iter().map(|path| json!({"source":"data", "field":"display", "path":path, "observation_count":1, "object_count":1, "types":{}, "example_truncated":false, "error_count":0})).collect::<Vec<_>>();
+        let inventory: ClassFieldInventory = serde_json::from_value(json!({"sampled":true,"sampled_objects":1,"effective_sample_limit":100,"max_depth":6,"include_containers":true,"truncation":[],"fields":fields})).unwrap();
+        ObservedObjectDataFields::from_inventory(&inventory)
+    }
 
     #[test]
-    fn observed_paths_are_valid_json_pointers() {
-        let data = json!({
-            "load": {"one": 1, "five": 5},
-            "interfaces": [
-                {"ipv4": "192.0.2.1"},
-                {"mac/address": "00:11", "~label": "uplink"}
-            ]
-        });
-
+    fn pointers_preserve_literal_names_and_default_array_indices() {
+        let result = fields(vec![
+            json!([{"kind":"property","name":"interfaces"},{"kind":"array_item"},{"kind":"property","name":"mac/address~"}]),
+            json!([{"kind":"property","name":"[#]"}]),
+            json!([{"kind":"property","name":"[0]"}]),
+            json!([{"kind":"property","name":""}]),
+        ]);
         assert_eq!(
-            observed_object_data_fields([&data], 6).json_pointers(),
-            vec![
-                "/interfaces".to_string(),
-                "/interfaces/0".to_string(),
-                "/interfaces/0/ipv4".to_string(),
-                "/interfaces/0/mac~1address".to_string(),
-                "/interfaces/0/~0label".to_string(),
-                "/load".to_string(),
-                "/load/five".to_string(),
-                "/load/one".to_string(),
-            ]
+            result.json_pointers(),
+            ["/", "/[#]", "/[0]", "/interfaces/0/mac~1address~0"]
         );
     }
 
     #[test]
-    fn observed_paths_respect_the_depth_limit() {
-        let data = json!({"one": {"two": {"three": true}}});
-
-        assert_eq!(
-            observed_object_data_fields([&data], 2).json_pointers(),
-            vec!["/one".to_string(), "/one/two".to_string()]
-        );
+    fn aggregate_completions_exclude_unrepresentable_properties() {
+        let result = fields(vec![
+            json!([{"kind":"property","name":"interfaces"},{"kind":"array_item"},{"kind":"property","name":"ipv4"}]),
+            json!([{"kind":"property","name":"invalid.name"}]),
+            json!([{"kind":"property","name":"invalid/name"}]),
+        ]);
+        assert_eq!(result.aggregate_paths(), ["data.interfaces.0.ipv4"]);
     }
 
     #[test]
-    fn observed_fields_expose_aggregate_safe_dotted_paths() {
-        let data = json!({
-            "interfaces": [{"ipv4": "192.0.2.1"}],
-            "metrics": {"load": 1.5},
-            "invalid.name": true,
-            "invalid/name": true
-        });
-
-        assert_eq!(
-            observed_object_data_fields([&data], 6).aggregate_paths(),
-            [
-                "data.interfaces".to_string(),
-                "data.interfaces.0".to_string(),
-                "data.interfaces.0.ipv4".to_string(),
-                "data.metrics".to_string(),
-                "data.metrics.load".to_string(),
-            ]
-        );
+    fn unknown_path_segments_are_not_offered_as_valid_completions() {
+        assert!(fields(vec![json!([{"kind":"future"}])])
+            .json_pointers()
+            .is_empty());
     }
 }

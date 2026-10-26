@@ -671,6 +671,7 @@ fn id_completion_context<'a>(
     }
 
     if kind != IdCompletionKind::SchemaTask
+        && !matches!(command_path, [scope, nested, _] if scope == "class" && nested == "schema")
         && is_completing_positional_id(command_path, parts, ends_with_space)
     {
         return Some(IdCompletionContext {
@@ -927,6 +928,13 @@ fn id_completion_kind(command_path: &[String]) -> Option<IdCompletionKind> {
         [scope, nested, command]
             if scope == "class"
                 && nested == "schema"
+                && matches!(command.as_str(), "suggestion" | "stage") =>
+        {
+            Some(IdCompletionKind::Task)
+        }
+        [scope, nested, command]
+            if scope == "class"
+                && nested == "schema"
                 && matches!(
                     command.as_str(),
                     "work" | "cancel" | "report" | "generate-report" | "activate"
@@ -943,6 +951,15 @@ fn id_completion_option_names(
     kind: IdCompletionKind,
 ) -> &'static [&'static str] {
     match (kind, command_path) {
+        (IdCompletionKind::Task, [scope, nested, command])
+            if scope == "class" && nested == "schema" =>
+        {
+            if command == "stage" {
+                &["--from-suggestion"]
+            } else {
+                &["--task"]
+            }
+        }
         (IdCompletionKind::Task, [scope, command])
             if (scope == "jobs" || scope == "bg") && command == "watch" =>
         {
@@ -2333,6 +2350,26 @@ mod tests {
                 "interfaces[*].ipv4".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn suggestion_task_completion_never_treats_class_names_as_task_ids() {
+        for (command, option) in [("suggestion", "--task"), ("stage", "--from-suggestion")] {
+            let path = vec!["class".into(), "schema".into(), command.into()];
+            let line = format!("class schema {command} Hosts {option} 71");
+            let parts = split(&line).unwrap();
+            let context =
+                id_completion_context(&path, &parts, line.len() - 2, line.len(), "71", false)
+                    .unwrap();
+            assert_eq!(context.kind, IdCompletionKind::Task);
+            assert_eq!(context.prefix, "71");
+            let line = format!("class schema {command} Ho");
+            let parts = split(&line).unwrap();
+            assert!(
+                id_completion_context(&path, &parts, line.len() - 2, line.len(), "Ho", false)
+                    .is_none()
+            );
+        }
     }
 
     #[test]

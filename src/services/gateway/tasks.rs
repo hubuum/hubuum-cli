@@ -206,8 +206,9 @@ fn parse_task_kind(s: &str) -> Result<TaskKind, AppError> {
         "reindex" => Ok(TaskKind::Reindex),
         "remote_call" | "remotecall" => Ok(TaskKind::RemoteCall),
         "schemavalidation" | "schema_validation" => Ok(TaskKind::SchemaValidation),
+        "schemaprofiling" | "schema_profiling" => Ok(TaskKind::SchemaProfiling),
         _ => Err(AppError::InvalidOption(format!(
-            "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall, schema_validation",
+            "Invalid task kind '{}'. Valid values: import, export, backup, reindex, remotecall, schema_validation, schema_profiling",
             s
         ))),
     }

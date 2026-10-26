@@ -2,8 +2,9 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use hubuum_client::{
-    Class, ClassId, Collection, CollectionId, ComputedObject, FilterOperator, Object,
-    ObjectDataPatchDocument, ObjectPatch, ObjectPost, QueryFilter,
+    Class, ClassId, Collection, CollectionId, ComputedObject, FieldDiscoveryOptions,
+    FieldSampleLimit, FilterOperator, Object, ObjectDataPatchDocument, ObjectPatch, ObjectPost,
+    QueryFilter,
 };
 use hubuum_query::RelatedObjectFilters;
 use json_patch::{patch as apply_json_patch, Patch};
@@ -12,9 +13,8 @@ use serde_json::Value;
 
 use crate::diagnostics::client_call;
 use crate::domain::{
-    build_related_object_tree, observed_object_data_fields, ObjectDataMutationOutcome,
-    ObjectDataMutationRecord, ObjectListPage, ObjectShowRecord, ObservedObjectDataFields,
-    ResolvedObjectRecord,
+    build_related_object_tree, ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectListPage,
+    ObjectShowRecord, ObservedObjectDataFields, ResolvedObjectRecord, ResourceName,
 };
 use crate::errors::AppError;
 use crate::list_query::{
@@ -192,20 +192,12 @@ impl HubuumGateway {
         sample_limit: usize,
         max_depth: usize,
     ) -> Result<ObservedObjectDataFields, AppError> {
-        let class = client_call("classes.get_by_name", || {
-            self.client().classes().get_by_name(class_name)
-        })?;
-        let objects = client_call("objects.list", || {
-            self.client()
-                .objects(class.id())
-                .query()
-                .limit(sample_limit)
-                .list()
-        })?;
-        Ok(observed_object_data_fields(
-            objects.iter().filter_map(|object| object.data.as_ref()),
-            max_depth,
-        ))
+        let options = FieldDiscoveryOptions::default()
+            .with_sample_limit(FieldSampleLimit::new(sample_limit)?)
+            .with_depth(max_depth)?
+            .with_containers(true);
+        let inventory = self.discover_class_fields(&ResourceName::new(class_name)?, &options)?;
+        Ok(ObservedObjectDataFields::from_inventory(&inventory))
     }
 
     pub fn list_object_names_for_class(&self, class_name: &str) -> Result<Vec<String>, AppError> {

@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 from history_checks import verify_history
+from discovery_checks import verify_discovery
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -628,6 +629,8 @@ def main():
             assert len(results) == 1, imported
             assert cli("task", "show", str(results[0]["task_id"]))["status"] == "succeeded", imported
             print("PASS: bearer-only rejection; approved user/password/token/service-account operations and credential import dry run", flush=True)
+
+            verify_discovery(api, cli, eventually, token, collection["id"], prefix)
 
             def schema(command, *options, success=True):
                 return cli("class", "schema", command, "--class", prefix, *options, success=success)

@@ -86,6 +86,62 @@ impl SchemaOutput {
                 lines
             }
             Self::Work(work) => work_lines(work),
+            Self::ProfileTask(task) => {
+                let mut lines = detail_lines(
+                    vec![
+                        ("Suggestion task", task.id.to_string()),
+                        ("Status", task.status.to_string()),
+                    ],
+                    0,
+                );
+                lines.push(format!("Inspect task show --id {}, then class schema suggestion CLASS --task {}. Reports expire after 24 hours.", task.id, task.id));
+                lines
+            }
+            Self::Suggestion { task_id, report } => {
+                let mut lines = detail_lines(
+                    vec![
+                        ("Suggestion task", task_id.to_string()),
+                        ("Class ID", report.class_id.to_string()),
+                        ("Status", report.status.to_string()),
+                        ("Preset", report.options.preset().to_string()),
+                        ("Sampled objects", report.sampled_objects.to_string()),
+                        ("Sample limit", report.effective_sample_limit.to_string()),
+                        ("Findings", report.findings.len().to_string()),
+                    ],
+                    0,
+                );
+                if let Some(reason) = report.truncation {
+                    lines.push(format!("Sample limited by {reason}."));
+                }
+                if !report.findings.is_empty() {
+                    lines.push("Inference findings:".into());
+                    lines.extend(
+                        report
+                            .findings
+                            .iter()
+                            .take(MAX_FAILURE_GROUPS)
+                            .map(|finding| format!("  {}", suggestion_finding(finding))),
+                    );
+                    if report.findings.len() > MAX_FAILURE_GROUPS {
+                        lines.push(format!(
+                            "  {} more findings; use --output json for all details.",
+                            report.findings.len() - MAX_FAILURE_GROUPS
+                        ));
+                    }
+                }
+                lines.push("A passing sample does not prove whole-class compatibility. Reports expire after 24 hours.".into());
+                if let Some(schema) = &report.schema {
+                    lines.push(
+                        serde_json::to_string_pretty(schema).expect("JSON schema serializes"),
+                    );
+                }
+                if report.stage_request(true).is_ok() {
+                    lines.push(format!("After review: class schema stage CLASS --from-suggestion {task_id} --validate true, then impact and explicit activation."));
+                } else {
+                    lines.push("No usable candidate. Inspect findings with --output json or request another preset.".into());
+                }
+                lines
+            }
         };
         lines.push(String::new());
         let details = if matches!(self, Self::Work(_)) {
@@ -95,6 +151,49 @@ impl SchemaOutput {
         };
         lines.extend(detail_lines(vec![("Full details", details.into())], 0));
         lines
+    }
+}
+
+fn suggestion_finding(finding: &Value) -> String {
+    let path = finding["path"].as_array().and_then(|segments| {
+        segments
+            .iter()
+            .try_fold(String::from("$"), |mut path, segment| {
+                if segment.as_str() == Some("each_item") {
+                    path.push_str("[*]");
+                } else {
+                    let property = segment.get("property").and_then(Value::as_str)?;
+                    path.push_str(&format!("[{}]", Value::String(property.into())));
+                }
+                Some(path)
+            })
+    });
+    let message = match finding["kind"].as_str() {
+        Some("mixed_types") => {
+            "Multiple value types were observed; Strict inference may reject this combination."
+        }
+        Some("low_evidence") => "Too few sampled objects support this inference.",
+        Some("required_from_frequency") => {
+            "This field met the policy's frequency threshold for required properties."
+        }
+        Some("observed_null") => "Null values were observed.",
+        Some("null_rejected") => "The selected policy rejects the observed null values.",
+        Some("numeric_widening") => {
+            "Numeric values require a number schema rather than an integer-only schema."
+        }
+        Some("optional_property") => "This property is optional in the suggestion.",
+        Some("open_object") => "Additional properties are allowed in this object.",
+        Some("unconstrained_items") => "Array items have no inferred constraints.",
+        Some("unobserved_items") => "No array items were available to infer their schema.",
+        Some("unobserved_selection") => "No sampled values were available at this location.",
+        Some("string_enum") => "The profiler evaluated whether to limit this field to an enum.",
+        _ => finding["message"]
+            .as_str()
+            .unwrap_or("Additional inference detail; use --output json."),
+    };
+    match path {
+        Some(path) => format!("{}: {}", compact_label(&path), compact_label(message)),
+        None => compact_label(message),
     }
 }
 
@@ -287,6 +386,20 @@ mod tests {
     use serde_json::{from_str, from_value, json, to_value};
 
     use super::*;
+
+    #[test]
+    fn suggestion_findings_preserve_literal_properties_and_array_steps() {
+        let finding = json!({"kind":"mixed_types", "path":[{"property":"a.b"}, "each_item", {"property":"[#]"}]});
+        assert_eq!(suggestion_finding(&finding), "$[\"a.b\"][*][\"[#]\"]: Multiple value types were observed; Strict inference may reject this combination.");
+    }
+
+    #[test]
+    fn unknown_suggestion_finding_has_an_actionable_fallback() {
+        assert_eq!(
+            suggestion_finding(&json!({"kind":"future_kind", "path":[false]})),
+            "Additional inference detail; use --output json."
+        );
+    }
 
     #[test]
     fn impact_summary_is_bounded_and_keeps_readiness_and_failure_counts() {

@@ -857,7 +857,8 @@ fn json_alias_conflicts_with_non_json_output() {
         .args(["config", "show", "--json", "--output", "csv"])
         .assert()
         .failure()
-        .stdout(contains("--json conflicts"));
+        .stdout("")
+        .stderr(contains("--json conflicts"));
 }
 
 #[test]

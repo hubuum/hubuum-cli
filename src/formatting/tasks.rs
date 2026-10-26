@@ -151,6 +151,18 @@ impl DetailRenderable for TaskRecord {
                     ));
                 }
             }
+            if let Some(profile) = &details.schema_profiling {
+                if let Some(class) = profile.class_id {
+                    rows.push(("Class ID", class.to_string()));
+                }
+                if let Some(url) = &profile.output_url {
+                    rows.push(("Suggestion report", url.clone()));
+                }
+                rows.push((
+                    "Report retention",
+                    "24 hours; review with class schema suggestion CLASS --task ID".into(),
+                ));
+            }
             if let Some(schema) = &details.schema_validation {
                 if let Some(value) = schema.class_id {
                     rows.push(("Class ID", value.to_string()));
