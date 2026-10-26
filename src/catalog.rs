@@ -2005,6 +2005,7 @@ mod tests {
             "class schema cancel --task",
             "class schema generate-report --task",
             "class schema report --task",
+            "class schema suggestion --task",
             "class schema work --task",
             "event delivery dead --id",
             "event delivery retry --id",

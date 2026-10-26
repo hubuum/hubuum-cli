@@ -4,22 +4,27 @@
 <span id="a-cli-for-hubuum"></span>
 
 Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI **v0.0.21** (2026-10-24) uses Rust client **0.19.0** and targets server
-**v0.0.20**. Hubuum is under active development before 1.0.
+CLI **v0.0.22** (2026-10-26) uses Rust client **0.20.0** and targets server
+**v0.0.21**. Hubuum is under active development before 1.0.
 
-This release adds [flexible history times and timeline comparisons](docs/history.md),
-including shortened UTC dates, relative times, and comparisons against the latest
-retained entry. Nested details are easier to read, and diagnostics separate
-formatting from stdout writes. See the [release notes](CHANGELOG.md#v0-0-21).
-Upgrading from v0.0.20 requires no migration; earlier upgrades should review
-the [v0.0.20 migration notes](CHANGELOG.md#v0-0-20).
+Discover fields in one bounded request, generate a schema suggestion, resume it
+by task ID, and explicitly stage a reviewed candidate for impact analysis and
+activation. The REPL uses the same inventory for field completion. See the
+[schema workflow](docs/schema-evolution.md) and [release notes](CHANGELOG.md#v0-0-22).
+
+Upgrade the server first. Field depth is limited to 0–32, and scripts should use
+structured `Source`/`Path` identity because display labels can collide. In JSON,
+JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts
+capturing diagnostics from stdout must change. Debug JSON retains its embedded
+diagnostics. Earlier upgrades should also review the
+[v0.0.20 migration notes](CHANGELOG.md#v0-0-20).
 
 [Documentation](https://hubuum.github.io/hubuum-cli/) · [Hubuum ecosystem](https://hubuum.github.io/)
 
 ## Release binaries
 
 Download and extract the archive for your platform from
-[release v0.0.21](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.21).
+[release v0.0.22](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.22).
 Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
 on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See [binary details](docs/updates.md).
@@ -36,14 +41,13 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-CLI v0.0.21 uses client **0.19.0** and targets server **v0.0.20**.
+CLI v0.0.22 uses client **0.20.0** and targets server **v0.0.21**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).
 
 Password sessions persist in files by default; select `--session-storage none`
-for memory-only use or opt into macOS Keychain/Linux Secret Service. The server
-target and backup format 10 are unchanged from v0.0.18. See
+for memory-only use or opt into macOS Keychain/Linux Secret Service. Backup output remains format 10 and restore input supports formats 6–10. See
 [authentication migration](docs/authentication.md).
 **Breaking for wrapper-only upgrades:** upgrade `hubuum-room` together with
 CLI v0.0.19 or newer; the wrapper requires `relation object graph --data`.

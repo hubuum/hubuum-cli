@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Write as FmtWrite};
-use std::io::{stdout, Write};
+use std::io::{stderr, stdout, Write};
 use std::iter::{once, repeat_n};
 
 use anstream::AutoStream;
@@ -102,18 +102,11 @@ impl OutputSnapshot {
             };
             return self.render_debug_json(&data);
         }
-        let mut rendered = Vec::new();
-
-        rendered.extend(
-            self.warnings
-                .iter()
-                .map(|warning| paint(ThemeRole::Warning, format!("Warning: {warning}"))),
-        );
-        rendered.extend(
-            self.errors
-                .iter()
-                .map(|error| paint(ThemeRole::Error, format!("Error: {error}"))),
-        );
+        let mut rendered = if self.render_format == RenderFormat::Text {
+            self.diagnostic_lines()
+        } else {
+            Vec::new()
+        };
         rendered.extend(self.lines.iter().cloned());
 
         if rendered.is_empty() {
@@ -121,6 +114,34 @@ impl OutputSnapshot {
         } else {
             format!("{}\n", rendered.join("\n"))
         }
+    }
+
+    fn diagnostic_lines(&self) -> Vec<String> {
+        self.warnings
+            .iter()
+            .map(|warning| paint(ThemeRole::Warning, format!("Warning: {warning}")))
+            .chain(
+                self.errors
+                    .iter()
+                    .map(|error| paint(ThemeRole::Error, format!("Error: {error}"))),
+            )
+            .collect()
+    }
+
+    pub(crate) fn print_stderr(&self) -> Result<(), AppError> {
+        // Text retains inline notices; debug JSON already embeds them.
+        if self.render_format == RenderFormat::Text
+            || (self.render_format == RenderFormat::Json && self.debug.is_some())
+        {
+            return Ok(());
+        }
+        let stderr = stderr();
+        let mut stream = AutoStream::new(stderr.lock(), color_choice());
+        for line in self.diagnostic_lines() {
+            writeln!(stream, "{line}")?;
+        }
+        stream.flush()?;
+        Ok(())
     }
 
     pub(crate) fn render_debug_json(&self, data: &Value) -> String {
@@ -139,6 +160,11 @@ impl OutputSnapshot {
             to_string_pretty(&response).expect("JSON values serialize")
         )
     }
+}
+
+pub(crate) fn print_snapshot(snapshot: &OutputSnapshot) -> Result<(), AppError> {
+    snapshot.print_stderr()?;
+    print_rendered(&snapshot.render())
 }
 
 pub fn print_rendered(text: &str) -> Result<(), AppError> {
@@ -456,7 +482,7 @@ pub(crate) fn flush_stream_output() -> Result<(), AppError> {
         output.errors.clear();
         snapshot
     };
-    print_rendered(&snapshot.render())
+    print_snapshot(&snapshot)
 }
 
 pub fn set_pipeline(stages: Vec<PipeStage>) -> Result<(), AppError> {

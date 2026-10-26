@@ -4,7 +4,7 @@ use crate::catalog::{CommandOutcome, ScopeAction};
 use crate::diagnostics;
 use crate::dispatch::{apply_output_state, apply_scope_action, render_error};
 use crate::errors::AppError;
-use crate::output::{print_rendered, RenderFormat};
+use crate::output::{print_snapshot, RenderFormat};
 use crate::redirection::write_output;
 use crate::repl::SharedReplState;
 
@@ -54,9 +54,12 @@ pub(crate) async fn present_command(
 
 fn emit(outcome: &CommandOutcome) -> bool {
     let result = match &outcome.redirect {
-        Some(redirect) => write_output(&outcome.output, redirect),
+        Some(redirect) => outcome
+            .output
+            .print_stderr()
+            .and_then(|()| write_output(&outcome.output, redirect)),
         None if outcome.output.is_empty() => Ok(()),
-        None => print_rendered(&outcome.output.render()),
+        None => print_snapshot(&outcome.output),
     };
     match result {
         Ok(()) => true,
@@ -64,7 +67,7 @@ fn emit(outcome: &CommandOutcome) -> bool {
             let mut error = render_error(err);
             error.render_format = outcome.output.render_format;
             error.debug = outcome.output.debug.clone();
-            let _ = print_rendered(&error.render());
+            let _ = print_snapshot(&error);
             false
         }
     }

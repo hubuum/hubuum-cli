@@ -112,6 +112,11 @@ Warnings, errors, and plain-text messages are optional sibling arrays. See
 [command diagnostics](commands.md#command-diagnostics) for the report schema and
 timing boundary. JSON output without debug keeps its existing shape.
 
+Without debug JSON, warnings and errors go to stderr for JSON, JSONL, CSV, and
+TSV output, including file redirects. Sampling warnings therefore remain visible
+without corrupting data consumed by another program. Text output keeps notices
+alongside the result.
+
 Redirect operators are standalone, whitespace-delimited tokens. Compact DSL
 comparisons such as `F age>3` are not redirect candidates. Spaced comparisons
 such as `F WHERE age > 3` remain predicates because redirect parsing requires

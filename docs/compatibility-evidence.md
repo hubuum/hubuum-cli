@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.21 uses
-`hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
+and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
+`hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| 0.0.22 | 0.20.0 | 0.0.21 | Published SDK and immutable server verified on 2026-10-26; complete discovery, suggestion, and restore workflows passed |
 | 0.0.21 | 0.19.0 | 0.0.20 | Flexible history times, timeline comparisons, and clearer detail rendering |
 | 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
 | 0.0.19 | 0.17.0 | 0.0.20 | Persistent sessions, historical views, credential activity, hydration, and observation controls |
@@ -57,6 +58,31 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.22: discovery and schema suggestions
+
+The release uses published `hubuum_client` 0.20.0 against Server v0.0.21.
+Immutable image: `ghcr.io/hubuum/hubuum-server@sha256:a5e1ad7a17281eefb4c1ed4da172a80bf815840f78bde6390d1e42bb2d51e0b6`.
+Verified on 2026-10-26 with the published SDK and the immutable server image.
+The lockfile records the crates.io checksum, and the built CLI uses registry
+source from SDK commit `170f4c9e4d181eea14283267ee9c61ee068328c8`, with no local
+path patch. All 933 workspace tests passed; two platform-specific native-keychain
+cases remain explicit CI checks. Strict workspace Clippy, formatting, a fresh
+executable build, and the dependency audit passed.
+
+The canonical backup/restore driver passed sessions and concurrent processes,
+computed-cache behavior, query observations, notifications, history, graph
+limits, structured pipelines, credential approvals, field inventory, and all
+three suggestion presets through explicit stage/impact/activation. It also
+passed schema operations, with- and without-history recovery, and
+second-generation restoration after further mutations.
+
+`class fields` and REPL completion use bounded server inventories without fetching
+object payloads. Structured paths distinguish literal keys from array traversal.
+Suggestion commands cover three presets, task resumption, review, staging,
+whole-class impact, activation, and revalidation. Machine-format diagnostics use
+stderr so stdout and redirected files stay parseable; debug JSON retains its
+embedded diagnostic object. See the migration notes in the release changelog.
 
 ## CLI v0.0.21: history selectors and comparisons
 

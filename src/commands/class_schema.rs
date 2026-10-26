@@ -1,17 +1,17 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 use cli_command_derive::CommandArgs;
 use hubuum_client::{
-    ComplianceStatus, ExportTemplateId, SchemaActivationPolicy, SchemaActivationRequest,
-    SchemaObjectUrlTemplate, SchemaPageOptions, SchemaRepairReportRequest, SchemaRevision,
-    SchemaStageRequest, TaskId,
+    ComplianceStatus, ExportTemplateId, FieldSampleLimit, SchemaActivationPolicy,
+    SchemaActivationRequest, SchemaObjectUrlTemplate, SchemaPageOptions, SchemaProfilePreset,
+    SchemaProfileRequest, SchemaRepairReportRequest, SchemaRevision, SchemaStageRequest, TaskId,
 };
 use hubuum_filter::OutputEnvelope;
 use serde_json::Value;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{render_format, required_option_or_pos, CliCommand};
-use crate::autocomplete::{bool, classes};
+use crate::autocomplete::{bool, classes, schema_profile_presets};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::domain::SchemaOutput;
 use crate::errors::{AppError, ReauthenticationRetry};
@@ -33,7 +33,36 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
          Staging and impact do not change the active policy. Use --validate false to disable\n\
          validation, or add --schema file://schema.json to stage a replacement schema.\n\
          Restore an earlier policy: stage Hosts --from-revision 4, then impact and activate\n\
-         the new revision. Add --validate true|false to override the copied setting.",
+         the new revision. Add --validate true|false to override the copied setting.\n\n\
+         Start from existing data: suggest Hosts --preset balanced --wait, then review the\n\
+         schema and stage Hosts --from-suggestion TASK_ID --validate true. Run impact and\n\
+         activate explicitly. Suggestions expire after 24 hours and describe a sample.",
+    );
+    builder.add_command(
+        &["class", "schema"],
+        catalog_command(
+            "suggest",
+            SchemaSuggest::default(),
+            CommandDocs {
+                about: Some(
+                    "Suggest a schema from a bounded authorized sample; review before staging",
+                ),
+                examples: Some("Hosts --preset balanced --wait"),
+                ..CommandDocs::default()
+            },
+        ),
+    );
+    builder.add_command(
+        &["class", "schema"],
+        catalog_command(
+            "suggestion",
+            SchemaSuggestion::default(),
+            CommandDocs {
+                about: Some("Read a completed suggestion (reports expire after 24 hours)"),
+                examples: Some("Hosts --task 123"),
+                ..CommandDocs::default()
+            },
+        ),
     );
     builder.add_command(
         &["class", "schema"],
@@ -181,6 +210,106 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 }
 
 #[derive(Debug, Clone, CommandArgs, Default)]
+struct SchemaSuggest {
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Class name",
+        autocomplete = "classes"
+    )]
+    class: Option<String>,
+    #[option(
+        long = "preset",
+        help = "strict, balanced (default), or expansive",
+        autocomplete = "schema_profile_presets"
+    )]
+    preset: Option<String>,
+    #[option(
+        long = "limit",
+        help = "Maximum authorized objects to sample (1-250; default 100)"
+    )]
+    limit: Option<usize>,
+    #[option(
+        long = "wait",
+        help = "Wait for the suggestion and show it for review",
+        flag = true
+    )]
+    wait: Option<bool>,
+    #[option(
+        long = "timeout",
+        help = "Wait timeout in seconds (requires --wait; default 120); does not cancel the task"
+    )]
+    timeout: Option<u64>,
+    #[option(
+        long = "idempotency-key",
+        help = "Retry the same profiling submission with this key"
+    )]
+    idempotency_key: Option<String>,
+}
+impl SchemaSuggest {
+    fn operation(&self) -> Result<SchemaOperation, AppError> {
+        let preset = SchemaProfilePreset::from_str(self.preset.as_deref().unwrap_or("balanced"))
+            .map_err(|_| {
+                AppError::InvalidOption("Preset must be strict, balanced, or expansive".into())
+            })?;
+        let request =
+            SchemaProfileRequest::new(preset, FieldSampleLimit::new(self.limit.unwrap_or(100))?);
+        if self.timeout == Some(0) || (self.timeout.is_some() && !self.wait.unwrap_or(false)) {
+            return Err(AppError::InvalidOption(
+                "Use a positive --timeout together with --wait".into(),
+            ));
+        }
+        Ok(SchemaOperation::Suggest {
+            request,
+            wait_timeout: self
+                .wait
+                .unwrap_or(false)
+                .then(|| Duration::from_secs(self.timeout.unwrap_or(120))),
+            idempotency_key: self.idempotency_key.clone(),
+        })
+    }
+}
+impl CliCommand for SchemaSuggest {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let operation = query.operation()?;
+        let class = required_option_or_pos(query.class, tokens, 0, "class")?;
+        render_schema_output(
+            tokens,
+            &services.gateway().schema_operation(&class, operation)?,
+        )
+    }
+}
+
+#[derive(Debug, Clone, CommandArgs, Default)]
+struct SchemaSuggestion {
+    #[option(
+        short = "c",
+        long = "class",
+        help = "Class name",
+        autocomplete = "classes"
+    )]
+    class: Option<String>,
+    #[option(long = "task", help = "Completed schema profiling task ID")]
+    task: i32,
+}
+impl CliCommand for SchemaSuggestion {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let task = TaskId::new(query.task)?;
+        let class = required_option_or_pos(query.class, tokens, 0, "class")?;
+        render_schema_output(
+            tokens,
+            &services
+                .gateway()
+                .schema_operation(&class, SchemaOperation::Suggestion(task))?,
+        )
+    }
+}
+
+#[derive(Debug, Clone, CommandArgs, Default)]
 struct SchemaShow {
     #[option(
         short = "c",
@@ -294,9 +423,28 @@ struct SchemaStage {
         help = "Copy a previous schema policy into a new staged revision; optionally override --validate"
     )]
     from_revision: Option<i64>,
+    #[option(
+        long = "from-suggestion",
+        help = "Copy a reviewed, sample-valid suggestion task into a new revision; requires --validate"
+    )]
+    from_suggestion: Option<i32>,
 }
 impl SchemaStage {
     fn operation(&self) -> Result<SchemaOperation, AppError> {
+        if let Some(task) = self.from_suggestion {
+            if self.schema.is_some() || self.from_revision.is_some() {
+                return Err(AppError::InvalidOption(
+                    "Use only one of --from-suggestion, --from-revision, or --schema".into(),
+                ));
+            }
+            let validate_schema = self
+                .validate
+                .ok_or_else(|| AppError::MissingOptions(vec!["validate".into()]))?;
+            return Ok(SchemaOperation::StageFromSuggestion {
+                task: TaskId::new(task)?,
+                validate_schema,
+            });
+        }
         if let Some(revision) = self.from_revision {
             if self.schema.is_some() {
                 return Err(AppError::InvalidOption(

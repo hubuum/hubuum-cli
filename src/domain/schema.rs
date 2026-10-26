@@ -1,6 +1,6 @@
 use hubuum_client::{
-    ClassSchemaResponse, SchemaActivationResponse, SchemaCompliancePage, SchemaRevisionResponse,
-    SchemaWorkResponse,
+    ClassSchemaResponse, SchemaActivationResponse, SchemaCompliancePage, SchemaProfileReport,
+    SchemaRevisionResponse, SchemaWorkResponse, TaskId, TaskResponse,
 };
 use serde::Serialize;
 
@@ -9,6 +9,12 @@ use serde::Serialize;
 #[serde(untagged)]
 pub enum SchemaOutput {
     State(ClassSchemaResponse),
+    ProfileTask(Box<TaskResponse>),
+    Suggestion {
+        task_id: TaskId,
+        #[serde(flatten)]
+        report: Box<SchemaProfileReport>,
+    },
     Revision(SchemaRevisionResponse),
     Revisions(Vec<SchemaRevisionResponse>),
     Compliance(SchemaCompliancePage),

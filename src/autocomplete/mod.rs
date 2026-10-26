@@ -39,8 +39,8 @@ pub use shared::{
     bool, command_aliases, computed_operations, computed_result_types, config_keys, config_values,
     export_content_types, file_paths, object_data_columns, output_formats, principal_kinds,
     query_usage_operations, query_usage_types, remote_auth_types, remote_http_methods,
-    remote_subject_kinds, remote_subject_types, search_kinds, task_kinds, task_statuses,
-    theme_names,
+    remote_subject_kinds, remote_subject_types, schema_profile_presets, search_kinds, task_kinds,
+    task_statuses, theme_names,
 };
 pub(crate) use sorts::complete_sort_clause;
 pub use sorts::{

@@ -119,11 +119,13 @@ fn wait_returns_nonzero_for_failure_expiry_and_timeout() {
     for status in ["failed", "expired"] {
         monitor(&["wait"], &[status])
             .failure()
-            .stdout(contains(status));
+            .stdout("")
+            .stderr(contains(status));
     }
     monitor(&["wait", "--timeout", "0"], &["confirmed"])
         .failure()
-        .stdout(contains("not cancelled"));
+        .stdout("")
+        .stderr(contains("not cancelled"));
 }
 
 #[test]

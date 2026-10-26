@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use hubuum_client::{
-    ComplianceStatus, SchemaActivationRequest, SchemaPageOptions, SchemaRepairReportRequest,
-    SchemaRevision, SchemaStageRequest, TaskId,
+    ComplianceStatus, SchemaActivationRequest, SchemaPageOptions, SchemaProfileRequest,
+    SchemaRepairReportRequest, SchemaRevision, SchemaStageRequest, TaskId, TaskStatus,
 };
 use serde_json::Value;
 
@@ -13,6 +15,16 @@ use super::HubuumGateway;
 
 pub enum SchemaOperation {
     Show,
+    Suggest {
+        request: SchemaProfileRequest,
+        wait_timeout: Option<Duration>,
+        idempotency_key: Option<String>,
+    },
+    Suggestion(TaskId),
+    StageFromSuggestion {
+        task: TaskId,
+        validate_schema: bool,
+    },
     Revisions(SchemaPageOptions),
     Objects(SchemaPageOptions, Option<ComplianceStatus>),
     Stage(SchemaStageRequest),
@@ -44,6 +56,53 @@ impl HubuumGateway {
         })?;
         let schema = class.schema();
         Ok(match operation {
+            SchemaOperation::Suggest {
+                request,
+                wait_timeout,
+                idempotency_key,
+            } => {
+                let mut operation = schema.profile(request);
+                if let Some(key) = idempotency_key {
+                    operation = operation.idempotency_key(key);
+                }
+                let task = client_call("schema.profile", || operation.send())?;
+                if let Some(timeout) = wait_timeout {
+                    let completed = client_call("tasks.wait", || {
+                        client.tasks().wait(task.id).timeout(Some(timeout)).send()
+                    })?;
+                    if completed.status != TaskStatus::Succeeded {
+                        return Err(AppError::CommandExecutionError(format!("Suggestion task {} finished with {}. Inspect task show --id {} before requesting a new suggestion.", task.id, completed.status, task.id)));
+                    }
+                    SchemaOutput::Suggestion {
+                        task_id: task.id,
+                        report: Box::new(client_call("schema.profile_report", || {
+                            schema.profile_report(task.id)
+                        })?),
+                    }
+                } else {
+                    SchemaOutput::ProfileTask(Box::new(task))
+                }
+            }
+            SchemaOperation::Suggestion(task) => SchemaOutput::Suggestion {
+                task_id: task,
+                report: Box::new(client_call("schema.profile_report", || {
+                    schema.profile_report(task)
+                })?),
+            },
+            SchemaOperation::StageFromSuggestion {
+                task,
+                validate_schema,
+            } => {
+                let report = client_call("schema.profile_report", || schema.profile_report(task))?;
+                if report.class_id != class.id() {
+                    return Err(AppError::InvalidOption(
+                        "Suggestion belongs to a different class".into(),
+                    ));
+                }
+                let request = report.stage_request(validate_schema)?;
+                SchemaOutput::Revision(client_call("schema.stage", || schema.stage(request))?)
+            }
+
             SchemaOperation::Show => {
                 SchemaOutput::State(client_call("schema.get", || schema.get())?)
             }

@@ -80,7 +80,7 @@ and clears only its matching saved family, preserving a newer login from another
 process. Explicit token-file configuration is reported without reading the file;
 use token revoke commands to revoke PATs and service tokens.
 
-The CLI uses the server v0.0.20 `/api/v1/auth` contract. Password login creates
+The CLI uses the server v0.0.21 `/api/v1/auth` contract. Password login creates
 an automatically rotating session with client ID `hubuum-cli`.
 
 With the default file storage, the CLI saves the access and refresh credentials and their

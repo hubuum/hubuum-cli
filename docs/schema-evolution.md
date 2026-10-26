@@ -1,6 +1,6 @@
 # Schema evolution and task cancellation
 
-CLI v0.0.21 uses `hubuum_client` 0.19.0, which targets Hubuum server v0.0.20.
+CLI v0.0.22 uses `hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
 The schema lifecycle below was introduced in server v0.0.15.
 All schema policy writes use `class schema`. The old `--schema`/`-s` and
 `--validate`/`-v` flags on `class create` and `class modify` are removed.
@@ -21,6 +21,46 @@ In the REPL, Tab completes `--task` for `work`, `cancel`, `report`, and
 or a local mutation. The server cannot filter the task list by class, so suggestions
 can include other classes; the work command still validates class ownership.
 Completion respects `completion.disable_api_related` and does not fetch findings.
+
+## Suggest a schema from existing objects
+
+```sh
+hubuum-cli class fields Hosts --limit 100 --depth 6 --output json
+hubuum-cli class schema suggest Hosts --preset balanced --limit 100 --wait
+hubuum-cli class schema suggestion Hosts --task 123 --output json
+hubuum-cli class schema stage Hosts --from-suggestion 123 --validate true
+hubuum-cli class schema impact Hosts --revision 2
+hubuum-cli class schema work Hosts --task 124
+hubuum-cli class schema activate Hosts --revision 2 --expected-active-revision 1 --impact-task 124
+```
+
+Use the returned task and revision IDs. `suggest` returns a profiling task
+immediately unless `--wait` is set. Waiting defaults to 120 seconds; use a
+positive `--timeout` to change it. A timeout stops polling without cancelling
+the server task. Inspect `task show --id ID`, then retrieve its report with
+`suggestion`. Use `task cancel --id ID` to request cancellation. An optional
+`--idempotency-key` preserves submission identity when retrying.
+
+Balanced preserves observed types, requires consistently present properties,
+and allows additional properties. Strict rejects mixed unrelated types and
+forbids additional properties. Expansive preserves types but makes properties
+optional and permits additional properties. All presets preserve nulls and
+infer from authorized object data, excluding computed values. The sample limit
+is 1–250; findings and truncation describe the bounded sample.
+
+Read the schema and findings before staging. A sample-valid candidate is not
+whole-class compatibility evidence. `--from-suggestion` requires `--validate`
+and cannot be combined with `--schema` or `--from-revision`. It copies the
+candidate without activating it. Blocked, insufficient, expired, or inaccessible
+reports cannot be staged. Reports expire after 24 hours; generate a new
+suggestion when needed. Discovery and profiling require class read access;
+staging, whole-class impact, and activation retain their existing permissions.
+
+The REPL completes presets and task IDs for `suggestion --task` and
+`stage --from-suggestion`. `task list --kind schema_profiling` finds profiling
+work; task details link the class and report. JSON output from `suggest --wait`
+and `suggestion` retains `task_id`, `schema`, findings, and sample metadata for
+semantic pipelines.
 
 ## Stage, inspect, activate
 
@@ -147,7 +187,7 @@ restore-executor binaries. Revalidate existing enforced classes after migration.
 External authorization must grant `CancelTask`. Restart string-sorted pagination
 following the server upgrade. Review stored schemas against the server's stricter
 reference, complexity, data, and validation budgets before resuming writes.
-Server v0.0.15 introduced format 6; the current server v0.0.20 writes format 10
+Server v0.0.15 introduced format 6; the current server v0.0.21 writes format 10
 and accepts formats 6–10. See [backup migration](backup-restore.md).
 
 See the [server v0.0.15 release notes](https://github.com/hubuum/hubuum/releases/tag/v0.0.15)
