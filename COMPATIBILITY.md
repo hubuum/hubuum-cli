@@ -47,6 +47,12 @@ explicitly. Machine-format diagnostics now use stderr; update scripts that
 previously captured warnings or errors from stdout. Debug JSON keeps diagnostics
 embedded. See [release evidence](docs/compatibility-evidence.md#cli-v0022-discovery-and-schema-suggestions).
 
+The output-theme changes require no CLI configuration or existing theme-file
+migration. **Breaking Rust theme API:** use `resolve_theme` or `catalog` instead
+of constructing `Theme` with a struct literal, update exhaustive `ThemeRole`
+matches, and use `RoleStyle::new(...).with_dimmed(...)` or add the `dimmed` field
+to style literals. `role_style` returns effective inherited styles.
+
 CLI v0.0.21 adds flexible history times and timeline comparisons using the same
 client 0.19.0 and pinned server v0.0.20. Upgrading from v0.0.20 requires no
 server, backup, session, or script migration. Full RFC3339 history timestamps
