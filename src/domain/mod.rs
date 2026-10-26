@@ -79,6 +79,7 @@ pub use object_fields::{
     observed_object_data_fields, visit_observed_data_fields, ObservedObjectDataFields,
     DEFAULT_OBJECT_FIELD_DEPTH, DEFAULT_OBJECT_FIELD_SAMPLE_LIMIT,
 };
+pub(crate) use object_fields::{ClassFieldSample, ObjectFieldValues};
 pub use objects::{
     ObjectDataMutationOutcome, ObjectDataMutationRecord, ObjectListPage, ObjectRecord,
     ObjectShowRecord, ResolvedObjectRecord,
