@@ -27,6 +27,9 @@
   Hubuum Server v0.0.21. Upgrade the server first. Discovery depth is now validated
   as 0–32; scripts must use structured `Source`/`Path` identity rather than assuming
   display field labels are unique. Examples are bounded display previews.
+- **Breaking diagnostic routing:** scripts capturing warning or error text from
+  stdout in JSON, JSONL, CSV, or TSV mode must capture stderr instead. Debug JSON
+  keeps diagnostics embedded in its response object.
 
 ### Fixed
 
