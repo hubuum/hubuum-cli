@@ -336,51 +336,16 @@ async fn hydration_preserves_paths_and_reports_truncation_without_a_next_cursor(
     assert_eq!(body["limit"], 1);
 }
 
-#[tokio::test]
-#[serial]
-async fn observation_controls_use_the_shared_override_and_correct_effects() {
-    for (command, enabled, method) in [
-        ("show", true, Method::GET),
-        ("enable", true, Method::PUT),
-        ("disable", false, Method::PUT),
-    ] {
-        let transport = MockTransport::default();
-        transport.push_response(
-            TransportResponse::json(
-                StatusCode::NOT_FOUND,
-                &json!({"error":"NotFound","message":"Discovery unavailable"}),
-            )
-            .unwrap(),
-        );
-        respond(
-            &transport,
-            json!({"enabled":enabled,"runtime_override":enabled,"sample_every":16,"max_patterns":2048,"max_patterns_per_class":64,"retention_seconds":86400,"max_predicates_per_query":16}),
-            None,
-        );
-        let result = output(
-            execute(
-                &transport,
-                &format!("admin query-observations {command} --output json"),
-            )
-            .await
-            .unwrap(),
-        );
-        assert_eq!(result["runtime_override"], enabled);
-        let requests = transport.requests();
-        assert_eq!(
-            requests[0].url.path(),
-            "/api/v1/admin/runtime-settings/schema"
-        );
-        assert_eq!(requests[1].method, method);
-        if method == Method::PUT {
-            let body: Value = serde_json::from_slice(requests[1].body()).unwrap();
-            assert_eq!(body, json!({"enabled":enabled}));
-        }
-    }
+fn observation_catalogue() -> Value {
+    json!({"schema_version":1,"groups":[{"key":"query_observations","title":"Query observations","description":"Collect query patterns","patch_supported":true,"requires_local_admin":false,"takes_effect":"next_request","read_only_reason":null,"schema":{"properties":{"enabled":{"type":"boolean"}}}}]})
 }
 
-fn observation_catalogue() -> Value {
-    json!({"schema_version":1,"groups":[{"key":"query_observations","patch_supported":true,"schema":{"properties":{"enabled":{"type":"boolean"}}}}]})
+fn observation_state(enabled: bool) -> Value {
+    json!({"group":"query_observations","revision":4,"source":"runtime","changed_at":null,"changed_by":null,"mutable":true,"restart_required":false,"takes_effect":"next_request","replica":{"status":"current"},"effective":{"enabled":enabled,"future_limit":42},"runtime":null,"deployment":null,"constrained_by_ceiling":false})
+}
+
+fn runtime_update(group: &str, applied: bool) -> Value {
+    json!({"group":group,"committed_revision":5,"changed":true,"applied_by_responding_replica":applied,"settings":{}})
 }
 
 #[tokio::test]
@@ -389,17 +354,9 @@ async fn observation_controls_use_revisioned_partial_edits_when_discovered() {
     for enabled in [true, false] {
         let transport = MockTransport::default();
         respond(&transport, observation_catalogue(), None);
-        respond(
-            &transport,
-            json!({"revision":4,"effective":{"enabled":!enabled,"future_limit":42}}),
-            None,
-        );
+        respond(&transport, observation_state(!enabled), None);
         respond(&transport, observation_catalogue(), None);
-        respond(
-            &transport,
-            json!({"committed_revision":5,"applied_by_responding_replica":true}),
-            None,
-        );
+        respond(&transport, runtime_update("query_observations", true), None);
         let command = if enabled { "enable" } else { "disable" };
         let result = output(
             execute(
@@ -429,7 +386,7 @@ async fn observation_controls_use_revisioned_partial_edits_when_discovered() {
 async fn observation_show_returns_discovered_group_state() {
     let transport = MockTransport::default();
     respond(&transport, observation_catalogue(), None);
-    let state = json!({"group":"query_observations","revision":4,"source":"runtime","effective":{"enabled":true,"future_limit":42}});
+    let state = observation_state(true);
     respond(&transport, state.clone(), None);
     assert_eq!(
         output(
@@ -450,7 +407,11 @@ async fn observation_show_returns_discovered_group_state() {
 #[tokio::test]
 #[serial]
 async fn observation_controls_never_fall_back_after_discovery_errors() {
-    for status in [StatusCode::FORBIDDEN, StatusCode::SERVICE_UNAVAILABLE] {
+    for status in [
+        StatusCode::NOT_FOUND,
+        StatusCode::FORBIDDEN,
+        StatusCode::SERVICE_UNAVAILABLE,
+    ] {
         let transport = MockTransport::default();
         transport.push_response(
             TransportResponse::json(
@@ -485,7 +446,7 @@ async fn observation_controls_reject_unknown_discovery_versions() {
 async fn observation_controls_do_not_retry_revision_conflicts() {
     let transport = MockTransport::default();
     respond(&transport, observation_catalogue(), None);
-    respond(&transport, json!({"revision":4}), None);
+    respond(&transport, observation_state(false), None);
     respond(&transport, observation_catalogue(), None);
     transport.push_response(
         TransportResponse::json(
@@ -896,14 +857,10 @@ async fn discovered_runtime_field_is_patched_without_replacing_other_values() {
     let transport = MockTransport::default();
     respond(
         &transport,
-        json!({"schema_version":1,"groups":[{"key":"future_policy","patch_supported":true,"schema":{"properties":{"new_option":{"type":"integer"}}}}]}),
+        json!({"schema_version":1,"groups":[{"key":"future_policy","title":"Future policy","description":"A new server policy","requires_local_admin":false,"takes_effect":"next_request","read_only_reason":null,"patch_supported":true,"schema":{"properties":{"new_option":{"type":"integer"}}}}]}),
         None,
     );
-    respond(
-        &transport,
-        json!({"group":"future_policy","committed_revision":5,"applied_by_responding_replica":false}),
-        None,
-    );
+    respond(&transport, runtime_update("future_policy", false), None);
     let result = output(execute(&transport,
         "admin settings set --group future_policy --expected-revision 4 --changes '{\"new_option\":10}' --output json").await.unwrap());
     assert_eq!(result["committed_revision"], 5);
@@ -935,7 +892,7 @@ async fn runtime_discovery_blocks_unsupported_workflows() {
     let transport = MockTransport::default();
     respond(
         &transport,
-        json!({"schema_version":1,"groups":[{"key":"authentication","patch_supported":false,"read_only_reason":"Use preflight"}]}),
+        json!({"schema_version":1,"groups":[{"key":"authentication","title":"Authentication","description":"Provider settings","schema":{},"requires_local_admin":true,"takes_effect":"next_login","patch_supported":false,"read_only_reason":"Use preflight"}]}),
         None,
     );
     assert!(execute(&transport, "admin settings set --group authentication --expected-revision 1 --changes '{\"providers\":[]}'").await.is_err());
@@ -946,11 +903,7 @@ async fn runtime_discovery_blocks_unsupported_workflows() {
 #[serial]
 async fn runtime_reset_returns_committed_revision() {
     let transport = MockTransport::default();
-    respond(
-        &transport,
-        json!({"group":"pagination","committed_revision":5,"applied_by_responding_replica":true}),
-        None,
-    );
+    respond(&transport, runtime_update("pagination", true), None);
     let result = output(
         execute(
             &transport,
@@ -973,7 +926,7 @@ async fn runtime_reset_returns_committed_revision() {
 #[serial]
 async fn runtime_describe_preserves_server_help_for_future_fields() {
     let transport = MockTransport::default();
-    let descriptor = json!({"key":"future_policy", "title":"Future policy", "description":"A new server policy", "schema":{"properties":{"mode":{"type":"string", "title":"Operating mode", "description":"Choose resource use", "enum":["fast"], "x-enum-descriptions":{"fast":"Prefer speed with more resource use"}}}}});
+    let descriptor = json!({"key":"future_policy", "title":"Future policy", "description":"A new server policy", "patch_supported":true,"requires_local_admin":false,"takes_effect":"next_request","read_only_reason":null, "schema":{"properties":{"mode":{"type":"string", "title":"Operating mode", "description":"Choose resource use", "enum":["fast"], "x-enum-descriptions":{"fast":"Prefer speed with more resource use"}}}}});
     respond(
         &transport,
         json!({"schema_version":1,"groups":[descriptor]}),

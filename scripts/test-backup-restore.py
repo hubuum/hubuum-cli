@@ -248,17 +248,50 @@ def main():
             assert obj["revision"] > 1
             config_snapshot = cli("admin", "config")
             assert config_snapshot
+            catalogue = cli("admin", "settings", "list")
+            assert catalogue["schema_version"] == 1
+            descriptor = cli("admin", "settings", "describe", "--group", "query_observations")
+            assert descriptor in catalogue["groups"]
+            assert descriptor["schema"]["properties"]["enabled"]["description"]
             observed = cli("admin", "query-observations", "show")
-            assert cli("admin", "query-observations", "enable")["runtime_override"] is True
-            assert cli("admin", "query-observations", "disable")["runtime_override"] is False
-            cli("admin", "query-observations", "enable" if observed["enabled"] else "disable")
+            try:
+                for enabled in [True, False]:
+                    acknowledgement = cli("admin", "query-observations", "enable" if enabled else "disable")
+                    assert acknowledgement["group"] == "query_observations"
+                    current = cli("admin", "settings", "show", "--group", "query_observations")
+                    assert current["revision"] == acknowledgement["committed_revision"]
+                    assert current["effective"]["enabled"] is enabled
+                    assert {key: value for key, value in current["effective"].items() if key != "enabled"} == {
+                        key: value for key, value in observed["effective"].items() if key != "enabled"
+                    }
+                previous_revision = str(current["revision"])
+                acknowledgement = cli("admin", "settings", "set", "--group", "query_observations",
+                                      "--expected-revision", previous_revision, "--changes", '{"enabled":true}')
+                assert acknowledgement["committed_revision"] > current["revision"]
+                conflict = cli("admin", "settings", "set", "--group", "query_observations",
+                               "--expected-revision", previous_revision, "--changes", '{"enabled":false}',
+                               success=False)
+                assert "412" in conflict or "revision" in conflict.lower()
+                assert cli("admin", "settings", "show", "--group", "query_observations")["effective"]["enabled"] is True
+            finally:
+                current = cli("admin", "settings", "show", "--group", "query_observations")
+                if observed["source"] == "deployment":
+                    cli("admin", "settings", "reset", "--group", "query_observations",
+                        "--expected-revision", str(current["revision"]))
+                else:
+                    cli("admin", "settings", "set", "--group", "query_observations",
+                        "--expected-revision", str(current["revision"]), "--changes", json.dumps(observed["runtime"]))
+            restored = cli("admin", "settings", "show", "--group", "query_observations")
+            assert restored["source"] == observed["source"]
+            assert restored["effective"] == observed["effective"]
+            print("PASS: runtime discovery/help, partial edits, stale revisions, and restored ownership", flush=True)
             mine = cli("me", "show")
             for owner in [("me",), ("user", "--username", "admin")]:
                 arguments = [owner[0], "token", "activity", *owner[1:], "--token-id", str(mine["token"]["id"]), "--all"]
                 activity = cli(*arguments)
                 assert {"session_id", "creation", "sources", "best_effort", "collection_enabled", "retention_days", "source_cap", "overflow_since"} <= activity.keys(), activity
                 assert activity["best_effort"] is True
-            print("PASS: shared query-observation controls and current/user credential activity", flush=True)
+            print("PASS: current/user credential activity", flush=True)
 
             # Provider presets remain ordinary webhooks. Preview through the
             # real server renderer without resolving secrets or sending chat.

@@ -123,6 +123,22 @@ fn native_backend() -> Result<Arc<CredentialStore>, ApiError> {
         .map_err(keychain_error)
 }
 
+#[cfg(target_os = "macos")]
+fn native_backend() -> Result<Arc<CredentialStore>, ApiError> {
+    apple_native_keyring_store::keychain::Store::new()
+        .map(|store| store as Arc<CredentialStore>)
+        .map_err(keychain_error)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn native_backend() -> Result<Arc<CredentialStore>, ApiError> {
+    Err(Error::new(
+        ErrorKind::Unsupported,
+        "Keychain session storage is supported on macOS and Linux",
+    )
+    .into())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::{read, write};
@@ -321,20 +337,4 @@ mod tests {
         assert!(guard.load().unwrap().is_none());
         assert!(!directory.path().join("sessions.json").exists());
     }
-}
-
-#[cfg(target_os = "macos")]
-fn native_backend() -> Result<Arc<CredentialStore>, ApiError> {
-    apple_native_keyring_store::keychain::Store::new()
-        .map(|store| store as Arc<CredentialStore>)
-        .map_err(keychain_error)
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn native_backend() -> Result<Arc<CredentialStore>, ApiError> {
-    Err(Error::new(
-        ErrorKind::Unsupported,
-        "Keychain session storage is supported on macOS and Linux",
-    )
-    .into())
 }

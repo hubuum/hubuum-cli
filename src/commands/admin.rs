@@ -114,7 +114,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 }
 
 fn observation_docs(about: &'static str) -> CommandDocs {
-    CommandDocs { about: Some(about), long_about: Some("Requires an unscoped human administrator. On servers advertising runtime settings, show returns group state and enable/disable patches only enabled using the current revision; conflicts are returned without retry. Older servers retain the legacy override API. Other replicas apply changes asynchronously; existing observations remain retained."), ..Default::default() }
+    CommandDocs { about: Some(about), long_about: Some("Requires an unscoped human administrator. Requires server runtime settings discovery. Show returns group state and enable/disable patches only enabled using the current revision; conflicts are returned without retry. Other replicas apply changes asynchronously; existing observations remain retained."), ..Default::default() }
 }
 
 #[derive(Clone, Default, CommandArgs)]

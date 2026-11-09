@@ -255,16 +255,20 @@ the supplied fields and requires an explicit revision, preserving unedited setti
 reading and reviewing the new state before retrying. `reset` returns the whole
 group to deployment ownership. Server authorization remains authoritative.
 
-These commands use the pinned Rust client's constrained authenticated transport
-for additive routes outside its v0.0.21 contract. Servers without discovery return
+These commands use the pinned Rust client's runtime-settings methods for the
+server v0.0.22 contract. Servers without discovery return
 an error; the commands never fall back to an unrevisioned write. Authentication
 provider edits still require the dedicated preflight workflow. A committed update
 does not imply every replica has applied it.
 
 `admin query-observations show`, `enable`, and `disable` also use the discovered
-runtime-settings API when available. Enable/disable reads the current revision
+runtime-settings API. Enable/disable reads the current revision
 and patches only `enabled`; a concurrent edit is reported without retrying.
-Show returns group state, and edits return the commit acknowledgement. Only a
-discovery `404` selects the older override API and its legacy response format;
-authorization errors, unavailable servers, unsupported discovery versions, and
-revision conflicts never fall back to an unrevisioned write.
+Show returns group state, and edits return the commit acknowledgement. Upgrade
+to server v0.0.22 before using these commands. Discovery errors and revision
+conflicts are returned without falling back to an unrevisioned write.
+
+Scripts upgrading from v0.0.22 must read `show.effective.enabled` and
+`show.source` instead of top-level `enabled` and `runtime_override`. Enable/disable
+acknowledgements expose `committed_revision` and `applied_by_responding_replica`;
+read the group again when the current effective value is needed.
