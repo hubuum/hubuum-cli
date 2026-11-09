@@ -720,6 +720,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#runtime-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Runtime settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1813,6 +1824,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#runtime-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Runtime settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2024,6 +2046,37 @@ the same OS major version:</p>
 <p>The example converts each kernel into an array of numeric components, so
 <code>553.16</code> becomes <code>[553, 16]</code> rather than <code>55316</code>. The example uses <code>--all</code> so
 <code>object list</code> fetches the complete matching set before the local pipe runs.</p>
+<h2 id="runtime-settings">Runtime settings<a class="headerlink" href="#runtime-settings" title="Permanent link">&para;</a></h2>
+<p>On servers implementing <a href="https://github.com/hubuum/hubuum/pull/584">runtime settings discovery version 1</a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span>list<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span>describe<span class="w"> </span>--group<span class="w"> </span>query_observations
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span>show<span class="w"> </span>--group<span class="w"> </span>pagination<span class="w"> </span>--output<span class="w"> </span>json
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--group<span class="w"> </span>pagination<span class="w"> </span>--expected-revision<span class="w"> </span><span class="m">3</span><span class="w"> </span>--changes<span class="w"> </span><span class="s1">'{"default_page_limit":75}'</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>hubuum-cli<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span>reset<span class="w"> </span>--group<span class="w"> </span>pagination<span class="w"> </span>--expected-revision<span class="w"> </span><span class="m">4</span>
+</code></pre></div>
+<p>Use the revision returned by <code>show</code>, not the illustrative revisions above.
+<code>list</code> includes types, descriptions, defaults, deployment bounds, and specialized
+workflow requirements. Group and field names come from the server; adding an
+option does not require a CLI release. <code>describe --group</code> shows the selected
+group's help, including field labels, explanations, units and enum-choice
+descriptions under <code>x-enum-descriptions</code>. Use <code>--output json</code> to retain the
+complete descriptor for scripts. Help is fetched from the server each time;
+it describes supported options without changing any settings. <code>set</code> sends only
+the supplied fields and requires an explicit revision, preserving unedited settings. A conflict requires
+reading and reviewing the new state before retrying. <code>reset</code> returns the whole
+group to deployment ownership. Server authorization remains authoritative.</p>
+<p>These commands use the pinned Rust client's constrained authenticated transport
+for additive routes outside its v0.0.21 contract. Servers without discovery return
+an error; the commands never fall back to an unrevisioned write. Authentication
+provider edits still require the dedicated preflight workflow. A committed update
+does not imply every replica has applied it.</p>
+<p><code>admin query-observations show</code>, <code>enable</code>, and <code>disable</code> also use the discovered
+runtime-settings API when available. Enable/disable reads the current revision
+and patches only <code>enabled</code>; a concurrent edit is reported without retrying.
+Show returns group state, and edits return the commit acknowledgement. Only a
+discovery <code>404</code> selects the older override API and its legacy response format;
+authorization errors, unavailable servers, unsupported discovery versions, and
+revision conflicts never fall back to an unrevisioned write.</p>
 
 
 

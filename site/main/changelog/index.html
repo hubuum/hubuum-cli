@@ -3020,6 +3020,19 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<ul>
+<li>
+<p>Use discovered runtime settings for the existing query-observation commands
+  when available, retaining the legacy API only when discovery is absent.</p>
+</li>
+<li>
+<p>Add <code>admin settings describe --group</code> to inspect server-provided labels,
+  explanations, units, limits and enum-choice help without editing settings.</p>
+</li>
+<li>
+<p>Add <code>admin settings list</code>, <code>show</code>, <code>set</code>, and <code>reset</code> for server-discovered runtime configuration. Partial edits require an explicit revision and preserve unedited fields. Requires a server advertising discovery version 1.</p>
+</li>
+</ul>
 <!-- markdownlint-disable-next-line MD033 -->
 <p><span id="v0-0-22"></span></p>
 <h2 id="0022-2026-10-26">[0.0.22] - 2026-10-26<a class="headerlink" href="#0022-2026-10-26" title="Permanent link">&para;</a></h2>
