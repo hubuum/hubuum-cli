@@ -1946,16 +1946,21 @@
 <!-- markdownlint-disable-next-line MD033 -->
 <p><span id="a-cli-for-hubuum"></span></p>
 <p>Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI <strong>v0.0.22</strong> (2026-10-26) uses Rust client <strong>0.20.0</strong> and targets server
-<strong>v0.0.21</strong>. Hubuum is under active development before 1.0.</p>
-<p>Discover fields in one bounded request, generate a schema suggestion, resume it
-by task ID, and explicitly stage a reviewed candidate for impact analysis and
-activation. The REPL uses the same inventory for field completion. See the
-<a href="../schema-evolution/">schema workflow</a> and <a href="../changelog/#v0-0-22">release notes</a>.</p>
+CLI <strong>v0.0.23</strong> (2026-11-09) uses Rust client <strong>0.21.0</strong> and targets server
+<strong>v0.0.22</strong>. Hubuum is under active development before 1.0.</p>
+<p>Inspect and edit runtime configuration with <code>admin settings list</code>, <code>describe</code>,
+<code>show</code>, <code>set</code>, and <code>reset</code>. Group names, labels, field explanations, units,
+bounds, and enum-choice help come from the server. Partial edits preserve
+untouched fields and require an explicit revision. See
+<a href="../commands/">administrator commands</a> and <a href="../changelog/#v0-0-23">release notes</a>.</p>
 <p>Customize human-readable output by value type and edit colors with <code>theme set</code>.
 Preview changes offline before saving per-theme foreground/background overrides.
 See <a href="../themes/">themes and color editing</a>.</p>
-<p>Upgrade the server first. Field depth is limited to 0–32, and scripts should use
+<p>Upgrade the server to v0.0.22 first. Query-observation aliases now use runtime
+settings and cannot fall back to the removed unrevisioned endpoint. Conflicts
+require a fresh read and review before retrying.</p>
+<p>Upgrades from before v0.0.22 should also note that field depth is limited to
+0–32, and scripts should use
 structured <code>Source</code>/<code>Path</code> identity because display labels can collide. In JSON,
 JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts
 capturing diagnostics from stdout must change. Debug JSON retains its embedded
@@ -1964,7 +1969,7 @@ diagnostics. Earlier upgrades should also review the
 <p><a href="https://hubuum.github.io/hubuum-cli/">Documentation</a> · <a href="https://hubuum.github.io/">Hubuum ecosystem</a></p>
 <h2 id="release-binaries">Release binaries<a class="headerlink" href="#release-binaries" title="Permanent link">&para;</a></h2>
 <p>Download and extract the archive for your platform from
-<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.22">release v0.0.22</a>.
+<a href="https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.23">release v0.0.23</a>.
 Verify its published SHA-256 checksum and place <code>hubuum-cli</code> (<code>hubuum-cli.exe</code>
 on Windows) on your <code>PATH</code>. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
@@ -1975,7 +1980,7 @@ x86_64 binaries are available. See <a href="../updates/">binary details</a>.</p>
 See <a href="../updates/#updating-in-place">update and restart instructions</a> before
 installing it, including package-manager and platform restrictions.</p>
 <h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
-<p>CLI v0.0.22 uses client <strong>0.20.0</strong> and targets server <strong>v0.0.21</strong>.
+<p>CLI v0.0.23 uses client <strong>0.21.0</strong> and targets server <strong>v0.0.22</strong>.
 Check the <a href="../compatibility/">compatibility matrix</a> for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see <a href="../backup-restore/">backup and restore</a>.</p>

@@ -2065,18 +2065,21 @@ it describes supported options without changing any settings. <code>set</code> s
 the supplied fields and requires an explicit revision, preserving unedited settings. A conflict requires
 reading and reviewing the new state before retrying. <code>reset</code> returns the whole
 group to deployment ownership. Server authorization remains authoritative.</p>
-<p>These commands use the pinned Rust client's constrained authenticated transport
-for additive routes outside its v0.0.21 contract. Servers without discovery return
+<p>These commands use the pinned Rust client's runtime-settings methods for the
+server v0.0.22 contract. Servers without discovery return
 an error; the commands never fall back to an unrevisioned write. Authentication
 provider edits still require the dedicated preflight workflow. A committed update
 does not imply every replica has applied it.</p>
 <p><code>admin query-observations show</code>, <code>enable</code>, and <code>disable</code> also use the discovered
-runtime-settings API when available. Enable/disable reads the current revision
+runtime-settings API. Enable/disable reads the current revision
 and patches only <code>enabled</code>; a concurrent edit is reported without retrying.
-Show returns group state, and edits return the commit acknowledgement. Only a
-discovery <code>404</code> selects the older override API and its legacy response format;
-authorization errors, unavailable servers, unsupported discovery versions, and
-revision conflicts never fall back to an unrevisioned write.</p>
+Show returns group state, and edits return the commit acknowledgement. Upgrade
+to server v0.0.22 before using these commands. Discovery errors and revision
+conflicts are returned without falling back to an unrevisioned write.</p>
+<p>Scripts upgrading from v0.0.22 must read <code>show.effective.enabled</code> and
+<code>show.source</code> instead of top-level <code>enabled</code> and <code>runtime_override</code>. Enable/disable
+acknowledgements expose <code>committed_revision</code> and <code>applied_by_responding_replica</code>;
+read the group again when the current effective value is needed.</p>
 
 
 

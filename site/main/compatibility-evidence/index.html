@@ -1616,6 +1616,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0023-server-discovered-runtime-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.23: server-discovered runtime settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0022-discovery-and-schema-suggestions" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1963,6 +1974,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli-v0023-server-discovered-runtime-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI v0.0.23: server-discovered runtime settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-v0022-discovery-and-schema-suggestions" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2165,8 +2187,8 @@
 <h1 id="compatibility-evidence-and-history">Compatibility evidence and history<a class="headerlink" href="#compatibility-evidence-and-history" title="Permanent link">&para;</a></h1>
 <p>Hubuum CLI, <code>hubuum_client</code>, and the Hubuum server are versioned independently.
 Each CLI release pins a <code>hubuum_client</code> version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
-<code>hubuum_client</code> 0.20.0, which targets Hubuum server v0.0.21.
+and reproducibly tests its Hubuum server target. CLI v0.0.23 uses
+<code>hubuum_client</code> 0.21.0, which targets Hubuum server v0.0.22.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.</p>
@@ -2181,6 +2203,12 @@ against other server versions is not guaranteed.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>0.0.23</td>
+<td>0.21.0</td>
+<td>0.0.22</td>
+<td>Published SDK and immutable server verified on 2026-11-09; runtime discovery, revision conflicts, delegated integrations, and complete restore workflows passed</td>
+</tr>
 <tr>
 <td>0.0.22</td>
 <td>0.20.0</td>
@@ -2327,6 +2355,35 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 <code>hubuum_client</code> v0.4.0; that client did not declare a stable server target.</p>
 <p>Forward-compatibility checks against the server's <code>main</code> branch are useful early
 warnings, but they do not change the server target of a published client version.</p>
+<h2 id="cli-v0023-server-discovered-runtime-settings">CLI v0.0.23: server-discovered runtime settings<a class="headerlink" href="#cli-v0023-server-discovered-runtime-settings" title="Permanent link">&para;</a></h2>
+<p>Verified on 2026-11-09 with published <code>hubuum_client</code> 0.21.0 and Server v0.0.22.
+Immutable image: <code>ghcr.io/hubuum/hubuum-server@sha256:71ff4090eac071f23ae59f7265dc07165939d42771a73d1d291defa023b4964b</code>.
+The server image identifies release commit
+<code>242285411044459c3ac73563d9338905f3b4f377</code>. The registry SDK identifies source
+commit <code>d09a49713f917cef196945294f185224ae04ce31</code>; its lockfile checksum matches
+crates.io's <code>b9ef7655da2b58697e0006826fd09041f9595b060d47eeadc330768699a5e3a2</code>.
+The final build uses registry source without a local path override.</p>
+<p>All 968 workspace test results passed across 28 groups. One native-keychain
+case requires an unlocked credential store and remains covered by the dedicated
+platform CI checks. Strict workspace/all-target Clippy, rustfmt, the session
+crate's Rust 1.89 check, wrapper tests, extension JSON Schema validation, 18
+CI-policy regressions, a fresh executable build, and the 458-dependency audit
+passed. Dependency resolution selected the latest compatible graph.</p>
+<p>The canonical live driver passed delegated webhook/subscription management,
+sessions and concurrent processes, runtime discovery and field help, partial
+edits, stale-revision rejection, and exact restoration of values and ownership.
+It also passed history, query usage, graph limits, structured pipelines,
+credential approvals, field discovery, suggestion and schema workflows, and
+complete recovery with history, without history, and after further mutations.
+Second-generation restore preserved previous deletions and invalidated obsolete
+bearer sessions as expected.</p>
+<p><strong>Breaking upgrade:</strong> install Server v0.0.22 and matching workers first. The
+query-observation aliases require runtime discovery and use the revision-checked
+SDK methods. Their JSON output now uses group state (<code>effective</code>, <code>source</code>, and
+<code>revision</code>) or a commit acknowledgement (<code>committed_revision</code> and replica
+application status). Replace scripts reading the old top-level <code>enabled</code> or
+<code>runtime_override</code> fields. Use <code>admin settings describe --group</code> for the server's
+field and enum explanations, and review conflicts before retrying edits.</p>
 <h2 id="cli-v0022-discovery-and-schema-suggestions">CLI v0.0.22: discovery and schema suggestions<a class="headerlink" href="#cli-v0022-discovery-and-schema-suggestions" title="Permanent link">&para;</a></h2>
 <p>The release uses published <code>hubuum_client</code> 0.20.0 against Server v0.0.21.
 Immutable image: <code>ghcr.io/hubuum/hubuum-server@sha256:a5e1ad7a17281eefb4c1ed4da172a80bf815840f78bde6390d1e42bb2d51e0b6</code>.

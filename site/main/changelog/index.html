@@ -1697,6 +1697,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#0023-2026-11-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.23] - 2026-11-09
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#0022-2026-10-26" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2391,6 +2402,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#0023-2026-11-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        [0.0.23] - 2026-11-09
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#0022-2026-10-26" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -3020,10 +3042,23 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
 <h2 id="unreleased">[Unreleased]<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<!-- markdownlint-disable-next-line MD033 -->
+<p><span id="v0-0-23"></span></p>
+<h2 id="0023-2026-11-09">[0.0.23] - 2026-11-09<a class="headerlink" href="#0023-2026-11-09" title="Permanent link">&para;</a></h2>
+<p>This release uses <code>hubuum_client</code> 0.21.0 and targets Hubuum Server v0.0.22.
+Upgrade the server and its workers before updating the CLI.</p>
 <ul>
+<li><strong>Breaking:</strong> query-observation commands now require runtime-settings discovery
+  from server v0.0.22. Upgrade the server before using these commands; unavailable
+  discovery returns an error instead of calling the removed unrevisioned API.</li>
+<li><strong>Breaking JSON output:</strong> query-observation <code>show</code> returns group state, with
+  values under <code>effective</code> and ownership under <code>source</code>. Enable/disable return
+  a commit acknowledgement with <code>committed_revision</code> and replica application
+  status. Replace scripts reading the removed top-level <code>enabled</code> or
+  <code>runtime_override</code> fields with the group state and explicit acknowledgement.</li>
 <li>
-<p>Use discovered runtime settings for the existing query-observation commands
-  when available, retaining the legacy API only when discovery is absent.</p>
+<p>Use the Rust SDK runtime-settings methods for discovery, reads, partial edits,
+  and resets, preserving typed revisions until transmission.</p>
 </li>
 <li>
 <p>Add <code>admin settings describe --group</code> to inspect server-provided labels,
