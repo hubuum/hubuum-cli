@@ -345,6 +345,13 @@ async fn observation_controls_use_the_shared_override_and_correct_effects() {
         ("disable", false, Method::PUT),
     ] {
         let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                StatusCode::NOT_FOUND,
+                &json!({"error":"NotFound","message":"Discovery unavailable"}),
+            )
+            .unwrap(),
+        );
         respond(
             &transport,
             json!({"enabled":enabled,"runtime_override":enabled,"sample_every":16,"max_patterns":2048,"max_patterns_per_class":64,"retention_seconds":86400,"max_predicates_per_query":16}),
@@ -360,12 +367,137 @@ async fn observation_controls_use_the_shared_override_and_correct_effects() {
         );
         assert_eq!(result["runtime_override"], enabled);
         let requests = transport.requests();
-        assert_eq!(requests[0].method, method);
+        assert_eq!(
+            requests[0].url.path(),
+            "/api/v1/admin/runtime-settings/schema"
+        );
+        assert_eq!(requests[1].method, method);
         if method == Method::PUT {
-            let body: Value = serde_json::from_slice(requests[0].body()).unwrap();
+            let body: Value = serde_json::from_slice(requests[1].body()).unwrap();
             assert_eq!(body, json!({"enabled":enabled}));
         }
     }
+}
+
+fn observation_catalogue() -> Value {
+    json!({"schema_version":1,"groups":[{"key":"query_observations","patch_supported":true,"schema":{"properties":{"enabled":{"type":"boolean"}}}}]})
+}
+
+#[tokio::test]
+#[serial]
+async fn observation_controls_use_revisioned_partial_edits_when_discovered() {
+    for enabled in [true, false] {
+        let transport = MockTransport::default();
+        respond(&transport, observation_catalogue(), None);
+        respond(
+            &transport,
+            json!({"revision":4,"effective":{"enabled":!enabled,"future_limit":42}}),
+            None,
+        );
+        respond(&transport, observation_catalogue(), None);
+        respond(
+            &transport,
+            json!({"committed_revision":5,"applied_by_responding_replica":true}),
+            None,
+        );
+        let command = if enabled { "enable" } else { "disable" };
+        let result = output(
+            execute(
+                &transport,
+                &format!("admin query-observations {command} --output json"),
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(result["committed_revision"], 5);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[3].method, Method::PATCH);
+        assert_eq!(
+            requests[3].url.path(),
+            "/api/v1/admin/runtime-settings/query_observations"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(requests[3].body()).unwrap(),
+            json!({"expected_revision":4,"changes":{"enabled":enabled}})
+        );
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn observation_show_returns_discovered_group_state() {
+    let transport = MockTransport::default();
+    respond(&transport, observation_catalogue(), None);
+    let state = json!({"group":"query_observations","revision":4,"source":"runtime","effective":{"enabled":true,"future_limit":42}});
+    respond(&transport, state.clone(), None);
+    assert_eq!(
+        output(
+            execute(&transport, "admin query-observations show --output json")
+                .await
+                .unwrap()
+        ),
+        state
+    );
+    let requests = transport.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[1].url.path(),
+        "/api/v1/admin/runtime-settings/query_observations"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn observation_controls_never_fall_back_after_discovery_errors() {
+    for status in [StatusCode::FORBIDDEN, StatusCode::SERVICE_UNAVAILABLE] {
+        let transport = MockTransport::default();
+        transport.push_response(
+            TransportResponse::json(
+                status,
+                &json!({"error":"Unavailable","message":"Discovery failed"}),
+            )
+            .unwrap(),
+        );
+        assert!(execute(&transport, "admin query-observations enable")
+            .await
+            .is_err());
+        let requests = transport.requests();
+        assert!(!requests.is_empty());
+        assert!(requests.iter().all(|request| request.method == Method::GET
+            && request.url.path() == "/api/v1/admin/runtime-settings/schema"));
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn observation_controls_reject_unknown_discovery_versions() {
+    let transport = MockTransport::default();
+    respond(&transport, json!({"schema_version":2,"groups":[]}), None);
+    assert!(execute(&transport, "admin query-observations enable")
+        .await
+        .is_err());
+    assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn observation_controls_do_not_retry_revision_conflicts() {
+    let transport = MockTransport::default();
+    respond(&transport, observation_catalogue(), None);
+    respond(&transport, json!({"revision":4}), None);
+    respond(&transport, observation_catalogue(), None);
+    transport.push_response(
+        TransportResponse::json(
+            StatusCode::PRECONDITION_FAILED,
+            &json!({"error":"RevisionConflict","message":"Refetch","current_revision":5}),
+        )
+        .unwrap(),
+    );
+    assert!(execute(&transport, "admin query-observations enable")
+        .await
+        .is_err());
+    assert_eq!(transport.requests().len(), 4);
 }
 
 fn service_account() -> Value {
@@ -756,4 +888,116 @@ async fn invalid_related_options_and_resource_ids_fail_before_lookup() {
         assert!(execute(&transport, command).await.is_err(), "{command}");
         assert!(transport.requests().is_empty(), "{command}");
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn discovered_runtime_field_is_patched_without_replacing_other_values() {
+    let transport = MockTransport::default();
+    respond(
+        &transport,
+        json!({"schema_version":1,"groups":[{"key":"future_policy","patch_supported":true,"schema":{"properties":{"new_option":{"type":"integer"}}}}]}),
+        None,
+    );
+    respond(
+        &transport,
+        json!({"group":"future_policy","committed_revision":5,"applied_by_responding_replica":false}),
+        None,
+    );
+    let result = output(execute(&transport,
+        "admin settings set --group future_policy --expected-revision 4 --changes '{\"new_option\":10}' --output json").await.unwrap());
+    assert_eq!(result["committed_revision"], 5);
+    let requests = transport.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].method, Method::PATCH);
+    assert_eq!(
+        serde_json::from_slice::<Value>(requests[1].body()).unwrap(),
+        json!({"expected_revision":4,"changes":{"new_option":10}})
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn runtime_edits_require_an_explicit_revision() {
+    let transport = MockTransport::default();
+    assert!(execute(
+        &transport,
+        "admin settings set --group pagination --changes '{\"default_page_limit\":10}'"
+    )
+    .await
+    .is_err());
+    assert!(transport.requests().is_empty());
+}
+
+#[tokio::test]
+#[serial]
+async fn runtime_discovery_blocks_unsupported_workflows() {
+    let transport = MockTransport::default();
+    respond(
+        &transport,
+        json!({"schema_version":1,"groups":[{"key":"authentication","patch_supported":false,"read_only_reason":"Use preflight"}]}),
+        None,
+    );
+    assert!(execute(&transport, "admin settings set --group authentication --expected-revision 1 --changes '{\"providers\":[]}'").await.is_err());
+    assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn runtime_reset_returns_committed_revision() {
+    let transport = MockTransport::default();
+    respond(
+        &transport,
+        json!({"group":"pagination","committed_revision":5,"applied_by_responding_replica":true}),
+        None,
+    );
+    let result = output(
+        execute(
+            &transport,
+            "admin settings reset --group pagination --expected-revision 4 --output json",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result["committed_revision"], 5);
+    let requests = transport.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, Method::DELETE);
+    assert!(requests[0]
+        .url
+        .as_str()
+        .ends_with("pagination?expected_revision=4"));
+}
+
+#[tokio::test]
+#[serial]
+async fn runtime_describe_preserves_server_help_for_future_fields() {
+    let transport = MockTransport::default();
+    let descriptor = json!({"key":"future_policy", "title":"Future policy", "description":"A new server policy", "schema":{"properties":{"mode":{"type":"string", "title":"Operating mode", "description":"Choose resource use", "enum":["fast"], "x-enum-descriptions":{"fast":"Prefer speed with more resource use"}}}}});
+    respond(
+        &transport,
+        json!({"schema_version":1,"groups":[descriptor]}),
+        None,
+    );
+    let result = output(
+        execute(
+            &transport,
+            "admin settings describe --group future_policy --output json",
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(result, descriptor);
+    assert_eq!(transport.requests().len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn runtime_describe_reports_an_unadvertised_group() {
+    let transport = MockTransport::default();
+    respond(&transport, json!({"schema_version":1,"groups":[]}), None);
+    assert!(matches!(
+        execute(&transport, "admin settings describe --group missing").await,
+        Err(AppError::InvalidOption(_))
+    ));
 }

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- Use discovered runtime settings for the existing query-observation commands
+  when available, retaining the legacy API only when discovery is absent.
+
+- Add `admin settings describe --group` to inspect server-provided labels,
+  explanations, units, limits and enum-choice help without editing settings.
+
+- Add `admin settings list`, `show`, `set`, and `reset` for server-discovered runtime configuration. Partial edits require an explicit revision and preserve unedited fields. Requires a server advertising discovery version 1.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-22"></span>
 
