@@ -230,3 +230,41 @@ hubuum-cli outdated-kernels
 The example converts each kernel into an array of numeric components, so
 `553.16` becomes `[553, 16]` rather than `55316`. The example uses `--all` so
 `object list` fetches the complete matching set before the local pipe runs.
+
+## Runtime settings
+
+On servers implementing [runtime settings discovery version 1](https://github.com/hubuum/hubuum/pull/584):
+
+```sh
+hubuum-cli admin settings list --output json
+hubuum-cli admin settings describe --group query_observations
+hubuum-cli admin settings show --group pagination --output json
+hubuum-cli admin settings set --group pagination --expected-revision 3 --changes '{"default_page_limit":75}'
+hubuum-cli admin settings reset --group pagination --expected-revision 4
+```
+
+Use the revision returned by `show`, not the illustrative revisions above.
+`list` includes types, descriptions, defaults, deployment bounds, and specialized
+workflow requirements. Group and field names come from the server; adding an
+option does not require a CLI release. `describe --group` shows the selected
+group's help, including field labels, explanations, units and enum-choice
+descriptions under `x-enum-descriptions`. Use `--output json` to retain the
+complete descriptor for scripts. Help is fetched from the server each time;
+it describes supported options without changing any settings. `set` sends only
+the supplied fields and requires an explicit revision, preserving unedited settings. A conflict requires
+reading and reviewing the new state before retrying. `reset` returns the whole
+group to deployment ownership. Server authorization remains authoritative.
+
+These commands use the pinned Rust client's constrained authenticated transport
+for additive routes outside its v0.0.21 contract. Servers without discovery return
+an error; the commands never fall back to an unrevisioned write. Authentication
+provider edits still require the dedicated preflight workflow. A committed update
+does not imply every replica has applied it.
+
+`admin query-observations show`, `enable`, and `disable` also use the discovered
+runtime-settings API when available. Enable/disable reads the current revision
+and patches only `enabled`; a concurrent edit is reported without retrying.
+Show returns group state, and edits return the commit acknowledgement. Only a
+discovery `404` selects the older override API and its legacy response format;
+authorization errors, unavailable servers, unsupported discovery versions, and
+revision conflicts never fall back to an unrevisioned write.

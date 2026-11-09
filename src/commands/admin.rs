@@ -1,4 +1,5 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::ResourceRevision;
 use hubuum_filter::OutputEnvelope;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -13,6 +14,64 @@ use crate::services::AppServices;
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder.add_command(
+        &["admin", "settings"],
+        catalog_command(
+            "describe",
+            RuntimeSettingsDescribe::default(),
+            CommandDocs {
+                about: Some(
+                    "Show server-provided help, types, limits and choice explanations for a group",
+                ),
+                ..Default::default()
+            },
+        ),
+    );
+    builder.add_command(
+        &["admin", "settings"],
+        catalog_command(
+            "list",
+            RuntimeSettingsList::default(),
+            CommandDocs {
+                about: Some("Discover supported runtime settings, types, bounds and workflows"),
+                ..Default::default()
+            },
+        ),
+    );
+    builder.add_command(
+        &["admin", "settings"],
+        catalog_command(
+            "show",
+            RuntimeSettingsShow::default(),
+            CommandDocs {
+                about: Some("Read one runtime settings group and its revision"),
+                ..Default::default()
+            },
+        ),
+    );
+    builder.add_command(
+        &["admin", "settings"],
+        catalog_command(
+            "set",
+            RuntimeSettingsSet::default(),
+            CommandDocs {
+                about: Some("Patch edited fields atomically using an expected revision"),
+                ..Default::default()
+            },
+        ),
+    );
+    builder.add_command(
+        &["admin", "settings"],
+        catalog_command(
+            "reset",
+            RuntimeSettingsReset::default(),
+            CommandDocs {
+                about: Some("Return a group to deployment ownership using an expected revision"),
+                ..Default::default()
+            },
+        ),
+    );
+
     builder
         .add_command(
             &["admin", "query-observations"],
@@ -55,7 +114,7 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
 }
 
 fn observation_docs(about: &'static str) -> CommandDocs {
-    CommandDocs { about: Some(about), long_about: Some("Requires an unscoped human administrator. Enable/disable sets a shared runtime override; other replicas apply it asynchronously. Existing observations remain retained. The response includes the effective configuration and runtime_override."), ..Default::default() }
+    CommandDocs { about: Some(about), long_about: Some("Requires an unscoped human administrator. On servers advertising runtime settings, show returns group state and enable/disable patches only enabled using the current revision; conflicts are returned without retry. Older servers retain the legacy override API. Other replicas apply changes asynchronously; existing observations remain retained."), ..Default::default() }
 }
 
 #[derive(Clone, Default, CommandArgs)]
@@ -186,4 +245,116 @@ mod tests {
             ]
         );
     }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct RuntimeSettingsList {}
+
+impl CliCommand for RuntimeSettingsList {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        Self::parse_tokens(tokens)?;
+        render_structured_value(
+            services.gateway().runtime_settings_schema()?,
+            desired_format(tokens)?,
+        )
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct RuntimeSettingsDescribe {
+    #[option(long = "group", help = "Group key from admin settings list")]
+    group: String,
+}
+
+impl CliCommand for RuntimeSettingsDescribe {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let catalogue = services.gateway().runtime_settings_schema()?;
+        let descriptor = catalogue["groups"]
+            .as_array()
+            .and_then(|groups| groups.iter().find(|group| group["key"] == query.group))
+            .ok_or_else(|| {
+                AppError::InvalidOption("The server does not advertise this settings group".into())
+            })?;
+        render_structured_value(descriptor.clone(), desired_format(tokens)?)
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct RuntimeSettingsShow {
+    #[option(long = "group", help = "Group key from admin settings list")]
+    group: String,
+}
+
+impl CliCommand for RuntimeSettingsShow {
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        render_structured_value(
+            services.gateway().runtime_settings_group(&query.group)?,
+            desired_format(tokens)?,
+        )
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct RuntimeSettingsSet {
+    #[option(long = "group", help = "Group key from admin settings list")]
+    group: String,
+    #[option(
+        long = "expected-revision",
+        help = "Revision returned by admin settings show"
+    )]
+    expected_revision: Option<i64>,
+    #[option(long = "changes", help = "JSON object containing only edited fields")]
+    changes: String,
+}
+
+impl CliCommand for RuntimeSettingsSet {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let revision = settings_revision(query.expected_revision)?;
+        let changes = serde_json::from_str(&query.changes)?;
+        render_structured_value(
+            services
+                .gateway()
+                .patch_runtime_settings(&query.group, revision, changes)?,
+            desired_format(tokens)?,
+        )
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct RuntimeSettingsReset {
+    #[option(long = "group", help = "Group to return to deployment ownership")]
+    group: String,
+    #[option(
+        long = "expected-revision",
+        help = "Revision returned by admin settings show"
+    )]
+    expected_revision: Option<i64>,
+}
+
+impl CliCommand for RuntimeSettingsReset {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let revision = settings_revision(query.expected_revision)?;
+        render_structured_value(
+            services
+                .gateway()
+                .release_runtime_settings(&query.group, revision)?,
+            desired_format(tokens)?,
+        )
+    }
+}
+
+fn settings_revision(value: Option<i64>) -> Result<ResourceRevision, AppError> {
+    Ok(ResourceRevision::new(value.ok_or_else(|| {
+        AppError::MissingOptions(vec!["expected-revision".into()])
+    })?)?)
 }
