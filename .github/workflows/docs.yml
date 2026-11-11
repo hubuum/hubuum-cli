@@ -3,7 +3,7 @@ name: Documentation
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, project/auth-support]
   release:
     types: [published]
   workflow_run:

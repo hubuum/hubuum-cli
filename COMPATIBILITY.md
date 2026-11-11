@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
-`hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
+and reproducibly tests its Hubuum server target. CLI v0.0.23 uses
+`hubuum_client` 0.21.0, which targets Hubuum server v0.0.22.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| 0.0.23 | 0.21.0 | 0.0.22 | Published SDK and immutable server verified on 2026-11-09; runtime discovery, revision conflicts, delegated integrations, and complete restore workflows passed |
 | 0.0.22 | 0.20.0 | 0.0.21 | Published SDK and immutable server verified on 2026-10-26; complete discovery, suggestion, and restore workflows passed |
 | 0.0.21 | 0.19.0 | 0.0.20 | Flexible history times, timeline comparisons, and clearer detail rendering |
 | 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
@@ -34,6 +35,14 @@ against other server versions is not guaranteed.
 | 0.0.1 | 0.4.0 | `main@eed194f2339ce221ef251a14062e2a37850186b1` | Historical pre-release snapshot; no stable server target was declared |
 
 ## Before upgrading
+
+CLI v0.0.23 requires Server v0.0.22 for runtime settings, including the
+query-observation aliases. Upgrade all server replicas and workers together
+after applying its migrations. Use `admin settings describe --group` to inspect
+server-provided field and enum help. Partial edits and resets require a fetched
+revision; stale revisions need review before retrying. The removed legacy API
+is no longer used as a fallback. Review the server release notes for template
+fuel and rendering changes.
 
 CLI v0.0.22 requires Server v0.0.21 for discovery and suggestions. Apply the
 server migrations and upgrade its API, worker, template-worker, and restore

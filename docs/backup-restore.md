@@ -1,11 +1,11 @@
 # Backup and restore
 
-CLI v0.0.22 uses `hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
+CLI v0.0.23 uses `hubuum_client` 0.21.0, which targets Hubuum server v0.0.22.
 Backups and restore staging/confirmation require administrator access.
 
 ## Prepare the server
 
-**Breaking server target:** upgrade to v0.0.21 before adopting this CLI. Stop
+**Breaking server target:** upgrade to v0.0.22 before adopting this CLI. Stop
 writers, retain a PostgreSQL snapshot and matching pre-upgrade binaries, and
 apply migrations during a quiet period with `hubuum-admin --migrate`. Deploy
 matching API, worker, administrator, template-worker, and restore-executor

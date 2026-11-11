@@ -3,6 +3,30 @@
 ## [Unreleased]
 
 <!-- markdownlint-disable-next-line MD033 -->
+<span id="v0-0-23"></span>
+
+## [0.0.23] - 2026-11-09
+
+This release uses `hubuum_client` 0.21.0 and targets Hubuum Server v0.0.22.
+Upgrade the server and its workers before updating the CLI.
+
+- **Breaking:** query-observation commands now require runtime-settings discovery
+  from server v0.0.22. Upgrade the server before using these commands; unavailable
+  discovery returns an error instead of calling the removed unrevisioned API.
+- **Breaking JSON output:** query-observation `show` returns group state, with
+  values under `effective` and ownership under `source`. Enable/disable return
+  a commit acknowledgement with `committed_revision` and replica application
+  status. Replace scripts reading the removed top-level `enabled` or
+  `runtime_override` fields with the group state and explicit acknowledgement.
+- Use the Rust SDK runtime-settings methods for discovery, reads, partial edits,
+  and resets, preserving typed revisions until transmission.
+
+- Add `admin settings describe --group` to inspect server-provided labels,
+  explanations, units, limits and enum-choice help without editing settings.
+
+- Add `admin settings list`, `show`, `set`, and `reset` for server-discovered runtime configuration. Partial edits require an explicit revision and preserve unedited fields. Requires a server advertising discovery version 1.
+
+<!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-22"></span>
 
 ## [0.0.22] - 2026-10-26

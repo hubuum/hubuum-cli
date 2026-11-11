@@ -2,8 +2,8 @@
 
 Hubuum CLI, `hubuum_client`, and the Hubuum server are versioned independently.
 Each CLI release pins a `hubuum_client` version; that client library declares
-and reproducibly tests its Hubuum server target. CLI v0.0.22 uses
-`hubuum_client` 0.20.0, which targets Hubuum server v0.0.21.
+and reproducibly tests its Hubuum server target. CLI v0.0.23 uses
+`hubuum_client` 0.21.0, which targets Hubuum server v0.0.22.
 The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
@@ -12,6 +12,7 @@ against other server versions is not guaranteed.
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
 | --- | --- | --- | --- |
+| 0.0.23 | 0.21.0 | 0.0.22 | Published SDK and immutable server verified on 2026-11-09; runtime discovery, revision conflicts, delegated integrations, and complete restore workflows passed |
 | 0.0.22 | 0.20.0 | 0.0.21 | Published SDK and immutable server verified on 2026-10-26; complete discovery, suggestion, and restore workflows passed |
 | 0.0.21 | 0.19.0 | 0.0.20 | Flexible history times, timeline comparisons, and clearer detail rendering |
 | 0.0.20 | 0.19.0 | 0.0.20 | Related-object list filters, richer pipelines, structured output, and validated SDK IDs |
@@ -58,6 +59,40 @@ The v0.0.1 row records the reproducible server snapshot inherited from
 
 Forward-compatibility checks against the server's `main` branch are useful early
 warnings, but they do not change the server target of a published client version.
+
+## CLI v0.0.23: server-discovered runtime settings
+
+Verified on 2026-11-09 with published `hubuum_client` 0.21.0 and Server v0.0.22.
+Immutable image: `ghcr.io/hubuum/hubuum-server@sha256:71ff4090eac071f23ae59f7265dc07165939d42771a73d1d291defa023b4964b`.
+The server image identifies release commit
+`242285411044459c3ac73563d9338905f3b4f377`. The registry SDK identifies source
+commit `d09a49713f917cef196945294f185224ae04ce31`; its lockfile checksum matches
+crates.io's `b9ef7655da2b58697e0006826fd09041f9595b060d47eeadc330768699a5e3a2`.
+The final build uses registry source without a local path override.
+
+All 968 workspace test results passed across 28 groups. One native-keychain
+case requires an unlocked credential store and remains covered by the dedicated
+platform CI checks. Strict workspace/all-target Clippy, rustfmt, the session
+crate's Rust 1.89 check, wrapper tests, extension JSON Schema validation, 18
+CI-policy regressions, a fresh executable build, and the 458-dependency audit
+passed. Dependency resolution selected the latest compatible graph.
+
+The canonical live driver passed delegated webhook/subscription management,
+sessions and concurrent processes, runtime discovery and field help, partial
+edits, stale-revision rejection, and exact restoration of values and ownership.
+It also passed history, query usage, graph limits, structured pipelines,
+credential approvals, field discovery, suggestion and schema workflows, and
+complete recovery with history, without history, and after further mutations.
+Second-generation restore preserved previous deletions and invalidated obsolete
+bearer sessions as expected.
+
+**Breaking upgrade:** install Server v0.0.22 and matching workers first. The
+query-observation aliases require runtime discovery and use the revision-checked
+SDK methods. Their JSON output now uses group state (`effective`, `source`, and
+`revision`) or a commit acknowledgement (`committed_revision` and replica
+application status). Replace scripts reading the old top-level `enabled` or
+`runtime_override` fields. Use `admin settings describe --group` for the server's
+field and enum explanations, and review conflicts before retrying edits.
 
 ## CLI v0.0.22: discovery and schema suggestions
 
