@@ -4,19 +4,25 @@
 <span id="a-cli-for-hubuum"></span>
 
 Run commands, explore interactively, or automate Hubuum from a terminal.
-CLI **v0.0.22** (2026-10-26) uses Rust client **0.20.0** and targets server
-**v0.0.21**. Hubuum is under active development before 1.0.
+CLI **v0.0.23** (2026-11-09) uses Rust client **0.21.0** and targets server
+**v0.0.22**. Hubuum is under active development before 1.0.
 
-Discover fields in one bounded request, generate a schema suggestion, resume it
-by task ID, and explicitly stage a reviewed candidate for impact analysis and
-activation. The REPL uses the same inventory for field completion. See the
-[schema workflow](docs/schema-evolution.md) and [release notes](CHANGELOG.md#v0-0-22).
+Inspect and edit runtime configuration with `admin settings list`, `describe`,
+`show`, `set`, and `reset`. Group names, labels, field explanations, units,
+bounds, and enum-choice help come from the server. Partial edits preserve
+untouched fields and require an explicit revision. See
+[administrator commands](docs/commands.md) and [release notes](CHANGELOG.md#v0-0-23).
 
 Customize human-readable output by value type and edit colors with `theme set`.
 Preview changes offline before saving per-theme foreground/background overrides.
 See [themes and color editing](docs/themes.md).
 
-Upgrade the server first. Field depth is limited to 0–32, and scripts should use
+Upgrade the server to v0.0.22 first. Query-observation aliases now use runtime
+settings and cannot fall back to the removed unrevisioned endpoint. Conflicts
+require a fresh read and review before retrying.
+
+Upgrades from before v0.0.22 should also note that field depth is limited to
+0–32, and scripts should use
 structured `Source`/`Path` identity because display labels can collide. In JSON,
 JSONL, CSV, and TSV modes, warning and error text now goes to stderr; scripts
 capturing diagnostics from stdout must change. Debug JSON retains its embedded
@@ -28,7 +34,7 @@ diagnostics. Earlier upgrades should also review the
 ## Release binaries
 
 Download and extract the archive for your platform from
-[release v0.0.22](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.22).
+[release v0.0.23](https://github.com/hubuum/hubuum-cli/releases/tag/v0.0.23).
 Verify its published SHA-256 checksum and place `hubuum-cli` (`hubuum-cli.exe`
 on Windows) on your `PATH`. Linux x86_64/ARM64, macOS Apple Silicon, and Windows
 x86_64 binaries are available. See [binary details](docs/updates.md).
@@ -45,7 +51,7 @@ installing it, including package-manager and platform restrictions.
 
 ## Compatibility
 
-CLI v0.0.22 uses client **0.20.0** and targets server **v0.0.21**.
+CLI v0.0.23 uses client **0.21.0** and targets server **v0.0.22**.
 Check the [compatibility matrix](COMPATIBILITY.md) for the server you use.
 For server upgrades, follow the server's release instructions; for CLI recovery
 commands, see [backup and restore](docs/backup-restore.md).
