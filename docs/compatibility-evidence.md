@@ -8,6 +8,43 @@ The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
 
+## Project #6: external authentication candidate
+
+Clean source `b421958c501fd948360eaaa3532a108dc10f2606` passed **54/54**
+actual release-CLI checks: LDAPS 10, Keycloak ID-token 15, Keycloak UserInfo 15,
+and synthetic OAuth 14. The [sanitized qualification ledger](assets/authentication-qualification.json)
+binds the executable, controller, 273 input files and each report to the accepted
+[server/SDK/contract/provider fixture pins](authentication-project-source.json).
+The CLI's final documentation commit preserves those qualified implementation,
+test, fixture, script and build inputs.
+
+Runtime verification left six identity/session tables unchanged. Exact fresh
+approval activated encrypted credentials; disable/re-enable retained credentials
+and immutable principals. Both Keycloak profiles exercised explicit denial,
+remote completion, Ctrl-C cleanup, noninteractive controls and a local PTY
+browser-launch hook that received only the public URL and no Hubuum environment.
+The accepted fixture performs the actual Keycloak/OAuth browser protocol;
+this is not an independent desktop-browser or real GitHub qualification.
+LDAPS also passed exact-operation password freshness. OAuth freshness returned
+its explicit unsupported capability. All profiles passed manual grants, stale
+revision rejection and local recovery. Session restart/due renewal preserved
+principal/family and rotated access credentials.
+
+The release binary also passed the complete canonical immutable v0.0.22 driver,
+including delegated integrations, concurrent session refresh, discovery/revision
+conflicts and recovery with history, without history and after further mutations.
+Workspace tests passed 981 with one existing platform-dependent ignore; strict
+Clippy, formatting, Rust 1.89 session-crate checking, 19 CI-policy regressions,
+wrapper/schema validation and the pinned documentation build passed. Platform
+keychain behavior, final CI and immutable candidate acceptance are retained in
+[PR #167](https://github.com/hubuum/hubuum-cli/pull/167).
+
+The published version matrix below is historical release evidence. The project
+Git SDK pin does not change the declared stable server target. Real native
+GitHub and the full web/client security matrix remain gates in server #581;
+main/stable promotion requires a separate reviewed milestone integration.
+See [project compatibility and migration](../COMPATIBILITY.md#authentication-project-candidate).
+
 ## Compatibility matrix
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |
