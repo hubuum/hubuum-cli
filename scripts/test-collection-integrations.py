@@ -70,8 +70,8 @@ def main():
             config = directory / "config.toml"
             config.write_text("")
             address = urllib.parse.urlsplit(base)
-            env = dict(os.environ, XDG_CONFIG_HOME=temporary, XDG_DATA_HOME=temporary,
-                       XDG_STATE_HOME=temporary)
+            env = {key: value for key, value in os.environ.items() if not key.upper().startswith("HUBUUM_CLI")}
+            env["HUBUUM_CLI_PROFILE_DIR"] = str(directory / "profile")
             env.pop("HUBUUM_E2E_ADMIN_PASSWORD", None)
 
             def cli(*command):

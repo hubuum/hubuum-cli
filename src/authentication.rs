@@ -119,6 +119,19 @@ impl Drop for InteractionDriver {
 }
 
 pub(crate) fn interaction_error(error: ApiError) -> AppError {
+    if let Some(response) = error.api_response() {
+        let state = match response.reason.as_deref() {
+            Some("access_denied") => Some(AuthenticationInteractionState::Denied),
+            Some("interaction_expired") => Some(AuthenticationInteractionState::Expired),
+            Some("interaction_cancelled") => Some(AuthenticationInteractionState::Cancelled),
+            Some("interaction_consumed") => Some(AuthenticationInteractionState::Consumed),
+            Some("interaction_failed") => Some(AuthenticationInteractionState::Failed),
+            _ => None,
+        };
+        if let Some(state) = state {
+            return terminal_error(state);
+        }
+    }
     if error.is_capability_unsupported() {
         AppError::CommandExecutionError("capability_unsupported: This provider cannot freshly approve the operation. The protected change was not executed; no password fallback was attempted.".into())
     } else if matches!(error, ApiError::AuthenticationInteractionExpired) {
@@ -195,36 +208,73 @@ mod tests {
     #[test]
     #[serial]
     fn terminal_outcomes_stop_polling_without_completion_or_password_fallback() {
-        for (state, reason) in [
-            ("denied", "authentication_denied"),
-            ("expired", "authentication_expired"),
-            ("cancelled", "authentication_cancelled"),
-            ("consumed", "authentication_consumed"),
-            ("failed", "authentication_failed"),
+        for (state, protocol_reason, status, reason) in [
+            (
+                "denied",
+                "access_denied",
+                StatusCode::FORBIDDEN,
+                "authentication_denied",
+            ),
+            (
+                "expired",
+                "interaction_expired",
+                StatusCode::GONE,
+                "authentication_expired",
+            ),
+            (
+                "cancelled",
+                "interaction_cancelled",
+                StatusCode::FORBIDDEN,
+                "authentication_cancelled",
+            ),
+            (
+                "consumed",
+                "interaction_consumed",
+                StatusCode::CONFLICT,
+                "authentication_consumed",
+            ),
+            (
+                "failed",
+                "interaction_failed",
+                StatusCode::CONFLICT,
+                "authentication_failed",
+            ),
         ] {
-            let transport = MockTransport::default();
-            let expiry = Utc::now() + ChronoDuration::minutes(5);
-            transport.push_response(TransportResponse::json(StatusCode::OK,&json!({
+            for http_error in [false, true] {
+                let transport = MockTransport::default();
+                let expiry = Utc::now() + ChronoDuration::minutes(5);
+                transport.push_response(TransportResponse::json(StatusCode::OK,&json!({
                 "interaction_version":1,"id":"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa","redemption_secret":format!("hai1.{}","a".repeat(64)),"expires_at":expiry,"interval_seconds":1,"next":{"kind":"browser","verification_uri":"https://example.invalid/verify","user_code":"PUBLIC-CODE"}
             })).unwrap());
-            transport.push_response(TransportResponse::json(StatusCode::OK,&json!({
-                "id":"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa","state":state,"expires_at":expiry
-            })).unwrap());
-            let client = Client::builder_from_url("https://example.invalid")
-                .unwrap()
-                .with_transport(Arc::new(transport.clone()))
-                .build()
-                .unwrap();
-            let mut flow = client
-                .begin_login_interaction(AuthenticationInteractionRequest::new(
-                    SessionClientId::new("hubuum-cli").unwrap(),
-                    AuthenticationProviderId::new("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb").unwrap(),
-                ))
-                .unwrap();
-            let driver = InteractionDriver::new().unwrap();
-            let error = driver.browser(&mut flow, true).unwrap_err();
-            assert!(error.to_string().contains(reason), "{state}: {error}");
-            assert_eq!(transport.requests().len(), 2);
+                let response = if http_error {
+                    TransportResponse::json(
+                        status,
+                        &json!({"error":"AuthenticationInteraction","message":"redacted fixture detail","reason":protocol_reason}),
+                    )
+                } else {
+                    TransportResponse::json(
+                        StatusCode::OK,
+                        &json!({"id":"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa","state":state,"expires_at":expiry}),
+                    )
+                };
+                transport.push_response(response.unwrap());
+                let client = Client::builder_from_url("https://example.invalid")
+                    .unwrap()
+                    .with_transport(Arc::new(transport.clone()))
+                    .build()
+                    .unwrap();
+                let mut flow = client
+                    .begin_login_interaction(AuthenticationInteractionRequest::new(
+                        SessionClientId::new("hubuum-cli").unwrap(),
+                        AuthenticationProviderId::new("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+                            .unwrap(),
+                    ))
+                    .unwrap();
+                let driver = InteractionDriver::new().unwrap();
+                let error = driver.browser(&mut flow, true).unwrap_err();
+                assert!(error.to_string().contains(reason), "{state}: {error}");
+                assert_eq!(transport.requests().len(), 2);
+            }
         }
     }
 }

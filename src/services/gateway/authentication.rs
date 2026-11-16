@@ -255,7 +255,7 @@ impl HubuumGateway {
         })?;
         let providers = state.providers().iter().map(|provider| {
             let definition = provider.runtime_definition.as_ref().map(|definition| definition.iter().filter(|(key,_)| matches!(key.as_str(),
-                "url"|"base_dn"|"user_filter"|"user_name_attribute"|"user_id_attribute"|"issuer"|"client_id"|"client_authentication"|"scopes"|"signing_algorithms"|"retain_refresh_tokens"|"membership"|"admission"|"profile"|"authorization_endpoint"|"token_endpoint"|"profile_endpoint"|"subject_pointer"|"subject_type"|"name_pointer"
+                "scope"|"url"|"bind_dn"|"user_base_dn"|"user_filter"|"subject_attribute"|"group_attributes"|"group_rules"|"issuer"|"client_id"|"client_authentication"|"scopes"|"signing_algorithms"|"retain_refresh_tokens"|"membership"|"admission"|"profile"|"authorization_endpoint"|"token_endpoint"|"profile_endpoint"|"subject_pointer"|"subject_type"|"name_pointer"
             )).map(|(key,value)|(key.clone(),value.clone())).collect::<Map<_,_>>());
             json!({"provider_id":provider.provider_id,"name":provider.name,"kind":provider.kind,"source":provider.source,"enabled":provider.enabled,
                 "definition_mutable":provider.definition_mutable,"credential_configured":provider.credential_configured,"available":provider.available,"definition":definition,

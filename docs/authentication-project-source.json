@@ -11,7 +11,7 @@
   "candidate_archive_sha256": "a0b2711b0984bc53fdd1346d4c7c35a8017c6587e90d571f94c71923ef4e7fcc",
   "live_sdk_qualification": "SDK evidence is owned by Rust #147; native CLI qualification pending under #159/#160 and server #581.",
   "server_pull_request": "https://github.com/hubuum/hubuum/pull/596",
-  "server_merge_state": "ready/unmerged; candidate accepted after complete CI",
+  "server_merge_state": "squash-merged into project/auth-support",
   "candidate_tested_commit": "a15f90dca1d0dbddc27bfd5f5dbb1594b0937bc8",
   "candidate_image_manifest": "sha256:c707c890b8821f247b6decccea136a8097cc6da17ad1d7ff4e3a4923e3b3b083",
   "candidate_image_config": "sha256:9169855315562e1769fb2b300233a3ddb44689bdd3aebb3a41284790d52d6215",
@@ -37,5 +37,6 @@
   ],
   "accepted_sdk_commit": "080f2478dc48afcf9d5e7b049b5fecdc1149f1fd",
   "sdk_candidate_artifact_id": 14218490489,
-  "sdk_candidate_archive_sha256": "c62def1a7eaec9327f079591dfca9ca4326247fc71dddcefbc7650bdd28708c3"
+  "sdk_candidate_archive_sha256": "c62def1a7eaec9327f079591dfca9ca4326247fc71dddcefbc7650bdd28708c3",
+  "server_integration_commit": "9e665c05e223a2c47b2ae3964932b13ca1ea2a9c"
 }
