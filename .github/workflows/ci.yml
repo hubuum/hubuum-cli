@@ -95,6 +95,8 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.platform.os }}
     strategy:
+      # Avoid overbooking scarce hosted macOS ARM runners with all toolchains.
+      max-parallel: 2
       fail-fast: false
       matrix:
         platform:

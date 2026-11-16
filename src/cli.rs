@@ -7,6 +7,7 @@ use crate::models::{
 use clap::builder::BoolishValueParser;
 use clap::parser::ValueSource;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use hubuum_client::AuthenticationProviderId;
 use shlex::try_quote;
 use std::path::PathBuf;
 
@@ -67,6 +68,28 @@ pub fn build_cli() -> Command {
                 .value_parser(BoolishValueParser::new())
                 .env("HUBUUM_CLI__SERVER__SSL_VALIDATION")
                 .help("Enable or disable SSL validation"),
+        )
+        .arg(
+            Arg::new("auth_provider")
+                .long("auth-provider")
+                .value_name("PROVIDER_ID")
+                .value_parser(|value: &str| AuthenticationProviderId::new(value))
+                .env("HUBUUM_CLI__SERVER__AUTH_PROVIDER")
+                .conflicts_with("identity_scope")
+                .help("Select an immutable provider ID from auth methods (or local)"),
+        )
+        .arg(
+            Arg::new("no_browser")
+                .long("no-browser")
+                .action(ArgAction::SetTrue)
+                .help("Explicitly display URL/code for completion in a remote browser"),
+        )
+        .arg(
+            Arg::new("ca_file")
+                .long("ca-file")
+                .value_name("FILE")
+                .env("HUBUUM_CLI__SERVER__CA_FILE")
+                .help("Trust an additional PEM root CA while preserving TLS validation"),
         )
         .arg(
             Arg::new("identity_scope")
@@ -293,7 +316,7 @@ where
     let mut idx = 1;
     while idx < args.len() {
         let arg = &args[idx];
-        if arg == "--debug" {
+        if matches!(arg.as_str(), "--debug" | "--no-browser") {
             clap_args.push(arg.clone());
             idx += 1;
             continue;
@@ -372,7 +395,7 @@ fn has_legacy_execution_arg(args: &[String]) -> bool {
     let mut idx = 1;
     while idx < args.len() {
         let arg = &args[idx];
-        if arg == "--debug" {
+        if matches!(arg.as_str(), "--debug" | "--no-browser") {
             idx += 1;
             continue;
         }
@@ -427,6 +450,8 @@ fn is_global_option_with_value(arg: &str) -> bool {
             | "--token-file"
             | "--session-storage"
             | "--approval-password-file"
+            | "--auth-provider"
+            | "--ca-file"
             | "--cache-time"
             | "--cache-size"
             | "--background-poll-interval"
@@ -505,6 +530,17 @@ pub fn update_config_from_cli(config: &mut AppConfig, matches: &ArgMatches) {
     }
     if let Some(ssl_validation) = get_command_line_value::<bool>(matches, "ssl_validation") {
         config.server.ssl_validation = *ssl_validation;
+    }
+    if let Some(provider) =
+        get_command_line_value::<AuthenticationProviderId>(matches, "auth_provider")
+    {
+        config.server.auth_provider = Some(provider.clone());
+    }
+    if let Some(no_browser) = get_command_line_value::<bool>(matches, "no_browser") {
+        config.server.no_browser = *no_browser;
+    }
+    if let Some(path) = get_command_line_value::<String>(matches, "ca_file") {
+        config.server.ca_file = Some(PathBuf::from(path));
     }
     if let Some(identity_scope) = get_command_line_value::<String>(matches, "identity_scope") {
         config.server.identity_scope = Some(identity_scope.to_string());
@@ -958,5 +994,51 @@ mod tests {
         ] {
             assert!(build_cli().try_get_matches_from(&args).is_err(), "{args:?}");
         }
+    }
+    #[test]
+    fn browser_options_preserve_the_command_and_typed_provider() {
+        let args = split_startup_args(
+            [
+                "hubuum-cli",
+                "--auth-provider",
+                "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+                "--no-browser",
+                "--ca-file",
+                "/public/ca.pem",
+                "auth",
+                "status",
+            ]
+            .into_iter()
+            .map(String::from),
+        );
+        assert!(matches!(&args.mode, StartupMode::Command(line) if line == "auth status"));
+        let matches = build_cli().try_get_matches_from(args.clap_args).unwrap();
+        let mut config = AppConfig::default();
+        update_config_from_cli(&mut config, &matches);
+        assert_eq!(
+            config.server.auth_provider.unwrap().as_str(),
+            "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+        );
+        assert!(config.server.no_browser);
+        assert_eq!(
+            config.server.ca_file.unwrap(),
+            std::path::PathBuf::from("/public/ca.pem")
+        );
+    }
+
+    #[test]
+    fn invalid_provider_is_rejected_before_any_command_runs() {
+        assert!(build_cli()
+            .try_get_matches_from(["hubuum-cli", "--auth-provider", "not-an-id"])
+            .is_err());
+    }
+
+    #[test]
+    fn absent_browser_flag_preserves_configured_remote_mode() {
+        let matches = build_cli().try_get_matches_from(["hubuum-cli"]).unwrap();
+        let mut config = AppConfig::default();
+        config.server.no_browser = true;
+        update_config_from_cli(&mut config, &matches);
+        assert!(config.server.no_browser);
     }
 }

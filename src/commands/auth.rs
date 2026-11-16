@@ -1,5 +1,4 @@
 use super::OfflineExecution;
-use std::time::Duration;
 
 use cli_command_derive::CommandArgs;
 use hubuum_client::blocking::Client as BlockingClient;
@@ -10,8 +9,7 @@ use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{required_option_or_pos, CliCommand};
-use crate::app::{reachable_server_config, resume_saved_session};
-use crate::build_info;
+use crate::app::{discovery_client, reachable_server_config, resume_saved_session};
 use crate::catalog::{CommandCatalogBuilder, CommandEffects};
 use crate::config::get_config;
 use crate::diagnostics::client_call;
@@ -19,8 +17,6 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::output::set_semantic_output;
 use crate::services::{logout_session_client, AppServices};
 use crate::tokenizer::CommandTokenizer;
-
-const PROVIDER_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
     builder.add_command(&["auth"], catalog_command("status", AuthStatus::default(), CommandDocs {
@@ -45,6 +41,14 @@ pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
                 examples: Some("--output json"),
             },
         ),
+    );
+    builder.add_command(
+        &["auth"],
+        catalog_command("methods", AuthMethods::default(), CommandDocs {
+            about: Some("Discover typed provider IDs and interactive capabilities without logging in"),
+            long_about: Some("Select the immutable provider ID with --auth-provider. Browser launch is explicit; use --no-browser for SSH or another machine. Unsupported discovery never triggers a password downgrade."),
+            ..Default::default()
+        }),
     );
     builder.add_command(
         &["auth", "approval"],
@@ -200,15 +204,7 @@ impl CliCommand for AuthProviders {
 pub(crate) fn render_auth_providers(tokens: &CommandTokenizer) -> Result<(), AppError> {
     let _query = AuthProviders::parse_tokens(tokens)?;
     let config = reachable_server_config(get_config())?;
-    let base_url = format!(
-        "{}://{}:{}",
-        config.server.protocol, config.server.hostname, config.server.port
-    );
-    let client = BlockingClient::builder_from_url(base_url)?
-        .validate_certs(config.server.ssl_validation)
-        .timeout(PROVIDER_DISCOVERY_TIMEOUT)
-        .user_agent(format!("hubuum-cli/{}", build_info::VERSION))
-        .build()?;
+    let client = discovery_client(&config)?;
     let rows = client_call("client.session_providers", || client.session_providers())?
         .into_providers()
         .into_iter()
@@ -216,4 +212,42 @@ pub(crate) fn render_auth_providers(tokens: &CommandTokenizer) -> Result<(), App
         .collect();
 
     set_semantic_output(OutputEnvelope::rows(rows, vec!["provider".to_string()]))
+}
+
+#[derive(Clone, Default, CommandArgs)]
+pub(crate) struct AuthMethods {}
+
+impl CliCommand for AuthMethods {
+    const OFFLINE: OfflineExecution = OfflineExecution::Always(render_auth_methods);
+    const EFFECTS: CommandEffects = CommandEffects::ReadOnly;
+    const REAUTHENTICATION_RETRY: ReauthenticationRetry = ReauthenticationRetry::Safe;
+
+    fn execute(&self, _services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        render_auth_methods(tokens)
+    }
+}
+
+fn render_auth_methods(tokens: &CommandTokenizer) -> Result<(), AppError> {
+    AuthMethods::parse_tokens(tokens)?;
+    let config = reachable_server_config(get_config())?;
+    let client = discovery_client(&config)?;
+    let methods = client_call("client.authentication_methods", || {
+        client.authentication_methods()
+    })?;
+    let rows = methods.methods.into_iter().map(|method| json!({
+        "provider_id":method.provider_id, "name":method.name, "kind":method.kind,
+        "interaction":method.interaction, "fresh_authentication":method.fresh_authentication,
+        "browser_available":method.browser_available,
+    })).collect();
+    set_semantic_output(OutputEnvelope::rows(
+        rows,
+        vec![
+            "provider_id".into(),
+            "name".into(),
+            "kind".into(),
+            "interaction".into(),
+            "fresh_authentication".into(),
+            "browser_available".into(),
+        ],
+    ))
 }

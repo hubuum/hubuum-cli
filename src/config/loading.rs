@@ -4,13 +4,18 @@ use std::mem::take;
 use std::path::PathBuf;
 
 use crate::defaults::Defaults;
-use crate::files::{get_system_config_path, get_user_config_path};
+use crate::files::{get_system_config_path, get_user_config_path, profile_root};
 
 use super::{
     default_system_extension_roots, default_user_extension_roots, AppConfig, OutputConfig,
 };
 
 pub fn load_config(cli_config_path: Option<PathBuf>) -> Result<AppConfig, ConfigError> {
+    if profile_root().is_some_and(|root| !root.is_absolute()) {
+        return Err(ConfigError::Message(
+            "HUBUUM_CLI_PROFILE_DIR must be absolute".into(),
+        ));
+    }
     let system_config = get_system_config_path();
     let user_config = get_user_config_path();
 

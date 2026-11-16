@@ -933,3 +933,32 @@ fn schema_scope_help_explains_validation_preview_without_login() {
             .stdout(contains("do not change the active policy"));
     }
 }
+
+#[test]
+fn portable_profile_status_does_not_consult_the_normal_user_configuration() {
+    let directory = tempdir().unwrap();
+    let profile = directory.path().join("profile");
+    std::fs::create_dir_all(&profile).unwrap();
+    write(
+        profile.join("config.toml"),
+        "[server]\nhostname = 'isolated.invalid'\nusername = 'fixture'\nsession_storage = 'file'\n",
+    )
+    .unwrap();
+    cargo_bin_cmd!("hubuum-cli")
+        .env("HUBUUM_CLI_PROFILE_DIR", &profile)
+        .args(["auth", "status", "--output", "json"])
+        .assert()
+        .success()
+        .stdout(contains("no_saved_session"));
+    assert!(profile.join("data").is_dir());
+}
+
+#[test]
+fn relative_portable_profile_is_rejected_before_authentication() {
+    cargo_bin_cmd!("hubuum-cli")
+        .env("HUBUUM_CLI_PROFILE_DIR", "relative-profile")
+        .args(["auth", "status", "--output", "json"])
+        .assert()
+        .failure()
+        .stderr(contains("HUBUUM_CLI_PROFILE_DIR must be absolute"));
+}

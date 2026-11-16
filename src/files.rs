@@ -32,7 +32,19 @@ impl DataFile {
     }
 }
 
+pub(crate) fn profile_root() -> Option<PathBuf> {
+    std::env::var_os("HUBUUM_CLI_PROFILE_DIR").map(PathBuf::from)
+}
+
 pub(crate) fn data_root_dir() -> Result<PathBuf, AppError> {
+    if let Some(root) = profile_root() {
+        if !root.is_absolute() {
+            return Err(AppError::DataDirError(
+                "HUBUUM_CLI_PROFILE_DIR must be absolute".into(),
+            ));
+        }
+        return Ok(root.join("data"));
+    }
     Ok(data_dir()
         .ok_or_else(|| AppError::DataDirError("Could not determine data directory".to_string()))?
         .join("hubuum_cli"))
@@ -71,6 +83,9 @@ fn set_owner_only_file_permissions(_path: &Path) -> Result<(), AppError> {
 }
 
 pub fn get_system_config_path() -> PathBuf {
+    if let Some(root) = profile_root() {
+        return root.join("system.toml");
+    }
     if cfg!(target_os = "windows") {
         PathBuf::from(r"C:\ProgramData\hubuum_cli\config.toml")
     } else if cfg!(target_os = "macos") {
@@ -81,6 +96,9 @@ pub fn get_system_config_path() -> PathBuf {
 }
 
 pub fn get_user_config_path() -> PathBuf {
+    if let Some(root) = profile_root() {
+        return root.join("config.toml");
+    }
     config_dir()
         .map(|mut path| {
             path.push(".hubuum_cli/config.toml");
