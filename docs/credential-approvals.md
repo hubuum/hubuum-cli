@@ -64,3 +64,18 @@ with `restore status`. Requesting another approval is a new operation attempt.
 
 For the server migration and pinned verification evidence, see
 [compatibility](../COMPATIBILITY.md) and [backup recovery](backup-restore.md).
+
+## Auth project browser approval
+
+On `project/auth-support`, `--auth-provider PROVIDER_ID` selects the generic
+server-owned interaction for fresh approvals. Use `--no-browser` explicitly for
+remote/noninteractive completion; polling instructions go to stderr. An explicit
+`--approval-password-file` still selects the protected password workflow. The
+operation and original acting credential stay fixed through approval and send.
+Unsupported OAuth freshness is an explicit capability error, never an invitation
+to enter an unrelated password. See [authentication](authentication.md#authentication-project-candidate)
+for runtime configuration and the separately pinned server/SDK contract.
+
+`me token create` targets the authenticated principal by immutable ID. Issued token
+output remains deliberate one-time credential data; login tokens, polling proofs,
+activation receipts and upstream credentials are never diagnostic output.

@@ -2010,6 +2010,12 @@ mod tests {
             "event delivery dead --id",
             "event delivery retry --id",
             "event delivery show --id",
+            // External principals can share display names across identity scopes.
+            // Membership mutations therefore use exact principal/group identities.
+            "group member add --group-id",
+            "group member add --principal-id",
+            "group member remove --group-id",
+            "group member remove --principal-id",
             "history class --class-id",
             "history computed --class-id",
             "history computed --object-id",
@@ -2433,6 +2439,7 @@ mod tests {
                         | "--object-id"
                         | "--collection-id"
                         | "--owner-group-id"
+                        | "--group-id"
                         | "--sink-id"
                         | "--relation-id"
                         | "--principal-id"

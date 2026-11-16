@@ -17,7 +17,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-hubuum_client = { version = "=0.21.0", default-features = false, features = ["blocking"] }
+hubuum_client = { git = "https://github.com/hubuum/hubuum-client-rust", rev = "080f2478dc48afcf9d5e7b049b5fecdc1149f1fd", version = "=0.21.0", default-features = false, features = ["blocking"] }
 
 [package.metadata.hubuum]
 server-version = "0.0.22"
@@ -66,6 +66,7 @@ tokio = { version = "1", features = [
     "process",
     "rt-multi-thread",
     "sync",
+    "signal",
 ] }
 comfy-table = { version = "8", features = ["custom_styling"] }
 crossterm = "0.29"

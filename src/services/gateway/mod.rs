@@ -1,4 +1,6 @@
 mod admin;
+mod authentication;
+pub(crate) use authentication::ProviderCandidate;
 mod backups;
 mod class_fields;
 mod classes;
