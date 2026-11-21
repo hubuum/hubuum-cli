@@ -19,6 +19,7 @@ use tokio::fs::read_to_string;
 use tokio::runtime::Handle;
 
 mod app;
+mod authentication;
 mod autocomplete;
 mod background;
 mod build_info;
@@ -51,6 +52,7 @@ mod tokenizer;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), AppError> {
+    authentication::install_interrupt_handler();
     let startup_args = split_startup_args(args());
     let matches = build_cli().get_matches_from(startup_args.clap_args);
     diagnostics::set_default(matches.get_flag("debug"));
@@ -97,6 +99,14 @@ async fn main() -> Result<(), AppError> {
     ));
     let approval_source = match matches.get_one::<PathBuf>("approval_password_file") {
         Some(path) => CredentialApprovalSource::File(path.clone()),
+        None if config.server.auth_provider.is_some() => CredentialApprovalSource::Provider {
+            provider: config
+                .server
+                .auth_provider
+                .clone()
+                .expect("provider was checked"),
+            no_browser: config.server.no_browser,
+        },
         None if !matches!(mode, StartupMode::Script(_)) && stdin().is_terminal() => {
             CredentialApprovalSource::Prompt
         }

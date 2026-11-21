@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- Project-only typed provider discovery, browser/remote-browser login, SDK-owned
+  polling and exact-family cancellation/response-loss cleanup, with existing
+  file/keychain/memory session storage and serialized renewal.
+- Runtime LDAP/OIDC/OAuth complete-state configuration from protected files or
+  stdin, non-provisioning sign-in verification, exact fresh-approved activation,
+  source/lock/revision/replica inspection and public callback registration details.
+- Provider-bound fresh approvals, current-principal token creation without an
+  ambiguous display-name lookup, and manual membership changes by immutable IDs.
+  Provider-managed groups stay read-only and local authentication stays enabled.
+- Additional verified root CA configuration and an explicit portable profile
+  directory (`HUBUUM_CLI_PROFILE_DIR`) for separate configuration/filesystem state.
+
+### Changed
+
+- **Breaking behavior:** noninteractive password prompts are rejected. Scripts
+  that previously relied on a controlling terminal while piping stdin must use
+  an existing session, protected credential configuration, or a token file.
+  Noninteractive browser login requires explicit `--auth-provider` and
+  `--no-browser`; unsupported capabilities never trigger password fallback.
+- The auth project pins the accepted Rust SDK Git revision for qualification.
+  The declared v0.0.22 compatibility target stays pinned; project features need
+  the separately accepted auth server candidate. A released SDK is required
+  before stable CLI promotion.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <span id="v0-0-23"></span>
 

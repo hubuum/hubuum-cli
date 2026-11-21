@@ -1,0 +1,125 @@
+{
+  "project_only": true,
+  "accepted_native_real_github": false,
+  "qualified_source": "b421958c501fd948360eaaa3532a108dc10f2606",
+  "binary": {
+    "platform": "darwin/arm64",
+    "profile": "release",
+    "sha256": "418825f7eac94b97f591d113dfc183c601aff8de0a6b921f514dc40e1b22225c"
+  },
+  "input_tree_sha256": "df2003ae6dc044344fc89814225fde823f5b3cbfcc31dbc4d24c404a5acacc4d",
+  "input_files": 273,
+  "controller_sha256": "ca863ba9d41b688eebf6b6161faabd324a95248b7eca498c3756960290e02a00",
+  "source_ledger": "../authentication-project-source.json",
+  "checks_passed": 54,
+  "profiles": [
+    {
+      "profile": "ldap",
+      "checks": [
+        "local administrator uses ordinary persisted session before runtime setup",
+        "runtime candidate preview leaves six identity/session tables unchanged",
+        "write-only encrypted runtime configuration activates with exact fresh local approval",
+        "provider CLI login installs an ordinary persisted session",
+        "process restart and due renewal preserve principal/family and rotate access",
+        "immutable external principal supports manual grants and managed groups stay read-only",
+        "LDAP password freshness approves the exact current-principal credential operation",
+        "stale desired revision fails without replay or approval downgrade",
+        "runtime disable/re-enable keeps encrypted credentials, immutable identity and local recovery",
+        "local recovery remains available after LDAP runtime lifecycle"
+      ],
+      "checks_passed": 10,
+      "report_sha256": "59ad56301cead569f9bc65af3c11fcfd0d989efc4be15ec887f30a74eb22fd28",
+      "fixture_identity_sha256": "0657339f43a488e6343c5f2338ce6528fcb7df44c7a7db01321dfdd7a49066be"
+    },
+    {
+      "profile": "id_token",
+      "checks": [
+        "local administrator uses ordinary persisted session before runtime setup",
+        "runtime candidate preview leaves six identity/session tables unchanged",
+        "write-only encrypted runtime configuration activates with exact fresh local approval",
+        "provider CLI login installs an ordinary persisted session",
+        "process restart and due renewal preserve principal/family and rotate access",
+        "immutable external principal supports manual grants and managed groups stay read-only",
+        "OIDC exact-operation fresh approval targets the current immutable principal",
+        "external session logout clears the matching persisted family",
+        "browser denial is terminal and does not persist a session",
+        "Ctrl-C cancels the pending remote-browser interaction with exact cleanup",
+        "noninteractive commands require explicit remote completion and never launch a browser",
+        "local terminal browser hook receives only the public URL and no Hubuum environment",
+        "stale desired revision fails without replay or approval downgrade",
+        "runtime disable/re-enable keeps encrypted credentials, immutable identity and local recovery",
+        "local recovery remains available after provider activation and cancellation"
+      ],
+      "checks_passed": 15,
+      "report_sha256": "da897e629c7b81222a908a8e7730cb580a59b04ff776129b894468d14725c6ca",
+      "fixture_identity_sha256": "36a1fbb31cf45762e54e2b3fb5d7ab3583614f2ed81e5422b9a84438dee924d4"
+    },
+    {
+      "profile": "userinfo",
+      "checks": [
+        "local administrator uses ordinary persisted session before runtime setup",
+        "runtime candidate preview leaves six identity/session tables unchanged",
+        "write-only encrypted runtime configuration activates with exact fresh local approval",
+        "provider CLI login installs an ordinary persisted session",
+        "process restart and due renewal preserve principal/family and rotate access",
+        "immutable external principal supports manual grants and managed groups stay read-only",
+        "OIDC exact-operation fresh approval targets the current immutable principal",
+        "external session logout clears the matching persisted family",
+        "browser denial is terminal and does not persist a session",
+        "Ctrl-C cancels the pending remote-browser interaction with exact cleanup",
+        "noninteractive commands require explicit remote completion and never launch a browser",
+        "local terminal browser hook receives only the public URL and no Hubuum environment",
+        "stale desired revision fails without replay or approval downgrade",
+        "runtime disable/re-enable keeps encrypted credentials, immutable identity and local recovery",
+        "local recovery remains available after provider activation and cancellation"
+      ],
+      "checks_passed": 15,
+      "report_sha256": "7b26def154fb70aaad4bbc5cf6ca566c37c14e1b539643718da5b3dceb3d4368",
+      "fixture_identity_sha256": "f5b7c3e82615f45de9e5bd5996eefc857642387c389e9fdcc9262cbad16625df"
+    },
+    {
+      "profile": "oauth",
+      "checks": [
+        "local administrator uses ordinary persisted session before runtime setup",
+        "runtime candidate preview leaves six identity/session tables unchanged",
+        "write-only encrypted runtime configuration activates with exact fresh local approval",
+        "provider CLI login installs an ordinary persisted session",
+        "process restart and due renewal preserve principal/family and rotate access",
+        "immutable external principal supports manual grants and managed groups stay read-only",
+        "OAuth fresh approval remains an explicit unsupported capability",
+        "external session logout clears the matching persisted family",
+        "Ctrl-C cancels the pending remote-browser interaction with exact cleanup",
+        "noninteractive commands require explicit remote completion and never launch a browser",
+        "local terminal browser hook receives only the public URL and no Hubuum environment",
+        "stale desired revision fails without replay or approval downgrade",
+        "runtime disable/re-enable keeps encrypted credentials, immutable identity and local recovery",
+        "local recovery remains available after provider activation and cancellation"
+      ],
+      "checks_passed": 14,
+      "report_sha256": "70044d7324fbcd3da8fb1645aea8832e65172de7e18caa0526a7ae22d7c76796",
+      "fixture_identity_sha256": "0657339f43a488e6343c5f2338ce6528fcb7df44c7a7db01321dfdd7a49066be"
+    }
+  ],
+  "repository_checks": {
+    "workspace_passed": 981,
+    "workspace_ignored": 1,
+    "strict_workspace_clippy": true,
+    "rustfmt": true,
+    "ci_policy_tests": 19,
+    "rust_1_89_session_crate": true,
+    "wrapper_tests": true,
+    "extension_schema": true,
+    "markdown_files": 41,
+    "documentation_build": true,
+    "full_pinned_v0022_release_binary_driver": true
+  },
+  "limits": [
+    "Real native GitHub qualification remains owned by server #581.",
+    "Local browser launch uses a PTY and isolated launcher hook; the actual Keycloak/OAuth browser protocol runs in the accepted server fixture.",
+    "Provider group ownership/scope is exposed; independent restored per-membership source history is not enumerated by the current read API.",
+    "OAuth fresh approval is explicitly unsupported; upstream token invalidation is not independently probed.",
+    "Native keychain platform checks remain part of final CI.",
+    "No main/stable promotion or released SDK compatibility claim."
+  ],
+  "cleanup": "Each live fixture removed its own containers/network/private credential files and TLS keys."
+}

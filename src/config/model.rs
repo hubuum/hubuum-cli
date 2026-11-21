@@ -1,3 +1,4 @@
+use hubuum_client::AuthenticationProviderId;
 use hubuum_theme::{RoleStyleOverride, ThemeRole};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -208,6 +209,12 @@ pub struct ServerConfig {
     pub api_version: String,
     #[serde(default)]
     pub identity_scope: Option<String>,
+    #[serde(default)]
+    pub auth_provider: Option<AuthenticationProviderId>,
+    #[serde(default)]
+    pub no_browser: bool,
+    #[serde(default)]
+    pub ca_file: Option<PathBuf>,
     pub username: String,
     #[serde(default)]
     pub password: Option<String>,
@@ -284,6 +291,9 @@ impl Default for AppConfig {
                 max_response_body_bytes: Defaults::max_response_body_bytes(),
                 api_version: Defaults::API_VERSION.to_string(),
                 identity_scope: None,
+                auth_provider: None,
+                no_browser: false,
+                ca_file: None,
                 username: Defaults::USER_USERNAME.to_string(),
                 password: None,
                 token_file: None,

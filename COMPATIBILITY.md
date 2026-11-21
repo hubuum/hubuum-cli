@@ -8,6 +8,30 @@ The CLI inherits this compatibility target from its client dependency and runs
 its own integration checks against the same pinned server. Command availability
 against other server versions is not guaranteed.
 
+## Authentication project candidate
+
+The `project/auth-support` branch pins the accepted Rust SDK commit
+`080f2478dc48afcf9d5e7b049b5fecdc1149f1fd` from its project integration branch.
+This is a Git dependency for Project #6; the published CLI v0.0.23 compatibility
+row below remains historical release evidence. The declared stable server target
+is still v0.0.22. New provider-interaction and runtime-authentication commands
+require the separately pinned project server from
+[the source ledger](docs/authentication-project-source.json).
+
+The accepted SDK candidate is artifact `14218490489`, archive SHA-256
+`c62def1a7eaec9327f079591dfca9ca4326247fc71dddcefbc7650bdd28708c3`.
+Project promotion requires an accepted CLI candidate, the remaining native
+clients and the complete #581 matrix, then a reviewed milestone integration PR.
+A released SDK dependency is required before stable publication.
+
+**Breaking script behavior:** password prompting requires a terminal. Supply a
+protected configured password or `--token-file` for unattended use. For browser
+login, select an advertised immutable `--auth-provider` and use `--no-browser`
+for explicit remote completion. The legacy local/LDAP scope and PAT interfaces,
+backup formats and existing session cache format remain supported.
+`HUBUUM_CLI_PROFILE_DIR` provides a new optional absolute filesystem profile root;
+it does not migrate or modify the default profile.
+
 ## Compatibility matrix
 
 | CLI version | `hubuum_client` dependency | Client's Hubuum server target | Status |

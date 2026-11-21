@@ -1,5 +1,7 @@
 use cli_command_derive::CommandArgs;
+use hubuum_client::{GroupId, PrincipalId};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::builder::{catalog_command, CommandDocs};
 use super::{
@@ -18,6 +20,17 @@ use crate::services::{AppServices, CreateGroupInput, GroupUpdateInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder.add_command(&["group","member"],catalog_command("add",GroupMemberAdd::default(),CommandDocs {
+        about:Some("Add a principal by immutable ID to a manually managed group"),
+        long_about:Some("Supports external human principals without ambiguous name lookup. Group managed_by and identity_scope identify ownership; provider-managed groups and their memberships are read-only. Independent restored membership-source history is not enumerated by the current read API."),
+        ..Default::default()
+    }));
+    builder.add_command(&["group","member"],catalog_command("remove",GroupMemberRemove::default(),CommandDocs {
+        about:Some("Remove a manual principal membership by group and principal ID"),
+        long_about:Some("Only manually managed groups may be edited. Removing a manual grant does not remove independent provider-owned grants; upstream memberships remain controlled by their provider."),
+        ..Default::default()
+    }));
+
     builder
         .add_command(
             &["group"],
@@ -466,5 +479,71 @@ mod tests {
 
         assert_eq!(remove.groupname, "automation");
         assert_eq!(remove.name, "ansible-facts");
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct GroupMemberAdd {
+    #[option(long = "group-id", help = "ID of a manually managed group")]
+    group_id: Option<i32>,
+    #[option(
+        long = "principal-id",
+        help = "Immutable principal ID from whoami or user/service-account details"
+    )]
+    principal_id: Option<i32>,
+}
+impl CliCommand for GroupMemberAdd {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let group = GroupId::new(
+            query
+                .group_id
+                .ok_or_else(|| AppError::MissingOptions(vec!["group-id".into()]))?,
+        )?;
+        let principal = PrincipalId::new(
+            query
+                .principal_id
+                .ok_or_else(|| AppError::MissingOptions(vec!["principal-id".into()]))?,
+        )?;
+        services
+            .gateway()
+            .add_principal_membership(group, principal)?;
+        super::admin::render_structured_value(
+            json!({"group_id":group,"principal_id":principal,"action":"added","management":"manual"}),
+            desired_format(tokens)?,
+        )
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct GroupMemberRemove {
+    #[option(long = "group-id", help = "ID of a manually managed group")]
+    group_id: Option<i32>,
+    #[option(
+        long = "principal-id",
+        help = "Immutable principal ID from whoami or user/service-account details"
+    )]
+    principal_id: Option<i32>,
+}
+impl CliCommand for GroupMemberRemove {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let group = GroupId::new(
+            query
+                .group_id
+                .ok_or_else(|| AppError::MissingOptions(vec!["group-id".into()]))?,
+        )?;
+        let principal = PrincipalId::new(
+            query
+                .principal_id
+                .ok_or_else(|| AppError::MissingOptions(vec!["principal-id".into()]))?,
+        )?;
+        services
+            .gateway()
+            .remove_principal_membership(group, principal)?;
+        super::admin::render_structured_value(
+            json!({"group_id":group,"principal_id":principal,"action":"removed","management":"manual"}),
+            desired_format(tokens)?,
+        )
     }
 }

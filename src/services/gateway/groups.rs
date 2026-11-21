@@ -202,4 +202,38 @@ pub(crate) const GROUP_SORT_SPECS: &[SortFieldSpec] = &[
     SortFieldSpec::new("created_at", "created_at"),
     SortFieldSpec::new("updated_at", "updated_at"),
 ];
-use hubuum_client::GroupPatch;
+use hubuum_client::{GroupId, GroupPatch, PrincipalId};
+
+impl HubuumGateway {
+    pub(crate) fn add_principal_membership(
+        &self,
+        group: GroupId,
+        principal: PrincipalId,
+    ) -> Result<(), AppError> {
+        let client = self.client();
+        let group = client_call("groups.get", || client.groups().get(group))?;
+        if group.resource().is_provider_managed() {
+            return Err(AppError::InvalidOption(
+                "Provider-managed groups are read-only; edit the upstream directory instead".into(),
+            ));
+        }
+        client_call("groups.add_member", || group.add_member(principal))?;
+        Ok(())
+    }
+
+    pub(crate) fn remove_principal_membership(
+        &self,
+        group: GroupId,
+        principal: PrincipalId,
+    ) -> Result<(), AppError> {
+        let client = self.client();
+        let group = client_call("groups.get", || client.groups().get(group))?;
+        if group.resource().is_provider_managed() {
+            return Err(AppError::InvalidOption(
+                "Provider-managed groups are read-only; edit the upstream directory instead".into(),
+            ));
+        }
+        client_call("groups.remove_member", || group.remove_member(principal))?;
+        Ok(())
+    }
+}
