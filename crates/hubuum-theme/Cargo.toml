@@ -10,4 +10,4 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
-url = "2"
+url = "2.5.9"

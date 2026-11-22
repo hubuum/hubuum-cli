@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Security
+
+- Require `url` 2.5.9 or later in the 2.x series to fix a stack overflow in
+  URL origin resolution.
+  [RustSec advisory RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html)
+
 ### Added
 
 - Project-only typed provider discovery, browser/remote-browser login, SDK-owned
