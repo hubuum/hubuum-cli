@@ -1106,9 +1106,9 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1496,8 +1496,7 @@ dependencies = [
 [[package]]
 name = "hubuum_client"
 version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9ef7655da2b58697e0006826fd09041f9595b060d47eeadc330768699a5e3a2"
+source = "git+https://github.com/hubuum/hubuum-client-rust?rev=080f2478dc48afcf9d5e7b049b5fecdc1149f1fd#080f2478dc48afcf9d5e7b049b5fecdc1149f1fd"
 dependencies = [
  "chrono",
  "fastrand",
@@ -3943,9 +3942,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

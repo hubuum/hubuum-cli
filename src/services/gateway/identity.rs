@@ -1,8 +1,10 @@
 use crate::diagnostics::client_call;
-use crate::domain::{GroupRecord, MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord};
+use crate::domain::{
+    GroupRecord, IssuedTokenRecord, MeRecord, PrincipalPermissionsRecord, PrincipalTokenRecord,
+};
 use crate::errors::AppError;
 
-use super::HubuumGateway;
+use super::{HubuumGateway, NewTokenInput};
 
 impl HubuumGateway {
     pub fn me(&self) -> Result<MeRecord, AppError> {
@@ -34,5 +36,20 @@ impl HubuumGateway {
                 .map(PrincipalPermissionsRecord::from)
                 .collect(),
         )
+    }
+}
+
+impl HubuumGateway {
+    /// Resolve the authenticated principal, never an ambiguous display name.
+    pub(crate) fn current_token_create(
+        &self,
+        input: NewTokenInput,
+    ) -> Result<IssuedTokenRecord, AppError> {
+        let client = self.client();
+        let principal = client_call("client.me", || client.me())?
+            .principal
+            .principal_id;
+        let token = self.create_approved_token(&client, principal, input.into_request()?)?;
+        Ok(token.into())
     }
 }

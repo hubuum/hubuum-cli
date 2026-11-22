@@ -5,12 +5,14 @@ use std::path::{Path, PathBuf};
 
 use hubuum_client::{
     blocking::Client, client::sync::ApprovedCredentialOperation, Authenticated,
-    CredentialOperation, NewTokenRequest, PrincipalId, RenewTokenRequest, Token, TokenId,
+    AuthenticationInteractionRequest, AuthenticationProviderId, CredentialOperation,
+    NewTokenRequest, PrincipalId, RenewTokenRequest, SessionClientId, Token, TokenId,
 };
 use rpassword::prompt_password;
 use serde::de::DeserializeOwned;
 use serde_json::{to_string, to_value, Value};
 
+use crate::authentication::{interaction_error, InteractionDriver};
 use crate::diagnostics::client_call;
 use crate::errors::AppError;
 
@@ -20,6 +22,10 @@ pub(crate) enum CredentialApprovalSource {
     Unavailable,
     Prompt,
     File(PathBuf),
+    Provider {
+        provider: AuthenticationProviderId,
+        no_browser: bool,
+    },
 }
 
 impl CredentialApprovalSource {
@@ -38,6 +44,9 @@ impl CredentialApprovalSource {
                 prompt_password("Your current password to approve this operation: ")?
             }
             Self::File(path) => read_password_file(path)?,
+            Self::Provider { provider, no_browser } => {
+                return approve_with_provider(client, operation, description, provider, *no_browser);
+            }
         };
         if password.is_empty() {
             return Err(AppError::CommandExecutionError(
@@ -52,6 +61,37 @@ impl CredentialApprovalSource {
             AppError::CommandExecutionError(format!("Credential approval failed: {error}"))
         })
     }
+}
+
+fn approve_with_provider<T: DeserializeOwned>(
+    client: &Client<Authenticated>,
+    operation: CredentialOperation<T>,
+    description: &str,
+    provider: &AuthenticationProviderId,
+    no_browser: bool,
+) -> Result<ApprovedCredentialOperation<T>, AppError> {
+    eprintln!("Credential operation: {description}");
+    let driver = InteractionDriver::new()?;
+    let request = AuthenticationInteractionRequest::new(
+        SessionClientId::new("hubuum-cli")?,
+        provider.clone(),
+    )
+    .hosted_browser();
+    let mut flow = client_call("client.begin_credential_approval_interaction", || {
+        client.begin_credential_approval_interaction(request, operation)
+    })
+    .map_err(interaction_error)?;
+    if let Err(error) = driver.browser(&mut flow, no_browser) {
+        let _ = flow.cancel();
+        return Err(error);
+    }
+    if let Err(error) = driver.check_cancelled() {
+        let _ = flow.cancel();
+        return Err(error);
+    }
+    let approved = client_call("approval.complete", || flow.complete())?;
+    driver.check_cancelled()?;
+    Ok(approved)
 }
 
 fn read_password_file(path: &Path) -> Result<String, AppError> {
@@ -285,6 +325,49 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
             assert!(read_password_file(file.path()).is_err());
+        }
+    }
+    #[test]
+    #[serial_test::serial]
+    fn shared_error_vectors_never_trigger_an_approval_password_downgrade() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/authentication/fixtures.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["cases"].as_array().unwrap().len(), 48);
+        for case in fixture["cases"].as_array().unwrap() {
+            let response = &case["response"];
+            let status = response["status"].as_u64().unwrap() as u16;
+            if status < 400 {
+                continue;
+            }
+            let transport = MockTransport::default();
+            transport.push_response(
+                TransportResponse::json(StatusCode::from_u16(status).unwrap(), &response["body"])
+                    .unwrap(),
+            );
+            let client = Client::builder_from_url("https://example.invalid")
+                .unwrap()
+                .with_transport(Arc::new(transport.clone()))
+                .build()
+                .unwrap()
+                .authenticate(Token::new("private-originating-bearer"));
+            let source = CredentialApprovalSource::Provider {
+                provider: AuthenticationProviderId::new("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+                    .unwrap(),
+                no_browser: true,
+            };
+            let result = source.approve(
+                &client,
+                CredentialOperation::create_token(
+                    PrincipalId::new(42).unwrap(),
+                    NewTokenRequest::new().name("fixture"),
+                ),
+                "fixture token creation",
+            );
+            let error = result.expect_err("fixture error must be explicit");
+            assert!(!format!("{error:?}").contains("private-originating-bearer"));
+            assert_eq!(transport.requests().len(), 1, "{}", case["id"]);
         }
     }
 }

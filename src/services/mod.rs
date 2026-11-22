@@ -35,7 +35,7 @@ pub use gateway::{
     UpdateExportTemplateInput, UpdateRemoteTargetInput, UserFilter, UserUpdateInput,
 };
 pub use gateway::{CredentialActivityInput, CredentialOwner, HydrationOptions};
-pub(crate) use gateway::{CredentialApprovalSource, TaskDiscovery};
+pub(crate) use gateway::{CredentialApprovalSource, ProviderCandidate, TaskDiscovery};
 
 #[derive(Debug, Clone)]
 pub struct WaitTaskInput {

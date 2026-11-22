@@ -115,6 +115,7 @@ pub fn build_command_catalog() -> CommandCatalog {
     let mut extensions = ExtensionRegistry::discover(&get_config());
 
     commands::admin::register_commands(&mut builder);
+    commands::authentication::register_commands(&mut builder);
     commands::alias::register_commands(&mut builder);
     commands::backup::register_commands(&mut builder);
     commands::audit::register_commands(&mut builder);

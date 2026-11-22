@@ -8,10 +8,15 @@ use crate::errors::{AppError, ReauthenticationRetry};
 use crate::formatting::OutputFormatter;
 use crate::models::OutputFormat;
 use crate::output::append_json_line;
-use crate::services::AppServices;
+use crate::services::{AppServices, NewTokenInput};
 use crate::tokenizer::CommandTokenizer;
 
 pub(crate) fn register_commands(builder: &mut CommandCatalogBuilder) {
+    builder.add_command(&["me","token"],catalog_command("create",CurrentTokenCreate::default(),CommandDocs {
+        about:Some("Fresh-approve a token for the authenticated principal, without a display-name lookup"),
+        long_about:Some("Uses the exact operation-bound approval for the current human. OIDC can use the selected provider's browser interaction; unsupported OAuth freshness is an explicit error. Issued token output is one-time credential data, never a diagnostic. Use protected output storage."),
+        ..Default::default()
+    }));
     // Register commands under the "me" prefix
     builder
         .add_command(
@@ -146,5 +151,29 @@ impl CliCommand for MePermissions {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Clone, Default, CommandArgs)]
+struct CurrentTokenCreate {
+    #[option(long = "name", help = "Name for the current principal's token")]
+    name: Option<String>,
+    #[option(long = "description", help = "Token description")]
+    description: Option<String>,
+    #[option(long = "expires-at", help = "Token expiration in RFC3339")]
+    expires_at: Option<String>,
+    #[option(long = "scope", help = "Permission scope (repeatable)", nargs = 1)]
+    scopes: Vec<String>,
+}
+impl CliCommand for CurrentTokenCreate {
+    fn execute(&self, services: &AppServices, tokens: &CommandTokenizer) -> Result<(), AppError> {
+        let query = Self::parse_tokens(tokens)?;
+        let issued = services.gateway().current_token_create(NewTokenInput {
+            name: query.name,
+            description: query.description,
+            expires_at: query.expires_at,
+            scopes: query.scopes,
+        })?;
+        super::render_issued_token(tokens, "the authenticated principal", &issued)
     }
 }

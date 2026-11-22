@@ -4,6 +4,9 @@
 # CI policy tests intentionally use unittest so the classifier needs no dependencies.
 # ruff: noqa: PT009, PT027
 
+import hashlib
+import json
+import tomllib
 import importlib.util
 import re
 import subprocess  # nosec B404
@@ -21,6 +24,17 @@ if SPEC is None or SPEC.loader is None:
 sys.dont_write_bytecode = True
 policy = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(policy)
+
+
+class AuthenticationPinsTests(unittest.TestCase):
+    def test_native_client_consumes_the_accepted_sdk_and_shared_vectors(self):
+        source = json.loads((ROOT / "docs/authentication-project-source.json").read_text())
+        manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+        sdk = manifest["workspace"]["dependencies"]["hubuum_client"]
+        self.assertEqual(sdk["rev"], source["accepted_sdk_commit"])
+        fixture = ROOT / "tests/fixtures/authentication/fixtures.json"
+        self.assertEqual(hashlib.sha256(fixture.read_bytes()).hexdigest(), source["source_fixture_sha256"])
+        self.assertEqual(len(json.loads(fixture.read_text())["cases"]), source["source_fixture_cases"])
 
 
 class ClassificationTests(unittest.TestCase):
@@ -44,6 +58,8 @@ class ClassificationTests(unittest.TestCase):
             "src/notes.md",
             "tests/fixture.md",
             "docs/openapi.json",
+            "docs/authentication-project-source.json",
+            "tests/fixtures/authentication/fixtures.json",
             "docs/example.py",
             "Cargo.lock",
             "package.json",

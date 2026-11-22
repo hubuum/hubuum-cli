@@ -184,3 +184,150 @@ To forget a keychain session locally, close running clients and delete its Hubuu
 CLI entry using the platform's keychain manager. Local deletion does not revoke
 the server session. Selecting `file` again explicitly returns to file storage;
 keychain credentials are not exported back into the plaintext cache.
+
+## Authentication project candidate
+
+The `project/auth-support` branch additionally consumes the accepted immutable
+Rust SDK auth candidate. Server/SDK/fixture pins are recorded in
+[authentication-project-source.json](authentication-project-source.json). The
+released v0.0.22 compatibility target stays pinned. These additions require the
+accepted auth project server and are not a stable GitHub qualification claim.
+Stable promotion requires a released SDK and the separate reviewed milestone.
+
+Discover without logging in, then choose an immutable ID (names are display
+metadata):
+
+```bash
+hubuum-cli auth methods --output json
+hubuum-cli --auth-provider PROVIDER_UUID --no-browser whoami --output json
+```
+
+The default browser hook launches the SDK-validated public verification URL only
+from an interactive terminal. `--no-browser` explicitly displays URL/code on
+stderr for SSH or another browser. Complete the server-owned approval there.
+No OIDC/OAuth exchange, identity mapping, upstream tokens or client secrets enter
+the CLI. Unknown versions and unsupported capabilities never trigger automatic
+password fallback. Existing local/LDAP `--identity-scope`, PAT injection, and
+file/keychain/memory storage remain supported. Explicit `--auth-provider local`
+or an LDAP ID uses the generic credentials interaction.
+
+Polling is SDK-owned, caller driven, honors backoff/Retry-After and stops on a
+terminal state or expiry. Ctrl-C cancels the pending interaction and attempts
+exact issued-family cleanup, including ambiguous completion/persistence failure.
+Completion is attempted once. The cancellation guard remains active until
+persistence or cleanup finishes; a second Ctrl-C force-interrupts. Unknown
+mutation/rotation outcomes are never automatically replayed. Keep the existing
+serialized session store for process restarts and refresh coordination.
+
+Browser identity comes from Hubuum. The configured username labels a saved
+credential slot; it does not select or assert an upstream identity. The REPL
+shows `session[PROVIDER_ID]` for this mode; `whoami` shows the actual principal.
+Saved slots bind the origin, immutable provider ID and label. Local and external
+providers cannot accidentally reuse one another's slot.
+
+### Predictable noninteractive commands
+
+**Breaking behavior:** password prompts are rejected when stdin is not a
+terminal. Scripts that previously relied on a controlling terminal while piping
+stdin must supply a saved session, protected credential configuration or a token
+file. Browser completion requires explicit `--no-browser` in that situation.
+Scripts do not silently launch a browser or prompt for a fallback password.
+
+`me token create` fresh-approves an operation for the authenticated principal
+without an ambiguous username lookup. Use the selected provider's fresh browser
+approval, or explicitly provide the existing owner-only approval password file.
+OAuth returns `capability_unsupported`; there is no password downgrade. OIDC
+freshness depends on provider policy. Approval binds the original credential and
+exact operation through the protected request. Changing credentials cannot rebind
+it. One-time issued token output is deliberate credential data, not a diagnostic;
+store it in a protected destination. Login/session/proof secrets never appear in
+stdout, browser URLs, child arguments or logs.
+
+### Runtime setup for LDAP, OIDC and OAuth
+
+```bash
+hubuum-cli admin settings list --output json
+hubuum-cli admin auth show --output json
+hubuum-cli --no-browser admin auth configure --file /run/secrets/providers.json --output json
+hubuum-cli --no-browser --approval-password-file /run/secrets/local-approval admin auth configure --file /run/secrets/providers.json --activate --output json
+```
+
+A locally authenticated recovery administrator supplies the complete desired set
+and the observed `expected_revision`. Omitting an external provider removes it
+from the proposed selection; preserve immutable IDs when editing. Local
+authentication cannot be disabled through this workflow. Keep an enabled local
+recovery account under the existing IAM controls.
+
+An initial OIDC input looks like this; fill in the deployment's provider details:
+
+```json
+{
+  "group": "authentication",
+  "expected_revision": 1,
+  "providers": [
+    {
+      "name": "employees",
+      "kind": "oidc",
+      "source": "runtime",
+      "enabled": true,
+      "configuration": {
+        "issuer": "https://issuer.example/realms/company",
+        "client_id": "hubuum",
+        "client_authentication": "client_secret_basic",
+        "scopes": ["openid", "profile"],
+        "signing_algorithms": ["RS256"],
+        "retain_refresh_tokens": true,
+        "membership": {
+          "mode": "local_only",
+          "refresh_interval_seconds": 300,
+          "max_stale_seconds": 900
+        },
+        "admission": {"mode": "provision_without_grants"},
+        "credential": {"action": "replace", "value": "REPLACE_WITH_PRIVATE_SECRET"}
+      }
+    }
+  ]
+}
+```
+
+Files must be owner-only on Unix (`chmod 600`) and are limited to 1 MiB. `--file -`
+reads explicit stdin without placing secrets in process arguments or REPL history.
+Use server discovery for complete LDAP/OAuth definitions, admission, provider
+groups, claim source/mapping and freshness bounds. Browser credential actions are
+`keep`, `clear`, `reference` (an alias) and `replace` (a write-only value). LDAP
+omission of `configuration.bind_password` keeps its encrypted value; explicit null
+clears it. An enabled LDAP input also includes client-only `verification` with
+`username` and `password`, used only for its actual test sign-in. Deployment LDAP
+selection/adoption follows the SDK/server ownership rules.
+
+The CLI reports new immutable provider IDs and exact public callback URLs before
+test sign-in so the upstream client can be registered. A preview issues no
+session, provisions no identity and changes no membership or live login settings.
+The default command tests only. `--activate` additionally requires fresh approval
+for the exact verified candidate; receipts remain private and never enter output.
+A stale revision, receipt, changed secret or deployment lock fails without blind
+retry. Refetch effective state and prepare a new candidate. A committed activation
+is not an acknowledgement from every replica; inspect `admin auth show` for
+application/staleness status and credential-presence flags.
+
+Encryption root keys, verified TLS/egress policy, public browser origin, registered
+return targets and deployment locks remain deployment-owned. Runtime credentials
+need no per-provider secret environment variable. `--ca-file` adds a trusted PEM
+root while preserving certificate validation; do not disable TLS for private test
+providers. Effective output excludes stored credentials and aliases.
+
+`group member add/remove --group-id ID --principal-id ID` manages manual grants
+for external principals without name collisions. Group `managed_by` and
+`identity_scope`, plus the member principal's scope, show ownership. Provider-owned
+groups/memberships stay read-only. Independent restored membership-source history
+is preserved by the server but is not enumerated by the current read API; group
+ownership must not be presented as a complete per-membership provenance history.
+
+### Separate filesystem profiles
+
+Set `HUBUUM_CLI_PROFILE_DIR` to an absolute directory for alternate `system.toml`,
+`config.toml`, and `data/` locations. This keeps test configuration, session files,
+history and logs away from the normal user profile without changing HOME.
+Environment overrides still apply. File and memory storage suit disposable
+fixtures; keychain remains the existing identity-scoped backend. The default
+locations are unchanged when the variable is absent.

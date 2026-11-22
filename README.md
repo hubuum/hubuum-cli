@@ -105,3 +105,10 @@ See [schema evolution](docs/schema-evolution.md) and [task discovery](docs/tasks
 ## Documentation-only CI
 
 See [documentation maintenance](docs/documentation.md#documentation-only-ci).
+
+The `project/auth-support` branch adds SDK-owned browser/remote-browser login and
+runtime LDAP/OIDC/OAuth provider verification/activation. See
+[authentication](docs/authentication.md#authentication-project-candidate) for the
+accepted candidate pins, protected setup inputs, fresh approval, noninteractive
+behavior change, local recovery and compatibility limits. Stable/main promotion
+remains a separate reviewed milestone.

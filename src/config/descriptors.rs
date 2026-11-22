@@ -131,6 +131,27 @@ pub(super) const CONFIG_KEYS: &[ConfigKeyDescriptor] = &[
         sensitive: false,
     },
     ConfigKeyDescriptor {
+        key: "server.auth_provider",
+        cli_arg: Some("auth_provider"),
+        env_var: "HUBUUM_CLI__SERVER__AUTH_PROVIDER",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "server.no_browser",
+        cli_arg: Some("no_browser"),
+        env_var: "HUBUUM_CLI__SERVER__NO_BROWSER",
+        value_kind: ConfigValueKind::Bool,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
+        key: "server.ca_file",
+        cli_arg: Some("ca_file"),
+        env_var: "HUBUUM_CLI__SERVER__CA_FILE",
+        value_kind: ConfigValueKind::String,
+        sensitive: false,
+    },
+    ConfigKeyDescriptor {
         key: "server.identity_scope",
         cli_arg: Some("identity_scope"),
         env_var: "HUBUUM_CLI__SERVER__IDENTITY_SCOPE",

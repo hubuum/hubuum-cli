@@ -1,7 +1,9 @@
+use hubuum_client::client::sync::IssuedSessionCleanup;
+use hubuum_client::AuthenticationInteractionId;
 use std::error::Error as StdError;
 use std::fs::read_to_string;
 use std::fs::File;
-use std::io;
+use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -10,8 +12,8 @@ use std::time::Duration;
 use crate::diagnostics::{self, client_call, spawn_blocking};
 use clap::ArgMatches;
 use hubuum_client::{
-    blocking::Client as BlockingClient, ApiError, Authenticated, BaseUrl, Credentials,
-    SessionClientId, Token, Unauthenticated,
+    blocking::Client as BlockingClient, ApiError, Authenticated, AuthenticationInteractionRequest,
+    AuthenticationNext, BaseUrl, Credentials, SessionClientId, Token, Unauthenticated,
 };
 use log::debug;
 use rpassword::prompt_password;
@@ -19,6 +21,7 @@ use tracing_subscriber::fmt as tracing_fmt;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
+use crate::authentication::InteractionDriver;
 use crate::catalog::CatalogStore;
 use crate::cli::{get_cli_config_path, update_config_from_cli};
 use crate::config::{
@@ -158,25 +161,71 @@ fn server_base_url(config: &AppConfig, port: u16) -> Result<BaseUrl, AppError> {
 pub(crate) fn build_client(
     config: &AppConfig,
 ) -> Result<BlockingClient<Unauthenticated>, AppError> {
+    build_client_with_timeout(config, None)
+}
+
+pub(crate) fn discovery_client(
+    config: &AppConfig,
+) -> Result<BlockingClient<Unauthenticated>, AppError> {
+    build_client_with_timeout(config, Some(SERVER_PROBE_TIMEOUT))
+}
+
+fn build_client_with_timeout(
+    config: &AppConfig,
+    timeout: Option<Duration>,
+) -> Result<BlockingClient<Unauthenticated>, AppError> {
     let baseurl = server_base_url(config, config.server.port)?;
-    BlockingClient::builder(baseurl)
+    let mut builder = BlockingClient::builder(baseurl)
+        .with_http_client(server_http_client(&config.server, timeout)?)
         .validate_certs(config.server.ssl_validation)
         .max_response_body_bytes(config.server.max_response_body_bytes.get())
-        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
+        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION));
+    if let Some(timeout) = timeout {
+        builder = builder.timeout(timeout);
+    }
+    builder.build().map_err(AppError::from)
+}
+
+fn server_http_client(
+    config: &ServerConfig,
+    timeout: Option<Duration>,
+) -> Result<reqwest::blocking::Client, AppError> {
+    let mut builder = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(!config.ssl_validation)
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION));
+    if let Some(timeout) = timeout {
+        builder = builder.timeout(timeout);
+    }
+    if let Some(path) = &config.ca_file {
+        let mut pem = Vec::new();
+        File::open(path)?.take(1_048_577).read_to_end(&mut pem)?;
+        if pem.len() > 1_048_576 {
+            return Err(AppError::InvalidOption("Root CA file exceeds 1 MiB".into()));
+        }
+        let certificate = reqwest::Certificate::from_pem(&pem).map_err(|_| {
+            AppError::InvalidOption("Root CA file must contain a PEM certificate".into())
+        })?;
+        builder = builder.add_root_certificate(certificate);
+    }
+    builder
         .build()
-        .map_err(AppError::from)
+        .map_err(|error| ApiError::from(error).into())
+}
+
+fn prompt_login_password(message: String) -> io::Result<String> {
+    if !io::stdin().is_terminal() {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+            "interactive_login_required: supply a saved session, protected credential configuration or token file"));
+    }
+    prompt_password(message)
 }
 
 fn probe_server(config: &AppConfig) -> Result<(), String> {
     let baseurl = server_base_url(config, config.server.port).map_err(|error| error.to_string())?;
     let url = format!("{}healthz", baseurl.as_str());
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(!config.server.ssl_validation)
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(SERVER_PROBE_TIMEOUT)
-        .user_agent(format!("hubuum-cli/{}", crate::build_info::VERSION))
-        .build()
-        .map_err(|error| error_chain(&error))?;
+    let client = server_http_client(&config.server, Some(SERVER_PROBE_TIMEOUT))
+        .map_err(|error| error.to_string())?;
     let response = client
         .get(url)
         .send()
@@ -275,7 +324,7 @@ fn authenticate(
     config: &ServerConfig,
     cached_token: CachedToken,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
-    authenticate_with_prompt(client, config, cached_token, prompt_password)
+    authenticate_with_prompt(client, config, cached_token, prompt_login_password)
 }
 
 fn authenticate_with_prompt(
@@ -284,6 +333,11 @@ fn authenticate_with_prompt(
     cached_token: CachedToken,
     prompt: impl FnOnce(String) -> io::Result<String>,
 ) -> Result<BlockingClient<Authenticated>, AppError> {
+    if config.auth_provider.is_some() && config.identity_scope.is_some() {
+        return Err(AppError::InvalidOption(
+            "auth_provider and legacy identity_scope cannot be combined".into(),
+        ));
+    }
     let hostname = config.hostname.as_str();
     let identity_scope = config.identity_scope.as_deref();
     let username = config.username.as_str();
@@ -301,11 +355,12 @@ fn authenticate_with_prompt(
                 return Ok(client);
             }
         }
-        let token = if config.session_storage == SessionStorage::File {
-            get_token_from_tokenfile(hostname, identity_scope, username)?
-        } else {
-            None
-        };
+        let token =
+            if config.session_storage == SessionStorage::File && config.auth_provider.is_none() {
+                get_token_from_tokenfile(hostname, identity_scope, username)?
+            } else {
+                None
+            };
         if let Some(token) = token {
             debug!("Found existing token, testing validity...");
             if let Ok(client) = client_call("client.login_with_token", || {
@@ -314,6 +369,10 @@ fn authenticate_with_prompt(
                 return Ok(client);
             }
         }
+    }
+
+    if config.auth_provider.is_some() {
+        return authenticate_interaction(client, config, client_id, cache, cached_token, prompt);
     }
 
     let password = match config.password.clone() {
@@ -352,6 +411,96 @@ fn authenticate_with_prompt(
     .map_err(AppError::from)
 }
 
+fn authenticate_interaction(
+    client: BlockingClient<Unauthenticated>,
+    config: &ServerConfig,
+    client_id: SessionClientId,
+    cache: Option<SessionCache>,
+    cached_token: CachedToken,
+    prompt: impl FnOnce(String) -> io::Result<String>,
+) -> Result<BlockingClient<Authenticated>, AppError> {
+    let _login = cache.as_ref().map(SessionCache::lock_login).transpose()?;
+    if matches!(cached_token, CachedToken::Allow) {
+        if let Some(cache) = &cache {
+            if let Some(saved) = resume_session(&client, &client_id, cache)? {
+                return Ok(saved);
+            }
+        }
+    }
+    let provider = config
+        .auth_provider
+        .clone()
+        .ok_or_else(|| AppError::InvalidOption("An immutable provider ID is required".into()))?;
+    let methods = client_call("client.authentication_methods", || {
+        client.authentication_methods()
+    })?;
+    if !methods
+        .methods
+        .iter()
+        .any(|method| method.provider_id == provider)
+    {
+        return Err(AppError::InvalidOption(
+            "The selected provider is not advertised by the server; run auth methods".into(),
+        ));
+    }
+    let driver = InteractionDriver::new()?;
+    let mut flow = client_call("client.begin_login_interaction", || {
+        client.begin_login_interaction(AuthenticationInteractionRequest::new(client_id, provider))
+    })?;
+    let cleanup = flow.issued_session_cleanup();
+    let interaction_id = flow.id().clone();
+    let continued = match flow.next() {
+        AuthenticationNext::Browser { .. } => driver.browser(&mut flow, config.no_browser),
+        AuthenticationNext::Credentials => {
+            let password = match config.password.clone() {
+                Some(value) => Ok(value),
+                None => prompt(format!(
+                    "Password for {} @ {}: ",
+                    config.username, config.hostname
+                )),
+            };
+            password.map_err(AppError::from).and_then(|password| {
+                client_call("interaction.submit_credentials", || {
+                    flow.submit_credentials(&config.username, password)
+                })?;
+                driver.check_cancelled()
+            })
+        }
+        _ => Err(ApiError::InvalidAuthenticationInteraction.into()),
+    };
+    if let Err(error) = continued {
+        cleanup_login(&cleanup, &interaction_id);
+        return Err(error);
+    }
+    driver.check_cancelled().inspect_err(|_| {
+        cleanup_login(&cleanup, &interaction_id);
+    })?;
+    let result = client_call("interaction.complete", || match cache {
+        Some(cache) => flow.complete_with_store(cache.store()),
+        None => flow.complete(),
+    });
+    match result {
+        Ok(client) => {
+            if let Err(error) = driver.check_cancelled() {
+                let _ = client.logout();
+                cleanup_login(&cleanup, &interaction_id);
+                return Err(error);
+            }
+            Ok(client)
+        }
+        Err(error) => {
+            cleanup_login(&cleanup, &interaction_id);
+            Err(error.into())
+        }
+    }
+}
+
+fn cleanup_login(cleanup: &IssuedSessionCleanup, id: &AuthenticationInteractionId) {
+    if cleanup.revoke().is_err() {
+        eprintln!("Authentication cleanup could not be confirmed for interaction {}. Use local recovery administration to inspect/revoke the affected account's sessions before signing in again; do not replay completion.", id.as_str());
+    }
+}
+
 fn session_cache(
     config: &ServerConfig,
     base_url: &BaseUrl,
@@ -359,8 +508,12 @@ fn session_cache(
     if config.session_storage == SessionStorage::None {
         return Ok(None);
     }
-    let identity =
-        SessionIdentity::new(base_url, config.identity_scope.as_deref(), &config.username)?;
+    let scope = config
+        .auth_provider
+        .as_ref()
+        .map(|id| id.as_str())
+        .or(config.identity_scope.as_deref());
+    let identity = SessionIdentity::new(base_url, scope, &config.username)?;
     Ok(SessionCache::open(
         SessionOptions::new(data_root_dir()?, identity).storage(config.session_storage),
     )?)
@@ -446,12 +599,18 @@ impl AppRuntime {
 
     pub fn prompt(&self, session: &SharedReplState) -> String {
         let config = get_config();
-        let identity = config
-            .server
-            .identity_scope
-            .as_deref()
-            .map(|scope| format!("{}[{scope}]", config.server.username))
-            .unwrap_or_else(|| config.server.username.clone());
+        let identity = if let Some(provider) = &config.server.auth_provider {
+            // Browser identity comes from Hubuum, not the configured cache label.
+            // `whoami` reports the actual principal without an extra prompt RPC.
+            format!("session[{}]", provider.as_str())
+        } else {
+            config
+                .server
+                .identity_scope
+                .as_deref()
+                .map(|scope| format!("{}[{scope}]", config.server.username))
+                .unwrap_or_else(|| config.server.username.clone())
+        };
         let base = format!(
             "{}@{}:{}",
             identity, config.server.hostname, config.server.port
@@ -936,5 +1095,58 @@ mod authentication_cache_tests {
             "Bearer explicit-service-token"
         );
         assert!(!directory.path().join("hubuum_cli").exists());
+    }
+}
+
+#[cfg(test)]
+mod interaction_login_tests {
+    use super::{authenticate_with_prompt, CachedToken};
+    use crate::config::AppConfig;
+    use crate::models::SessionStorage;
+    use chrono::{Duration, Utc};
+    use hubuum_client::{blocking::Client, MockTransport, TransportResponse};
+    use reqwest::StatusCode;
+    use serde_json::json;
+    use serial_test::serial;
+    use std::sync::Arc;
+
+    #[test]
+    #[serial]
+    fn typed_credential_interaction_installs_an_ordinary_session() {
+        let transport = MockTransport::default();
+        let now = Utc::now();
+        for body in [
+            json!({"interaction_version":1,"methods":[{"provider_id":"local","name":"local","kind":"local","interaction":"credentials","fresh_authentication":true}]}),
+            json!({"interaction_version":1,"id":"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa","redemption_secret":format!("hai1.{}","a".repeat(64)),"expires_at":now+Duration::minutes(5),"interval_seconds":1,"next":{"kind":"credentials"}}),
+            json!({"id":"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa","state":"ready","expires_at":now+Duration::minutes(5)}),
+            json!({"session_id":"bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb","token_type":"Bearer","access_token":"fixture-access","refresh_token":"fixture-refresh","access_expires_at":now+Duration::minutes(10),"refresh_expires_at":now+Duration::days(1),"absolute_expires_at":now+Duration::days(7)}),
+        ] {
+            transport.push_response(TransportResponse::json(StatusCode::OK, &body).unwrap());
+        }
+        let client = Client::builder_from_url("https://example.invalid")
+            .unwrap()
+            .with_transport(Arc::new(transport.clone()))
+            .build()
+            .unwrap();
+        let mut config = AppConfig::default().server;
+        config.auth_provider = Some(hubuum_client::AuthenticationProviderId::local());
+        config.password = Some("fixture-password".into());
+        config.session_storage = SessionStorage::None;
+        let client = authenticate_with_prompt(client, &config, CachedToken::Skip, |_| {
+            panic!("must not prompt")
+        })
+        .unwrap();
+        assert_eq!(client.token().unwrap().as_str(), "fixture-access");
+        assert!(client.session_info().is_some());
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 4);
+        assert!(requests[2].headers["authorization"]
+            .to_str()
+            .unwrap()
+            .starts_with("Hubuum-Interaction hai1."));
+        assert!(!requests[3].headers["authorization"]
+            .to_str()
+            .unwrap()
+            .starts_with("Bearer "));
     }
 }

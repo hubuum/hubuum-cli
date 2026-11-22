@@ -1,0 +1,42 @@
+{
+  "project_only": true,
+  "declared_release_target_unchanged": "0.0.22",
+  "accepted_server_source": "ad0c2c40bed5b0328f56f1327e10ffe7f9aac09a",
+  "source_openapi_url": "https://raw.githubusercontent.com/hubuum/hubuum/ad0c2c40bed5b0328f56f1327e10ffe7f9aac09a/docs/openapi.json",
+  "source_openapi_sha256": "11f894bd8a45abc2f85e80a8ccc9c88062a62b2e1c4f6871d1658fada200b720",
+  "source_fixture_url": "https://raw.githubusercontent.com/hubuum/hubuum/ad0c2c40bed5b0328f56f1327e10ffe7f9aac09a/docs/authentication/fixtures.json",
+  "source_fixture_sha256": "027eff028cb1c7252132f1f93225957f548ccb0dd839e2b7e5c291efb872c028",
+  "source_fixture_cases": 48,
+  "candidate_artifact_id": 14208469576,
+  "candidate_archive_sha256": "a0b2711b0984bc53fdd1346d4c7c35a8017c6587e90d571f94c71923ef4e7fcc",
+  "live_sdk_qualification": "SDK evidence is owned by Rust #147; native CLI qualification pending under #159/#160 and server #581.",
+  "server_pull_request": "https://github.com/hubuum/hubuum/pull/596",
+  "server_merge_state": "squash-merged into project/auth-support",
+  "candidate_tested_commit": "a15f90dca1d0dbddc27bfd5f5dbb1594b0937bc8",
+  "candidate_image_manifest": "sha256:c707c890b8821f247b6decccea136a8097cc6da17ad1d7ff4e3a4923e3b3b083",
+  "candidate_image_config": "sha256:9169855315562e1769fb2b300233a3ddb44689bdd3aebb3a41284790d52d6215",
+  "source_canonical_spec_sha256": "839c32e8742fe28ba02cb367dcb8fdc8eb35cf971f13f964941f85b488d715e1",
+  "source_live_fixture_sha256": {
+    "tests/python/integration/keycloak.py": "5ad9252790cac0b2a2cc53e4e1944be4a8dc1fb7838d11f0710d71cb75a85cde",
+    "tests/python/integration/oauth.py": "fea7af036d5082f0de2372be9e90e6227449b0dcec2205b267eea84372373b02"
+  },
+  "qualified_server_images": [
+    {
+      "docker_image_id": "sha256:bf6ac41d8e8b927f5c5402b08709699f7f0c32af9d1266896ef52678eee76f37",
+      "manifest": "sha256:f7c920c410f0c5ef7b1eea2bf2e48c8d106dab9318567c103b48b3b78cad67ab",
+      "config": "sha256:d9592b8d01c7af44290088eb4f1922c0c00acf46662ba301ffe9e16d56ec4e3f",
+      "platform": "linux/arm64",
+      "source": "ad0c2c40bed5b0328f56f1327e10ffe7f9aac09a"
+    },
+    {
+      "manifest": "sha256:c707c890b8821f247b6decccea136a8097cc6da17ad1d7ff4e3a4923e3b3b083",
+      "config": "sha256:9169855315562e1769fb2b300233a3ddb44689bdd3aebb3a41284790d52d6215",
+      "platform": "linux/amd64",
+      "source": "a15f90dca1d0dbddc27bfd5f5dbb1594b0937bc8"
+    }
+  ],
+  "accepted_sdk_commit": "080f2478dc48afcf9d5e7b049b5fecdc1149f1fd",
+  "sdk_candidate_artifact_id": 14218490489,
+  "sdk_candidate_archive_sha256": "c62def1a7eaec9327f079591dfca9ca4326247fc71dddcefbc7650bdd28708c3",
+  "server_integration_commit": "9e665c05e223a2c47b2ae3964932b13ca1ea2a9c"
+}
